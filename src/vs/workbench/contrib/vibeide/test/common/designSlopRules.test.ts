@@ -445,8 +445,9 @@ suite('designSlopRules', () => {
 		// printed function count next to an id split once, and arithmetic nobody trusts followed.
 		assert.deepStrictEqual(
 			[RULE_COUNT > 0, ALL_RULE_IDS.length, ALL_RULE_IDS.length >= RULE_COUNT],
-			// 65 + 13 правил находимости (категория `seo`, добавлена 14.08.2026).
-			[true, 81, true],
+			// 65 + 13 правил находимости (категория `seo`, добавлена 14.08.2026)
+			// + 7 из разбора plugin87/ux-ui-agent-skills (17.09.2026).
+			[true, 88, true],
 		);
 	});
 
@@ -720,5 +721,101 @@ suite('designSlopRules — разнобой шкалы радиусов', () => 
 	test('на странице из пары элементов правило молчит', () => {
 		// Выводить «шкалы нет» по трём коробкам — гадание, а не измерение.
 		assert.strictEqual(sprawl(boxes([4, 8, 16])).length, 0);
+	});
+});
+
+suite('designSlopRules — проверки из разбора ux-ui-agent-skills', () => {
+	ensureNoDisposablesAreLeakedInTestSuite();
+
+	const findingsOf = (rule: string, snapshot: DocumentSnapshot) => reviewDesign(snapshot).filter(f => f.rule === rule);
+
+	test('текст на картинке: контраст не мерится против белого, а называется неизмеримым', () => {
+		// Тёмный текст на тёмном фото: против подставленного белого он «проходит» — это и была ошибка.
+		const page = doc([el({ selector: '.hero h1', text: 'Заголовок', color: [30, 30, 30], backgroundColor: [255, 255, 255], backgroundUnmeasurable: true })]);
+		assert.deepStrictEqual(
+			[findingsOf('low-contrast', page).length, findingsOf('contrast-unmeasurable', page).map(f => f.selector)],
+			[0, ['.hero h1']],
+		);
+	});
+
+	test('текстура на всей странице — одна находка, а не по строке на каждый текст', () => {
+		const texts = [1, 2, 3, 4, 5, 6, 7].map(n => el({ selector: `p:nth-of-type(${n})`, text: 'Абзац', backgroundUnmeasurable: true }));
+		assert.deepStrictEqual(findingsOf('contrast-unmeasurable', doc(texts)).map(f => f.message), ['Контраст не измерить у 7 текстов: под ними картинка или градиент']);
+	});
+
+	const button = (over: Partial<ElementSnapshot>) => el({ tag: 'button', interactive: true, widthPx: 120, heightPx: 40, ownBackgroundAlpha: 1, color: [255, 255, 255], ...over });
+
+	test('«Удалить» в синем — находка; в красном, в сером и «Сохранить» в синем — нет', () => {
+		const page = doc([
+			button({ selector: '.del-blue', text: 'Удалить аккаунт', accessibleName: 'Удалить аккаунт', backgroundColor: [37, 99, 235] }),
+			button({ selector: '.cancel-sub', text: 'Cancel subscription', accessibleName: 'Cancel subscription', backgroundColor: [79, 70, 229] }),
+			button({ selector: '.del-red', text: 'Удалить', accessibleName: 'Удалить', backgroundColor: [220, 38, 38] }),
+			button({ selector: '.del-grey', text: 'Удалить', accessibleName: 'Удалить', backgroundColor: [230, 230, 230], color: [40, 40, 40] }),
+			button({ selector: '.save', text: 'Сохранить', accessibleName: 'Сохранить', backgroundColor: [37, 99, 235] }),
+			// Голое «Отмена» — кнопка закрытия диалога, а не разрушающее действие.
+			button({ selector: '.dismiss', text: 'Отменить', accessibleName: 'Отменить', backgroundColor: [37, 99, 235] }),
+		]);
+		assert.deepStrictEqual(findingsOf('destructive-wrong-intent', page).map(f => f.selector).sort(), ['.cancel-sub', '.del-blue']);
+	});
+
+	const target = (selector: string, leftPx: number, over: Partial<ElementSnapshot> = {}) =>
+		el({ selector, tag: 'button', interactive: true, widthPx: 16, heightPx: 16, leftPx, topPx: 100, ...over });
+
+	test('цели 16×16 вплотную — нарушение WCAG; одиночная мелкая — исключение по интервалу', () => {
+		const crowded = doc([target('.a', 0), target('.b', 18)]);
+		const alone = doc([target('.solo', 0), target('.far', 200)]);
+		assert.deepStrictEqual(
+			[findingsOf('target-below-wcag', crowded).map(f => f.selector), findingsOf('target-below-wcag', alone).length],
+			[['.a', '.b'], 0],
+		);
+	});
+
+	test('ссылка внутри предложения — исключение WCAG; нарушение пола не дублируется советом про 44px', () => {
+		const inline = doc([
+			el({ selector: 'p', text: 'Длинный абзац, внутри которого стоит ссылка на условия использования сервиса.' }),
+			el({ selector: 'p > a', tag: 'a', parentId: 0, interactive: true, widthPx: 60, heightPx: 18, leftPx: 10, topPx: 0 }),
+			el({ selector: 'p > a + a', tag: 'a', parentId: 0, interactive: true, widthPx: 60, heightPx: 18, leftPx: 30, topPx: 0 }),
+		]);
+		const crowded = doc([target('.a', 0), target('.b', 18)]);
+		assert.deepStrictEqual(
+			[findingsOf('target-below-wcag', inline).length, findingsOf('cramped-target', crowded).length],
+			[0, 0],
+		);
+	});
+
+	test('анимация без prefers-reduced-motion — одна находка на страницу; с правилом или без чтения стилей — молчим', () => {
+		const animated = [el({ selector: '.spin', animationName: 'spin', animationDurationMs: 800 }), el({ selector: '.fade', animationName: 'fade', animationDurationMs: 300 })];
+		assert.deepStrictEqual([
+			findingsOf('motion-without-reduced-motion', doc(animated, { motion: { reducedMotionQuery: false, rulesUnreadable: false } })).length,
+			findingsOf('motion-without-reduced-motion', doc(animated, { motion: { reducedMotionQuery: true, rulesUnreadable: false } })).length,
+			findingsOf('motion-without-reduced-motion', doc(animated, { motion: { reducedMotionQuery: false, rulesUnreadable: true } })).length,
+			findingsOf('motion-without-reduced-motion', doc(animated)).length,
+		], [1, 0, 0, 0]);
+	});
+
+	test('один радиус и одна тень на всём — находка; одна тень при двух радиусах — нет', () => {
+		const surface = (radius: number, n: number) => el({ selector: `.card:nth-of-type(${n})`, borderRadiusPx: radius, widthPx: 200, heightPx: 120, boxShadow: '0 1px 3px rgba(0,0,0,0.1)' });
+		const uniform = [1, 2, 3, 4, 5, 6].map(n => surface(8, n));
+		const layered = [1, 2, 3, 4, 5, 6].map(n => surface(n === 1 ? 16 : 8, n));
+		assert.deepStrictEqual(
+			[findingsOf('uniform-radius-and-shadow', doc(uniform)).length, findingsOf('uniform-radius-and-shadow', doc(layered)).length],
+			[1, 0],
+		);
+	});
+
+	test('чисто чёрный основной текст на белом — одна находка на страницу', () => {
+		const prose = 'Основной текст страницы, достаточно длинный, чтобы считаться абзацем.';
+		const page = doc([el({ selector: 'p.a', text: prose, color: [0, 0, 0] }), el({ selector: 'p.b', text: prose, color: [0, 0, 0] }), el({ selector: 'p.c', text: prose })]);
+		assert.deepStrictEqual(findingsOf('pure-black-text', page).map(f => f.message), ['Основной текст чисто чёрный (#000) на светлом фоне — 2 блок(ов)']);
+	});
+
+	test('эмодзи на кнопке и в заголовке — находка; © в подписи и эмодзи в абзаце — нет', () => {
+		const page = doc([
+			el({ selector: 'button.stats', tag: 'button', interactive: true, text: '📊 Отчёт' }),
+			el({ selector: 'h1', tag: 'h1', text: 'Аналитика 🚀' }),
+			el({ selector: 'a.copy', tag: 'a', interactive: true, text: '© 2026 Компания' }),
+			el({ selector: 'p', text: 'Мы рады вас видеть 🙂 и ждём отзывов о новой версии продукта.' }),
+		]);
+		assert.deepStrictEqual(findingsOf('emoji-as-icon', page).map(f => f.selector).sort(), ['button.stats', 'h1']);
 	});
 });

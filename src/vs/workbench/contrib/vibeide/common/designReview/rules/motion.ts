@@ -71,7 +71,28 @@ const ruleLayoutPropertyAnimation: Rule = doc => doc.elements
 		evidence: `transition-property: ${el.transitionProperty}`,
 	}));
 
+/**
+ * Animations on the page and no `prefers-reduced-motion` rule anywhere in its styles.
+ *
+ * Page-level: the fix is one media query, not one per element. Silent when the styles were not
+ * read — «no rule» then means «could not look».
+ */
+const ruleMotionWithoutReducedMotion: Rule = doc => {
+	if (!doc.motion || doc.motion.rulesUnreadable || doc.motion.reducedMotionQuery) { return []; }
+	const animated = doc.elements.filter(el => el.animationName !== 'none' && el.animationDurationMs > 0);
+	if (animated.length === 0) { return []; }
+	return [{
+		rule: RULE.motionWithoutReducedMotion,
+		severity: 'warning',
+		message: `Анимации на странице (${animated.length}) без правила prefers-reduced-motion`,
+		why: 'Человек, выключивший движение в системе из-за укачивания или вестибулярных нарушений, всё равно его получит.',
+		selector: animated[0].selector,
+		evidence: `animation-name: ${animated.slice(0, 3).map(el => el.animationName).join(', ')}; @media (prefers-reduced-motion) не найдено`,
+	}];
+};
+
 export const MOTION_RULES: readonly Rule[] = [
+	ruleMotionWithoutReducedMotion,
 	ruleDecorativeAnimation,
 	ruleElasticEasing,
 	ruleLayoutPropertyAnimation,

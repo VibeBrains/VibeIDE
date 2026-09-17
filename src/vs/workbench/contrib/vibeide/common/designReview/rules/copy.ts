@@ -23,6 +23,10 @@ const MARKETING_FILLER = [
 	'мирового уровня', 'корпоративного уровня', 'раскройте потенциал',
 ];
 
+/** Pictographs; ©, ® and ™ are Extended_Pictographic too, but they are typography, not icons. */
+const EMOJI = /\p{Extended_Pictographic}/u;
+const TYPOGRAPHIC_SYMBOLS = /[\u00a9\u00ae\u2122]/gu;
+
 /** Dismissing something as "theatre" — a recurring generated-copy tic. */
 const THEATRE_FRAMING = /\b(?:security|compliance|productivity|innovation)\s+theat(?:er|re)\b|\bтеатр\s+(?:безопасности|продуктивности|соответствия)/i;
 
@@ -107,9 +111,23 @@ const ruleRepeatedTextInContainer: Rule = (doc: DocumentSnapshot) => {
 	return findings;
 };
 
+/** Emoji standing in for icons on controls and headings. */
+const ruleEmojiAsIcon: Rule = doc => doc.elements
+	.filter(el => el.interactive || /^h[1-6]$/.test(el.tag))
+	.filter(el => EMOJI.test(el.text.replace(TYPOGRAPHIC_SYMBOLS, '')))
+	.map(el => ({
+		rule: RULE.emojiAsIcon,
+		severity: 'info' as const,
+		message: `Эмодзи вместо иконки: «${el.text.slice(0, 40)}»`,
+		why: 'Эмодзи рисует система, а не продукт: на каждой платформе он свой, а программа чтения зачитывает его название посреди подписи.',
+		selector: el.selector,
+		evidence: el.text.slice(0, 60),
+	}));
+
 export const COPY_RULES: readonly Rule[] = [
 	ruleMarketingFiller,
 	ruleEmDashOveruse,
 	ruleTheatreFraming,
 	ruleRepeatedTextInContainer,
+	ruleEmojiAsIcon,
 ];

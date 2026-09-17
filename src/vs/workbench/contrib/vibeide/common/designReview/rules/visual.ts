@@ -193,8 +193,36 @@ const ruleInvisibleBorder: Rule = doc => doc.elements
 		evidence: `рамка rgb(${el.borderColor.join(',')}) на фоне rgb(${el.backgroundColor.join(',')})`,
 	}));
 
+/**
+ * One radius on every rounded box AND one shadow on every raised one.
+ *
+ * Either alone can be a system (plenty of products use one radius). Both together is the surface
+ * that was never designed: nothing is more raised or more rounded than anything else, so the page
+ * has no depth order.
+ */
+const ruleUniformRadiusAndShadow: Rule = doc => {
+	const MIN_RADIUS_PX = 4;
+	const MIN_ROUNDED = 6;
+	const MIN_SHADOWED = 4;
+	const rounded = doc.elements.filter(el => el.borderRadiusPx >= MIN_RADIUS_PX && el.widthPx >= 40 && el.heightPx >= 24);
+	const shadowed = doc.elements.filter(el => el.boxShadow && el.boxShadow !== 'none');
+	if (rounded.length < MIN_ROUNDED || shadowed.length < MIN_SHADOWED) { return []; }
+	const radii = new Set(rounded.map(el => Math.round(el.borderRadiusPx)));
+	const shadows = new Set(shadowed.map(el => el.boxShadow));
+	if (radii.size !== 1 || shadows.size !== 1) { return []; }
+	return [{
+		rule: RULE.uniformRadiusAndShadow,
+		severity: 'info',
+		message: `Один радиус (${[...radii][0]}px) и одна тень на всех поверхностях`,
+		why: 'Когда всё одинаково скруглено и одинаково приподнято, у страницы нет порядка глубины: модалка, карточка и кнопка выглядят одним слоем.',
+		selector: 'body',
+		evidence: `${rounded.length} скруглённых, ${shadowed.length} с тенью: ${shadowed[0].boxShadow.slice(0, 60)}`,
+	}];
+};
+
 export const VISUAL_RULES: readonly Rule[] = [
 	ruleExtremeRadius,
+	ruleUniformRadiusAndShadow,
 	ruleRadiusScaleSprawl,
 	ruleHairlineWithShadow,
 	ruleSideAccentBorder,

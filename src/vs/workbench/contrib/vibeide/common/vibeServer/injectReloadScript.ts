@@ -82,6 +82,9 @@ export function buildReloadClientScript(wsPath: string): string {
 		'function dsRgb(v){var m=/rgba?\\(([^)]+)\\)/.exec(v||"");if(!m){return null;}var p=m[1].split(",").map(function(x){return parseFloat(x);});return{c:[p[0]|0,p[1]|0,p[2]|0],a:p.length>3?p[3]:1};}',
 		// Walk up through transparent ancestors: the effective background is what the reader sees.
 		'function dsBg(el){var n=el;while(n&&n.nodeType===1){var v=dsRgb(getComputedStyle(n).backgroundColor);if(v&&v.a>0.05){return v.c;}n=n.parentElement;}return[255,255,255];}',
+		// The same walk, asking whether a picture or a gradient paints before the first solid colour.
+		// A background-image sits ABOVE its own element's background-color, so it is checked first.
+		'function dsBgImg(el){var n=el;while(n&&n.nodeType===1){var s=getComputedStyle(n);if(s.backgroundImage&&s.backgroundImage!=="none"){return true;}var v=dsRgb(s.backgroundColor);if(v&&v.a>0.05){return false;}n=n.parentElement;}return false;}',
 		'function dsCardDepth(el){var d=0,n=el.parentElement;while(n&&n.nodeType===1&&n!==document.body){var s=getComputedStyle(n);if((s.borderStyle&&s.borderStyle!=="none"&&dsNum(s.borderTopWidth)>0)||(s.boxShadow&&s.boxShadow!=="none")||dsNum(s.borderRadius)>=6){d++;}n=n.parentElement;}return d;}',
 		'function dsOwnText(el){var t="";for(var i=0;i<el.childNodes.length;i++){var c=el.childNodes[i];if(c.nodeType===3){t+=c.nodeValue;}}return t.replace(/\\s+/g," ").trim().slice(0,300);}',
 		'function dsInteractive(el){var tag=el.tagName.toLowerCase();if(tag==="button"||tag==="select"||tag==="textarea"||(tag==="a"&&el.hasAttribute("href"))||tag==="input"){return true;}var r=el.getAttribute("role");return r==="button"||r==="link"||typeof el.onclick==="function";}',
@@ -89,20 +92,22 @@ export function buildReloadClientScript(wsPath: string): string {
 		// бы скролл и изменил ту самую страницу, которую мы измеряем. Селекторы разбираются один
 		// раз на скан и кэшируются — обход правил на каждый элемент стоил бы слишком дорого.
 		'var dsStateSel=null,dsStateBad=false;',
-		'function dsStateRules(){if(dsStateSel){return dsStateSel;}var focus=[],hover=[];',
+		'function dsStateRules(){if(dsStateSel){return dsStateSel;}var focus=[],hover=[],rm=false;',
 		'var sheets=document.styleSheets||[];',
 		'for(var i=0;i<sheets.length;i++){var rules;',
 		// Cross-origin таблица бросает SecurityError. Это «не посмотрели», а не «правила нет»:
 		// флаг поднимается, и правила состояний на такой странице молчат.
 		'try{rules=sheets[i].cssRules;}catch(e){dsStateBad=true;continue;}',
 		'if(!rules){dsStateBad=true;continue;}',
-		'for(var j=0;j<rules.length;j++){var sel=rules[j].selectorText;if(!sel){continue;}',
+		// A grouping rule (@media, @supports, @layer) has no selector; its text carries what is nested,
+		// which is where a `prefers-reduced-motion` query lives.
+		'for(var j=0;j<rules.length;j++){var sel=rules[j].selectorText;if(!sel){if(/prefers-reduced-motion/.test(rules[j].cssText||"")){rm=true;}continue;}',
 		'var parts=sel.split(",");',
 		'for(var k=0;k<parts.length;k++){var p=parts[k].trim();',
 		// Псевдокласс срезается, чтобы остаток можно было сопоставить с элементом через matches().
 		'if(/:focus(-visible|-within)?\\b/.test(p)){focus.push(p.replace(/:focus(-visible|-within)?/g,""));}',
 		'else if(/:hover\\b/.test(p)){hover.push(p.replace(/:hover/g,""));}}}}',
-		'dsStateSel={focus:focus,hover:hover};return dsStateSel;}',
+		'dsStateSel={focus:focus,hover:hover,reducedMotion:rm};return dsStateSel;}',
 		'function dsMatchesAny(el,list){for(var i=0;i<list.length;i++){var s=(list[i]||"").trim();if(!s){continue;}',
 		'try{if(el.matches(s)){return true;}}catch(e){}}return false;}',
 		'function dsDisabled(el){return el.disabled===true||el.getAttribute("aria-disabled")==="true";}',
@@ -178,7 +183,7 @@ export function buildReloadClientScript(wsPath: string): string {
 		'out.push({selector:inspSel(el),parentSelector:el.parentElement?inspSel(el.parentElement):"",parentId:dsPid,tag:tag,text:text,classes:(typeof el.className==="string"?el.className:"").trim().split(/\\s+/).filter(Boolean).slice(0,8),',
 		'childTags:kids,cardDepth:dsCardDepth(el),fontSizePx:dsNum(s.fontSize),lineHeightPx:lh,',
 		'letterSpacingPx:s.letterSpacing==="normal"?0:dsNum(s.letterSpacing),fontFamily:s.fontFamily||"",fontWeight:dsNum(s.fontWeight)||400,',
-		'fontStyle:s.fontStyle||"normal",textTransform:s.textTransform||"none",textAlign:s.textAlign||"start",color:col?col.c:[0,0,0],backgroundColor:dsBg(el),',
+		'fontStyle:s.fontStyle||"normal",textTransform:s.textTransform||"none",textAlign:s.textAlign||"start",color:col?col.c:[0,0,0],backgroundColor:dsBg(el),backgroundUnmeasurable:dsBgImg(el),',
 		'ownBackgroundAlpha:own?own.a:0,backgroundImage:(s.backgroundImage||"none").slice(0,200),backgroundClip:s.webkitBackgroundClip||s.backgroundClip||"border-box",',
 		'boxShadow:(s.boxShadow||"none").slice(0,200),backdropFilter:((s.backdropFilter||s.webkitBackdropFilter)||"none").slice(0,80),',
 		'borderRadiusPx:dsRadius(s),borderWidthPx:bw,borderColor:bc?bc.c:[0,0,0],borderAlpha:bc?bc.a:0,',
@@ -210,6 +215,8 @@ export function buildReloadClientScript(wsPath: string): string {
 		'var dsL=dsLd();var dsI=dsImgs();',
 		'post({__vibeBrowser:"design-scan",snapshot:{url:location.href,viewport:vp||undefined,viewportWidthPx:window.innerWidth,viewportHeightPx:window.innerHeight,',
 		'documentScrollWidthPx:document.documentElement?document.documentElement.scrollWidth:0,elements:out,headings:heads,truncated:all.length>LIMIT,',
+		// dsStateRules() runs first: the unreadable flag is only known once the sheets were walked.
+		'motion:(function(){var r=dsStateRules();return{reducedMotionQuery:r.reducedMotion,rulesUnreadable:dsStateBad};})(),',
 		'seo:{title:String(document.title||"").trim(),metaDescription:dsMeta(\'meta[name="description"]\',"content"),',
 		'htmlLang:document.documentElement?String(document.documentElement.getAttribute("lang")||"").trim():"",',
 		'canonical:dsMeta(\'link[rel="canonical"]\',"href"),robots:dsMeta(\'meta[name="robots"]\',"content").toLowerCase(),',

@@ -18,6 +18,10 @@ import { RULE } from '../ruleIds.js';
 const MAX_LINE_LENGTH_CH = 95;
 /** Apple/Google agree on ~44px as the smallest comfortable touch target. */
 const MIN_TOUCH_TARGET_PX = 44;
+/** WCAG 2.2 SC 2.5.8 Target Size (Minimum), level AA. */
+const WCAG_MIN_TARGET_PX = 24;
+/** Parent text this long means the link sits inside a sentence — the SC's inline exception. */
+const INLINE_CONTEXT_MIN_TEXT = 40;
 /** Cards inside cards inside cards — the third level is where it becomes noise. */
 const MAX_CARD_DEPTH = 2;
 /** Overflow under this is rounding, not a defect. */
@@ -105,8 +109,40 @@ const ruleLineLength: Rule = doc => doc.elements
 		evidence: `ширина ${el.widthPx.toFixed(0)}px при font-size ${el.fontSizePx}px`,
 	}));
 
-const ruleTouchTarget: Rule = doc => doc.elements
-	.filter(el => el.interactive && el.widthPx > 0 && el.heightPx > 0)
+/**
+ * Targets below the WCAG 2.5.8 minimum, with the criterion's own exceptions.
+ *
+ * - Inline: a link inside a sentence — its size is set by the line of text around it.
+ * - Spacing: a 24px circle centred on the target reaches no other target's circle, i.e. no other
+ *   target centre is closer than 24px. A small control standing alone is hit without hitting a
+ *   neighbour, which is what the criterion protects.
+ */
+function targetsBelowWcag(doc: DocumentSnapshot): ElementSnapshot[] {
+	const targets = doc.elements.filter(el => el.interactive && !el.disabled && el.widthPx > 0 && el.heightPx > 0);
+	const centre = (el: ElementSnapshot) => ({ x: el.leftPx + el.widthPx / 2, y: el.topPx + el.heightPx / 2 });
+	return targets.filter(el => {
+		if (el.widthPx >= WCAG_MIN_TARGET_PX && el.heightPx >= WCAG_MIN_TARGET_PX) { return false; }
+		const parent = el.parentId !== undefined && el.parentId >= 0 ? doc.elements[el.parentId] : undefined;
+		if (el.tag === 'a' && parent && parent.text.length >= INLINE_CONTEXT_MIN_TEXT) { return false; }
+		const c = centre(el);
+		return targets.some(other => other !== el && Math.hypot(centre(other).x - c.x, centre(other).y - c.y) < WCAG_MIN_TARGET_PX);
+	});
+}
+
+const ruleTargetBelowWcag: Rule = doc => targetsBelowWcag(doc).map(el => ({
+	rule: RULE.targetBelowWcag,
+	severity: 'error' as const,
+	message: `Цель нажатия ${el.widthPx.toFixed(0)}×${el.heightPx.toFixed(0)}px меньше нормы WCAG 24×24`,
+	why: 'Меньше 24px рядом с другой целью — промах попадает в соседа (WCAG 2.2, 2.5.8, уровень AA).',
+	selector: el.selector,
+	evidence: `${el.widthPx.toFixed(0)}×${el.heightPx.toFixed(0)}px, соседняя цель ближе 24px`,
+}));
+
+const ruleTouchTarget: Rule = doc => {
+	// A target already below the WCAG floor is reported once, by the floor rule.
+	const belowFloor = new Set(targetsBelowWcag(doc));
+	return doc.elements
+	.filter(el => el.interactive && el.widthPx > 0 && el.heightPx > 0 && !belowFloor.has(el))
 	.filter(el => el.heightPx < MIN_TOUCH_TARGET_PX && el.widthPx < MIN_TOUCH_TARGET_PX)
 	.map(el => ({
 		rule: RULE.crampedTarget,
@@ -116,6 +152,7 @@ const ruleTouchTarget: Rule = doc => doc.elements
 		selector: el.selector,
 		evidence: `${el.widthPx.toFixed(0)}×${el.heightPx.toFixed(0)}px`,
 	}));
+};
 
 const ruleNestedCards: Rule = doc => doc.elements
 	.filter(el => el.cardDepth > MAX_CARD_DEPTH)
@@ -600,6 +637,7 @@ const ruleFlushToScrollerEdge: Rule = doc => {
 
 export const LAYOUT_RULES: readonly Rule[] = [
 	ruleLineLength,
+	ruleTargetBelowWcag,
 	ruleTouchTarget,
 	ruleNestedCards,
 	ruleContentOverflow,

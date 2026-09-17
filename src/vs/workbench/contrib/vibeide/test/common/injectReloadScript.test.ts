@@ -67,7 +67,8 @@ suite('Vibe Server — reload script injection', () => {
 		assert.deepStrictEqual(
 			['hasFocusRule', 'hasHoverRule', 'disabled:', 'styleRulesUnreadable', 'outlineStyle',
 				'accessibleName', 'isFormField', 'hasPlaceholder', 'hasAltAttribute',
-				'ariaInvalid', 'describedByText', 'isRequiredField']
+				'ariaInvalid', 'describedByText', 'isRequiredField',
+				'backgroundUnmeasurable', 'reducedMotionQuery', 'prefers-reduced-motion']
 				.filter(field => !script.includes(field)),
 			[]);
 	});
