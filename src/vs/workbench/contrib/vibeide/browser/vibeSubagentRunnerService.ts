@@ -110,7 +110,7 @@ class VibeSubagentRunnerService extends Disposable implements IVibeSubagentRunne
 			?? this._settings.state.modelSelectionOfRole?.[req.type]
 			?? this._settings.state.modelSelectionOfFeature?.['Chat'];
 		if (!modelSelection || modelSelection.providerName === 'auto') {
-			return this._outcome(req, 'failed', localize('vibeide.subagentRunner.noModel', "Не выбрана модель для субагента (настройте модель чата)."), [], 0, false, 'нет модели', []);
+			return this._outcome(req, 'failed', localize('vibeide.subagentRunner.noModel', "Не выбрана модель для субагента (настройте модель чата)."), [], 0, false, 'нет модели', [], req.transcript ?? []);
 		}
 
 		// Vision routing model resolution. `sees` = can this selection accept image input; `firstVision`
@@ -156,15 +156,20 @@ class VibeSubagentRunnerService extends Disposable implements IVibeSubagentRunne
 		// the role (see the reset block in the loop). cancelled/denied-actions stay hard.
 		let limits = { maxSteps: req.maxSteps, maxTokensEst, deadlineAtMs, maxDeniedActions: SUBAGENT_MAX_DENIED_ACTIONS };
 
-		const taskMessage = buildSubagentTaskMessage({ displayName: preset.displayName, systemAppendix: preset.systemAppendix, goal: req.goal, acceptanceCriteria: req.acceptanceCriteria, contextItems: req.contextItems });
-		const history: ChatMessage[] = [{
+		// A continuation adds one user message to the conversation it continues: the framing, the
+		// context items and the images are already in that conversation, and repeating them would
+		// re-bill them on every hop.
+		const taskMessage = req.transcript
+			? req.goal
+			: buildSubagentTaskMessage({ displayName: preset.displayName, systemAppendix: preset.systemAppendix, goal: req.goal, acceptanceCriteria: req.acceptanceCriteria, contextItems: req.contextItems });
+		const history: ChatMessage[] = [...(req.transcript ?? []), {
 			role: 'user',
 			content: taskMessage,
 			displayContent: taskMessage,
 			selections: null,
 			// Vision routing (звено 2): images ride the first user message. prepareLLMChatMessages
 			// base64-encodes them into image parts exactly as for the main thread — no new plumbing.
-			...(req.images && req.images.length ? { images: [...req.images] } : {}),
+			...(!req.transcript && req.images && req.images.length ? { images: [...req.images] } : {}),
 			state: { stagingSelections: [], isBeingEdited: false },
 		}];
 
@@ -214,7 +219,7 @@ class VibeSubagentRunnerService extends Disposable implements IVibeSubagentRunne
 				// Cancellation is the USER's explicit decision — a hard stop, never a resume bait
 				// (auto-resuming a cancelled subagent would restart it against the user's will).
 				if (stop === 'cancelled') {
-					return this._outcome(req, 'failed', localize('vibeide.subagentRunner.roleFailed', "Роль «{0}»: {1}.", preset.displayName, reason), artifacts, tokensUsedEst, true, reason, touchedPaths, { stopCode: stop, model: modelSelection, promptTokens: promptTokensUsed, completionTokens: completionTokensUsed, cachedTokens: cachedTokensUsed });
+					return this._outcome(req, 'failed', localize('vibeide.subagentRunner.roleFailed', "Роль «{0}»: {1}.", preset.displayName, reason), artifacts, tokensUsedEst, true, reason, touchedPaths, history, { stopCode: stop, model: modelSelection, promptTokens: promptTokensUsed, completionTokens: completionTokensUsed, cachedTokens: cachedTokensUsed });
 				}
 				// token-budget is VibeIDE's OWN per-subagent cap, not the provider's quota — say so
 				// and show the numbers, so «исчерпана квота» isn't misread as a provider limit.
@@ -225,7 +230,7 @@ class VibeSubagentRunnerService extends Disposable implements IVibeSubagentRunne
 				// touched paths) and return status 'stopped' so the route/report shows partial work that
 				// can be resumed, instead of discarding it as «failed».
 				const summary = localize('vibeide.subagentRunner.stoppedWithModel', "Роль «{0}» остановлена: {1}{2}. Модель {3}. Частичный результат сохранён. Последний вывод: {4}", preset.displayName, reason, budgetNote, modelLabel, lastText);
-				return this._outcome(req, 'stopped', summary, artifacts, tokensUsedEst, true, reason, touchedPaths, { stopCode: stop, model: modelSelection, promptTokens: promptTokensUsed, completionTokens: completionTokensUsed, cachedTokens: cachedTokensUsed });
+				return this._outcome(req, 'stopped', summary, artifacts, tokensUsedEst, true, reason, touchedPaths, history, { stopCode: stop, model: modelSelection, promptTokens: promptTokensUsed, completionTokens: completionTokensUsed, cachedTokens: cachedTokensUsed });
 			}
 			stepsDone++;
 
@@ -255,7 +260,7 @@ class VibeSubagentRunnerService extends Disposable implements IVibeSubagentRunne
 					const reason = stopReasonToRussian('deadline');
 					this._activityLog.logError(`Subagent ${req.subagentId}: остановлен — ${reason} (в момент запроса к модели)`);
 					const summary = localize('vibeide.subagentRunner.stopped', "Роль «{0}» остановлена: {1}. Частичный результат сохранён. Последний вывод: {2}", preset.displayName, reason, lastText);
-					return this._outcome(req, 'stopped', summary, artifacts, tokensUsedEst, true, reason, touchedPaths, { stopCode: 'deadline', model: modelSelection, promptTokens: promptTokensUsed, completionTokens: completionTokensUsed, cachedTokens: cachedTokensUsed });
+					return this._outcome(req, 'stopped', summary, artifacts, tokensUsedEst, true, reason, touchedPaths, history, { stopCode: 'deadline', model: modelSelection, promptTokens: promptTokensUsed, completionTokens: completionTokensUsed, cachedTokens: cachedTokensUsed });
 				}
 				// Transient LLM error (provider 5xx, rate-limit, network, timeout): retry the hop with a
 				// short backoff instead of hard-failing — a blip must not kill a healthy run. Autopilot
@@ -271,7 +276,7 @@ class VibeSubagentRunnerService extends Disposable implements IVibeSubagentRunne
 				}
 				this._activityLog.logError(`Subagent ${req.subagentId}: ошибка LLM — ${hop.message}`);
 				const shortMsg = hop.message.length > 140 ? `${hop.message.slice(0, 140)}…` : hop.message;
-				return this._outcome(req, 'failed', localize('vibeide.subagentRunner.modelRequestFailed', "Роль «{0}»: ошибка запроса к модели — {1}", preset.displayName, hop.message), artifacts, tokensUsedEst, false, `ошибка модели: ${shortMsg}`, touchedPaths, { model: modelSelection, promptTokens: promptTokensUsed, completionTokens: completionTokensUsed, cachedTokens: cachedTokensUsed });
+				return this._outcome(req, 'failed', localize('vibeide.subagentRunner.modelRequestFailed', "Роль «{0}»: ошибка запроса к модели — {1}", preset.displayName, hop.message), artifacts, tokensUsedEst, false, `ошибка модели: ${shortMsg}`, touchedPaths, history, { model: modelSelection, promptTokens: promptTokensUsed, completionTokens: completionTokensUsed, cachedTokens: cachedTokensUsed });
 			}
 
 			consecutiveLlmErrors = 0; // healthy hop — clear the transient-error streak
@@ -298,7 +303,10 @@ class VibeSubagentRunnerService extends Disposable implements IVibeSubagentRunne
 					? String(toolCall.rawParams['summary'] ?? toolCall.rawParams['result'] ?? lastText)
 					: lastText;
 				this._activityLog.logFinished(`Subagent ${req.subagentId}: завершено за ${stepsDone} шаг(ов), ~${tokensUsedEst} ток. (оценка)`);
-				return this._outcome(req, 'success', completeSummary || localize('vibeide.subagentRunner.roleCompleted', "Роль «{0}» завершила задачу.", preset.displayName), artifacts, tokensUsedEst, false, 'completed', touchedPaths, { model: modelSelection, promptTokens: promptTokensUsed, completionTokens: completionTokensUsed, cachedTokens: cachedTokensUsed });
+				// The final answer belongs to the conversation: a continuation that did not see it
+				// would be asked to rework an answer it never gave.
+				history.push({ role: 'assistant', displayContent: hop.fullText || completeSummary, reasoning: '', anthropicReasoning: null });
+				return this._outcome(req, 'success', completeSummary || localize('vibeide.subagentRunner.roleCompleted', "Роль «{0}» завершила задачу.", preset.displayName), artifacts, tokensUsedEst, false, 'completed', touchedPaths, history, { model: modelSelection, promptTokens: promptTokensUsed, completionTokens: completionTokensUsed, cachedTokens: cachedTokensUsed });
 			}
 
 			// From here on the model asked for a real tool — append its assistant turn first.
@@ -498,7 +506,7 @@ class VibeSubagentRunnerService extends Disposable implements IVibeSubagentRunne
 		})();
 	}
 
-	private _outcome(req: SubagentRunRequest, status: 'success' | 'failed' | 'stopped', summary: string, artifacts: string[], tokensUsedEst: number, truncated: boolean, stopReason: string, touchedPaths: string[], extra?: { stopCode?: SubagentStopReason; model?: ModelSelection; promptTokens?: number; completionTokens?: number; cachedTokens?: number }): SubagentRunOutcome {
+	private _outcome(req: SubagentRunRequest, status: 'success' | 'failed' | 'stopped', summary: string, artifacts: string[], tokensUsedEst: number, truncated: boolean, stopReason: string, touchedPaths: string[], transcript: readonly ChatMessage[], extra?: { stopCode?: SubagentStopReason; model?: ModelSelection; promptTokens?: number; completionTokens?: number; cachedTokens?: number }): SubagentRunOutcome {
 		return {
 			status,
 			summary: truncateSummary(summary, MAX_SUMMARY_CHARS),
@@ -512,6 +520,7 @@ class VibeSubagentRunnerService extends Disposable implements IVibeSubagentRunne
 			...(extra?.completionTokens ? { completionTokensUsed: extra.completionTokens } : {}),
 			...(extra?.cachedTokens ? { cachedTokensUsed: extra.cachedTokens } : {}),
 			...(req.type === 'explore' ? { exploreReport: buildExploreReport(touchedPaths, truncated) } : {}),
+			transcript,
 		};
 	}
 }

@@ -93,6 +93,8 @@ export interface AgentRunRecord {
 	readonly escalatedFromRunId?: string;
 	/** Model of that draft, kept here so the report survives the draft record being rotated away. */
 	readonly escalatedFromModel?: string;
+	/** Set on a rework run that continued an earlier run in its own conversation. */
+	readonly continuesRunId?: string;
 	readonly failureReason?: string;
 }
 
@@ -333,6 +335,7 @@ function decodeUpdate(line: string): AgentRunUpdate | undefined {
 	assignIfDefined(update, 'cascadeDraft', typeof raw.cascadeDraft === 'boolean' ? raw.cascadeDraft : undefined);
 	assignIfDefined(update, 'escalatedFromRunId', readString(raw.escalatedFromRunId));
 	assignIfDefined(update, 'escalatedFromModel', readString(raw.escalatedFromModel));
+	assignIfDefined(update, 'continuesRunId', readString(raw.continuesRunId));
 	assignIfDefined(update, 'failureReason', readString(raw.failureReason));
 
 	return update as AgentRunUpdate;

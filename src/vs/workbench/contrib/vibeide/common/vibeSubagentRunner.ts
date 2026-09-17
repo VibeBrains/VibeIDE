@@ -8,7 +8,7 @@ import type { CancellationToken } from '../../../../base/common/cancellation.js'
 import type { ModelSelection, ProviderId } from './vibeideSettingsTypes.js';
 import type { SubagentType, ExploreSubagentReport } from './vibeSubagentService.js';
 import type { SubagentStopReason } from './subagentLoopPolicy.js';
-import type { ChatImageAttachment } from './chatThreadServiceTypes.js';
+import type { ChatImageAttachment, ChatMessage } from './chatThreadServiceTypes.js';
 
 /**
  * Headless subagent runner contract (Phase 3b). Declared in `common` so
@@ -52,6 +52,11 @@ export interface SubagentRunRequest {
 	/** Live per-hop callback: running estimated-token total, completed steps, and the current absolute
 	 *  wall-clock deadline (unix ms; 0 = none). Drives the chat spinner readout + countdown. */
 	readonly onProgress?: (tokensUsedEst: number, stepsDone: number, deadlineAtMs: number) => void;
+	/**
+	 * The conversation of an earlier run to continue. Present — `goal` becomes the next user message
+	 * in it, sent as is; the role framing, the context items and the images are already there.
+	 */
+	readonly transcript?: readonly ChatMessage[];
 }
 
 export interface SubagentRunOutcome {
@@ -81,6 +86,8 @@ export interface SubagentRunOutcome {
 	readonly providerName?: ProviderId;
 	readonly modelName?: string;
 	readonly exploreReport?: ExploreSubagentReport;
+	/** The whole conversation, final answer included — what a continuation of this run starts from. */
+	readonly transcript: readonly ChatMessage[];
 }
 
 export const IVibeSubagentRunner = createDecorator<IVibeSubagentRunner>('vibeSubagentRunner');

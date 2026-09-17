@@ -82,6 +82,14 @@ suite('taskBill — цена задачи, а не запроса', () => {
 		);
 	});
 
+	test('доработка в переписке автора — та же задача, а не новая с текстом замечаний', () => {
+		const report = taskBills([
+			run({ runId: 'a', status: 'completed', tokensUsed: 100_000, startedAt: 1, endedAt: 2, goal: 'добавить эндпоинт' }),
+			run({ runId: 'b', status: 'completed', tokensUsed: 50_000, startedAt: 3, endedAt: 4, goal: 'Ревьюер вернул шаг на доработку', continuesRunId: 'a' }),
+		], rate);
+		assert.deepStrictEqual([report.tasks.length, report.tasks[0].goal, report.tasks[0].attempts], [1, 'добавить эндпоинт', 2]);
+	});
+
 	test('кэшированные токены не оплачиваются дважды, а брошенная задача не считается доведённой', () => {
 		const report = taskBills([
 			run({ runId: 'a', status: 'failed', tokensUsed: 100_000, cachedTokens: 40_000, startedAt: 1 }),

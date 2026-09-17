@@ -29,7 +29,7 @@ import { IConfigurationService } from '../../../../platform/configuration/common
 import { DEFAULT_SUBAGENT_TOKEN_QUOTA } from './subagentIsolationPolicy.js';
 import type { SubagentStopReason } from './subagentLoopPolicy.js';
 import type { ModelSelection, ProviderId } from './vibeideSettingsTypes.js';
-import type { ChatImageAttachment } from './chatThreadServiceTypes.js';
+import type { ChatImageAttachment, ChatMessage } from './chatThreadServiceTypes.js';
 import { IAuditLogService } from './auditLogService.js';
 import { IVibeConstraintsService } from './vibeConstraintsService.js';
 import { IVibeSubagentRunner } from './vibeSubagentRunner.js';
@@ -132,6 +132,18 @@ export interface SubagentHandoff {
 	cascadeDraft?: boolean;
 	/** Set on the escalation run: which draft it replaced, and on what model that draft ran. */
 	escalatedFrom?: { readonly runId: string; readonly model?: string };
+	/**
+	 * Keep this run's conversation after it ends, so `continuesRunId` can pick it up. Opt-in: a
+	 * conversation is the largest thing a run holds, and most callers never come back to it. It is
+	 * released with the run by `disposeSubagent`.
+	 */
+	keepTranscript?: boolean;
+	/**
+	 * Continue a finished run in its own conversation instead of starting a fresh one: `goal` becomes
+	 * the next message to the same author. The run must still be registered, be of the same role and
+	 * have been started with `keepTranscript`.
+	 */
+	continuesRunId?: string;
 }
 
 /** Statuses that still hold the key — a finished run must not block a new attempt. */
@@ -146,6 +158,29 @@ export function findLiveRunByIdempotencyKey(entries: readonly SubagentEntry[], k
 		return undefined;
 	}
 	return entries.find(entry => entry.handoff.idempotencyKey === key && LIVE_SUBAGENT_STATUSES.has(entry.status))?.id;
+}
+
+/**
+ * Why `handoff` cannot continue the run it names, or `undefined` when it can. Pure — the prior run
+ * and whether its conversation was kept are passed in, so the rule is testable without a workbench.
+ */
+export function continuationRefusal(handoff: Pick<SubagentHandoff, 'type' | 'continuesRunId'>, prior: SubagentEntry | undefined, transcriptKept: boolean): string | undefined {
+	if (!handoff.continuesRunId) {
+		return undefined;
+	}
+	if (!prior) {
+		return `Продолжить прогон ${handoff.continuesRunId} нельзя: он уже освобождён.`;
+	}
+	if (prior.type !== handoff.type) {
+		return `Продолжить прогон ${handoff.continuesRunId} нельзя: это роль «${prior.type}», а не «${handoff.type}».`;
+	}
+	if (!prior.result) {
+		return `Продолжить прогон ${handoff.continuesRunId} нельзя: он ещё не закончился.`;
+	}
+	if (!transcriptKept) {
+		return `Продолжить прогон ${handoff.continuesRunId} нельзя: его переписка не сохранялась.`;
+	}
+	return undefined;
 }
 
 /** Compact result returned to the parent — bounded by MAX_RESULT_CHARS */
@@ -305,6 +340,8 @@ class VibeSubagentService extends Disposable implements IVibeSubagentService {
 	private readonly _waiters = new Map<string, { resolve: (r: SubagentResult) => void; reject: (e: Error) => void }>();
 	/** Cancellation per live subagent (audit A) — disposeSubagent cancels the runner's loop. */
 	private readonly _ctsById = new Map<string, CancellationTokenSource>();
+	/** Conversations of finished runs that asked to keep them (`keepTranscript`), until disposed. */
+	private readonly _transcripts = new Map<string, readonly ChatMessage[]>();
 
 	private readonly _onStatusChanged = this._register(new Emitter<SubagentEntry>());
 	readonly onSubagentStatusChanged: Event<SubagentEntry> = this._onStatusChanged.event;
@@ -365,6 +402,7 @@ class VibeSubagentService extends Disposable implements IVibeSubagentService {
 				escalatedFromRunId: handoff.escalatedFrom.runId,
 				...(handoff.escalatedFrom.model ? { escalatedFromModel: handoff.escalatedFrom.model } : {}),
 			} : {}),
+			...(handoff.continuesRunId ? { continuesRunId: handoff.continuesRunId } : {}),
 		});
 
 		this._log.info(`[VibeSubagent] Spawning ${handoff.type} subagent ${id} for thread ${handoff.parentThreadId}`);
@@ -392,6 +430,14 @@ class VibeSubagentService extends Disposable implements IVibeSubagentService {
 				reason: message,
 				tokensUsed: 0,
 			});
+			return id;
+		}
+
+		// A continuation that cannot continue fails loudly: quietly starting a fresh conversation
+		// would hand the rework to someone who never saw why the code is the way it is.
+		const continuation = continuationRefusal(handoff, handoff.continuesRunId ? this._registry.get(handoff.continuesRunId) : undefined, handoff.continuesRunId ? this._transcripts.has(handoff.continuesRunId) : false);
+		if (continuation) {
+			this._completeWithFailure(entry, continuation);
 			return id;
 		}
 
@@ -458,6 +504,7 @@ class VibeSubagentService extends Disposable implements IVibeSubagentService {
 		}
 		entry.status = 'disposed';
 		this._registry.delete(subagentId);
+		this._transcripts.delete(subagentId);
 		this._waiters.delete(subagentId);
 		// Audit A: a live runner loop must die with its registry entry — cancel stops it at
 		// the hop boundary and aborts the in-flight LLM request (no more token burn).
@@ -596,6 +643,7 @@ class VibeSubagentService extends Disposable implements IVibeSubagentService {
 			maxWallClockMs: handoff.maxWallClockMs ?? 0,
 			modelSelection: handoff.modelSelection,
 			cancellationToken: this._ctsById.get(entry.id)?.token,
+			...(handoff.continuesRunId ? { transcript: this._transcripts.get(handoff.continuesRunId) } : {}),
 			onProgress: (tokensUsedEst, stepsDone, deadlineAtMs) => {
 				// Per-hop live spend → chat spinner. Only while still running; terminal state
 				// carries the final tokens in `result`.
@@ -607,6 +655,12 @@ class VibeSubagentService extends Disposable implements IVibeSubagentService {
 				}
 			},
 		});
+
+		// Kept only while the run is registered: a continuation may start after a disposed run's id
+		// is gone, and must then be refused rather than find a conversation nobody owns.
+		if (handoff.keepTranscript && this._registry.has(entry.id)) {
+			this._transcripts.set(entry.id, outcome.transcript);
+		}
 
 		const result: SubagentResult = {
 			subagentId: entry.id,
