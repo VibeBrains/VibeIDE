@@ -5168,6 +5168,29 @@ prompts, tools, and preceding messages») действует на API-аккау
       записи: выключенный хук не запустится, и жаловаться на его событие некому. Это же позволяет
       общему набору нести запись для продукта-соседа, не выглядя сломанным.
 
+## DIGEST-0917. Дайджест 17.09.2026 — DeepSeek на OpenRouter, подписки кодинга, Atria, Gemini Live, Paper2Agent, KISA (2026-09-17)
+
+Исследование по первоисточникам, сверено с кодом.
+
+- [ ] **Цена по часу из каталога OpenRouter** — `pricing.overrides` с `utc_days`/`utc_start`/`utc_end` (у
+      `deepseek/deepseek-v4.1-flash` пик ×2) сейчас отбрасываются в `longContextFromOverrides`: причина «журнал не знает
+      момента» устарела — с 14.09 `costOf` считает по `time_of_day`. Перевести в `time_of_day`: пиковая ставка из override,
+      `offPeakFactor` = база / пик. Сейчас DeepSeek через OpenRouter в пик считается вдвое дешевле.
+- [ ] **Возврат рассуждения на OpenRouter** — у DeepSeek V4.1 Flash при tools размышления сохраняются во всех ходах
+      (`encoding/README.md` карточки); OpenRouter принимает `reasoning` строкой (алиас `reasoning_content`). Проверить
+      смоуком, что наш `mirrorReasoningContent` доходит через OpenRouter; `reasoning_details` у нас не читается.
+- [ ] **Экспорт журнала аудита в чужом проекте** — `vibeide.audit.export` запускает `node scripts/vibe-session-export.js`
+      в терминале рабочей папки; такого скрипта в проекте пользователя нет. Экспорт через `IAuditLogService.exportAll()`
+      с выбором файла. Живьём не проверено.
+- [ ] **Облачная диктовка (опционально)** — для STT подходит `gemini-3.5-transcribe-live` ($0.005/мин вход + $0.004/мин
+      текст, `ru-RU`, сессия до 10 мин), а не `gemini-3.8-live` (только аудио-ответ). Решение владельца: у нас локальный STT.
+- Подписки: Z.AI Coding Plan — «strictly limited to use within officially supported tools»; Kimi Code — 403 для
+  неизвестных клиентов; MiniMax Token Plan ограничений по инструментам не пишет. Замена MiniMax на GLM Lite или Kimi
+  Moderato в VibeIDE нарушит условия или не заработает.
+- Не берём: Atria Dawn Preview — на OpenRouter нет, свой API `api.atria-asi.ai` (256K, XML-вызовы GLM на уровне шаблона);
+  Paper2Agent — схема «примеры → тесты → инструмент», для спек без примеров проверять нечем; KISA — требования к агентам
+  ещё не опубликованы, а цепочка хешей, шифрование и `agent_stop` у журнала уже есть.
+
 ## DIGEST-0916. Дайджест 16.09.2026 — десять тем: модели, роли агентов, хуки, MCP 2026-07-28, ACP v2, ревью (2026-09-16)
 
 Исследование по первоисточникам, сверено с кодом; GLM-5.3 проверен живьём ключом Z.AI.
@@ -5179,8 +5202,8 @@ prompts, tools, and preceding messages») действует на API-аккау
 - [ ] **MCP 2026-07-28 — клиент устаревшей эпохи** — SDK 1.29 знает версии до 2025-11-25 и работает через `initialize`;
       спека: такой клиент с современным сервером работать не сможет. Нужны `_meta`-версия, `Mcp-Method`/`Mcp-Name`,
       MRTR, CIMD и проверка `iss` (RFC 9207) — либо обновление SDK, когда он их поддержит.
-- [ ] **Kimi Code как провайдер** — `https://api.kimi.com/coding/`, Anthropic-совместимый, ключ Kimi Code, модели по тарифу
-      (`k3`, `k3-256k`, `kimi-for-coding`). Запись в `kimi.jsonc` через VibeBrains.
+- ~~**Kimi Code как провайдер**~~ — снято 17.09: вендор отвечает неизвестному клиенту 403 `access_terminated_error`,
+      подмену User-Agent называет нарушением условий (kimi.com/en/help/kimi-code/benefits). См. DIGEST-0917.
 - [ ] **ACP v2 (черновик)** — не брать до стабилизации; elicitation (`elicitation/create`, `mode` form/url) и
       `configOptions.currentValue` — когда клиент будет читать настройки агентов.
 - [ ] **Ревью по правилам-данным (open-code-review, Apache-2.0)** — стадии «план → ревью → фильтр ложных → уточнение строки»
