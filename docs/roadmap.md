@@ -5172,18 +5172,19 @@ prompts, tools, and preceding messages») действует на API-аккау
 
 Исследование по первоисточникам, сверено с кодом.
 
-- [ ] **Цена по часу из каталога OpenRouter** — `pricing.overrides` с `utc_days`/`utc_start`/`utc_end` (у
+- [x] **Цена по часу из каталога OpenRouter** — ✅ (2026-09-17, next) `timeOfDayFromOverrides`: окна ЧЧММ и дни словами → `time_of_day`, в `cost` пиковые ставки; противоречивое расписание не приближается. Было: `pricing.overrides` с `utc_days`/`utc_start`/`utc_end` (у
       `deepseek/deepseek-v4.1-flash` пик ×2) сейчас отбрасываются в `longContextFromOverrides`: причина «журнал не знает
       момента» устарела — с 14.09 `costOf` считает по `time_of_day`. Перевести в `time_of_day`: пиковая ставка из override,
       `offPeakFactor` = база / пик. Сейчас DeepSeek через OpenRouter в пик считается вдвое дешевле.
 - [ ] **Возврат рассуждения на OpenRouter** — у DeepSeek V4.1 Flash при tools размышления сохраняются во всех ходах
       (`encoding/README.md` карточки); OpenRouter принимает `reasoning` строкой (алиас `reasoning_content`). Проверить
       смоуком, что наш `mirrorReasoningContent` доходит через OpenRouter; `reasoning_details` у нас не читается.
-- [ ] **Экспорт журнала аудита в чужом проекте** — `vibeide.audit.export` запускает `node scripts/vibe-session-export.js`
+- [x] **Экспорт журнала аудита в чужом проекте** — ✅ (2026-09-17, next) экспорт через `IAuditLogService.exportAll()` с «Сохранить как», удаление через `deleteAll()` с подтверждением; скрипт репозитория остался инструментом разработки. Было: `vibeide.audit.export` запускает `node scripts/vibe-session-export.js`
       в терминале рабочей папки; такого скрипта в проекте пользователя нет. Экспорт через `IAuditLogService.exportAll()`
       с выбором файла. Живьём не проверено.
-- [ ] **Облачная диктовка (опционально)** — для STT подходит `gemini-3.5-transcribe-live` ($0.005/мин вход + $0.004/мин
+- [x] **Облачная диктовка (опционально)** — ✅ (2026-09-17, next) `vibeide.voice.engine`: `local` по умолчанию или `gemini`; сессия на `ws` в главном процессе, переподключение по `goAway`, согласие при первом облачном запуске, ключ провайдера Gemini; живьём не проверено — нет ключа. Было: для STT подходит `gemini-3.5-transcribe-live` ($0.005/мин вход + $0.004/мин
       текст, `ru-RU`, сессия до 10 мин), а не `gemini-3.8-live` (только аудио-ответ). Решение владельца: у нас локальный STT.
+- [ ] **Провайдер Atria Dawn Preview** — `atria.jsonc` в VibeBrains (`a44cacb`, выключен); бамп указателя ждёт решения по полю `quota`, которое VibeIDEA добавила в `minimax.jsonc` и `zai.jsonc`: наш `seed-fields-check` его не пропускает.
 - Подписки: Z.AI Coding Plan — «strictly limited to use within officially supported tools»; Kimi Code — 403 для
   неизвестных клиентов; MiniMax Token Plan ограничений по инструментам не пишет. Замена MiniMax на GLM Lite или Kimi
   Moderato в VibeIDE нарушит условия или не заработает.

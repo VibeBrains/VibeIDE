@@ -28,7 +28,8 @@ import { UtilityProcess } from '../../../../../platform/utilityProcess/electron-
 import { NullTelemetryService } from '../../../../../platform/telemetry/common/telemetryUtils.js';
 import { VoiceBatchDecodeResult, VoiceDownloadProgress, VoiceModelsState, VoiceProfileId, VoiceSessionEvent, VoiceStartSessionOptions, VoiceWorkerRequest, VoiceWorkerResponse, VOICE_PROFILE_IDS, VOICE_SAMPLE_RATE } from '../../common/voice/vibeVoiceTypes.js';
 import { resolveVoiceBatchOfflinePaths, resolveVoiceSessionModelPaths, VoiceEnglishBatchTier, VoiceModelArchive, voiceArchivesForProfile, voiceBatchArchivesForProfile, voiceBatchDownloadBytesForProfile, voiceBatchRequiredFilesForProfile, voiceDownloadBytesForProfile, voiceRequiredFilesForProfile } from '../../common/voice/vibeVoiceModels.js';
-import { clampVoiceEndpointSilenceMs, clampVoiceKeepAliveSec, resolveVoiceEnglishBatchTier, resolveVoiceThreads, VOICE_ENDPOINT_SILENCE_KEY, VOICE_ENGLISH_BATCH_MODEL_KEY, VOICE_KEEP_ALIVE_KEY, VOICE_MODELS_PATH_KEY, VOICE_THREADS_KEY } from '../../common/voice/vibeVoiceConfiguration.js';
+import { clampVoiceEndpointSilenceMs, clampVoiceKeepAliveSec, resolveVoiceEngine, resolveVoiceEnglishBatchTier, resolveVoiceThreads, VOICE_ENDPOINT_SILENCE_KEY, VOICE_ENGINE_KEY, VOICE_ENGLISH_BATCH_MODEL_KEY, VOICE_KEEP_ALIVE_KEY, VOICE_MODELS_PATH_KEY, VOICE_THREADS_KEY } from '../../common/voice/vibeVoiceConfiguration.js';
+import { GeminiTranscribeSession } from './vibeVoiceGeminiSession.js';
 import { downloadWithSha256 } from '../vibeVerifiedDownload.js';
 
 const WORKER_ENTRY_POINT = 'vs/workbench/contrib/vibeide/node/voice/vibeVoiceWorkerMain';
@@ -58,6 +59,8 @@ export class VibeVoiceMainService extends Disposable {
 	private readonly activeBatchRequests = new Map<string, { resolve: (text: string) => void; reject: (error: Error) => void; watchdog: ReturnType<typeof setTimeout> }>();
 	/** Whole transcription jobs (many chunks) — keeps idle shutdown away between chunks. */
 	private readonly activeBatchJobs = new Set<string>();
+	/** Dictation sessions on the cloud engine; they bypass the worker entirely. */
+	private readonly cloudSessions = new Map<string, GeminiTranscribeSession>();
 
 	constructor(
 		private readonly logService: ILogService,
@@ -69,6 +72,10 @@ export class VibeVoiceMainService extends Disposable {
 	}
 
 	override dispose(): void {
+		for (const session of this.cloudSessions.values()) {
+			session.cancel();
+		}
+		this.cloudSessions.clear();
 		this.killWorker();
 		super.dispose();
 	}
@@ -98,7 +105,15 @@ export class VibeVoiceMainService extends Disposable {
 		return voiceBatchRequiredFilesForProfile(profileId, this.englishBatchTier()).every(rel => existsSync(join(root, rel)));
 	}
 
+	private isCloudEngine(): boolean {
+		return resolveVoiceEngine(this.configurationService.getValue<unknown>(VOICE_ENGINE_KEY)) === 'gemini';
+	}
+
 	getState(): VoiceModelsState {
+		// The cloud engine needs no local models: reporting them ready lets every existing download check pass untouched.
+		if (this.isCloudEngine()) {
+			return { profiles: { ru: { state: 'ready', downloadBytes: 0 }, en: { state: 'ready', downloadBytes: 0 } } };
+		}
 		// eslint-disable-next-line local/code-no-dangerous-type-assertions -- empty accumulator filled in the loop below
 		const profiles = {} as VoiceModelsState['profiles'] & Record<VoiceProfileId, { state: 'ready' | 'missing' | 'downloading'; downloadBytes: number }>;
 		for (const profileId of VOICE_PROFILE_IDS) {
@@ -184,6 +199,10 @@ export class VibeVoiceMainService extends Disposable {
 	// ── Sessions / worker ────────────────────────────────────────────────────
 
 	startSession(options: VoiceStartSessionOptions): void {
+		if (this.isCloudEngine()) {
+			this.startCloudSession(options);
+			return;
+		}
 		if (!this.isProfileInstalled(options.profileId)) {
 			throw new Error(`Voice models for profile '${options.profileId}' are not installed`);
 		}
@@ -204,17 +223,48 @@ export class VibeVoiceMainService extends Disposable {
 		this.logService.info(`[vibeVoice] session ${options.sessionId} start (${options.profileId}, worker ${reused ? 'reused' : 'spawned'}, posted=${posted})`);
 	}
 
+	private startCloudSession(options: VoiceStartSessionOptions): void {
+		const apiKey = options.apiKey?.trim() || process.env.GEMINI_API_KEY?.trim();
+		if (!apiKey) {
+			throw new Error('Облачное распознавание: нет ключа Gemini — введите его у провайдера Gemini в настройках или задайте GEMINI_API_KEY');
+		}
+		const session = new GeminiTranscribeSession(options.sessionId, options.profileId, apiKey, this.logService, event => {
+			if (event.type === 'stopped') {
+				this.cloudSessions.delete(event.sessionId);
+			}
+			this._onSessionEvent.fire(event);
+		});
+		this.cloudSessions.set(options.sessionId, session);
+		this.logService.info(`[vibeVoice] session ${options.sessionId} start (${options.profileId}, cloud Gemini)`);
+		void session.start();
+	}
+
 	pushAudio(sessionId: string, pcm: Uint8Array): void {
+		const cloud = this.cloudSessions.get(sessionId);
+		if (cloud) {
+			cloud.pushAudio(pcm);
+			return;
+		}
 		if (this.worker && this.activeSessions.has(sessionId)) {
 			this.worker.postMessage({ t: 'audio', sessionId, pcm } satisfies VoiceWorkerRequest);
 		}
 	}
 
 	stopSession(sessionId: string): void {
+		const cloud = this.cloudSessions.get(sessionId);
+		if (cloud) {
+			cloud.stop();
+			return;
+		}
 		this.endSession(sessionId, 'stop');
 	}
 
 	cancelSession(sessionId: string): void {
+		const cloud = this.cloudSessions.get(sessionId);
+		if (cloud) {
+			cloud.cancel();
+			return;
+		}
 		this.endSession(sessionId, 'cancel');
 	}
 

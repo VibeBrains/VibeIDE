@@ -539,20 +539,35 @@ CommandsRegistry.registerCommand('vibeide.doctor.run', async (accessor: Services
 });
 
 // Export audit log (GDPR)
+// Through the service, not `scripts/vibe-session-export.js`: that script lives in the VibeIDE repository, and the
+// terminal ran it in the user's own folder, where it does not exist.
 CommandsRegistry.registerCommand('vibeide.audit.export', async (accessor: ServicesAccessor) => {
-	await runInVibeTerminal(accessor.get(ITerminalService), 'VibeIDE Audit Export', 'node scripts/vibe-session-export.js --all --output vibe-audit-export.json');
+	const audit = accessor.get(IAuditLogService);
+	const fileDialog = accessor.get(IFileDialogService);
+	const fileService = accessor.get(IFileService);
+	const notifications = accessor.get(INotificationService);
+	const target = await fileDialog.showSaveDialog({
+		title: localize('vibeide.audit.export.title', 'Сохранить журнал аудита'),
+		defaultUri: joinPath(await fileDialog.defaultFilePath(), 'vibe-audit-export.json'),
+		filters: [{ name: 'JSON', extensions: ['json'] }],
+	});
+	if (!target) { return; }
+	await fileService.writeFile(target, VSBuffer.fromString(await audit.exportAll()));
+	notifications.info(localize('vibeide.audit.export.done', 'Журнал аудита сохранён: {0}', target.fsPath));
 });
 
 CommandsRegistry.registerCommand('vibeide.audit.deleteAll', async (accessor: ServicesAccessor) => {
 	const dialog = accessor.get(IDialogService);
-	const terminal = accessor.get(ITerminalService);
+	const audit = accessor.get(IAuditLogService);
+	const notifications = accessor.get(INotificationService);
 	const confirmed = await dialog.confirm({
-		message: localize('vibeide.audit.deleteAll.confirm', 'Удалить все данные аудита/сессий VibeIDE?'),
-		detail: localize('vibeide.audit.deleteAll.detail', 'Операция необратима. Скрипт удаления запустится в терминале.'),
+		message: localize('vibeide.audit.deleteAll.confirm', 'Удалить весь журнал аудита VibeIDE?'),
+		detail: localize('vibeide.audit.deleteAll.detail2', 'Операция необратима: журнал этой рабочей области будет удалён.'),
 		primaryButton: localize('vibeide.audit.deleteAll.primary', 'Удалить'),
 	});
 	if (!confirmed.confirmed) { return; }
-	await runInVibeTerminal(terminal, 'VibeIDE Audit Delete', 'node scripts/vibe-session-export.js --delete-all');
+	await audit.deleteAll();
+	notifications.info(localize('vibeide.audit.deleteAll.done', 'Журнал аудита удалён.'));
 });
 
 /**

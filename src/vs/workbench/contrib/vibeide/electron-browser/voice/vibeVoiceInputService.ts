@@ -48,7 +48,12 @@ import { IVibeModalService } from '../../common/vibeModalService.js';
 import { IVibeVoiceInputService, IVibeVoiceInputState, IVibeVoiceTextEvent, VoiceInputModelState } from '../../common/voice/vibeVoiceInputService.js';
 import { VIBE_VOICE_CHANNEL, VOICE_SAMPLE_RATE, VoiceDownloadProgress, VoiceModelsState, VoiceProfileId, VoiceSessionEvent } from '../../common/voice/vibeVoiceTypes.js';
 import { resolveVoiceProfile, voiceDownloadBytesForProfile } from '../../common/voice/vibeVoiceModels.js';
-import { VOICE_ENABLED_KEY } from '../../common/voice/vibeVoiceConfiguration.js';
+import { resolveVoiceEngine, VOICE_ENABLED_KEY, VOICE_ENGINE_KEY } from '../../common/voice/vibeVoiceConfiguration.js';
+import { IStorageService, StorageScope, StorageTarget } from '../../../../../platform/storage/common/storage.js';
+import { IVibeideSettingsService } from '../../common/vibeideSettingsService.js';
+
+/** Set once the person agreed to send dictation audio to Gemini. */
+const CLOUD_VOICE_CONSENT_KEY = 'vibeide.voice.cloudConsent';
 
 const PROVIDER_ID = 'vibeide.voice';
 /** ScriptProcessor frame: 2048 samples @ 16 kHz ≈ 128 ms per chunk — fine for streaming. */
@@ -104,8 +109,8 @@ class VoiceChannelClient {
 		return this.channel().call('ensureBatchModel', profileId);
 	}
 
-	startSession(sessionId: string, profileId: VoiceProfileId): Promise<void> {
-		return this.channel().call('startSession', { sessionId, profileId });
+	startSession(sessionId: string, profileId: VoiceProfileId, apiKey?: string): Promise<void> {
+		return this.channel().call('startSession', { sessionId, profileId, ...(apiKey ? { apiKey } : {}) });
 	}
 
 	pushAudio(sessionId: string, pcm: VSBuffer): void {
@@ -132,6 +137,8 @@ interface IVoiceSessionHost {
 	fetchModelsState(): Promise<VoiceModelsState>;
 	promptMissingModels(profileId: VoiceProfileId): void;
 	notifyMicrophoneError(error: unknown): void;
+	/** Engine-specific preparation: consent and key for the cloud engine; always ok for the local one. */
+	prepareSession(): Promise<{ readonly ok: true; readonly apiKey?: string } | { readonly ok: false; readonly reason: string }>;
 	reportLevel(level: number): void;
 }
 
@@ -167,6 +174,14 @@ class VoiceCaptureSession extends Disposable implements ISpeechToTextSession {
 	}
 
 	private async initialize(): Promise<void> {
+		const prepared = await this.host.prepareSession();
+		if (this.ended) {
+			return;
+		}
+		if (!prepared.ok) {
+			this.fail(prepared.reason);
+			return;
+		}
 		const state = await this.host.fetchModelsState();
 		if (this.ended) {
 			return;
@@ -179,7 +194,7 @@ class VoiceCaptureSession extends Disposable implements ISpeechToTextSession {
 		// Engine warm-up (model load) and mic acquisition run in parallel; audio is queued
 		// until the worker confirms the session, so the first phonemes are not lost.
 		this.engineStarted = true;
-		this.host.channel.startSession(this.sessionId, this.profileId).catch(error => this.fail(String(error)));
+		this.host.channel.startSession(this.sessionId, this.profileId, prepared.apiKey).catch(error => this.fail(String(error)));
 		try {
 			await this.startCapture();
 		} catch (error) {
@@ -361,6 +376,8 @@ class VibeVoiceInputService extends Disposable implements IVibeVoiceInputService
 		@IProgressService private readonly progressService: IProgressService,
 		@IOpenerService private readonly openerService: IOpenerService,
 		@ILogService public readonly logService: ILogService,
+		@IStorageService private readonly storageService: IStorageService,
+		@IVibeideSettingsService private readonly vibeideSettingsService: IVibeideSettingsService,
 	) {
 		super();
 		this.channel = new VoiceChannelClient(mainProcessService);
@@ -413,6 +430,28 @@ class VibeVoiceInputService extends Disposable implements IVibeVoiceInputService
 	}
 
 	// ── IVoiceSessionHost ────────────────────────────────────────────────────
+
+	async prepareSession(): Promise<{ readonly ok: true; readonly apiKey?: string } | { readonly ok: false; readonly reason: string }> {
+		if (resolveVoiceEngine(this.configurationService.getValue<unknown>(VOICE_ENGINE_KEY)) !== 'gemini') {
+			return { ok: true };
+		}
+		// Asked once: the audio leaves this computer only after the person has said yes to exactly that.
+		if (!this.storageService.getBoolean(CLOUD_VOICE_CONSENT_KEY, StorageScope.APPLICATION, false)) {
+			const consented = await this.vibeModalService.confirmModal({
+				title: localize('vibeVoice.cloudConsentTitle', "Распознавать речь в облаке Gemini?"),
+				body: localize('vibeVoice.cloudConsentBody', "Звук диктовки будет отправляться в Google (модель gemini-3.5-transcribe-live) и оплачиваться по вашему ключу Gemini — около $0.009 за минуту. Вернуть локальное распознавание можно настройкой «vibeide.voice.engine»."),
+				icon: 'mic',
+				okLabel: localize('vibeVoice.cloudConsentYes', "Разрешить"),
+				cancelLabel: localize('vibeVoice.cloudConsentNo', "Отмена"),
+			});
+			if (!consented) {
+				return { ok: false, reason: localize('vibeVoice.cloudConsentDeclined', "Облачное распознавание не разрешено") };
+			}
+			this.storageService.store(CLOUD_VOICE_CONSENT_KEY, true, StorageScope.APPLICATION, StorageTarget.MACHINE);
+		}
+		const apiKey = this.vibeideSettingsService.state.settingsOfProvider.gemini?.apiKey?.trim();
+		return { ok: true, ...(apiKey ? { apiKey } : {}) };
+	}
 
 	resolveProfileId(sessionLanguage: string | undefined): VoiceProfileId {
 		return resolveVoiceProfile(this.configurationService.getValue<unknown>(SPEECH_LANGUAGE_CONFIG), sessionLanguage);

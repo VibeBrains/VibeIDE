@@ -75,6 +75,8 @@ export interface VoiceModelsState {
 export interface VoiceStartSessionOptions {
 	readonly sessionId: string;
 	readonly profileId: VoiceProfileId;
+	/** Gemini key for the cloud engine, taken from the Gemini provider settings; main falls back to GEMINI_API_KEY. */
+	readonly apiKey?: string;
 }
 
 // ── Worker protocol (main ⇄ utility process, structured clone) ────────────────

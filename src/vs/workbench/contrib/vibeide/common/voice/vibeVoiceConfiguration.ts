@@ -24,6 +24,15 @@ export const VOICE_THREADS_KEY = 'vibeide.voice.threads';
 export const VOICE_ENDPOINT_SILENCE_KEY = 'vibeide.voice.endpointSilenceMs';
 export const VOICE_KEEP_ALIVE_KEY = 'vibeide.voice.keepAliveSec';
 export const VOICE_ENGLISH_BATCH_MODEL_KEY = 'vibeide.voice.englishBatchModel';
+export const VOICE_ENGINE_KEY = 'vibeide.voice.engine';
+
+/** Who turns dictation into text: the local engine (default, audio stays here) or Gemini Live Transcribe. */
+export type VoiceEngine = 'local' | 'gemini';
+
+/** Anything but the explicit `gemini` is local: sending audio out must be a deliberate choice. */
+export function resolveVoiceEngine(configured: unknown): VoiceEngine {
+	return configured === 'gemini' ? 'gemini' : 'local';
+}
 
 /** Normalize the raw `englishBatchModel` setting to a known tier (default `small`). */
 export function resolveVoiceEnglishBatchTier(configured: unknown): VoiceEnglishBatchTier {
@@ -69,6 +78,16 @@ Registry.as<IConfigurationRegistry>(ConfigurationExtensions.Configuration).regis
 			type: 'boolean',
 			default: true,
 			description: localize('vibeide.voice.enabled', 'Голосовой ввод (диктовка): локальное распознавание речи без сети — модели работают на этом компьютере. Выключение убирает провайдер речи и все точки входа (кнопка в чате, диктовка в редакторе и терминале).'),
+		},
+		[VOICE_ENGINE_KEY]: {
+			type: 'string',
+			enum: ['local', 'gemini'],
+			enumDescriptions: [
+				localize('vibeide.voice.engine.local', 'Локально: модели на этом компьютере, звук никуда не уходит.'),
+				localize('vibeide.voice.engine.gemini', 'Облако Gemini (gemini-3.5-transcribe-live): звук уходит в Google, модели скачивать не нужно. Ключ — тот, что введён у провайдера Gemini, или переменная GEMINI_API_KEY. Около $0.009 за минуту.'),
+			],
+			default: 'local',
+			description: localize('vibeide.voice.engine', 'Кто распознаёт диктовку. Переключается в любой момент, следующая диктовка идёт уже новым движком; при первом облачном запуске IDE спросит согласие. Разбор аудио командой /watch всегда локальный.'),
 		},
 		[VOICE_MODELS_PATH_KEY]: {
 			type: 'string',

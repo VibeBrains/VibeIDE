@@ -5,7 +5,7 @@
 
 import assert from 'assert';
 import { ensureNoDisposablesAreLeakedInTestSuite } from '../../../../../base/test/common/utils.js';
-import { longContextFromOverrides, normaliseCatalogCost, parseCatalogPrice, perMillionFromPerToken } from '../../common/catalogPricing.js';
+import { longContextFromOverrides, normaliseCatalogCost, parseCatalogPrice, perMillionFromPerToken, timeOfDayFromOverrides } from '../../common/catalogPricing.js';
 
 suite('catalogPricing — aggregators quote per token, we speak per million', () => {
 	ensureNoDisposablesAreLeakedInTestSuite();
@@ -79,5 +79,37 @@ suite('catalogPricing — aggregators quote per token, we speak per million', ()
 			longContextFromOverrides({ input: 5, output: 30 }, [{ min_prompt_tokens: 272000, prompt: '0.000005', completion: '0.00003' }]),
 			undefined,
 		);
+	});
+
+	test('расписание по часу OpenRouter (DeepSeek V4.1 Flash, 17.09.2026) становится пиковыми ставками и time_of_day', () => {
+		const weekdays = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday'];
+		const off = { prompt: '0.00000015', completion: '0.0000006', input_cache_read: '0.000000003' };
+		const peak = { prompt: '0.0000003', completion: '0.0000012', input_cache_read: '0.000000006' };
+		const overrides = [
+			{ utc_days: ['saturday', 'sunday'], ...off },
+			{ utc_days: weekdays, utc_start: 0, utc_end: 100, ...off },
+			{ utc_days: weekdays, utc_start: 100, utc_end: 400, ...peak },
+			{ utc_days: weekdays, utc_start: 400, utc_end: 600, ...off },
+			{ utc_days: weekdays, utc_start: 600, utc_end: 1000, ...peak },
+			{ utc_days: weekdays, utc_start: 1000, utc_end: 0, ...off },
+		];
+		const cost = normaliseCatalogCost('0.00000015', '0.0000006', { cacheRead: '0.000000003', overrides });
+		assert.deepStrictEqual(cost, {
+			input: perMillionFromPerToken('0.0000003'), output: perMillionFromPerToken('0.0000012'), cache_read: perMillionFromPerToken('0.000000006'),
+			time_of_day: { windows: [{ from: 60, to: 240 }, { from: 360, to: 600 }], days: [1, 2, 3, 4, 5], offPeakFactor: 0.5 },
+		});
+	});
+
+	test('противоречивое расписание не приближается: разный множитель, разные дни, скидка вместо надбавки', () => {
+		const base = { input: 1, output: 2 };
+		assert.deepStrictEqual([
+			timeOfDayFromOverrides(base, [{ utc_days: ['monday'], utc_start: 100, utc_end: 200, prompt: '0.000002', completion: '0.000006' }]),
+			timeOfDayFromOverrides(base, [
+				{ utc_days: ['monday'], utc_start: 100, utc_end: 200, prompt: '0.000002', completion: '0.000004' },
+				{ utc_days: ['tuesday'], utc_start: 300, utc_end: 400, prompt: '0.000002', completion: '0.000004' },
+			]),
+			timeOfDayFromOverrides(base, [{ utc_days: ['monday'], utc_start: 100, utc_end: 200, prompt: '0.0000005', completion: '0.000001' }]),
+			timeOfDayFromOverrides(base, undefined),
+		], [undefined, undefined, undefined, undefined]);
 	});
 });
