@@ -31,6 +31,7 @@ import { translateProviderError } from '../common/providerErrorTranslator.js';
 import { generateUuid } from '../../../../base/common/uuid.js';
 import { autoFallbackProviderIds, ChatMode, FeatureName, ModelSelection, ModelSelectionOptions, ProviderName } from '../common/vibeideSettingsTypes.js';
 import { isModelVisionCapable } from '../common/modelVisionHeuristics.js';
+import { AutoModelPin, pinnedAutoModel } from '../common/autoModelStickiness.js';
 import { detectVisionDropResponse } from '../common/visionDropDetector.js';
 import { IVibeideSettingsService } from '../common/vibeideSettingsService.js';
 import { BuiltinToolCallParams, BuiltinToolResultType, TerminalResolveReason, ToolCallParams, ToolName, ToolResult } from '../common/toolsServiceTypes.js';
@@ -460,6 +461,15 @@ export type ThreadType = {
 		// the AI SDK surfaces a `usage` block on `finish`. Used by the UI context-usage
 		// indicator as the authoritative base instead of relying on length/4 heuristics.
 		lastUsage?: LLMTokenUsage;
+
+		/**
+		 * Модель, которую «Авто» выбрал для ЭТОГО разговора, и условия выбора.
+		 *
+		 * Живёт в состоянии треда, потому что липкость — свойство разговора: маршрутизатор,
+		 * запускаемый на каждое сообщение, менял модель посреди задачи, и вместе с ней терялся
+		 * кэш промпта. Пересматривается только по правилам `pinnedAutoModel`.
+		 */
+		autoModelPin?: AutoModelPin;
 
 		// Rate-limit allowance the provider reported on its last response in this thread
 		// (passive quota tracking). Unlike `lastUsage` this is the provider's own view of the
@@ -1683,6 +1693,8 @@ class ChatThreadService extends Disposable implements IChatThreadService {
 			if (globalSettings.imageQADevMode || isCodebaseQuestion) {
 				const logData = {
 					selected: `${routingDecision.modelSelection.providerName}/${routingDecision.modelSelection.modelName}`,
+					// Слой-победитель машинным словом: по нему журнал фильтруется, по `reasoning` — нет.
+					source: routingDecision.source,
 					confidence: routingDecision.confidence,
 					reasoning: routingDecision.reasoning,
 					qualityTier: routingDecision.qualityTier,
@@ -1723,6 +1735,20 @@ class ChatThreadService extends Disposable implements IChatThreadService {
 	 * Order: catalog-driven `supportsVision` override (set by RemoteCatalogService for aggregators
 	 * like OpenRouter where modality info is per-model) → provider heuristics → name-based fallback.
 	 */
+	/** Запомнить выбор «Авто» за тредом; следующее сообщение того же разговора идёт на той же модели. */
+	private _setThreadAutoModelPin(threadId: string, pin: AutoModelPin): void {
+		const thread = this.state.allThreads[threadId];
+		if (!thread) {
+			return;
+		}
+		this._setState({
+			allThreads: {
+				...this.state.allThreads,
+				[threadId]: { ...thread, state: { ...thread.state, autoModelPin: pin } },
+			},
+		});
+	}
+
 	private _isModelVisionCapable(modelSelection: ModelSelection, capabilities: { supportsVision?: boolean } | undefined): boolean {
 		// Single source of truth (common/modelVisionHeuristics.ts) — shared with the subagent runner's
 		// vision-role fallback so the image-attach gate and the fallback can never disagree.
@@ -9342,7 +9368,21 @@ We only need to do it for files that were edited since `from`, ie files between 
 
 			// Start router decision and repo indexer query in parallel
 			// PERFORMANCE: Repo indexer query doesn't need model selection - start it early
-			const routerPromise = this._autoSelectModel(instructions, images, pdfs);
+			//
+			// Липкость: пока условия выбора не изменились, разговор остаётся на той же модели —
+			// иначе каждое сообщение роняет кэш промпта предыдущей и меняет голос ответов.
+			const pinnedThread = this.state.allThreads[threadId];
+			const needsVision = !!(images && images.length > 0) || !!(pdfs && pdfs.length > 0);
+			const pinned = pinnedAutoModel(pinnedThread?.state.autoModelPin, {
+				chatMode: this._settingsService.state.globalSettings.chatMode,
+				needsVision,
+				isAvailable: selection => this._settingsService.state._modelOptions.some(option =>
+					option.selection.providerName === selection.providerName && option.selection.modelName === selection.modelName),
+			});
+			if (pinned) {
+				vibeLog.info('chatThread', `[Auto Model Select] source=pinned ${pinned.providerName}/${pinned.modelName} — разговор остаётся на выбранной ранее модели`);
+			}
+			const routerPromise = pinned ? Promise.resolve(pinned) : this._autoSelectModel(instructions, images, pdfs);
 			const thread = this.state.allThreads[threadId];
 			const chatMessages = thread?.messages ?? [];
 			const { chatMode } = this._settingsService.state.globalSettings;
@@ -9354,6 +9394,17 @@ We only need to do it for files that were edited since `from`, ie files between 
 			const autoSelectedModel = await routerPromise;
 			chatLatencyAudit.markRouterEnd(earlyRequestId);
 			modelSelection = autoSelectedModel;
+			if (autoSelectedModel && !pinned) {
+				// Vision is recorded WITH the pin: an attachment in a later message must be able to
+				// tell «the pinned model cannot read this» without re-deriving capabilities then.
+				const { getModelCapabilities } = await import('../common/modelCapabilities.js');
+				const capabilities = getModelCapabilities(autoSelectedModel.providerName, autoSelectedModel.modelName, this._settingsService.state.overridesOfModel);
+				this._setThreadAutoModelPin(threadId, {
+					selection: autoSelectedModel,
+					chatMode: this._settingsService.state.globalSettings.chatMode,
+					vision: this._isModelVisionCapable(autoSelectedModel, capabilities),
+				});
+			}
 
 			// CRITICAL: If auto selection failed, we need a fallback to prevent null modelSelection
 			// This ensures we never send empty messages to the API (which causes "invalid message format" error)

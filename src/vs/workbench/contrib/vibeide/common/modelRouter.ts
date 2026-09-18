@@ -86,12 +86,35 @@ export interface TaskContext {
 export type QualityTier = 'cheap_fast' | 'standard' | 'escalate' | 'abstain';
 
 /**
+ * Кто именно выбрал модель — машинным словом, а не человеческой фразой.
+ *
+ * `reasoning` объясняет выбор человеку и меняется вместе с формулировкой; отфильтровать по нему
+ * журнал или написать тест нельзя. AIP-57 называет слой-победитель нормативным полем ровно по этой
+ * причине: решение о маршруте, которое не может назвать выигравший слой, неаудируемо.
+ */
+export type RoutingSource =
+	/** Пользователь выбрал модель руками — маршрутизатор не участвовал. */
+	| 'manual'
+	/** Липкость: разговор остаётся на модели, выбранной для него раньше. */
+	| 'pinned'
+	/** Приватный режим: только локальные модели. */
+	| 'privacy'
+	/** Быстрый путь: простой вопрос или картинка — без полного взвешивания. */
+	| 'fast-path'
+	/** Полное взвешивание кандидатов по задаче, возможностям и цене. */
+	| 'scored'
+	/** Выбирать было не из чего либо нужен вопрос пользователю. */
+	| 'none';
+
+/**
  * Routing decision with explanation
  */
 export interface RoutingDecision {
 	modelSelection: ModelSelection;
 	confidence: number; // 0-1
 	reasoning: string;
+	/** Слой, чьё слово оказалось решающим. */
+	source: RoutingSource;
 	fallbackChain?: ModelSelection[]; // ordered list of fallbacks
 	qualityTier?: QualityTier; // pre-flight quality estimate
 	shouldAbstain?: boolean; // true if should ask for clarification
@@ -175,6 +198,7 @@ export class TaskAwareModelRouter extends Disposable implements ITaskAwareModelR
 		if (context.userOverride) {
 			return {
 				modelSelection: context.userOverride,
+				source: 'manual' as const,
 				confidence: 1.0,
 				reasoning: 'User explicitly selected this model',
 				qualityTier: 'standard',
@@ -215,6 +239,7 @@ export class TaskAwareModelRouter extends Disposable implements ITaskAwareModelR
 			// No local models available in privacy mode - return error decision
 			return {
 				modelSelection: { providerName: 'auto', modelName: 'auto' },
+				source: 'privacy' as const,
 				confidence: 0.0,
 				reasoning: 'Privacy mode requires local models, but no local models are configured. Please configure a local provider (Ollama, vLLM, or LM Studio).',
 				qualityTier: 'abstain',
@@ -238,6 +263,7 @@ export class TaskAwareModelRouter extends Disposable implements ITaskAwareModelR
 		if (abstainCheck.shouldAbstain) {
 			return {
 				modelSelection: { providerName: 'auto', modelName: 'auto' }, // Placeholder
+				source: 'none' as const,
 				confidence: 0.0,
 				reasoning: abstainCheck.reason || 'Request needs clarification',
 				qualityTier: 'abstain',
@@ -293,6 +319,7 @@ export class TaskAwareModelRouter extends Disposable implements ITaskAwareModelR
 				const timeoutMs = this.getModelTimeout(selected, context, settingsState);
 				const decision: RoutingDecision = {
 					modelSelection: selected,
+					source: 'fast-path' as const,
 					confidence: 0.8,
 					reasoning: 'Fast path: simple question → fast model',
 					qualityTier: 'cheap_fast',
@@ -320,6 +347,7 @@ export class TaskAwareModelRouter extends Disposable implements ITaskAwareModelR
 				const timeoutMs = this.getModelTimeout(fastVision, context, settingsState);
 				const decision: RoutingDecision = {
 					modelSelection: fastVision,
+					source: 'fast-path' as const,
 					confidence: 0.85,
 					reasoning: 'Ultra-fast path: vision task → vision model',
 					qualityTier: 'standard',
@@ -420,6 +448,7 @@ export class TaskAwareModelRouter extends Disposable implements ITaskAwareModelR
 			const timeoutMs = this.getModelTimeout(best.model, context, settingsState);
 			const decision = {
 				modelSelection: best.model,
+				source: 'scored' as const,
 				confidence: Math.min(1.0, best.score / 100),
 				reasoning: this.generateReasoning(best.model, context, best.score, settingsState),
 				qualityTier,
@@ -450,6 +479,7 @@ export class TaskAwareModelRouter extends Disposable implements ITaskAwareModelR
 			// No models available at all - return error decision
 			return {
 				modelSelection: { providerName: 'auto', modelName: 'auto' },
+				source: 'none' as const,
 				confidence: 0.0,
 				reasoning: 'No models available. Please configure at least one model provider in settings.',
 				qualityTier: 'abstain',
@@ -494,6 +524,7 @@ export class TaskAwareModelRouter extends Disposable implements ITaskAwareModelR
 			// Last resort: return error
 			return {
 				modelSelection: { providerName: 'auto', modelName: 'auto' },
+				source: 'none' as const,
 				confidence: 0.0,
 				reasoning: 'Router error: No valid model could be selected. Please check your model configuration.',
 				qualityTier: 'abstain',
@@ -531,6 +562,7 @@ export class TaskAwareModelRouter extends Disposable implements ITaskAwareModelR
 		}
 
 		const decision = {
+		source: 'scored' as const,
 			modelSelection: finalModel,
 			confidence,
 			reasoning,
@@ -1499,6 +1531,7 @@ export class TaskAwareModelRouter extends Disposable implements ITaskAwareModelR
 
 		return {
 			modelSelection: best.model,
+			source: 'privacy' as const,
 			confidence: Math.min(1.0, best.score / 100),
 			reasoning: `Privacy/offline mode: selected local model ${best.model.modelName}`,
 			fallbackChain: scored.slice(1, 3).map(s => s.model),
