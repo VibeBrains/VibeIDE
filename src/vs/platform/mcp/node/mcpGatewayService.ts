@@ -13,6 +13,7 @@ import { generateUuid } from '../../../base/common/uuid.js';
 import { isLoopbackHost, isRemoteLoopback } from '../../../base/common/loopbackAdmission.js';
 import { ILogger, ILoggerService } from '../../log/common/log.js';
 import { IMcpGatewayInfo, IMcpGatewayServerDescriptor, IMcpGatewayServerInfo, IMcpGatewayService, IMcpGatewaySingleServerInvoker, IMcpGatewayToolInvoker } from '../common/mcpGateway.js';
+import { isStatelessMessage } from '../common/mcpStatelessRequest.js';
 import { isInitializeMessage, McpGatewaySession } from './mcpGatewaySession.js';
 
 /**
@@ -548,7 +549,10 @@ class McpGatewayRoute extends Disposable {
 			return existing;
 		}
 
-		if (!isInitializeMessage(message)) {
+		// Новый клиент заголовка сессии не шлёт вовсе — ему открывается обычная сессия, о которой он
+		// не знает: для него она живёт ровно один запрос, для нас остаётся местом, где висит
+		// подключение к серверам. Отказ здесь означал бы «мы недоступны», а не «работаем по-старому».
+		if (!isInitializeMessage(message) && !isStatelessMessage(message)) {
 			this._respondHttpError(res, 400, 'Missing Mcp-Session-Id header');
 			return undefined;
 		}

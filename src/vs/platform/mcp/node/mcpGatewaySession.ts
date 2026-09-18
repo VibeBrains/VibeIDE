@@ -13,9 +13,19 @@ import { hasKey } from '../../../base/common/types.js';
 import { ILogger } from '../../log/common/log.js';
 import { IMcpGatewaySingleServerInvoker } from '../common/mcpGateway.js';
 import { MCP } from '../common/modelContextProtocol.js';
+import { isStatelessMessage, MCP_DISCOVER_METHOD, statelessProtocolVersionOf } from '../common/mcpStatelessRequest.js';
 
-const MCP_LATEST_PROTOCOL_VERSION = '2025-11-25';
+/**
+ * Версия, которой отвечаем на `initialize`.
+ *
+ * Не самая новая намеренно: в ревизии 2026-07-28 рукопожатия нет вовсе, и назвать её в ответе на
+ * `initialize` значит согласиться говорить так, как собеседник по определению не умеет.
+ */
+const MCP_HANDSHAKE_FALLBACK_VERSION = '2025-11-25';
 const MCP_SUPPORTED_PROTOCOL_VERSIONS = [
+	// Ревизия без сессий и без `initialize`: запрос несёт версию в `_meta`, знакомство идёт
+	// через `server/discover` (SEP-2567 и SEP-2575).
+	'2026-07-28',
 	'2025-11-25',
 	'2025-06-18',
 	'2025-03-26',
@@ -150,6 +160,18 @@ export class McpGatewaySession extends Disposable {
 			return this._handleInitialize(request);
 		}
 
+		// Клиент ревизии 2026-07-28 рукопожатия не делает: версия и возможности едут в `_meta`
+		// каждого запроса, а `server/discover` — то, чем он знакомится с сервером. Такой запрос
+		// сессией не открывается и требовать её от него значит отвечать отказом на верный запрос.
+		if (request.method === MCP_DISCOVER_METHOD) {
+			return this._handleDiscover();
+		}
+		if (!this._isInitialized && isStatelessMessage(request)) {
+			const version = statelessProtocolVersionOf(request);
+			this._logService.info(`[McpGateway][session ${this.id}] Stateless request '${request.method}', client protocol ${version ?? '(none)'}`);
+			this._isInitialized = true;
+		}
+
 		if (!this._isInitialized) {
 			this._logService.warn(`[McpGateway][session ${this.id}] Rejected request '${request.method}': session not initialized`);
 			throw new JsonRpcError(MCP_INVALID_REQUEST, 'Session is not initialized');
@@ -185,13 +207,34 @@ export class McpGatewaySession extends Disposable {
 		}
 	}
 
+	/**
+	 * Знакомство без рукопожатия: версии, возможности, кто мы.
+	 *
+	 * Отдаётся ЛЮБОМУ запросившему, до всякой сессии — в этом и смысл метода: клиент спрашивает
+	 * «с кем я говорю», ещё не зная, поддерживаем ли мы его ревизию.
+	 */
+	private _handleDiscover(): { protocolVersions: string[]; capabilities: MCP.ServerCapabilities; serverInfo: MCP.Implementation } {
+		this._logService.info(`[McpGateway][session ${this.id}] server/discover`);
+		return {
+			protocolVersions: [...MCP_SUPPORTED_PROTOCOL_VERSIONS],
+			capabilities: {
+				tools: { listChanged: true },
+				resources: { listChanged: true },
+			},
+			serverInfo: {
+				name: 'VS Code MCP Gateway',
+				version: '1.0.0',
+			},
+		};
+	}
+
 	private _handleInitialize(request: IJsonRpcRequest): MCP.InitializeResult {
 		const params = typeof request.params === 'object' && request.params ? request.params as Record<string, unknown> : undefined;
 		const clientVersion = typeof params?.protocolVersion === 'string' ? params.protocolVersion : undefined;
 		const clientInfo = params?.clientInfo as { name?: string; version?: string } | undefined;
-		const negotiatedVersion = clientVersion && MCP_SUPPORTED_PROTOCOL_VERSIONS.includes(clientVersion)
+		const negotiatedVersion = clientVersion && MCP_SUPPORTED_PROTOCOL_VERSIONS.includes(clientVersion) && clientVersion !== '2026-07-28'
 			? clientVersion
-			: MCP_LATEST_PROTOCOL_VERSION;
+			: MCP_HANDSHAKE_FALLBACK_VERSION;
 
 		this._logService.info(`[McpGateway] Initialize: client=${clientInfo?.name ?? 'unknown'}/${clientInfo?.version ?? '?'}, clientProtocol=${clientVersion ?? '(none)'}, negotiated=${negotiatedVersion}`);
 		if (clientVersion && clientVersion !== negotiatedVersion) {
