@@ -25,6 +25,7 @@ import { truncateHeadTail } from '../common/toolHardening.js';
 import { IVibeSubagentRunner, SubagentRunRequest, SubagentRunOutcome } from '../common/vibeSubagentRunner.js';
 import { IVibeSubagentRegistryService } from '../common/vibeSubagentRegistryService.js';
 import { IVibeSpendLedgerService } from './vibeSpendLedgerService.js';
+import { commandEscapesScope, describeCommandEscape } from '../common/commandEscapesScope.js';
 import { decideStop, hopTokenCost, truncateSummary, chatModeForAllowedTools, collectPathsFromRawParams, buildExploreReport, buildSubagentTaskMessage, stopReasonToRussian, SUBAGENT_MAX_DENIED_ACTIONS, SubagentStopReason } from '../common/subagentLoopPolicy.js';
 import { IConvertToLLMMessageService } from './convertToLLMMessageService.js';
 import { IToolsService } from './toolsService.js';
@@ -336,6 +337,18 @@ class VibeSubagentRunnerService extends Disposable implements IVibeSubagentRunne
 			// independent, and a step scoped to `docs/**` must not rewrite a neighbour's `src/`.
 			// Only writes are scoped: narrowing what a step may READ would break the shared context
 			// the pipeline exists to pass along.
+			// Та же граница для команд оболочки: у инструмента правки путь виден, у `run_command` —
+			// только строка, и `cd ../other && …` в ней обходил границу целиком.
+			if (req.writeScope && toolName === 'run_command') {
+				const command = (params as { command?: unknown })?.command;
+				const escape = typeof command === 'string' ? commandEscapesScope(command) : undefined;
+				if (escape) {
+					deniedActions++;
+					history.push(this._invalidToolMessage(toolCall, describeCommandEscape(String(command), escape, req.writeScope.paths)));
+					continue;
+				}
+			}
+
 			const scopedPath = req.writeScope ? writeTargetOf(toolName, params) : undefined;
 			if (req.writeScope && scopedPath !== undefined) {
 				const relative = this._workspaceRelative(scopedPath);

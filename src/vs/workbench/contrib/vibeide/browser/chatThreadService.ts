@@ -153,6 +153,7 @@ import { decideResume, appendChunk, PartialResponse } from '../common/responseRe
 import { IVibeSessionMemoryService } from '../common/vibeSessionMemoryService.js';
 import { IVibeAgentTerritorialLockService } from './vibeAgentTerritorialLockService.js';
 import { resolveModelForPath, decodeRoutingRules } from '../common/modelRoutingByPath.js';
+import { normalizeModelRoutes, resolveModelReference } from '../common/modelRouteKeys.js';
 import { IVibeMentionService } from '../common/vibeMentionService.js';
 import { IVibeSearchContextService } from '../common/vibeSearchContextService.js';
 import { IVibeAIDebuggingService } from './vibeAIDebuggingContribution.js';
@@ -5103,7 +5104,13 @@ Output ONLY the JSON, no other text. Start with { and end with }.`;
 					const filePath = fileItem.uri.fsPath.replace(/\\/g, '/');
 					const decision = resolveModelForPath(filePath, routingDecoded.value, resolvedModelSelection.modelName);
 					if (decision.source === 'rule') {
-						const routed = this._findModelSelectionForId(decision.resolvedModelId);
+						// Правило могло назвать логическое имя (`@fast`) — разворачиваем его до модели.
+						const routes = normalizeModelRoutes(this._configurationService.getValue<unknown>('vibeide.model.routes'));
+						const resolution = resolveModelReference(decision.resolvedModelId, routes);
+						if (resolution.kind === 'unknown-key') {
+							vibeLog.warn('chatThread', `model-routing: правило для ${filePath} ссылается на «@${resolution.key}», которого нет в vibeide.model.routes — правило пропущено`);
+						}
+						const routed = resolution.kind === 'model' ? this._findModelSelectionForId(resolution.reference) : undefined;
 						if (routed) {
 							resolvedModelSelection = routed;
 							const rp = routed.providerName as Exclude<ProviderName, 'auto'>;

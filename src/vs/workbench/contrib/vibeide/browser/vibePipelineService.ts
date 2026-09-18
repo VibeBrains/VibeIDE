@@ -53,6 +53,7 @@ import { readRolesFile } from '../common/pipeline/vibeRolesFile.js';
 import { IVibeideSettingsService } from '../common/vibeideSettingsService.js';
 import { getModelCapabilities } from '../common/modelCapabilities.js';
 import { nextOffPeakMoment } from '../common/modelPriceSchedule.js';
+import { normalizeModelRoutes, resolveModelReference } from '../common/modelRouteKeys.js';
 
 const CONFIG_REVIEWER_SEES_SUMMARY = 'vibeide.pipeline.reviewerSeesStepSummary';
 
@@ -200,12 +201,30 @@ export class VibePipelineService extends Disposable implements IVibePipelineServ
 	 * has the reasoning. The setting that brings the worker's account back exists to compare the two,
 	 * so the mode is logged next to every verdict and kept in the outcome.
 	 */
+	/**
+	 * Ссылка на модель из файла пайплайна: логическое имя (`@fast`) разворачивается по
+	 * `vibeide.model.routes`, обычное имя идёт как есть. Имени, которого нет в таблице,
+	 * подстановки не будет — шаг об этом скажет.
+	 */
+	private _modelRefOf(reference: string | undefined, where: string): string | undefined {
+		if (!reference) {
+			return undefined;
+		}
+		const routes = normalizeModelRoutes(this._configuration.getValue<unknown>('vibeide.model.routes'));
+		const resolution = resolveModelReference(reference, routes);
+		if (resolution.kind === 'unknown-key') {
+			vibeLog.warn('Pipeline', `${where}: логического имени «@${resolution.key}» нет в vibeide.model.routes — шаг пойдёт на модели по умолчанию`);
+			return undefined;
+		}
+		return resolution.reference;
+	}
+
 	private async _review(step: VibePipelineStep, result: { summary: string; artifacts?: readonly string[] }, parentThreadId: string): Promise<PipelineStepOutcome['review']> {
-		const reviewer = parseModelRef(step.reviewWith);
+		const reviewer = parseModelRef(this._modelRefOf(step.reviewWith, `шаг ${step.role}, reviewWith`));
 		if (!reviewer) {
 			return undefined;
 		}
-		const worker = parseModelRef(step.model);
+		const worker = parseModelRef(this._modelRefOf(step.model, `шаг ${step.role}, model`));
 		if (worker && worker.providerName === reviewer.providerName) {
 			// Not refused — the provider is a weak proxy for the model family, and one provider does
 			// serve several families. Said out loud because a critique by a sibling model is the case
@@ -274,7 +293,7 @@ export class VibePipelineService extends Disposable implements IVibePipelineServ
 						throw new Error(localize('vibeide.pipeline.badRole', 'Неизвестная роль «{0}». Доступны: {1}', step.role, SUBAGENT_TYPES.join(', ')));
 					}
 					const runStep = async (modelRef: string | undefined, cascadeDraft: boolean, escalatedFrom?: { runId: string; model?: string }, rework?: { runId: string; notes: string }) => {
-						const model = parseModelRef(modelRef);
+						const model = parseModelRef(this._modelRefOf(modelRef, `шаг ${step.role}`));
 						const subagentId = await this._subagents.spawn({
 							parentThreadId,
 							type: step.role as SubagentType,
