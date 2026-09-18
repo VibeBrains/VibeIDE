@@ -20,6 +20,7 @@ import { mcpAppsClientCapabilities } from '../common/mcpApps.js';
 import { MCPUserStateOfName } from '../common/vibeideSettingsTypes.js';
 import { mergeServerEnv, transportRequestInit } from '../common/mcpServerEnv.js';
 import { McpCacheableMeta, parseCacheableMeta, refreshDelayMs } from '../common/mcpCacheableResult.js';
+import { describeUnansweredInput, parseInputRequired } from '../common/mcpMultiRoundTrip.js';
 
 const getClientConfig = (serverName: string) => {
 	return {
@@ -541,6 +542,15 @@ export class MCPChannel implements IServerChannel {
 			name: toolName,
 			arguments: params
 		});
+		// Конверт MRTR — не результат инструмента: в нём нет ни content, ни structuredContent, и
+		// прежний разбор падал на пустом `content[0]` сообщением, по которому не понять, что сервер
+		// задал вопрос. Отвечаем моделью читаемой строкой, а не сбоем (SEP-2322).
+		const inputRequired = parseInputRequired(response);
+		if (inputRequired) {
+			vibeLog.info('mcpChannel', `MCP server "${serverName}": инструмент ${toolName} просит ввод — ${inputRequired.inputRequests.map(r => r.method).join(', ') || '(метод не назван)'}`);
+			throw new Error(describeUnansweredInput(toolName, inputRequired));
+		}
+
 		const { content, structuredContent } = response as import('@modelcontextprotocol/sdk/types.js').CallToolResult;
 		// Kept whole for an MCP App rendering this result; the model still gets the text below.
 		const callResult = response as unknown as MCP.CallToolResult;
