@@ -84,6 +84,40 @@ export interface IVibeideSCMService {
 	 * @param maxCommits Hard ceiling, so a long-lived repository cannot stall the read
 	 */
 	gitCouplingLog(path: string, days: number, maxCommits: number): Promise<string>;
+	/**
+	 * Создать рабочее дерево агента: своя папка, своя ветка от `baseRef`.
+	 *
+	 * Возвращает абсолютный путь дерева. Папка дерева заодно попадает в `.git/info/exclude` — это
+	 * локальный список исключений, поэтому `.gitignore` пользователя мы не трогаем, а дерево не
+	 * висит в его `git status` как гора неотслеженных файлов.
+	 *
+	 * @param path Любой путь внутри репозитория
+	 * @param branch Имя ветки дерева; занятое имя — ошибка, а не молчаливое переиспользование
+	 * @param relativePath Путь дерева относительно корня репозитория
+	 * @param baseRef От чего ответвляться; по умолчанию `HEAD`
+	 */
+	addWorktree(path: string, branch: string, relativePath: string, baseRef?: string): Promise<string>;
+	/**
+	 * Убрать рабочее дерево. Без `force` git откажется удалять дерево с несохранёнными правками —
+	 * и это верно: молча стереть чужую работу хуже, чем оставить папку.
+	 *
+	 * @param path Любой путь внутри репозитория
+	 * @param worktreePath Путь дерева (абсолютный или относительно корня)
+	 */
+	removeWorktree(path: string, worktreePath: string, force?: boolean): Promise<void>;
+	/**
+	 * Влить ветку дерева в текущую ветку репозитория отдельным коммитом слияния.
+	 *
+	 * `--no-ff` намеренно: работа агента должна остаться видимой в истории одним узлом, иначе
+	 * «что он сделал» приходится собирать по отдельным коммитам.
+	 *
+	 * @param path Любой путь внутри репозитория
+	 */
+	mergeWorktreeBranch(path: string, branch: string): Promise<void>;
+	/** Удалить ветку дерева после слияния. */
+	deleteBranch(path: string, branch: string): Promise<void>;
+	/** `git worktree list --porcelain` как есть — разбирает вызывающая сторона. */
+	listWorktrees(path: string): Promise<string>;
 }
 
 export const IVibeideSCMService = createDecorator<IVibeideSCMService>('vibeideSCMService');
