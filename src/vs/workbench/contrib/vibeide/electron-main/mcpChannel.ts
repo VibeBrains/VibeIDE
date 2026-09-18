@@ -14,11 +14,12 @@ import { Emitter, Event } from '../../../../base/common/event.js';
 // MCP SDK client/transport modules are heavy and electron-main start-up sensitive; they are
 // loaded lazily via `await import(...)` inside `_createClientUnsafe`. Type-only positions use
 // inline `import('...')` type expressions so no value import reaches module scope.
-import { MCPConfigFileJSON, MCPConfigFileEntryJSON, MCPServer, RawMCPToolCall, MCPToolErrorResponse, MCPServerEventResponse, MCPToolCallParams, MCPReadResourceParams, MCPAppRequestOutcome } from '../common/mcpServiceTypes.js';
+import { MCPConfigFileJSON, MCPConfigFileEntryJSON, MCPServer, MCPTool, RawMCPToolCall, MCPToolErrorResponse, MCPServerEventResponse, MCPToolCallParams, MCPReadResourceParams, MCPAppRequestOutcome } from '../common/mcpServiceTypes.js';
 import { MCP } from '../../mcp/common/modelContextProtocol.js';
 import { mcpAppsClientCapabilities } from '../common/mcpApps.js';
 import { MCPUserStateOfName } from '../common/vibeideSettingsTypes.js';
 import { mergeServerEnv, transportRequestInit } from '../common/mcpServerEnv.js';
+import { McpCacheableMeta, parseCacheableMeta, refreshDelayMs } from '../common/mcpCacheableResult.js';
 
 const getClientConfig = (serverName: string) => {
 	return {
@@ -51,6 +52,8 @@ export class MCPChannel implements IServerChannel {
 
 	private readonly infoOfClientId: InfoOfClientId = {};
 	private readonly _refreshingServerNames: Set<string> = new Set();
+	/** Таймеры перечитывания списка инструментов: по одному на сервер, объявивший срок годности. */
+	private readonly _toolListTimers = new Map<string, ReturnType<typeof setTimeout>>();
 	/** Whether clients announce MCP Apps; set by every refresh, so a toggle reuses the last answer. */
 	private _appsEnabled = false;
 
@@ -286,7 +289,7 @@ export class MCPChannel implements IServerChannel {
 					transport = new SSEClientTransport(url, transportRequestInit(server.headers));
 					await client.connect(transport);
 					vibeLog.info('mcpChannel', `Connected via SSE to ${serverName}`);
-					const { tools } = await client.listTools();
+					const { tools } = await this._listTools(client, serverName);
 					info = {
 						status: isOn ? 'success' : 'offline',
 						tools: tools,
@@ -302,7 +305,7 @@ export class MCPChannel implements IServerChannel {
 					transport = new StreamableHTTPClientTransport(url, transportRequestInit(server.headers));
 					await client.connect(transport);
 					vibeLog.info('mcpChannel', `Connected via HTTP to ${serverName}`);
-					const { tools } = await client.listTools();
+					const { tools } = await this._listTools(client, serverName);
 					info = {
 						status: isOn ? 'success' : 'offline',
 						tools: tools,
@@ -318,7 +321,7 @@ export class MCPChannel implements IServerChannel {
 					transport = new StreamableHTTPClientTransport(url, transportRequestInit(server.headers));
 					await client.connect(transport);
 					vibeLog.info('mcpChannel', `Connected via HTTP to ${serverName}`);
-					const { tools } = await client.listTools();
+					const { tools } = await this._listTools(client, serverName);
 					info = {
 						status: isOn ? 'success' : 'offline',
 						tools: tools,
@@ -328,7 +331,7 @@ export class MCPChannel implements IServerChannel {
 					vibeLog.warn('mcpChannel', `HTTP failed for ${serverName}, trying SSE…`, httpErr);
 					transport = new SSEClientTransport(url, transportRequestInit(server.headers));
 					await client.connect(transport);
-					const { tools } = await client.listTools();
+					const { tools } = await this._listTools(client, serverName);
 					vibeLog.info('mcpChannel', `Connected via SSE to ${serverName}`);
 					info = {
 						status: isOn ? 'success' : 'offline',
@@ -354,7 +357,7 @@ export class MCPChannel implements IServerChannel {
 			await client.connect(transport);
 
 			// Get the tools from the server
-			const { tools } = await client.listTools();
+			const { tools } = await this._listTools(client, serverName);
 
 			// Create a full command string for display
 			const fullCommand = `${server.command} ${server.args?.join(' ') || ''}`;
@@ -372,6 +375,66 @@ export class MCPChannel implements IServerChannel {
 
 
 		return { _client: client, mcpServerEntryJSON: server, mcpServer: info };
+	}
+
+	/**
+	 * Список инструментов плюс срок его годности, если сервер его объявил.
+	 *
+	 * Мы список не опрашиваем — читаем при подключении и держим до ручного обновления. Поэтому срок
+	 * годности здесь не экономия запросов, а единственный способ узнать, что список устарел: сервер
+	 * сам говорит, до какого момента ему верить, и по истечении мы перечитываем ровно его.
+	 */
+	private async _listTools(client: import('@modelcontextprotocol/sdk/client/index.js').Client, serverName: string): Promise<{ tools: MCPTool[] }> {
+		const listed = await client.listTools();
+		const meta = parseCacheableMeta(listed);
+		this._scheduleToolListRefresh(serverName, meta);
+		return { tools: listed.tools as MCPTool[] };
+	}
+
+	/** Перечитать список этого сервера, когда объявленный им срок истечёт. */
+	private _scheduleToolListRefresh(serverName: string, meta: McpCacheableMeta | undefined): void {
+		const existing = this._toolListTimers.get(serverName);
+		if (existing) {
+			clearTimeout(existing);
+			this._toolListTimers.delete(serverName);
+		}
+		if (!meta) {
+			return;
+		}
+		const delay = refreshDelayMs(meta);
+		vibeLog.info('mcpChannel', `MCP server "${serverName}": список инструментов годен ${meta.ttlMs} мс${meta.cacheScope ? ` (${meta.cacheScope})` : ''} — перечитаю через ${delay} мс`);
+		this._toolListTimers.set(serverName, setTimeout(() => {
+			this._toolListTimers.delete(serverName);
+			void this._refreshExpiredToolList(serverName);
+		}, delay));
+	}
+
+	private async _refreshExpiredToolList(serverName: string): Promise<void> {
+		const info = this.infoOfClientId[serverName];
+		const client = info?._client;
+		if (!client || info.mcpServer.status !== 'success') {
+			return;
+		}
+		try {
+			const prevServer = info.mcpServer;
+			if (prevServer.status === 'error') {
+				return;
+			}
+			const { tools } = await this._listTools(client, serverName);
+			// Собирается полем к полю, а не спредом: `MCPServerNonError` — пересечение с `Omit<…>`, и
+			// спред по нему теряет сужение статуса.
+			const newServer: MCPServer = {
+				status: prevServer.status === 'loading' || prevServer.status === 'offline' ? prevServer.status : 'success',
+				tools,
+				...(prevServer.command !== undefined ? { command: prevServer.command } : {}),
+				...(prevServer.error !== undefined ? { error: prevServer.error } : {}),
+			};
+			info.mcpServer = newServer as typeof info.mcpServer;
+			this.mcpEmitters.serverEvent.onUpdate.fire({ response: { name: serverName, newServer, prevServer: prevServer as MCPServer } });
+		} catch (err) {
+			// Протухший список лучше молчаливой ошибки: оставляем прежний и говорим об этом в журнал.
+			vibeLog.warn('mcpChannel', `MCP server "${serverName}": не удалось перечитать список инструментов по истечении срока`, err);
+		}
 	}
 
 	private async _createClient(serverConfig: MCPConfigFileEntryJSON, serverName: string, isOn = true): Promise<ClientInfo> {
@@ -397,6 +460,11 @@ export class MCPChannel implements IServerChannel {
 	}
 
 	private async _closeClient(serverName: string) {
+		const timer = this._toolListTimers.get(serverName);
+		if (timer) {
+			clearTimeout(timer);
+			this._toolListTimers.delete(serverName);
+		}
 		const info = this.infoOfClientId[serverName];
 		if (!info) {
 			return;
