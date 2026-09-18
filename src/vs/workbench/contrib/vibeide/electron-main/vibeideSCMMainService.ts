@@ -209,6 +209,12 @@ export class VibeideSCMService extends Disposable implements IVibeideSCMService 
 		await gitArgv(['branch', '-d', branch], root);
 	}
 
+	async listConflictedFiles(path: string): Promise<string[]> {
+		const root = await gitArgv(SNAPSHOT_ARGV.repoRoot, path);
+		const out = await gitArgv(['diff', '--name-only', '--diff-filter=U'], root);
+		return out.split(/\r?\n/).map(line => line.trim()).filter(Boolean);
+	}
+
 	async listWorktrees(path: string): Promise<string> {
 		const root = await gitArgv(SNAPSHOT_ARGV.repoRoot, path);
 		return await gitArgv(['worktree', 'list', '--porcelain'], root);

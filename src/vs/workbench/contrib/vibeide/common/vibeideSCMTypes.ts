@@ -116,6 +116,13 @@ export interface IVibeideSCMService {
 	mergeWorktreeBranch(path: string, branch: string): Promise<void>;
 	/** Удалить ветку дерева после слияния. */
 	deleteBranch(path: string, branch: string): Promise<void>;
+	/**
+	 * Файлы с неразрешённым конфликтом слияния — путями относительно корня репозитория.
+	 *
+	 * Спрашивается у git, а не поиском маркеров по проекту: `<<<<<<<` в чужом коде, в тесте или в
+	 * документации — не конфликт слияния, и вести из-за него агента в правку незачем.
+	 */
+	listConflictedFiles(path: string): Promise<string[]>;
 	/** `git worktree list --porcelain` как есть — разбирает вызывающая сторона. */
 	listWorktrees(path: string): Promise<string>;
 }

@@ -17,8 +17,11 @@ import { Action2, registerAction2 } from '../../../../platform/actions/common/ac
 import { localize, localize2 } from '../../../../nls.js';
 import { IFileService } from '../../../../platform/files/common/files.js';
 import { VSBuffer } from '../../../../base/common/buffer.js';
-import { joinPath } from '../../../../base/common/resources.js';
 import { IWorkspaceContextService } from '../../../../platform/workspace/common/workspace.js';
+import { joinPath } from '../../../../base/common/resources.js';
+import { IVibeideSCMService } from '../common/vibeideSCMTypes.js';
+import { vibeLog } from '../common/vibeLog.js';
+import { describeConflictsForAgent, MergeConflictReport, parseMergeConflicts } from '../common/vibeMergeConflictService.js';
 import { INotificationService, Severity } from '../../../../platform/notification/common/notification.js';
 import { generateUuid } from '../../../../base/common/uuid.js';
 import { URI } from '../../../../base/common/uri.js';
@@ -1573,5 +1576,68 @@ registerAction2(class extends Action2 {
 			severity: Severity.Info,
 			message: localize('vibeideCopyIssueReportDone', 'Диагностический отчёт скопирован в буфер обмена.'),
 		});
+	}
+});
+
+/**
+ * «Разрешить конфликты слияния» — конфликт остаётся конфликтом, а работа уходит агенту.
+ *
+ * Сторону не выбирает ни команда, ни эвристика: задание называет файлы и места, а решает тот, кто
+ * прочитает обе стороны. Файлы берутся у git (`diff --diff-filter=U`), а не поиском по маркерам:
+ * маркер в чужом коде или в тесте — не конфликт слияния, и вести из-за него агента в правку незачем.
+ */
+registerAction2(class VibeResolveMergeConflicts extends Action2 {
+	constructor() {
+		super({
+			id: 'vibeide.git.resolveMergeConflicts',
+			f1: true,
+			title: localize2('vibeide.git.resolveMergeConflicts.title', 'Разрешить конфликты слияния'),
+			category: VIBE_COMMAND_CATEGORY,
+		});
+	}
+
+	async run(accessor: ServicesAccessor): Promise<void> {
+		const notifications = accessor.get(INotificationService);
+		const workspace = accessor.get(IWorkspaceContextService);
+		const fileService = accessor.get(IFileService);
+		const chatThreadService = accessor.get(IChatThreadService);
+		const scm = accessor.get(IVibeideSCMService);
+
+		const folder = workspace.getWorkspace().folders[0];
+		if (!folder) {
+			notifications.notify({ severity: Severity.Info, message: localize('vibeide.git.noFolder', 'Нет открытой папки проекта.') });
+			return;
+		}
+
+		let conflicted: string[];
+		try {
+			conflicted = (await scm.listConflictedFiles(folder.uri.fsPath)).filter(Boolean);
+		} catch (error) {
+			notifications.notify({ severity: Severity.Warning, message: localize('vibeide.git.listFailed', 'Не удалось спросить git о конфликтах: {0}', String(error instanceof Error ? error.message : error)) });
+			return;
+		}
+		if (conflicted.length === 0) {
+			notifications.notify({ severity: Severity.Info, message: localize('vibeide.git.noConflicts', 'Неразрешённых конфликтов слияния нет.') });
+			return;
+		}
+
+		const reports: MergeConflictReport[] = [];
+		for (const relative of conflicted) {
+			try {
+				const uri = joinPath(folder.uri, relative);
+				const content = (await fileService.readFile(uri)).value.toString();
+				reports.push(parseMergeConflicts(relative, content));
+			} catch (error) {
+				vibeLog.warn('mergeConflicts', `Файл ${relative} не прочитан: ${error}`);
+			}
+		}
+		if (reports.length === 0) {
+			notifications.notify({ severity: Severity.Warning, message: localize('vibeide.git.unreadable', 'Git назвал конфликтные файлы, но прочитать их не удалось.') });
+			return;
+		}
+
+		const threadId = chatThreadService.state.currentThreadId;
+		const task = describeConflictsForAgent(reports);
+		await chatThreadService.addUserMessageAndStreamResponse({ userMessage: task, threadId, displayContent: task });
 	}
 });

@@ -429,7 +429,6 @@ import '../common/vibeAIDiffSummarizerService.js';
 import '../common/vibePromptDiffService.js';
 
 // VibeIDE: AI merge conflict resolution
-import '../common/vibeMergeConflictService.js';
 
 // VibeIDE: Screenshot → code workflow (privacy warnings)
 import '../common/vibeScreenshotCodeService.js';
