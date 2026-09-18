@@ -25,9 +25,58 @@ export const VOICE_ENDPOINT_SILENCE_KEY = 'vibeide.voice.endpointSilenceMs';
 export const VOICE_KEEP_ALIVE_KEY = 'vibeide.voice.keepAliveSec';
 export const VOICE_ENGLISH_BATCH_MODEL_KEY = 'vibeide.voice.englishBatchModel';
 export const VOICE_ENGINE_KEY = 'vibeide.voice.engine';
+export const VOICE_CLOUD_MODE_KEY = 'vibeide.voice.cloudMode';
+export const VOICE_CLOUD_VOCABULARY_KEY = 'vibeide.voice.cloudVocabulary';
 
 /** Who turns dictation into text: the local engine (default, audio stays here) or Gemini Live Transcribe. */
 export type VoiceEngine = 'local' | 'gemini';
+
+/**
+ * How the cloud engine writes what it heard.
+ *
+ * `smart` is the vendor's post-processed transcript: punctuation, capitals, no «э-э», numbers and lists
+ * formatted. `verbatim` is the vendor's default — every word as said, which is what a transcript for
+ * review wants and what dictation into an editor usually does not.
+ */
+export type VoiceCloudMode = 'smart' | 'verbatim';
+
+/** Unknown value → `smart`: the setting exists to turn the tidying OFF, so its default is «on». */
+export function resolveVoiceCloudMode(configured: unknown): VoiceCloudMode {
+	return configured === 'verbatim' ? 'verbatim' : 'smart';
+}
+
+/** The vendor accepts up to 1000 terms and recommends far fewer; beyond that recognition drifts. */
+export const VOICE_VOCABULARY_MAX_TERMS = 1000;
+
+/**
+ * Project terms the cloud engine should expect to hear.
+ *
+ * Trimmed, de-duplicated case-insensitively, empty entries dropped, capped. A non-array (a string in
+ * the settings file) yields an empty list rather than one term made of the whole line.
+ */
+export function resolveVoiceCloudVocabulary(configured: unknown): string[] {
+	if (!Array.isArray(configured)) {
+		return [];
+	}
+	const seen = new Set<string>();
+	const terms: string[] = [];
+	for (const raw of configured) {
+		if (typeof raw !== 'string') {
+			continue;
+		}
+		const term = raw.trim();
+		const key = term.toLowerCase();
+		if (!term || seen.has(key)) {
+			continue;
+		}
+		seen.add(key);
+		terms.push(term);
+		if (terms.length === VOICE_VOCABULARY_MAX_TERMS) {
+			break;
+		}
+	}
+	return terms;
+}
 
 /** Anything but the explicit `gemini` is local: sending audio out must be a deliberate choice. */
 export function resolveVoiceEngine(configured: unknown): VoiceEngine {
@@ -88,6 +137,22 @@ Registry.as<IConfigurationRegistry>(ConfigurationExtensions.Configuration).regis
 			],
 			default: 'local',
 			description: localize('vibeide.voice.engine', 'Кто распознаёт диктовку. Переключается в любой момент, следующая диктовка идёт уже новым движком; при первом облачном запуске IDE спросит согласие. Разбор аудио командой /watch всегда локальный.'),
+		},
+		[VOICE_CLOUD_MODE_KEY]: {
+			type: 'string',
+			enum: ['smart', 'verbatim'],
+			enumDescriptions: [
+				localize('vibeide.voice.cloudMode.smart', 'Причёсанный текст: пунктуация, заглавные, без «э-э», числа и списки оформлены.'),
+				localize('vibeide.voice.cloudMode.verbatim', 'Дословно: каждое слово так, как сказано (умолчание вендора).'),
+			],
+			default: 'smart',
+			description: localize('vibeide.voice.cloudMode', 'Как облачный движок записывает услышанное. На локальное распознавание не влияет: там текст всегда строчными и без пунктуации.'),
+		},
+		[VOICE_CLOUD_VOCABULARY_KEY]: {
+			type: 'array',
+			items: { type: 'string' },
+			default: [],
+			description: localize('vibeide.voice.cloudVocabulary', 'Термины проекта, которые облачный движок должен ожидать услышать: имена библиотек, команды, названия. Смещают распознавание к ним — короткий список работает лучше длинного (вендор принимает до {0}).', VOICE_VOCABULARY_MAX_TERMS),
 		},
 		[VOICE_MODELS_PATH_KEY]: {
 			type: 'string',

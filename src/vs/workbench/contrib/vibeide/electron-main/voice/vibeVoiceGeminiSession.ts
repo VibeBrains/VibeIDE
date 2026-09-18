@@ -6,7 +6,7 @@
 import type * as WsTypes from 'ws';
 import { ILogService } from '../../../../../platform/log/common/log.js';
 import { VoiceProfileId, VoiceSessionEvent } from '../../common/voice/vibeVoiceTypes.js';
-import { buildGeminiAudioMessage, buildGeminiAudioStreamEnd, buildGeminiTranscribeSetup, geminiLiveUrl, parseGeminiLiveMessage } from '../../common/voice/vibeVoiceGeminiLive.js';
+import { buildGeminiAudioMessage, buildGeminiAudioStreamEnd, buildGeminiTranscribeSetup, GEMINI_TRANSCRIBE_RENEW_MS, GeminiTranscribeOptions, geminiLiveUrl, parseGeminiLiveMessage } from '../../common/voice/vibeVoiceGeminiLive.js';
 
 /** How long a graceful stop waits for the last transcript after the end of the audio stream. */
 const STOP_GRACE_MS = 3000;
@@ -17,9 +17,13 @@ const MAX_QUEUED_CHUNKS = 400;
  * One cloud dictation session on Gemini Live Transcribe.
  *
  * Emits the same `VoiceSessionEvent`s as the local worker, so the renderer does not know which engine
- * is behind it. A Live connection is time-limited: before closing it the server sends `goAway`, and
- * the session opens a replacement, queues audio until the new one is set up, then drops the old one —
- * a dictation longer than one connection keeps going.
+ * is behind it. A Live connection is time-limited: the session opens a replacement, queues audio until
+ * the new one is set up, then drops the old one — a dictation longer than one connection keeps going.
+ *
+ * The replacement is opened on a timer, a minute before the vendor's 10-minute limit, and `goAway` only
+ * brings it forward when the server bothers to send one. The other way round — waiting for `goAway` —
+ * is waiting for a signal this model's page never promises: the socket closes mid-word and the user
+ * sees «connection closed by the server» after ten minutes of dictation.
  */
 export class GeminiTranscribeSession {
 
@@ -30,12 +34,14 @@ export class GeminiTranscribeSession {
 	private ending = false;
 	private finished = false;
 	private stopTimer: ReturnType<typeof setTimeout> | undefined;
+	private renewTimer: ReturnType<typeof setTimeout> | undefined;
 	private readonly queued: string[] = [];
 
 	constructor(
 		private readonly sessionId: string,
 		private readonly profileId: VoiceProfileId,
 		private readonly apiKey: string,
+		private readonly options: GeminiTranscribeOptions,
 		private readonly logService: ILogService,
 		private readonly emit: (event: VoiceSessionEvent) => void,
 	) { }
@@ -85,13 +91,28 @@ export class GeminiTranscribeSession {
 		this.closeAll();
 	}
 
+	/** Open the replacement connection before the stream limit ends this one. */
+	private scheduleRenew(): void {
+		if (this.renewTimer) {
+			clearTimeout(this.renewTimer);
+		}
+		this.renewTimer = setTimeout(() => {
+			if (this.ending || this.finished) {
+				return;
+			}
+			this.logService.info(`[vibeVoice] cloud session ${this.sessionId}: stream limit is near, opening a replacement`);
+			this.connect().catch(error => this.fail(error instanceof Error ? error.message : String(error)));
+		}, GEMINI_TRANSCRIBE_RENEW_MS);
+	}
+
 	private async connect(): Promise<void> {
+		this.scheduleRenew();
 		const { WebSocket } = await import('ws');
 		const socket = new WebSocket(geminiLiveUrl(this.apiKey));
 		this.retiring = this.socket;
 		this.socket = socket;
 		this.ready = false;
-		socket.on('open', () => socket.send(JSON.stringify(buildGeminiTranscribeSetup(this.profileId))));
+		socket.on('open', () => socket.send(JSON.stringify(buildGeminiTranscribeSetup(this.profileId, this.options))));
 		socket.on('message', data => this.handleMessage(socket, data.toString()));
 		socket.on('error', error => {
 			if (socket === this.socket) {
@@ -133,7 +154,7 @@ export class GeminiTranscribeSession {
 			this.emit({ sessionId: this.sessionId, type: 'final', text: event.final });
 		}
 		if (event.goAway && socket === this.socket && !this.ending) {
-			this.logService.info(`[vibeVoice] cloud session ${this.sessionId}: goAway, reconnecting`);
+			this.logService.info(`[vibeVoice] cloud session ${this.sessionId}: goAway, reconnecting early`);
 			this.connect().catch(error => this.fail(error instanceof Error ? error.message : String(error)));
 		}
 	}
@@ -161,6 +182,10 @@ export class GeminiTranscribeSession {
 		if (this.stopTimer) {
 			clearTimeout(this.stopTimer);
 			this.stopTimer = undefined;
+		}
+		if (this.renewTimer) {
+			clearTimeout(this.renewTimer);
+			this.renewTimer = undefined;
 		}
 		this.retiring?.close();
 		this.retiring = undefined;

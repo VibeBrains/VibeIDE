@@ -16,18 +16,21 @@ suite('reasoningEffortLevel — уровень в пределах модели'
 
 	ensureNoDisposablesAreLeakedInTestSuite();
 
-	test('уровень модели остаётся, чужой — ближайший, ничья — вверх, незнакомое — умолчание', () => {
+	test('уровень модели остаётся, чужой — ближайший, ничья — вверх, усилитель — к своему уровню, незнакомое — умолчание', () => {
 		const deepseek = ['low', 'high', 'max'];
 		assert.deepStrictEqual([
 			effortWithinValues('high', deepseek, 'high'),
 			effortWithinValues(undefined, deepseek, 'high'),
 			effortWithinValues('medium', deepseek, 'high'),
 			effortWithinValues('minimal', deepseek, 'high'),
+			// Таблица вендора: xhigh → high, ultra → max (guides/thinking_mode, 18.09.2026).
 			effortWithinValues('xhigh', deepseek, 'high'),
 			effortWithinValues('ultra', deepseek, 'high'),
+			// Своего уровня у модели нет — работает прежнее правило расстояния.
+			effortWithinValues('xhigh', ['low', 'max'], 'low'),
 			effortWithinValues('adaptive', deepseek, 'high'),
 			effortWithinValues('medium', ['adaptive', 'enabled'], 'adaptive'),
-		], ['high', 'high', 'high', 'low', 'max', 'max', 'high', 'adaptive']);
+		], ['high', 'high', 'high', 'low', 'high', 'max', 'max', 'high', 'adaptive']);
 	});
 
 	test('модель без выключения мышления игнорирует сохранённое «выключено»', () => {

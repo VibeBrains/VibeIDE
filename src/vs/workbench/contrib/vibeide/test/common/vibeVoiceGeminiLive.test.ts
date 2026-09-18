@@ -5,7 +5,8 @@
 
 import * as assert from 'assert';
 import { ensureNoDisposablesAreLeakedInTestSuite } from '../../../../../base/test/common/utils.js';
-import { buildGeminiAudioMessage, buildGeminiAudioStreamEnd, buildGeminiTranscribeSetup, geminiLiveUrl, parseGeminiLiveMessage } from '../../common/voice/vibeVoiceGeminiLive.js';
+import { buildGeminiAudioMessage, buildGeminiAudioStreamEnd, buildGeminiTranscribeSetup, GEMINI_TRANSCRIBE_RENEW_MS, GEMINI_TRANSCRIBE_STREAM_LIMIT_MS, geminiLiveUrl, parseGeminiLiveMessage } from '../../common/voice/vibeVoiceGeminiLive.js';
+import { resolveVoiceCloudMode, resolveVoiceCloudVocabulary, VOICE_VOCABULARY_MAX_TERMS } from '../../common/voice/vibeVoiceConfiguration.js';
 import { resolveVoiceEngine } from '../../common/voice/vibeVoiceConfiguration.js';
 
 /**
@@ -22,11 +23,46 @@ suite('vibeVoiceGeminiLive — облачная диктовка', () => {
 			buildGeminiAudioStreamEnd(),
 			geminiLiveUrl('k+y'),
 		], [
-			{ setup: { model: 'models/gemini-3.5-transcribe-live', generationConfig: { responseModalities: ['TEXT'] }, inputAudioTranscription: { languageCodes: ['ru-RU'] } } },
+			{ setup: { model: 'models/gemini-3.5-transcribe-live', generationConfig: { responseModalities: ['TEXT'] }, inputAudioTranscription: { languageCodes: ['ru-RU'], mode: 'SMART' } } },
 			{ realtimeInput: { audio: { data: 'AAA=', mimeType: 'audio/pcm;rate=16000' } } },
 			{ realtimeInput: { audioStreamEnd: true } },
 			'wss://generativelanguage.googleapis.com/ws/google.ai.generativelanguage.v1beta.GenerativeService.BidiGenerateContent?key=k%2By',
 		]);
+	});
+
+	/**
+	 * Режим и словарь — то, чем облачный текст отличается от локального: пунктуация и термины проекта.
+	 */
+	test('режим и словарь: дословный шлётся явно, пустой словарь поля не создаёт', () => {
+		assert.deepStrictEqual([
+			buildGeminiTranscribeSetup('en', { mode: 'verbatim' }),
+			buildGeminiTranscribeSetup('en', { vocabulary: [] }),
+			buildGeminiTranscribeSetup('en', { vocabulary: ['VibeIDE', 'jsonc'] }),
+		], [
+			{ setup: { model: 'models/gemini-3.5-transcribe-live', generationConfig: { responseModalities: ['TEXT'] }, inputAudioTranscription: { languageCodes: ['en-US'], mode: 'VERBATIM' } } },
+			{ setup: { model: 'models/gemini-3.5-transcribe-live', generationConfig: { responseModalities: ['TEXT'] }, inputAudioTranscription: { languageCodes: ['en-US'], mode: 'SMART' } } },
+			{ setup: { model: 'models/gemini-3.5-transcribe-live', generationConfig: { responseModalities: ['TEXT'] }, inputAudioTranscription: { languageCodes: ['en-US'], mode: 'SMART', customVocabulary: ['VibeIDE', 'jsonc'] } } },
+		]);
+	});
+
+	test('настройки облака: умолчание — причёсанный текст, словарь чистится и обрезается', () => {
+		const many = Array.from({ length: VOICE_VOCABULARY_MAX_TERMS + 5 }, (_, i) => `term${i}`);
+		assert.deepStrictEqual([
+			resolveVoiceCloudMode(undefined),
+			resolveVoiceCloudMode('verbatim'),
+			resolveVoiceCloudMode('что-то своё'),
+			resolveVoiceCloudVocabulary(['  VibeIDE  ', 'vibeide', '', 7, 'jsonc']),
+			resolveVoiceCloudVocabulary('VibeIDE, jsonc'),
+			resolveVoiceCloudVocabulary(many).length,
+		], ['smart', 'verbatim', 'smart', ['VibeIDE', 'jsonc'], [], VOICE_VOCABULARY_MAX_TERMS]);
+	});
+
+	/** Сигнала `goAway` у этой модели вендор не обещает, поэтому замена открывается до лимита. */
+	test('замена соединения назначается раньше предела потока', () => {
+		assert.deepStrictEqual(
+			[GEMINI_TRANSCRIBE_STREAM_LIMIT_MS, GEMINI_TRANSCRIBE_RENEW_MS < GEMINI_TRANSCRIBE_STREAM_LIMIT_MS, GEMINI_TRANSCRIBE_STREAM_LIMIT_MS - GEMINI_TRANSCRIBE_RENEW_MS],
+			[600000, true, 60000],
+		);
 	});
 
 	test('сообщения сервера: готовность, промежуточный и финальный текст, goAway, ошибка, мусор', () => {

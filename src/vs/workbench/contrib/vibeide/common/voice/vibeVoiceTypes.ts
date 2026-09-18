@@ -77,6 +77,10 @@ export interface VoiceStartSessionOptions {
 	readonly profileId: VoiceProfileId;
 	/** Gemini key for the cloud engine, taken from the Gemini provider settings; main falls back to GEMINI_API_KEY. */
 	readonly apiKey?: string;
+	/** Cloud transcript style, resolved from settings in the window. Absent — the cloud default (`smart`). */
+	readonly cloudMode?: 'smart' | 'verbatim';
+	/** Project terms the cloud engine should expect, already trimmed and capped in the window. */
+	readonly vocabulary?: readonly string[];
 }
 
 // ── Worker protocol (main ⇄ utility process, structured clone) ────────────────

@@ -4,6 +4,7 @@
  *--------------------------------------------------------------------------------------------*/
 
 import { VoiceProfileId, VOICE_SAMPLE_RATE } from './vibeVoiceTypes.js';
+import { VoiceCloudMode } from './vibeVoiceConfiguration.js';
 
 /**
  * Cloud dictation through Gemini Live Transcribe — the wire messages, as pure functions.
@@ -13,6 +14,21 @@ import { VoiceProfileId, VOICE_SAMPLE_RATE } from './vibeVoiceTypes.js';
  * transcription pipeline: text out, interim and final transcripts, `ru-RU` among its languages
  * (ai.google.dev/gemini-api/docs/live-api/live-transcribe, checked 17.09.2026).
  */
+
+/**
+ * Hard limit of one transcription stream, from the vendor's page: «continuous streaming up to 10 minutes»
+ * (ai.google.dev/gemini-api/docs/live-api/live-transcribe, checked 18.09.2026).
+ */
+export const GEMINI_TRANSCRIBE_STREAM_LIMIT_MS = 10 * 60_000;
+
+/**
+ * When a session opens its replacement, before the limit rather than after it.
+ *
+ * `goAway` is documented for the conversational Live model, not for this one, so waiting for it is
+ * waiting for a signal that may never come — and then the socket just closes mid-dictation. The margin
+ * is a minute: enough for the new connection to finish its setup while the old one still carries audio.
+ */
+export const GEMINI_TRANSCRIBE_RENEW_MS = GEMINI_TRANSCRIBE_STREAM_LIMIT_MS - 60_000;
 
 /** The Live model that transcribes and does not talk back. */
 export const GEMINI_TRANSCRIBE_MODEL = 'gemini-3.5-transcribe-live';
@@ -27,13 +43,27 @@ export function geminiLiveUrl(apiKey: string): string {
 	return `${GEMINI_LIVE_ENDPOINT}?key=${encodeURIComponent(apiKey)}`;
 }
 
+/** What the caller wants from the transcript, beyond the language. */
+export interface GeminiTranscribeOptions {
+	/** `SMART` tidies the text; `VERBATIM` is the vendor's default and is sent explicitly. */
+	readonly mode?: VoiceCloudMode;
+	/** Project terms to bias recognition towards. Empty list — the field is not sent at all. */
+	readonly vocabulary?: readonly string[];
+}
+
 /** First message of a connection: model, text-only responses, transcription in the profile's language. */
-export function buildGeminiTranscribeSetup(profileId: VoiceProfileId): object {
+export function buildGeminiTranscribeSetup(profileId: VoiceProfileId, options: GeminiTranscribeOptions = {}): object {
+	const vocabulary = options.vocabulary ?? [];
 	return {
 		setup: {
 			model: `models/${GEMINI_TRANSCRIBE_MODEL}`,
 			generationConfig: { responseModalities: ['TEXT'] },
-			inputAudioTranscription: { languageCodes: [LANGUAGE_OF_PROFILE[profileId]] },
+			inputAudioTranscription: {
+				languageCodes: [LANGUAGE_OF_PROFILE[profileId]],
+				mode: options.mode === 'verbatim' ? 'VERBATIM' : 'SMART',
+				// An empty list is not «no preference» to every API — it is a list. Omit the field instead.
+				...(vocabulary.length > 0 ? { customVocabulary: [...vocabulary] } : {}),
+			},
 		},
 	};
 }

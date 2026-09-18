@@ -228,7 +228,10 @@ export class VibeVoiceMainService extends Disposable {
 		if (!apiKey) {
 			throw new Error('Облачное распознавание: нет ключа Gemini — введите его у провайдера Gemini в настройках или задайте GEMINI_API_KEY');
 		}
-		const session = new GeminiTranscribeSession(options.sessionId, options.profileId, apiKey, this.logService, event => {
+		const session = new GeminiTranscribeSession(options.sessionId, options.profileId, apiKey, {
+			...(options.cloudMode ? { mode: options.cloudMode } : {}),
+			...(options.vocabulary && options.vocabulary.length > 0 ? { vocabulary: [...options.vocabulary] } : {}),
+		}, this.logService, event => {
 			if (event.type === 'stopped') {
 				this.cloudSessions.delete(event.sessionId);
 			}

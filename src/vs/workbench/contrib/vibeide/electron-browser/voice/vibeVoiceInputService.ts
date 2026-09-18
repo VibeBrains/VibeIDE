@@ -48,7 +48,10 @@ import { IVibeModalService } from '../../common/vibeModalService.js';
 import { IVibeVoiceInputService, IVibeVoiceInputState, IVibeVoiceTextEvent, VoiceInputModelState } from '../../common/voice/vibeVoiceInputService.js';
 import { VIBE_VOICE_CHANNEL, VOICE_SAMPLE_RATE, VoiceDownloadProgress, VoiceModelsState, VoiceProfileId, VoiceSessionEvent } from '../../common/voice/vibeVoiceTypes.js';
 import { resolveVoiceProfile, voiceDownloadBytesForProfile } from '../../common/voice/vibeVoiceModels.js';
-import { resolveVoiceEngine, VOICE_ENABLED_KEY, VOICE_ENGINE_KEY } from '../../common/voice/vibeVoiceConfiguration.js';
+import { resolveVoiceCloudMode, resolveVoiceCloudVocabulary, resolveVoiceEngine, VOICE_CLOUD_MODE_KEY, VOICE_CLOUD_VOCABULARY_KEY, VOICE_ENABLED_KEY, VOICE_ENGINE_KEY } from '../../common/voice/vibeVoiceConfiguration.js';
+
+/** What the window resolved for a cloud dictation session: key, transcript style, project terms. */
+type VoiceCloudPreparation = { readonly apiKey?: string; readonly cloudMode?: 'smart' | 'verbatim'; readonly vocabulary?: readonly string[] };
 import { IStorageService, StorageScope, StorageTarget } from '../../../../../platform/storage/common/storage.js';
 import { IVibeideSettingsService } from '../../common/vibeideSettingsService.js';
 
@@ -109,8 +112,8 @@ class VoiceChannelClient {
 		return this.channel().call('ensureBatchModel', profileId);
 	}
 
-	startSession(sessionId: string, profileId: VoiceProfileId, apiKey?: string): Promise<void> {
-		return this.channel().call('startSession', { sessionId, profileId, ...(apiKey ? { apiKey } : {}) });
+	startSession(sessionId: string, profileId: VoiceProfileId, cloud?: VoiceCloudPreparation): Promise<void> {
+		return this.channel().call('startSession', { sessionId, profileId, ...(cloud ?? {}) });
 	}
 
 	pushAudio(sessionId: string, pcm: VSBuffer): void {
@@ -138,7 +141,7 @@ interface IVoiceSessionHost {
 	promptMissingModels(profileId: VoiceProfileId): void;
 	notifyMicrophoneError(error: unknown): void;
 	/** Engine-specific preparation: consent and key for the cloud engine; always ok for the local one. */
-	prepareSession(): Promise<{ readonly ok: true; readonly apiKey?: string } | { readonly ok: false; readonly reason: string }>;
+	prepareSession(): Promise<{ readonly ok: true; readonly cloud?: VoiceCloudPreparation } | { readonly ok: false; readonly reason: string }>;
 	reportLevel(level: number): void;
 }
 
@@ -194,7 +197,7 @@ class VoiceCaptureSession extends Disposable implements ISpeechToTextSession {
 		// Engine warm-up (model load) and mic acquisition run in parallel; audio is queued
 		// until the worker confirms the session, so the first phonemes are not lost.
 		this.engineStarted = true;
-		this.host.channel.startSession(this.sessionId, this.profileId, prepared.apiKey).catch(error => this.fail(String(error)));
+		this.host.channel.startSession(this.sessionId, this.profileId, prepared.cloud).catch(error => this.fail(String(error)));
 		try {
 			await this.startCapture();
 		} catch (error) {
@@ -431,7 +434,7 @@ class VibeVoiceInputService extends Disposable implements IVibeVoiceInputService
 
 	// ── IVoiceSessionHost ────────────────────────────────────────────────────
 
-	async prepareSession(): Promise<{ readonly ok: true; readonly apiKey?: string } | { readonly ok: false; readonly reason: string }> {
+	async prepareSession(): Promise<{ readonly ok: true; readonly cloud?: VoiceCloudPreparation } | { readonly ok: false; readonly reason: string }> {
 		if (resolveVoiceEngine(this.configurationService.getValue<unknown>(VOICE_ENGINE_KEY)) !== 'gemini') {
 			return { ok: true };
 		}
@@ -449,8 +452,17 @@ class VibeVoiceInputService extends Disposable implements IVibeVoiceInputService
 			}
 			this.storageService.store(CLOUD_VOICE_CONSENT_KEY, true, StorageScope.APPLICATION, StorageTarget.MACHINE);
 		}
+		// Settings are read in the window, where they live: the main process has no workspace configuration.
 		const apiKey = this.vibeideSettingsService.state.settingsOfProvider.gemini?.apiKey?.trim();
-		return { ok: true, ...(apiKey ? { apiKey } : {}) };
+		const vocabulary = resolveVoiceCloudVocabulary(this.configurationService.getValue<unknown>(VOICE_CLOUD_VOCABULARY_KEY));
+		return {
+			ok: true,
+			cloud: {
+				...(apiKey ? { apiKey } : {}),
+				cloudMode: resolveVoiceCloudMode(this.configurationService.getValue<unknown>(VOICE_CLOUD_MODE_KEY)),
+				...(vocabulary.length > 0 ? { vocabulary } : {}),
+			},
+		};
 	}
 
 	resolveProfileId(sessionLanguage: string | undefined): VoiceProfileId {
