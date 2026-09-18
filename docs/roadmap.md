@@ -5186,7 +5186,7 @@ prompts, tools, and preceding messages») действует на API-аккау
 - [x] **Срок годности списка MCP (`ttlMs`/`cacheScope`)** — ✅ (2026-09-18, next) у нас список не опрашивается, а держится до ручного обновления, поэтому польза обратная заявленной: срок годности — разрешение перечитать протухший список. `mcpCacheableResult.ts` + таймер на сервер, не чаще раза в 30 секунд. — приняты в ревизию 2026-07-28 (SEP-2549), у нас не читаются.
 - [x] **Шапка `deepseek.jsonc` в наборе** — ✅ (2026-09-18, VibeBrains `4c3c2a5`, v13) тумблер `reasoning.effort` и уровень `output_config.effort` разведены, добавлена таблица складывания уровней вендора, снята неподтверждённая приписка про умолчание 8192. — на Anthropic-маршруте `reasoning.effort` это тумблер, а уровень — `output_config.effort`;
       сид называет тумблер уровнем и утверждает про умолчание 8192, которого на странице вендора больше нет.
-- [ ] **`output_config.effort`** — одно поле закрывает DeepSeek на Anthropic-маршруте и открытый пункт DIGEST-0916 про Opus 5.
+- [x] **`output_config.effort`** — ✅ (2026-09-18, next) у Anthropic уровень уходит как `thinking: {type: "adaptive"}` + `output_config: {effort}`; заведены записи `claude-opus-5` и `claude-sonnet-5` (окно 1M, цены со страницы вендора 18.09), к ним же сводятся Opus 4.7 и 4.8 — ветка стоит последней, иначе её перекрывает правило Claude 4. Живьём не проверено — нет ключа Anthropic.
 - [ ] **Gateway принимает клиента ревизии 2026-07-28** — в ревизии удалены протокольные сессии (SEP-2567) и `initialize` (SEP-2575),
       сервер обязан отвечать на `server/discover`. Наш gateway отвечает `400 Missing Mcp-Session-Id header` и отвергает всё до
       `initialize`, список ревизий кончается на `2025-11-25`. Обновившийся клиент получит отказ, а не старое поведение.
@@ -5292,7 +5292,7 @@ prompts, tools, and preceding messages») действует на API-аккау
 
 Исследование по первоисточникам, сверено с кодом; GLM-5.3 проверен живьём ключом Z.AI.
 
-- [ ] **Opus 5 / Sonnet 5 / Opus 4.7+: `output_config.effort` вместо `budget_tokens`** — Anthropic: `thinking.type: "enabled"`
+- [x] **Opus 5 / Sonnet 5 / Opus 4.7+: `output_config.effort` вместо `budget_tokens`** — ✅ (2026-09-18, next; см. DIGEST-0918) — Anthropic: `thinking.type: "enabled"`
       на этих моделях отвечает 400, нужен `adaptive` + `output_config.effort` (low…max), при `xhigh`/`max` выключить
       мышление нельзя (400), `max_tokens` включает мышление. У нас `anthropicSettings` шлёт только `enabled` + бюджет,
       а `claude-opus-5` сводится к записи 3.7 с бюджетным слайдером. Живьём не проверено — нет ключа Anthropic.

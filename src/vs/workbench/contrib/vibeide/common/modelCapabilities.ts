@@ -769,6 +769,43 @@ const extensiveModelOptionsFallback: VoidStaticProviderInfo['modelOptionsFallbac
 // ---------------- ANTHROPIC ----------------
 // Reference: https://platform.claude.com/docs/en/about-claude/models/overview (checked 2025-11-30)
 const anthropicModelOptions = {
+	// Адаптивное мышление (Opus 4.7 и новее, линейка 5): у этих моделей `thinking.type: "enabled"`
+	// с бюджетом отвечает 400, сила задаётся уровнем в `output_config.effort`
+	// (platform.claude.com/docs/en/build-with-claude/extended-thinking, сверено 18.09.2026).
+	// Цены и окно — со страницы цен вендора того же дня; окно 1M действует с поколения 4.6.
+	'claude-opus-5': {
+		contextWindow: 1_000_000,
+		reservedOutputTokenSpace: 8_192,
+		cost: { input: 5.00, cache_read: 0.50, cache_write: 6.25, output: 25.00 },
+		downloadable: false,
+		supportsFIM: false,
+		specialToolFormat: 'anthropic-style',
+		supportsSystemMessage: 'separated',
+		reasoningCapabilities: {
+			supportsReasoning: true,
+			// Выключить мышление нельзя: режим адаптивный, модель сама решает, думать ли на этом запросе.
+			canTurnOffReasoning: false,
+			canIOReasoning: true,
+			reasoningReservedOutputTokenSpace: 8192,
+			reasoningSlider: { type: 'effort_slider', values: ['low', 'medium', 'high'], default: 'high' },
+		},
+	},
+	'claude-sonnet-5': {
+		contextWindow: 1_000_000,
+		reservedOutputTokenSpace: 8_192,
+		cost: { input: 2.00, cache_read: 0.20, cache_write: 2.50, output: 10.00 },
+		downloadable: false,
+		supportsFIM: false,
+		specialToolFormat: 'anthropic-style',
+		supportsSystemMessage: 'separated',
+		reasoningCapabilities: {
+			supportsReasoning: true,
+			canTurnOffReasoning: false,
+			canIOReasoning: true,
+			reasoningReservedOutputTokenSpace: 8192,
+			reasoningSlider: { type: 'effort_slider', values: ['low', 'medium', 'high'], default: 'high' },
+		},
+	},
 	// Latest Claude 4.5 series:
 	'claude-opus-4-5-20251101': {
 		contextWindow: 200_000,
@@ -931,6 +968,12 @@ const anthropicSettings: VoidStaticProviderInfo = {
 				if (reasoningInfo.type === 'budget_slider_value') {
 					return { thinking: { type: 'enabled', budget_tokens: reasoningInfo.reasoningBudget } };
 				}
+				// Адаптивное мышление: с Opus 4.7 и во всей линейке 5 старый `enabled` + бюджет отвечает
+				// 400, а глубина задаётся уровнем. Вендор описывает переход ровно этой парой полей
+				// (platform.claude.com/docs/en/build-with-claude/extended-thinking, сверено 18.09.2026).
+				if (reasoningInfo.type === 'effort_slider_value') {
+					return { thinking: { type: 'adaptive' }, output_config: { effort: reasoningInfo.reasoningEffort } };
+				}
 				return null;
 			}
 		},
@@ -956,6 +999,10 @@ const anthropicSettings: VoidStaticProviderInfo = {
 		// Claude 3 models (legacy)
 		if (lower.includes('claude-3-opus') || lower.includes('claude-3-opus-latest')) { fallbackName = 'claude-3-opus-20240229'; }
 		if (lower.includes('claude-3-sonnet') || lower.includes('claude-3-sonnet-latest')) { fallbackName = 'claude-3-sonnet-20240229'; }
+		// Claude 5 и Opus 4.7+ — адаптивное мышление, уровнем вместо бюджета. СТОИТ ПОСЛЕДНИМ намеренно:
+		// ветка `claude-opus-4` выше совпадает и с `claude-opus-4-7`, а побеждает последнее присваивание.
+		if (lower.includes('opus-5') || lower.includes('opus5') || (lower.includes('opus') && (lower.includes('4-7') || lower.includes('4.7') || lower.includes('4-8') || lower.includes('4.8')))) { fallbackName = 'claude-opus-5'; }
+		if (lower.includes('sonnet-5') || lower.includes('sonnet5')) { fallbackName = 'claude-sonnet-5'; }
 		if (fallbackName) { return { modelName: fallbackName, recognizedModelName: fallbackName, ...anthropicModelOptions[fallbackName] }; }
 		return null;
 	},
