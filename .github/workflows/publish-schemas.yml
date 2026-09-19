@@ -1,4 +1,4 @@
-# Publish JSON Schemas to GitHub Pages (roadmap §K.4 L305).
+# Publish JSON Schemas and the OAuth client metadata document to GitHub Pages (roadmap §K.4 L305).
 #
 # Mirrors `src/vs/workbench/contrib/vibeide/common/schemas/*.json` to
 # `https://<org>.github.io/<repo>/schemas/<file>.schema.json` so external
@@ -17,6 +17,7 @@ on:
       - main
     paths:
       - 'src/vs/workbench/contrib/vibeide/common/schemas/*.json'
+      - 'resources/oauth/clientMetadata.json'
       - '.github/workflows/publish-schemas.yml'
   workflow_dispatch:
 
@@ -38,8 +39,18 @@ jobs:
       - name: Stage schemas
         run: |
           set -euo pipefail
-          mkdir -p _site/schemas
+          mkdir -p _site/schemas _site/oauth
           cp src/vs/workbench/contrib/vibeide/common/schemas/*.json _site/schemas/
+          # OAuth client metadata document: its URL IS our client_id (CIMD), so the file must be
+          # served from exactly the address written inside it. Mismatch = the authorization server
+          # refuses the client, so it is checked here and not discovered in a login window.
+          cp resources/oauth/clientMetadata.json _site/oauth/
+          expected="https://vibebrains.github.io/VibeIDE/oauth/clientMetadata.json"
+          actual="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["client_id"])' _site/oauth/clientMetadata.json)"
+          if [ "$actual" != "$expected" ]; then
+            echo "::error file=resources/oauth/clientMetadata.json::client_id '$actual' does not match the published URL '$expected'"
+            exit 1
+          fi
           # Sanity: refuse to publish if any schema lost its $id (canonical URL contract).
           for f in _site/schemas/*.json; do
             if ! grep -q '"\$id"[[:space:]]*:[[:space:]]*"https://' "$f"; then

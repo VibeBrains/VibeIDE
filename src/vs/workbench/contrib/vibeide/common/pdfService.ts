@@ -5,12 +5,15 @@
 
 
 import { vibeLog } from './vibeLog.js';
+import { pageNeedsOcr } from './pdfTextLayer.js';
 import { AppResourcePath, FileAccess, nodeModulesPath } from '../../../../base/common/network.js';
 import { CancellationToken } from '../../../../base/common/cancellation.js';
 
 export interface PDFPage {
 	pageNumber: number;
 	text: string;
+	/** Текст получен распознаванием картинки: текстового слоя на странице не было. */
+	viaOcr?: boolean;
 	images?: Array<{
 		data: Uint8Array;
 		mimeType: string;
@@ -31,6 +34,13 @@ export interface PDFDocument {
 }
 
 export interface PDFExtractionOptions {
+	/**
+	 * Чем распознать страницу без текстового слоя. Не задано — такая страница приедет пустой.
+	 *
+	 * Функцией, а не сервисом: разбор PDF живёт в `common`, а распознавание браузерное, и тянуть
+	 * его сюда значит привязать чтение документа к окружению, в котором оно не обязано работать.
+	 */
+	ocrPage?: (pageNumber: number, pngDataUrl: string) => Promise<string>;
 	extractImages?: boolean;
 	extractMetadata?: boolean;
 	pageRange?: { start: number; end: number }; // 1-indexed, inclusive
@@ -104,6 +114,9 @@ interface PdfJsLib {
  * Browser-based PDF service using PDF.js
  * Dynamically loads PDF.js to avoid bundle bloat
  */
+/** Во сколько раз увеличивать страницу перед распознаванием. */
+const OCR_RENDER_SCALE = 2;
+
 export class PDFService implements IPDFService {
 	private pdfjsLib: PdfJsLib | null = null;
 	private initialized = false;
@@ -190,7 +203,7 @@ export class PDFService implements IPDFService {
 	async extractPDF(file: File | Uint8Array, options: PDFExtractionOptions = {}): Promise<PDFDocument> {
 		const pdfjsLib = await this.ensureInitialized();
 
-		const { extractImages = false, extractMetadata = true, pageRange, cancellationToken } = options;
+		const { extractImages = false, extractMetadata = true, pageRange, cancellationToken, ocrPage } = options;
 
 		// Convert File to Uint8Array if needed
 		let data: Uint8Array;
@@ -279,6 +292,23 @@ export class PDFService implements IPDFService {
 					text,
 				};
 
+				// Сканированная страница: текста в PDF нет, есть картинка. Рисуем страницу и отдаём
+				// распознавателю — иначе она приезжает в контекст пустой строкой, и модель делает
+				// вид, что прочитала её.
+				if (ocrPage && pageNeedsOcr(text)) {
+					try {
+						const recognized = await this.renderAndRecognize(page, pageNum, ocrPage);
+						if (recognized) {
+							pdfPage.text = recognized;
+							pdfPage.viaOcr = true;
+						}
+					} catch (e) {
+						// Распознавание — дополнение, а не условие чтения: страница останется пустой,
+						// но остальные приедут.
+						vibeLog.warn('pdf', `OCR для страницы ${pageNum} не удался:`, e);
+					}
+				}
+
 				// Extract images if requested
 				if (extractImages) {
 					const images: PDFPage['images'] = [];
@@ -328,7 +358,7 @@ export class PDFService implements IPDFService {
 	): Promise<PDFExtractionWithPreviewsResult> {
 		const pdfjsLib = await this.ensureInitialized();
 
-		const { extractImages = false, extractMetadata = true, pageRange, previewPages, previewMaxWidth = 200, previewMaxHeight = 300 } = options;
+		const { extractImages = false, extractMetadata = true, pageRange, previewPages, previewMaxWidth = 200, previewMaxHeight = 300, ocrPage } = options;
 
 		// Convert File to Uint8Array if needed (single read)
 		let data: Uint8Array;
@@ -405,6 +435,23 @@ export class PDFService implements IPDFService {
 					pageNumber: pageNum,
 					text,
 				};
+
+				// Сканированная страница: текста в PDF нет, есть картинка. Рисуем страницу и отдаём
+				// распознавателю — иначе она приезжает в контекст пустой строкой, и модель делает
+				// вид, что прочитала её.
+				if (ocrPage && pageNeedsOcr(text)) {
+					try {
+						const recognized = await this.renderAndRecognize(page, pageNum, ocrPage);
+						if (recognized) {
+							pdfPage.text = recognized;
+							pdfPage.viaOcr = true;
+						}
+					} catch (e) {
+						// Распознавание — дополнение, а не условие чтения: страница останется пустой,
+						// но остальные приедут.
+						vibeLog.warn('pdf', `OCR для страницы ${pageNum} не удался:`, e);
+					}
+				}
 
 				// Extract images if requested
 				if (extractImages) {
@@ -485,6 +532,25 @@ export class PDFService implements IPDFService {
 			metadata,
 			pagePreviews: pagePreviews.length > 0 ? pagePreviews : undefined,
 		};
+	}
+
+	/**
+	 * Нарисовать страницу и отдать её распознавателю.
+	 *
+	 * Масштаб двойной намеренно: распознавание по картинке в размер экрана ошибается на мелком
+	 * шрифте, а удвоение — обычная практика для постраничного OCR.
+	 */
+	private async renderAndRecognize(page: PdfJsPage, pageNumber: number, ocrPage: NonNullable<PDFExtractionOptions['ocrPage']>): Promise<string> {
+		const viewport = page.getViewport({ scale: OCR_RENDER_SCALE });
+		const canvas = pdfDomGlobals.document.createElement('canvas');
+		canvas.width = viewport.width;
+		canvas.height = viewport.height;
+		const context = canvas.getContext('2d');
+		if (!context) {
+			throw new Error('Failed to get canvas context');
+		}
+		await page.render({ canvasContext: context, viewport }).promise;
+		return (await ocrPage(pageNumber, canvas.toDataURL('image/png'))).trim();
 	}
 
 	async getPagePreview(

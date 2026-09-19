@@ -9,6 +9,8 @@ import { vibeLog } from '../../../../common/vibeLog.js';
 import { useState, useCallback, useRef } from 'react';
 import { ChatPDFAttachment } from '../../../../common/chatThreadServiceTypes.js';
 import { getPDFService, IPDFService } from '../../../../common/pdfService.js';
+import { describeOcrPages, pageHeading } from '../../../../common/pdfTextLayer.js';
+import { getOCRService } from '../../../../common/imageQA/ocrService.js';
 
 export interface UsePDFAttachmentsReturn {
 	attachments: ChatPDFAttachment[];
@@ -137,6 +139,15 @@ export function usePDFAttachments(): UsePDFAttachmentsReturn {
 				const previewPageNumbers = Array.from({ length: previewPageCount }, (_, i) => i + 1);
 
 				const pdfDocWithPreviews = await pdfService.extractPDFWithPreviews(data, {
+					// Сканированная страница иначе приезжает пустой строкой: текста в PDF нет, есть
+					// картинка. Распознаём её нашим же OCR — качество ниже текстового слоя, и об
+					// этом сказано в собранном тексте.
+					ocrPage: async (_pageNumber, pngDataUrl) => {
+						const base64 = pngDataUrl.slice(pngDataUrl.indexOf(',') + 1);
+						const bytes = Uint8Array.from(atob(base64), char => char.charCodeAt(0));
+						const result = await getOCRService().extract(bytes, 'image/png');
+						return result.text ?? '';
+					},
 					extractImages: false,
 					extractMetadata: true,
 					previewPages: previewPageNumbers, // Only generate previews for first 3 pages
@@ -148,7 +159,10 @@ export function usePDFAttachments(): UsePDFAttachmentsReturn {
 				// Extract text from all pages
 				updateProgress(0.9, 'processing');
 				const selectedPages = Array.from({ length: pdfDocWithPreviews.pageCount }, (_, i) => i + 1);
-				const extractedText = pdfDocWithPreviews.pages.map(p => `[Page ${p.pageNumber}]\n${p.text}`).join('\n\n');
+				const ocrPages = pdfDocWithPreviews.pages.filter(p => p.viaOcr).map(p => p.pageNumber);
+				const ocrNote = describeOcrPages(ocrPages);
+				const pagesText = pdfDocWithPreviews.pages.map(p => `${pageHeading(p.pageNumber, !!p.viaOcr)}\n${p.text}`).join('\n\n');
+				const extractedText = ocrNote ? `${ocrNote}\n\n${pagesText}` : pagesText;
 
 				if (checkCancelled()) {return;}
 
