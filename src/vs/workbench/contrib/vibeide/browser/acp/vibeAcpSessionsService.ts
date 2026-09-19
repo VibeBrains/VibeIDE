@@ -188,7 +188,7 @@ class VibeAcpSessionsService extends Disposable implements IVibeAcpSessionsServi
 				return;
 			case 'tool': {
 				const state = this._sessions.get(event.sessionId);
-				state?.log.applyTool(event.toolCallId, event.title, event.toolKind, event.status, event.paths, event.diffs);
+				state?.log.applyTool({ toolCallId: event.toolCallId, title: event.title, name: event.name, toolKind: event.toolKind, status: event.status, paths: event.paths, diffs: event.diffs });
 				if (state) { this._journalEdit(state, event.toolCallId, event.status); }
 				this._onDidChange.fire();
 				return;

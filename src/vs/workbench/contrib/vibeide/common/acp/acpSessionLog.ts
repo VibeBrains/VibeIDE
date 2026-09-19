@@ -20,7 +20,24 @@ export type AcpLogEntry =
 	/** Реплика агента: склеенные куски текста. Размышление отделено от ответа признаком. */
 	| { readonly kind: 'message'; readonly id: string; readonly text: string; readonly thought: boolean }
 	/** Карточка вызова инструмента: одна на вызов, обновляется по мере кадров. */
-	| { readonly kind: 'tool'; readonly id: string; readonly title: string; readonly toolKind: string; readonly status: AcpToolStatus; readonly paths: readonly string[]; readonly diffs: readonly IAcpDiff[] };
+	| { readonly kind: 'tool'; readonly id: string; readonly title: string; readonly name: string; readonly toolKind: string; readonly status: AcpToolStatus; readonly paths: readonly string[]; readonly diffs: readonly IAcpDiff[] };
+
+/**
+ * Кадр вызова инструмента для карточки.
+ *
+ * Объектом, а не списком позиций: полей стало семь, и порядок из семи строк — это ошибка, которую
+ * не увидит ни компилятор (все строки), ни читатель.
+ */
+export interface AcpToolFrame {
+	readonly toolCallId: string;
+	readonly title: string;
+	/** Программное имя инструмента; пусто — агент его не прислал. */
+	readonly name: string;
+	readonly toolKind: string;
+	readonly status: AcpToolStatus;
+	readonly paths: readonly string[];
+	readonly diffs: readonly IAcpDiff[];
+}
 
 /** Расход хода: контекст и деньги. */
 export interface IAcpSessionSpend {
@@ -69,10 +86,11 @@ export class AcpSessionLog {
 	 * дифф ничего не уточняют. Проверено живьём: завершающий кадр приходит без диффа, и затерев
 	 * им накопленное, поверхность показала бы правку без содержимого.
 	 */
-	applyTool(toolCallId: string, title: string, toolKind: string, status: AcpToolStatus, paths: readonly string[], diffs: readonly IAcpDiff[]): void {
+	applyTool(frame: AcpToolFrame): void {
+		const { toolCallId, title, name, toolKind, status, paths, diffs } = frame;
 		const index = this._entries.findIndex(entry => entry.kind === 'tool' && entry.id === toolCallId);
 		if (index === -1) {
-			this._entries = [...this._entries, { kind: 'tool', id: toolCallId, title, toolKind, status, paths, diffs }];
+			this._entries = [...this._entries, { kind: 'tool', id: toolCallId, title, name, toolKind, status, paths, diffs }];
 			return;
 		}
 		const known = this._entries[index] as Extract<AcpLogEntry, { kind: 'tool' }>;
@@ -80,6 +98,7 @@ export class AcpSessionLog {
 			kind: 'tool',
 			id: toolCallId,
 			title: title || known.title,
+			name: name || known.name,
 			toolKind: toolKind || known.toolKind,
 			// Стадия — единственное, что законно меняется в любую сторону: вызов может провалиться.
 			status,

@@ -92,6 +92,16 @@ const DiffBlock = ({ diff }: { diff: IAcpDiff }) => {
 
 // ── Лента ─────────────────────────────────────────────────────────────────────
 
+/** Стадия вызова словами: `cancelled` приходит от агентов схемы v2 и раньше читался как «идёт». */
+const TOOL_STATUS_NAMES: Record<string, string> = {
+	pending: 'идёт',
+	in_progress: 'идёт',
+	completed: 'готово',
+	failed: 'ошибка',
+	cancelled: 'отменено',
+	unknown: 'идёт',
+};
+
 const LogEntry = ({ entry }: { entry: AcpLogEntry }) => {
 	if (entry.kind === 'message') {
 		return <div className={`whitespace-pre-wrap text-root ${entry.thought ? 'italic text-vibe-fg-2' : 'text-vibe-fg-1'}`}>
@@ -101,8 +111,9 @@ const LogEntry = ({ entry }: { entry: AcpLogEntry }) => {
 	const kind = TOOL_KIND_NAMES[entry.toolKind] ?? entry.toolKind;
 	return <div className='rounded-lg border border-vibe-border-3 bg-vibe-bg-2 px-3 py-2'>
 		<div className='flex items-center justify-between gap-2 text-root'>
-			<span className='text-vibe-fg-1'>{entry.title || 'действие без названия'}</span>
-			<span className='text-vibe-fg-2'>{[kind, entry.status === 'failed' ? 'ошибка' : entry.status === 'completed' ? 'готово' : 'идёт'].filter(Boolean).join(' · ')}</span>
+			{/* Имя инструмента — второй опознаватель: заголовок агент вправе не прислать, и в схеме v2 он необязателен. */}
+			<span className='text-vibe-fg-1'>{entry.title || entry.name || 'действие без названия'}</span>
+			<span className='text-vibe-fg-2'>{[entry.name && entry.title ? entry.name : '', kind, TOOL_STATUS_NAMES[entry.status]].filter(Boolean).join(' · ')}</span>
 		</div>
 		{entry.paths.length > 0 && entry.diffs.length === 0 && <div className='mt-1 font-mono text-root text-vibe-fg-2'>
 			{entry.paths.join('\n')}

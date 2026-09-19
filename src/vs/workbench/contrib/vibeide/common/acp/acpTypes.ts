@@ -49,7 +49,7 @@ export type AcpEvent =
 	/** Агент просит разрешения. */
 	| { readonly kind: 'permission'; readonly request: IAcpPermissionRequest }
 	/** Агент взялся за инструмент: чем занят и что меняет. */
-	| { readonly kind: 'tool'; readonly sessionId: string; readonly toolCallId: string; readonly title: string; readonly toolKind: string; readonly status: AcpToolStatus; readonly paths: readonly string[]; readonly diffs: readonly IAcpDiff[] }
+	| { readonly kind: 'tool'; readonly sessionId: string; readonly toolCallId: string; readonly title: string; readonly name: string; readonly toolKind: string; readonly status: AcpToolStatus; readonly paths: readonly string[]; readonly diffs: readonly IAcpDiff[] }
 	/** Расход контекста и денег за ход. */
 	| { readonly kind: 'usage'; readonly sessionId: string; readonly used: number; readonly size: number; readonly costUsd?: number }
 	/** Агент записал файл нашими руками — путь `fs/write_text_file`. */

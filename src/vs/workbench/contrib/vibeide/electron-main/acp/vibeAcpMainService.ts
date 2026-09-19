@@ -250,6 +250,7 @@ export class VibeAcpMainService extends Disposable implements IVibeAcpMain {
 					sessionId,
 					toolCallId: update.toolCallId,
 					title: update.title,
+					name: update.name,
 					toolKind: update.toolKind,
 					status: update.status,
 					paths: update.paths,
@@ -328,7 +329,8 @@ export class VibeAcpMainService extends Disposable implements IVibeAcpMain {
 			request: {
 				requestId,
 				sessionId: agent.sessionId ?? '',
-				title: facts.title || facts.toolKind || 'действие',
+				// Имя инструмента идёт вторым: человеку «edit_file» говорит больше, чем слово «действие».
+				title: facts.title || facts.name || facts.toolKind || 'действие',
 				detail: describeToolCall(toolCall),
 				paths: facts.paths,
 				diffs: facts.diffs,

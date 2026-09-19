@@ -1,6 +1,6 @@
 {
 	"version": 1,
-	"date": "2026-09-17",
+	"date": "2026-09-19",
 	"description": "VibeIDE model behaviour quirks. Source of truth — see README.md section 'Model behaviour quirks'. PRs welcome. Каждое правило — утверждение о чужом сервере: указывайте `source` (ссылка/коммит/лог) и `observedAt`; правило без источника считается черновиком и называется проверкой `npm run quirks-provenance-check`. Schema: ./src/vs/workbench/contrib/vibeide/common/modelQuirks/modelQuirksTypes.ts.",
 	"docs": "https://github.com/VibeBrains/VibeIDE#model-behaviour-quirks",
 	"rules": [
@@ -18,9 +18,9 @@
 			"temperature": 1.0,
 			"topP": 0.95,
 			"mirrorReasoningContent": true,
-			"note": "Kimi K3 (Moonshot, 2026-07) — CONFIRMED by the vendor. kimi.com/blog/kimi-k3 states outright: 'K3 was trained in the preserved thinking history mode. If the agent harness fails to pass back all the historical thinking content as required ... generation quality may become highly unstable.' That is exactly what mirrorReasoningContent does, so the rule is no longer an analogy with the kimi-k2.x family. Without an explicit k3 rule the substring matcher would fall through to the broad 'kimi' preset, which omits mirroring entirely. Reasoning effort: the promised modes SHIPPED — platform.kimi.ai now states 'Reasoning effort supports low, high, and max (default max)' (verified 2026-08-05), and the preset in .vibe-defaults/providers/moonshot-kimi.jsonc carries all three. Note there is no 'medium' on K3 (unlike K2.7) and thinking still cannot be turned off, so the effort level is the only cost lever on this model. See docs/knowledge/architecture/modelQuirks.md.",
+			"note": "Kimi K3 (Moonshot, 2026-07) — CONFIRMED by the vendor. kimi.com/blog/kimi-k3 states outright: 'K3 was trained in the preserved thinking history mode. If the agent harness fails to pass back all the historical thinking content as required ... generation quality may become highly unstable.' That is exactly what mirrorReasoningContent does, so the rule is no longer an analogy with the kimi-k2.x family. Without an explicit k3 rule the substring matcher would fall through to the broad 'kimi' preset, which omits mirroring entirely. Reasoning effort: the promised modes SHIPPED — platform.kimi.ai now states 'Reasoning effort supports low, high, and max (default max)' (verified 2026-08-05), and the preset in .vibe-defaults/providers/moonshot-kimi.jsonc carries all three. Note there is no 'medium' on K3 (unlike K2.7) and thinking still cannot be turned off, so the effort level is the only cost lever on this model. Re-checked 19.09.2026 on platform.kimi.ai/docs/guide/use-reasoning-effort: 'supports low, high, and max, with max as the default' — the recurring claim that K3 accepts ONLY max is about the DEFAULT, and this is the third time it has come back through a secondary source. See docs/knowledge/architecture/modelQuirks.md.",
 			"source": "kimi.com/blog/kimi-k3",
-			"observedAt": "2026-08-05"
+			"observedAt": "2026-09-19"
 		},
 		{
 			"match": "kimi-k2.6",
