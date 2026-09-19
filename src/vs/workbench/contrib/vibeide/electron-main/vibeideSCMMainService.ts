@@ -199,6 +199,18 @@ export class VibeideSCMService extends Disposable implements IVibeideSCMService 
 		await gitArgv(['worktree', 'remove', ...(force ? ['--force'] : []), worktreePath], root);
 	}
 
+	async commitWorktree(worktreePath: string, message: string): Promise<boolean> {
+		// Индекс тут свой собственный: у каждого рабочего дерева git держит отдельный индекс, и
+		// `add -A` в дереве прогона не задевает индекс пользователя в основной папке.
+		await gitArgv(['add', '-A'], worktreePath);
+		const staged = await gitArgv(['diff', '--cached', '--name-only'], worktreePath);
+		if (!staged) {
+			return false;
+		}
+		await gitArgv(['commit', '-m', message], worktreePath);
+		return true;
+	}
+
 	async mergeWorktreeBranch(path: string, branch: string): Promise<void> {
 		const root = await gitArgv(SNAPSHOT_ARGV.repoRoot, path);
 		await gitArgv(['merge', '--no-ff', branch], root);

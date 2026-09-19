@@ -30,6 +30,15 @@ export interface IVibeGitWorktreeService {
 	/** Create a new worktree for agent work */
 	createAgentWorktree(sessionId: string): Promise<WorktreeInfo | null>;
 
+	/**
+	 * Закоммитить в дереве всё, что прогон наработал, — и сказать, было ли что коммитить.
+	 *
+	 * Делается ВСЕГДА, независимо от того, сливаем ли дерево: `merge` берёт коммиты ветки, а правки
+	 * роли лежат в дереве некоммитнутыми. Без коммита слияние оказалось бы пустым, дерево —
+	 * неудаляемым, и работа роли осталась бы в папке, о которой никто не вспомнит.
+	 */
+	commitAgentWorktree(worktreeId: string, message: string): Promise<boolean>;
+
 	/** Merge agent worktree to main after Approve */
 	mergeWorktree(worktreeId: string): Promise<void>;
 
@@ -112,6 +121,27 @@ class VibeGitWorktreeService extends Disposable implements IVibeGitWorktreeServi
 			vibeLog.error('Worktree', `Не удалось создать дерево ${branch}:`, e);
 			return null;
 		}
+	}
+
+	async commitAgentWorktree(worktreeId: string, message: string): Promise<boolean> {
+		const wt = this._worktrees.get(worktreeId);
+		if (!wt) {
+			return false;
+		}
+		// Тот же мьютекс, что у создания и слияния: индекс у дерева свой, но `git` в одном
+		// репозитории всё равно ходит через общие ссылки.
+		return await this._checkpointCoordinator.runExclusive({ op: 'worktree:commit', holderLabel: wt.branch }, async () => {
+			try {
+				const committed = await this._scm.commitWorktree(wt.path, message);
+				vibeLog.info('Worktree', committed ? `Зафиксировано в ${wt.branch}` : `Дерево ${wt.branch} чистое — коммитить нечего`);
+				return committed;
+			} catch (e) {
+				// Несостоявшийся коммит — это работа, оставшаяся в дереве. Сказать об этом важнее,
+				// чем продолжить: слияние дальше по потоку молча не принесёт ничего.
+				vibeLog.error('Worktree', `Не удалось зафиксировать дерево ${wt.branch}:`, e);
+				return false;
+			}
+		});
 	}
 
 	async mergeWorktree(worktreeId: string): Promise<void> {

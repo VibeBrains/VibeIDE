@@ -33,6 +33,9 @@ import { IVibeAgentActivityLogService } from './vibeAgentActivityLogService.js';
 import { URI } from '../../../../base/common/uri.js';
 import { IWorkspaceContextService } from '../../../../platform/workspace/common/workspace.js';
 import { stepMayWrite } from '../common/pipeline/vibePipelineFile.js';
+import { normalizePath, rebaseIntoWorktree, relativeToRoot } from '../common/worktreeRebase.js';
+import { isLinux } from '../../../../base/common/platform.js';
+import { Schemas } from '../../../../base/common/network.js';
 
 /** Under Autopilot, resource limits auto-extend rather than stop the role. This cooldown backstops a
  *  pathological tight loop (instant hops) from resetting the budget hundreds of times per second —
@@ -332,6 +335,10 @@ class VibeSubagentRunnerService extends Disposable implements IVibeSubagentRunne
 				continue;
 			}
 
+			// Корень прогона — прежде любой проверки пути: и границы записи, и подтверждение, и сам
+			// вызов обязаны называть один файл, а не разные.
+			params = this._rebaseIntoRunRoot(params, req.runRoot);
+
 			// Path scope of a pipeline step: same tool, different target. The role whitelist above
 			// answers «may this role write at all», this answers «may it write HERE» — the two are
 			// independent, and a step scoped to `docs/**` must not rewrite a neighbour's `src/`.
@@ -339,19 +346,22 @@ class VibeSubagentRunnerService extends Disposable implements IVibeSubagentRunne
 			// the pipeline exists to pass along.
 			// Та же граница для команд оболочки: у инструмента правки путь виден, у `run_command` —
 			// только строка, и `cd ../other && …` в ней обходил границу целиком.
-			if (req.writeScope && toolName === 'run_command') {
+			// Побег из папки запрещён и тогда, когда границ записи нет, но у прогона своё дерево:
+			// `cd ..` вывел бы роль из её дерева обратно в общую папку — то есть ровно туда, от
+			// чего изоляция и заводится.
+			if ((req.writeScope || req.runRoot) && toolName === 'run_command') {
 				const command = (params as { command?: unknown })?.command;
 				const escape = typeof command === 'string' ? commandEscapesScope(command) : undefined;
 				if (escape) {
 					deniedActions++;
-					history.push(this._invalidToolMessage(toolCall, describeCommandEscape(String(command), escape, req.writeScope.paths)));
+					history.push(this._invalidToolMessage(toolCall, describeCommandEscape(String(command), escape, req.writeScope?.paths)));
 					continue;
 				}
 			}
 
 			const scopedPath = req.writeScope ? writeTargetOf(toolName, params) : undefined;
 			if (req.writeScope && scopedPath !== undefined) {
-				const relative = this._workspaceRelative(scopedPath);
+				const relative = this._runRelative(scopedPath, req.runRoot);
 				if (!stepMayWrite(req.writeScope, relative)) {
 					deniedActions++;
 					history.push(this._invalidToolMessage(toolCall, `Шагу разрешено писать только в ${(req.writeScope.paths ?? ['(без ограничений)']).join(', ')}${req.writeScope.denyPaths ? `, кроме ${req.writeScope.denyPaths.join(', ')}` : ''}. Путь «${relative}» вне этих границ — выбери другой или сообщи, что задача требует выхода за них.`));
@@ -466,19 +476,65 @@ class VibeSubagentRunnerService extends Disposable implements IVibeSubagentRunne
 		});
 	}
 
+	/** Корень открытой папки; без открытой папки переносить и мерить не от чего. */
+	private _workspaceRoot(): string | undefined {
+		return this._workspaceContextService.getWorkspace().folders[0]?.uri.fsPath;
+	}
+
 	/**
-	 * Workspace-relative path for the scope check.
+	 * Path relative to the run's own root — its worktree when isolated, the open folder otherwise.
 	 *
-	 * A path outside the workspace comes back as the absolute one, which no `paths` pattern matches —
+	 * A path outside that root comes back as the absolute one, which no `paths` pattern matches —
 	 * so a scoped step cannot reach out of the project at all. That is the intended answer, not an
 	 * accident of normalisation.
+	 *
+	 * Границы записи шага пишутся путями проекта (`src/**`), поэтому мерить их от чужого корня
+	 * нельзя: любой путь оказался бы «вне границ», и шаг не записал бы ничего.
 	 */
-	private _workspaceRelative(uri: URI): string {
-		const folder = this._workspaceContextService.getWorkspace().folders[0]?.uri;
-		if (!folder) { return uri.fsPath; }
-		const root = folder.fsPath.replace(/\\/g, '/').replace(/\/+$/, '');
-		const target = uri.fsPath.replace(/\\/g, '/');
-		return target.startsWith(`${root}/`) ? target.slice(root.length + 1) : target;
+	private _runRelative(uri: URI, runRoot: string | undefined): string {
+		const root = runRoot || this._workspaceRoot();
+		if (!root) { return uri.fsPath; }
+		return relativeToRoot(root, uri.fsPath, !isLinux);
+	}
+
+	/**
+	 * Перенести пути вызова в дерево прогона.
+	 *
+	 * Правило структурное — «значение типа URI под корнем открытой папки», а не список инструментов:
+	 * список пришлось бы дополнять при каждом новом инструменте, и забытая строка тихо вернула бы
+	 * роль в общую папку. Читающие вызовы переносятся наравне с пишущими: роль, которая правит своё
+	 * дерево, а читает общую папку, видит файл, которого она уже не правит.
+	 */
+	private _rebaseIntoRunRoot(params: unknown, runRoot: string | undefined): unknown {
+		const workspaceRoot = this._workspaceRoot();
+		if (!runRoot || !workspaceRoot || typeof params !== 'object' || params === null) {
+			return params;
+		}
+		const move = (value: unknown): unknown => {
+			if (value instanceof URI) {
+				if (value.scheme !== Schemas.file) { return value; }
+				const target = normalizePath(value.fsPath);
+				const moved = rebaseIntoWorktree(workspaceRoot, runRoot, target, !isLinux);
+				return moved === target ? value : URI.file(moved);
+			}
+			if (Array.isArray(value)) { return value.map(move); }
+			return value;
+		};
+		const out: Record<string, unknown> = { ...(params as Record<string, unknown>) };
+		for (const key of Object.keys(out)) {
+			out[key] = move(out[key]);
+		}
+		// Команда оболочки не несёт URI — только строку папки, и по умолчанию это открытая папка.
+		// Оставить умолчание значило бы выполнить сборку и тесты роли мимо её дерева.
+		if ('command' in out && 'cwd' in out) {
+			const cwd = out['cwd'];
+			out['cwd'] = typeof cwd === 'string' && cwd.trim()
+				? (/^([a-zA-Z]:[\\/]|\/)/.test(cwd)
+					? rebaseIntoWorktree(workspaceRoot, runRoot, normalizePath(cwd), !isLinux)
+					: `${normalizePath(runRoot)}/${normalizePath(cwd)}`)
+				: normalizePath(runRoot);
+		}
+		return out;
 	}
 
 	private _invalidToolMessage(toolCall: RawToolCallObj, content: string): ChatMessage {

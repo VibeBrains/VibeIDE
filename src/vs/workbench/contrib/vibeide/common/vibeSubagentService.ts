@@ -33,6 +33,7 @@ import type { ChatImageAttachment, ChatMessage } from './chatThreadServiceTypes.
 import { IAuditLogService } from './auditLogService.js';
 import { IVibeConstraintsService } from './vibeConstraintsService.js';
 import { IVibeSubagentRunner } from './vibeSubagentRunner.js';
+import { IVibeGitWorktreeService, WorktreeInfo } from './vibeGitWorktreeService.js';
 import { IVibeAgentRunLedgerService } from './vibeAgentRunLedgerService.js';
 import { AgentRunStatus } from './agentRunLedger.js';
 import { describeRoleBudgetRefusal, describeRoleUsdRefusal, evaluateRoleBudget, evaluateRoleUsdBudget } from './agentRoleBudget.js';
@@ -295,6 +296,9 @@ export interface IVibeSubagentService {
 
 /** Maximum characters in any SubagentResult field — enforces compact handoff contract */
 const MAX_RESULT_SUMMARY_CHARS = 500;
+
+/** Длина темы коммита дерева: заголовок виден в каждом `git log --oneline`, задача роли длиннее. */
+const WORKTREE_COMMIT_SUBJECT_CHARS = 72;
 const DEFAULT_MAX_STEPS = 20;
 
 // ── Tool whitelists per type ──────────────────────────────────────────────────
@@ -358,6 +362,7 @@ class VibeSubagentService extends Disposable implements IVibeSubagentService {
 		@IVibeCircuitBreakerService private readonly _breakers: IVibeCircuitBreakerService,
 		@IFileService private readonly _fileService: IFileService,
 		@IWorkspaceContextService private readonly _workspace: IWorkspaceContextService,
+		@IVibeGitWorktreeService private readonly _worktrees: IVibeGitWorktreeService,
 	) {
 		super();
 	}
@@ -616,11 +621,29 @@ class VibeSubagentService extends Disposable implements IVibeSubagentService {
 		// that the runner enforces the role's tool whitelist at each call.
 		const constraintsOk = !!this._constraints;
 
-		// Worktree binding: implement-step subagents can run in an isolated git worktree.
-		// Still a later phase: create worktree via IVibeGitWorktreeService before the loop.
-		const worktreeInfo = (entry.type === 'implement-step' && handoff.useWorktree)
-			? `worktree=${handoff.worktreeBranch ?? 'auto'} (not yet created — later phase)`
-			: 'no-worktree';
+		// Изоляция: роль-исполнитель может работать в своём дереве git, а не в общей папке.
+		// Включается либо просьбой вызывающего, либо настройкой — сама по себе не включается нигде:
+		// дерево меняет то, где окажется работа, и решать это за пользователя нельзя.
+		const wantsWorktree = entry.type === 'implement-step'
+			&& (handoff.useWorktree ?? this._configuration.getValue<boolean>('vibeide.subagent.worktree') === true);
+		let worktree: WorktreeInfo | null = null;
+		if (wantsWorktree) {
+			worktree = await this._worktrees.createAgentWorktree(handoff.worktreeBranch || entry.id);
+			if (!worktree) {
+				// Изоляцию просили, а дерева нет. Пустить прогон в общую папку значило бы записать
+				// туда, куда вызывающий записывать запретил, — и он об этом не узнает.
+				this._completeWithResult(entry, {
+					subagentId: entry.id,
+					status: 'failed',
+					summary: 'Изоляция запрошена, но рабочее дерево git не создано — прогон не начат.',
+					artifacts: [],
+					tokensUsed: 0,
+					reason: 'Дерево не создано: занятое имя ветки, не-репозиторий или недоступный git. Подробности — в журнале «Worktree».',
+				});
+				return;
+			}
+		}
+		const worktreeInfo = worktree ? `worktree=${worktree.branch} → ${worktree.path}` : 'no-worktree';
 
 		this._log.info(`[VibeSubagent] ${entry.id} — type=${entry.type} maxTokens=${maxTokens} maxSteps=${maxSteps} tools=${allowedTools.join(',')} constraintsInherited=${constraintsOk} ${worktreeInfo}`);
 
@@ -638,6 +661,7 @@ class VibeSubagentService extends Disposable implements IVibeSubagentService {
 			// (у `qa` — только тесты) подставляется ЗДЕСЬ, а не в пайплайне: делегирование от
 			// оркестратора пайплайн не проходит, и границы там иначе не было бы вовсе.
 			...writeScopeField(effectiveWriteScope(entry.type, handoff.writeScope, await this._qaWritePathsFor(entry.type, handoff))),
+			...(worktree ? { runRoot: worktree.path } : {}),
 			maxSteps,
 			maxTokensEst: Math.max(0, maxTokens),
 			maxWallClockMs: handoff.maxWallClockMs ?? 0,
@@ -662,10 +686,17 @@ class VibeSubagentService extends Disposable implements IVibeSubagentService {
 			this._transcripts.set(entry.id, outcome.transcript);
 		}
 
+		// Работа роли фиксируется ВСЕГДА, чем бы прогон ни кончился: правки лежат в дереве
+		// некоммитнутыми, а `merge` берёт коммиты — без коммита сливать было бы нечего, и упавший
+		// прогон унёс бы свою работу в папку, о которой никто не вспомнит.
+		const worktreeNote = worktree ? await this._settleWorktree(worktree, entry, outcome.status) : '';
+
 		const result: SubagentResult = {
 			subagentId: entry.id,
 			status: outcome.status,
-			summary: this._truncate(outcome.summary, MAX_RESULT_SUMMARY_CHARS),
+			// Приписка про дерево занимает место ВНУТРИ предела, а не сверх него: предел существует,
+			// чтобы ответ роли оставался компактным, и обойти его собственной строкой было бы нечестно.
+			summary: `${this._truncate(outcome.summary, MAX_RESULT_SUMMARY_CHARS - worktreeNote.length)}${worktreeNote}`,
 			artifacts: outcome.artifacts,
 			tokensUsed: outcome.tokensUsedEst,
 			truncated: outcome.truncated || undefined,
@@ -679,6 +710,32 @@ class VibeSubagentService extends Disposable implements IVibeSubagentService {
 		};
 
 		this._completeWithResult(entry, result);
+	}
+
+	/**
+	 * Закрыть дерево прогона: коммит всегда, слияние — только под автопилотом и только на успехе.
+	 *
+	 * Под автопилотом человека у клавиатуры нет, и оставленная ветка означала бы, что работа не
+	 * приземлилась вовсе. В обычном режиме решение «влить» принимает пользователь, поэтому дерево
+	 * остаётся на месте, а строка ответа называет ветку — иначе найти работу будет негде.
+	 */
+	private async _settleWorktree(worktree: WorktreeInfo, entry: SubagentEntry, status: SubagentResult['status']): Promise<string> {
+		const committed = await this._worktrees.commitAgentWorktree(worktree.id, `агент(${entry.type}): ${this._truncate(entry.handoff.goal, WORKTREE_COMMIT_SUBJECT_CHARS)}`);
+		if (!committed) {
+			return `\n\nРоль ничего не записала — дерево ${worktree.branch} осталось пустым.`;
+		}
+		const autopilot = this._settings.state.globalSettings.chatAgentAutopilot === true;
+		if (status !== 'success' || !autopilot) {
+			return `\n\nРабота зафиксирована в ветке ${worktree.branch} (дерево ${worktree.path}) и НЕ влита в проект.`;
+		}
+		try {
+			await this._worktrees.mergeWorktree(worktree.id);
+			return `\n\nВетка ${worktree.branch} влита в проект.`;
+		} catch (e) {
+			// Конфликт слияния — не потеря: дерево и ветка остаются, чинить есть чем.
+			this._log.error(`[VibeSubagent] ${entry.id} — слияние ${worktree.branch} не прошло: ${e instanceof Error ? e.message : String(e)}`);
+			return `\n\nСлить ветку ${worktree.branch} не удалось (вероятен конфликт) — работа зафиксирована в ней, дерево ${worktree.path} на месте.`;
+		}
 	}
 
 	private _completeWithResult(entry: SubagentEntry, result: SubagentResult): void {

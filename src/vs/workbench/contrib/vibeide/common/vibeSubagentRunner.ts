@@ -37,6 +37,16 @@ export interface SubagentRunRequest {
 	 * Absent means no path restriction — every run that is not a scoped pipeline step.
 	 */
 	readonly writeScope?: { readonly paths?: readonly string[]; readonly denyPaths?: readonly string[] };
+	/**
+	 * Корень, в котором прогон живёт: путь его рабочего дерева git, если изоляция включена.
+	 *
+	 * Задан — всякий путь под корнем открытой папки переносится сюда, и читает роль тоже отсюда:
+	 * правка в своё дерево при чтении из общей папки давала бы роли вид файла, которого она уже не
+	 * правит. Пути наружу (заранее разрешённые пользователем папки) не переносятся.
+	 *
+	 * Не задан — прогон работает прямо в открытой папке, как и раньше.
+	 */
+	readonly runRoot?: string;
 	readonly maxSteps: number;
 	/** Estimated-token quota (0 = unlimited). */
 	readonly maxTokensEst: number;

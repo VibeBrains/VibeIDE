@@ -13,8 +13,6 @@
  */
 
 import { Disposable } from '../../../../base/common/lifecycle.js';
-import { ProxyChannel } from '../../../../base/parts/ipc/common/ipc.js';
-import { IMainProcessService } from '../../../../platform/ipc/common/mainProcessService.js';
 import { InstantiationType, registerSingleton } from '../../../../platform/instantiation/common/extensions.js';
 import { IWorkspaceContextService } from '../../../../platform/workspace/common/workspace.js';
 import { localize } from '../../../../nls.js';
@@ -23,14 +21,11 @@ import { IVibeGitReadService, IVibeideSCMService } from '../common/vibeideSCMTyp
 class VibeGitReadService extends Disposable implements IVibeGitReadService {
 	declare readonly _serviceBrand: undefined;
 
-	private readonly _scm: IVibeideSCMService;
-
 	constructor(
-		@IMainProcessService mainProcessService: IMainProcessService,
+		@IVibeideSCMService private readonly _scm: IVibeideSCMService,
 		@IWorkspaceContextService private readonly _workspace: IWorkspaceContextService,
 	) {
 		super();
-		this._scm = ProxyChannel.toService<IVibeideSCMService>(mainProcessService.getChannel('vibeide-channel-scm'));
 	}
 
 	private _folderPath(): string | undefined {

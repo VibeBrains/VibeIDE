@@ -10,9 +10,7 @@ import { localize2 } from '../../../../nls.js';
 import { Action2, MenuId, registerAction2 } from '../../../../platform/actions/common/actions.js';
 import { ContextKeyExpr, IContextKey, IContextKeyService } from '../../../../platform/contextkey/common/contextkey.js';
 import { ISCMService, ISCMRepository } from '../../scm/common/scm.js';
-import { ProxyChannel } from '../../../../base/parts/ipc/common/ipc.js';
 import { IVibeideSCMService } from '../common/vibeideSCMTypes.js';
-import { IMainProcessService } from '../../../../platform/ipc/common/mainProcessService.js';
 import { IVibeideSettingsService } from '../common/vibeideSettingsService.js';
 import { IConvertToLLMMessageService, isLocalProvider } from '../browser/convertToLLMMessageService.js';
 import { ILLMMessageService } from '../common/sendLLMMessageService.js';
@@ -23,6 +21,7 @@ import { generateUuid } from '../../../../base/common/uuid.js';
 import { ThrottledDelayer } from '../../../../base/common/async.js';
 import { CancellationError, isCancellationError } from '../../../../base/common/errors.js';
 import { registerSingleton, InstantiationType } from '../../../../platform/instantiation/common/extensions.js';
+import { registerMainProcessRemoteService } from '../../../../platform/ipc/electron-browser/services.js';
 import { createDecorator, ServicesAccessor } from '../../../../platform/instantiation/common/instantiation.js';
 import { Disposable } from '../../../../base/common/lifecycle.js';
 import { INotificationService } from '../../../../platform/notification/common/notification.js';
@@ -49,12 +48,11 @@ class GenerateCommitMessageService extends Disposable implements IGenerateCommit
 	private readonly execute = new ThrottledDelayer(300);
 	private llmRequestId: string | null = null;
 	private currentRequestId: string | null = null;
-	private vibeSCM: IVibeideSCMService;
 	private loadingContextKey: IContextKey<boolean>;
 
 	constructor(
 		@ISCMService private readonly scmService: ISCMService,
-		@IMainProcessService mainProcessService: IMainProcessService,
+		@IVibeideSCMService private readonly vibeSCM: IVibeideSCMService,
 		@IVibeideSettingsService private readonly vibeideSettingsService: IVibeideSettingsService,
 		@IConvertToLLMMessageService private readonly convertToLLMMessageService: IConvertToLLMMessageService,
 		@ILLMMessageService private readonly llmMessageService: ILLMMessageService,
@@ -63,7 +61,6 @@ class GenerateCommitMessageService extends Disposable implements IGenerateCommit
 	) {
 		super();
 		this.loadingContextKey = this.contextKeyService.createKey(loadingContextKey, false);
-		this.vibeSCM = ProxyChannel.toService<IVibeideSCMService>(mainProcessService.getChannel('vibeide-channel-scm'));
 	}
 
 	override dispose() {
@@ -243,3 +240,9 @@ class LoadingGenerateCommitMessageAction extends Action2 {
 registerAction2(GenerateCommitMessageAction);
 registerAction2(LoadingGenerateCommitMessageAction);
 registerSingleton(IGenerateCommitMessageService, GenerateCommitMessageService, InstantiationType.Delayed);
+
+// Главный процесс владеет git, окно обращается к нему по каналу. Регистрация одна на всё окно:
+// без неё `@IVibeideSCMService` не разрешается вовсе, и потребитель, который внедряет сервис вместо
+// того, чтобы собирать свой прокси, падает при создании. Так и случилось с деревьями агента и с
+// командой разрешения конфликтов: канал был на месте, а внедрять было нечего.
+registerMainProcessRemoteService(IVibeideSCMService, 'vibeide-channel-scm');
