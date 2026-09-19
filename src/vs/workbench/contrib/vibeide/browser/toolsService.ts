@@ -10,6 +10,7 @@ import { URI } from '../../../../base/common/uri.js';
 import { Schemas } from '../../../../base/common/network.js';
 import * as resources from '../../../../base/common/resources.js';
 import { resolveAgentPath } from '../common/agentPathResolution.js';
+import { toolParamUri } from '../common/toolParamUri.js';
 import { placePhysicalPath, PhysicalPathProbe, resolvePhysicalEntry, resolvePhysicalPath } from '../common/agentPhysicalPath.js';
 import { IFileService } from '../../../../platform/files/common/files.js';
 import { IVibeConstraintsService, ConstraintViolationError } from '../common/vibeConstraintsService.js';
@@ -3448,7 +3449,7 @@ export class ToolsService extends Disposable implements IToolsService {
 					: result.hasNextPage
 						? `⚠️ Partial read (${window}; ${result.totalFileLen} chars on this page, file has more). Continue with page_number, or use grep/search_in_file to jump to content — avoid re-reading the whole file.\n`
 						: '';
-				return `${nav}${params.uri.fsPath} (${window})\n\`\`\`\n${result.fileContents}\n\`\`\``;
+				return `${nav}${toolParamUri('read_file', params).fsPath} (${window})\n\`\`\`\n${result.fileContents}\n\`\`\``;
 			},
 			ls_dir: (params, result) => {
 				const dirTreeStr = stringifyDirectoryTree1Deep(params, result);

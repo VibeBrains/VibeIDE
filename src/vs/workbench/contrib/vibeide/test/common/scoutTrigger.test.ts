@@ -5,7 +5,7 @@
 
 
 import * as assert from 'assert';
-import { isContinuationRequest, buildScoutGoal } from '../../common/scoutTrigger.js';
+import { isContinuationRequest, buildScoutGoal, hasAgentWorkSinceLastUserMessage } from '../../common/scoutTrigger.js';
 import { ensureNoDisposablesAreLeakedInTestSuite } from '../../../../../base/test/common/utils.js';
 
 suite('Vibe Agents — scout trigger', () => {
@@ -24,6 +24,42 @@ suite('Vibe Agents — scout trigger', () => {
 			['добавь кнопку логина', 'почини баг в парсере', 'запусти тесты', 'напиши функцию сортировки'].map(isContinuationRequest),
 			[false, false, false, false],
 		);
+	});
+
+	test('фраза продолжения должна быть (почти) всем сообщением', () => {
+		// Сообщение со скрина 19.09: слово-триггер есть, но контекст пользователь принёс сам —
+		// разведывать нечего, а прогон модели стоил бы денег и задержки перед ответом.
+		const сСвоимКонтекстом = [
+			'опять упал на ошибке TypeError: Cannot read properties of undefined (reading \'fsPath\')\n\nпродолжи действия\n\nпосле того как решишь все действия по этой задаче - поищи почему ты падаешь по такой ошибке',
+			'продолжи работу над формой, но сначала перенеси валидацию в отдельный модуль и покрой её тестами',
+		].map(isContinuationRequest);
+		const голыеПродолжения = [
+			'продолжи', 'продолжи действия', 'дальше', 'продолжай с того же места', 'continue', 'keep going',
+		].map(isContinuationRequest);
+		assert.deepStrictEqual({ сСвоимКонтекстом, голыеПродолжения }, {
+			сСвоимКонтекстом: [false, false],
+			голыеПродолжения: [true, true, true, true, true, true],
+		});
+	});
+
+	test('работа агента после прошлого сообщения пользователя отменяет разведку', () => {
+		assert.deepStrictEqual({
+			// Агент только что работал при человеке — его ход и есть контекст.
+			толькоЧтоРаботал: hasAgentWorkSinceLastUserMessage(['user', 'assistant', 'tool', 'user']),
+			// Пауза: прошлый ход кончился на сообщении пользователя, работы после него нет.
+			праздныйТред: hasAgentWorkSinceLastUserMessage(['user', 'user']),
+			// Первое сообщение в треде — разведывать тем более нечего, но и работы нет.
+			первоеСообщение: hasAgentWorkSinceLastUserMessage(['user']),
+			// Чекпоинты работой не считаются: их ставит сама IDE, а не агент.
+			толькоЧекпоинты: hasAgentWorkSinceLastUserMessage(['user', 'checkpoint', 'user']),
+			пустойТред: hasAgentWorkSinceLastUserMessage([]),
+		}, {
+			толькоЧтоРаботал: true,
+			праздныйТред: false,
+			первоеСообщение: false,
+			толькоЧекпоинты: false,
+			пустойТред: false,
+		});
 	});
 
 	test('scout goal includes changed files, plan, and always asks for leads + hypothesis', () => {

@@ -23,9 +23,50 @@
  */
 const RE_CONTINUATION = /(продолж|дальше|доделай|дострой|допиши|доведи\s+до\s+конца|заверши\s+начат|доработай|\bcontinue\b|\bgo on\b|keep going|carry on|\bfinish it\b|\bnext step\b)/i;
 
-/** True when the request asks to continue prior work rather than describing a fresh, self-contained task. */
+/**
+ * Сколько слов сверх самой фразы продолжения ещё считается «голым продолжи».
+ *
+ * Разведка заводится ради случая, когда контекста нет ни у модели, ни в самом сообщении. Если
+ * пользователь принёс контекст сам — текст ошибки, условие, что делать после, — разведывать нечего, а плата за
+ * разведку — лишний прогон модели и задержка перед ответом.
+ */
+const MAX_WORDS_BEYOND_PHRASE = 5;
+
+/** Слова — серии букв и цифр любого языка: знаки препинания и пути не должны раздувать счёт втрое. */
+function countWords(text: string): number {
+	return (text.trim().match(/[\p{L}\p{N}]+/gu) ?? []).length;
+}
+
+/**
+ * True when the request asks to continue prior work rather than describing a fresh, self-contained task.
+ *
+ * Одной фразы мало: «продолжи действия, а после того как решишь — поищи причину падения» содержит
+ * слово-триггер, но это задание целиком, а не отсылка к тому, что уехало из виду.
+ */
 export function isContinuationRequest(text: string): boolean {
-	return RE_CONTINUATION.test(text);
+	const match = RE_CONTINUATION.exec(text);
+	if (!match) { return false; }
+	return countWords(text) - countWords(match[0]) <= MAX_WORDS_BEYOND_PHRASE;
+}
+
+/**
+ * True когда после ПРЕДЫДУЩЕГО сообщения пользователя в треде уже есть работа агента.
+ *
+ * Такая работа видна на экране и лежит в контексте хода — разведывать то, что только что сделано при человеке,
+ * значит платить за пересказ собственного же хода. Разведка нужна там, где продолжать просят после паузы,
+ * перезапуска или длинного чужого треда.
+ *
+ * @param roles Роли сообщений треда по порядку, включая только что добавленное сообщение пользователя
+ */
+export function hasAgentWorkSinceLastUserMessage(roles: readonly string[]): boolean {
+	let i = roles.length - 1;
+	// Текущее сообщение уже в треде — оно и есть повод для разведки, считать его за контекст нельзя.
+	while (i >= 0 && roles[i] === 'user') { i--; }
+	for (; i >= 0; i--) {
+		if (roles[i] === 'user') { return false; }
+		if (roles[i] === 'assistant' || roles[i] === 'tool') { return true; }
+	}
+	return false;
 }
 
 /**

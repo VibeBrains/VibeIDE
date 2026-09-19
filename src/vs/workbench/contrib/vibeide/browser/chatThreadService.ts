@@ -111,7 +111,8 @@ const DESIGN_HOOK_ATTEMPTS_KEY = 'vibeide.design.hook.maxAttempts';
 const DESIGN_HOOK_NOTE_LIMIT = 6;
 /** Widths the hook measures — the same pair the tool uses, so their counts cannot disagree. */
 const DESIGN_HOOK_VIEWPORTS: readonly ViewportLabel[] = ['desktop', 'mobile'];
-import { isContinuationRequest, buildScoutGoal } from '../common/scoutTrigger.js';
+import { isContinuationRequest, buildScoutGoal, hasAgentWorkSinceLastUserMessage } from '../common/scoutTrigger.js';
+import { toolParamUri } from '../common/toolParamUri.js';
 import { IVibePlanEventJournalService } from '../common/vibePlanEventJournalService.js';
 import { IVibePlanBindingRegistry } from './vibePlanBindingRegistry.js';
 import { IVibeTaskDecompositionService } from '../common/vibeTaskDecompositionService.js';
@@ -1413,6 +1414,14 @@ class ChatThreadService extends Disposable implements IChatThreadService {
 	private _setStreamState(threadId: string, state: ThreadStreamState[string]) {
 		const prior = this.streamState[threadId];
 		this.streamState[threadId] = state;
+
+		// Та же единственная воронка — и единственное место, где ошибку, показанную пользователю, можно
+		// записать один раз и наверняка, кто бы её ни поймал. До этого ошибка вроде «TypeError: … reading 'fsPath'»
+		// висела в треде и не попадала никуда: ни в журнал, ни в сохранённый тред, — и искать её было негде.
+		// Стек важнее самого текста: без него сообщение называет симптом и не называет место.
+		if (state?.error && prior?.error?.message !== state.error.message) {
+			vibeLog.error('chatThread', `Ошибка хода (тред ${threadId}): ${state.error.message}`, state.error.fullError ?? undefined);
+		}
 
 		// Notification sound on the single funnel: fire when the thread transitions into a
 		// "waiting for the user / work not proceeding" state. All gates (enabled, per-event,
@@ -4692,7 +4701,7 @@ Output ONLY the JSON, no other text. Start with { and end with }.`;
 		// Check for duplicate read_file calls after validation but before execution
 		if (toolName === 'read_file' && isBuiltInTool) {
 			const readFileParams = toolParams as BuiltinToolCallParams['read_file'];
-			const cacheKey = `${readFileParams.uri.fsPath}|${readFileParams.startLine ?? 'null'}|${readFileParams.endLine ?? 'null'}|${readFileParams.pageNumber ?? 1}`;
+			const cacheKey = `${toolParamUri(toolName, readFileParams).fsPath}|${readFileParams.startLine ?? 'null'}|${readFileParams.endLine ?? 'null'}|${readFileParams.pageNumber ?? 1}`;
 
 			// Check cache
 			let threadCache = this._fileReadCache.get(threadId);
@@ -4972,7 +4981,7 @@ Output ONLY the JSON, no other text. Start with { and end with }.`;
 		if (toolName === 'read_file' && isBuiltInTool) {
 			const readFileParams = toolParams as BuiltinToolCallParams['read_file'];
 			const readFileResult = toolResult as BuiltinToolResultType['read_file'];
-			const cacheKey = `${readFileParams.uri.fsPath}|${readFileParams.startLine ?? 'null'}|${readFileParams.endLine ?? 'null'}|${readFileParams.pageNumber ?? 1}`;
+			const cacheKey = `${toolParamUri(toolName, readFileParams).fsPath}|${readFileParams.startLine ?? 'null'}|${readFileParams.endLine ?? 'null'}|${readFileParams.pageNumber ?? 1}`;
 
 			let threadCache = this._fileReadCache.get(threadId);
 			if (!threadCache) {
@@ -5008,9 +5017,7 @@ Output ONLY the JSON, no other text. Start with { and end with }.`;
 
 		// Invalidate cache when files are modified or deleted
 		if ((toolName === 'edit_file' || toolName === 'rewrite_file' || toolName === 'delete_file_or_folder') && isBuiltInTool) {
-			const fileParams = toolParams as BuiltinToolCallParams['edit_file'] | BuiltinToolCallParams['rewrite_file'] | BuiltinToolCallParams['delete_file_or_folder'];
-			const fileUri = fileParams.uri;
-			this._invalidateFileReadCache(threadId, fileUri.fsPath);
+			this._invalidateFileReadCache(threadId, toolParamUri(toolName, toolParams).fsPath);
 		}
 		return {};
 	};
@@ -9007,6 +9014,9 @@ We only need to do it for files that were edited since `from`, ie files between 
 				this._setStreamState(threadId, { isRunning: 'idle', interrupt: 'not_needed' });
 				return;
 			}
+			// Сюда прилетает сырое исключение хода — единственное место, где у него ещё есть стек.
+			// Дальше он уходит в общий обработчик, где превращается в строку без места падения.
+			vibeLog.error('chatThread', `Ход упал с исключением (тред ${threadId})`, e);
 			if (threadId !== this.state.currentThreadId) { notify({ error: getErrorMessage(e) }); }
 			throw e;
 		});
@@ -9125,6 +9135,9 @@ We only need to do it for files that were edited since `from`, ie files between 
 		if (!forced && !auto) { return 'skip'; }
 		// Thin-context skip (v2): a live, incomplete plan already IS the continuation context; an explicit force overrides.
 		if (!forced && this._hasLiveClearPlan(threadId)) { return 'skip'; }
+		// Агент работал в этом же треде после прошлого сообщения пользователя — его ход виден на экране
+		// и лежит в контексте, то есть разведка пересказала бы ему его же собственную работу за отдельный прогон модели.
+		if (!forced && hasAgentWorkSinceLastUserMessage((this.state.allThreads[threadId]?.messages ?? []).map(m => m.role))) { return 'skip'; }
 
 		const changedPaths = this._recentChangedPaths(threadId);
 		const planSummary = this._unfinishedPlanSummary(threadId);
