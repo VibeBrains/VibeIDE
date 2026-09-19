@@ -14,6 +14,7 @@ import { isLoopbackHost, isRemoteLoopback } from '../../../base/common/loopbackA
 import { ILogger, ILoggerService } from '../../log/common/log.js';
 import { IMcpGatewayInfo, IMcpGatewayServerDescriptor, IMcpGatewayServerInfo, IMcpGatewayService, IMcpGatewaySingleServerInvoker, IMcpGatewayToolInvoker } from '../common/mcpGateway.js';
 import { isStatelessMessage } from '../common/mcpStatelessRequest.js';
+import { bearerTokenOf, MCP_GATEWAY_AUTH_HEADER, MCP_GATEWAY_TOKEN_FILE, tokenMatches, unauthorizedBody } from '../common/mcpGatewayToken.js';
 import { isInitializeMessage, McpGatewaySession } from './mcpGatewaySession.js';
 
 /**
@@ -38,6 +39,9 @@ export class McpGatewayService extends Disposable implements IMcpGatewayService 
 	/** Per-gateway disposables (e.g. event listeners) */
 	private readonly _gatewayDisposables = new Map<string, DisposableStore>();
 	private _serverStartPromise: Promise<void> | undefined;
+	/** Пропуск к шлюзу на время жизни сервера; лежит в файле, который читает локальный клиент. */
+	private _token: string | undefined;
+	private _tokenPath: string | undefined;
 	private readonly _logger: ILogger;
 
 	constructor(
@@ -280,9 +284,47 @@ export class McpGatewayService extends Disposable implements IMcpGatewayService 
 		}
 	}
 
+	/**
+	 * Выдать пропуск и положить его туда, где локальный клиент его найдёт.
+	 *
+	 * Файл перезаписывается на каждый старт сервера: токен живёт ровно столько, сколько слушает
+	 * сокет, и переживший перезапуск старый токен был бы пропуском в никуда.
+	 */
+	private async _issueToken(): Promise<void> {
+		const { randomBytes } = await import('crypto');
+		const { homedir } = await import('os');
+		const { join } = await import('path');
+		const { mkdir, writeFile } = await import('fs/promises');
+		this._token = randomBytes(32).toString('hex');
+		const dir = join(homedir(), '.vibe');
+		this._tokenPath = join(dir, MCP_GATEWAY_TOKEN_FILE);
+		await mkdir(dir, { recursive: true });
+		// Права только владельцу: файл — это и есть пропуск, и читать его соседям незачем.
+		await writeFile(this._tokenPath, `${this._token}\n`, { encoding: 'utf8', mode: 0o600 });
+		this._logger.info(`[McpGatewayService] Token written to ${this._tokenPath}`);
+	}
+
+	private async _revokeToken(): Promise<void> {
+		const path = this._tokenPath;
+		this._token = undefined;
+		this._tokenPath = undefined;
+		if (!path) {
+			return;
+		}
+		try {
+			const { rm } = await import('fs/promises');
+			await rm(path, { force: true });
+		} catch (err) {
+			// Файл без сервера никому не откроет дверь: токен проверяется по памяти процесса.
+			this._logger.warn(`[McpGatewayService] Could not remove token file: ${err}`);
+		}
+	}
+
 	private async _startServer(): Promise<void> {
 		const { createServer } = await import('http'); // Lazy due to https://github.com/nodejs/node/issues/59686
 		const deferredPromise = new DeferredPromise<void>();
+
+		await this._issueToken();
 
 		this._server = createServer((req, res) => {
 			this._handleRequest(req, res);
@@ -334,6 +376,8 @@ export class McpGatewayService extends Disposable implements IMcpGatewayService 
 
 		this._logger.info('[McpGatewayService] Stopping server (no more routes)');
 
+		void this._revokeToken();
+
 		this._server.close(err => {
 			if (err) {
 				this._logger.error(`[McpGatewayService] Error closing server: ${err}`);
@@ -360,6 +404,17 @@ export class McpGatewayService extends Disposable implements IMcpGatewayService 
 			this._logger.warn(`[McpGatewayService] refused non-local request (peer: ${req.socket.remoteAddress}, host: ${req.headers.host})`);
 			res.writeHead(403, { 'Content-Type': 'application/json' });
 			res.end(JSON.stringify({ error: 'Forbidden' }));
+			return;
+		}
+
+		// Петля отвечает «запрос пришёл с этой машины», но не «его послал тот, кому можно»: вызов
+		// инструмента MCP — это побочные эффекты на файлах пользователя, и пропуск обязателен.
+		// Прежним пропуском служил `routeId` в пути, а ревизия 2026-07-28 упразднила сессии, на
+		// которых он держался (см. common/mcpGatewayToken.ts).
+		if (!tokenMatches(this._token ?? '', bearerTokenOf(req.headers[MCP_GATEWAY_AUTH_HEADER]))) {
+			this._logger.warn(`[McpGatewayService] refused request without a valid token (${req.method} ${req.url})`);
+			res.writeHead(401, { 'Content-Type': 'application/json', 'WWW-Authenticate': 'Bearer' });
+			res.end(unauthorizedBody(this._tokenPath ?? `~/.vibe/${MCP_GATEWAY_TOKEN_FILE}`));
 			return;
 		}
 
