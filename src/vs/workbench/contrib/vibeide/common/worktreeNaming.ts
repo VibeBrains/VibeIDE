@@ -13,6 +13,9 @@
 /** Куда складываются деревья агентов: внутри репозитория, но вне индекса (см. `info/exclude`). */
 export const WORKTREE_DIR = '.vibe-worktrees';
 
+/** По этому префиксу дерево агента и строится, и узнаётся обратно в выводе git — источник один. */
+export const AGENT_BRANCH_PREFIX = 'vibe-agent-';
+
 /**
  * Имя ветки для прогона.
  *
@@ -31,7 +34,7 @@ export function worktreeBranchName(sessionId: string): string {
 		.replace(/\.lock$/, 'lock')
 		// Обрезка намеренная: имя ветки видно в каждом `git branch`, а идентификатор прогона длинный.
 		.slice(0, 40);
-	return `vibe-agent-${safe || 'session'}`;
+	return `${AGENT_BRANCH_PREFIX}${safe || 'session'}`;
 }
 
 /** Путь дерева относительно корня репозитория. */

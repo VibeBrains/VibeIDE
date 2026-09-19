@@ -23,7 +23,22 @@ import { IConfigurationService } from '../../../../platform/configuration/common
 export class VibeMultiAgentObservationStatusBarContribution extends Disposable implements IWorkbenchContribution {
 	static readonly ID = 'workbench.contrib.vibeMultiAgentObservationStatusBar';
 
+	/**
+	 * Как часто переспрашивать git про деревья.
+	 *
+	 * Реже, чем обновление строки: счётчики из памяти бесплатны, а каждый опрос git — это запуск
+	 * процесса, а деревья сами по себе не появляются — только по событиям, на которые мы и так подписаны.
+	 */
+	private static readonly GIT_REFRESH_MS = 30_000;
+
 	private _entry: IStatusbarEntryAccessor | undefined;
+	/**
+	 * Деревья по данным git, а не по памяти окна.
+	 *
+	 * Работа роли, оставшаяся в ветке от прошлого запуска IDE, в памяти не числится — и раньше строка
+	 * сообщала о нуле деревьев ровно тогда, когда человеку важнее всего узнать, что работа ждёт.
+	 */
+	private _treesInGit = 0;
 	private _unifiedRow: IDisposable | undefined;
 	private readonly _refresh: RunOnceScheduler;
 
@@ -45,7 +60,11 @@ export class VibeMultiAgentObservationStatusBarContribution extends Disposable i
 			if (e.affectsConfiguration('vibeide.statusBar.unifiedOnly')) { this._wire(); }
 		}));
 		this._register(disposableWindowInterval(mainWindow, () => this._refresh.schedule(), 4000));
+		this._register(disposableWindowInterval(mainWindow, () => void this._refreshFromGit(), VibeMultiAgentObservationStatusBarContribution.GIT_REFRESH_MS));
+		this._register(this._worktree.onWorktreeCreated(() => void this._refreshFromGit()));
+		this._register(this._worktree.onWorktreeMerged(() => void this._refreshFromGit()));
 		this._refresh.schedule();
+		void this._refreshFromGit();
 	}
 
 	private _wire(): void {
@@ -88,9 +107,25 @@ export class VibeMultiAgentObservationStatusBarContribution extends Disposable i
 		super.dispose();
 	}
 
+	/** Спросить git про деревья и обновить строку, если число изменилось. */
+	private async _refreshFromGit(): Promise<void> {
+		let count = 0;
+		try {
+			count = (await this._worktree.listAgentWorktrees()).length;
+		} catch {
+			// Нет репозитория или git недоступен — строка состояния не то место, где об этом сообщают.
+			count = 0;
+		}
+		if (count === this._treesInGit) { return; }
+		this._treesInGit = count;
+		this._refresh.schedule();
+	}
+
 	private _props(): IStatusbarEntry {
 		const agents = this._multiAgent.getAgents().length;
-		const wtActive = this._worktree.getWorktrees().filter(w => w.isAgentWorktree).length;
+		// git знает и про свои деревья, и про чужие; память окна отвечает быстрее, поэтому берём большее
+		// из двух: только что созданное дерево не должно ждать опроса git, а оставшееся от прошлого окна — видно только ему.
+		const wtActive = Math.max(this._worktree.getWorktrees().filter(w => w.isAgentWorktree).length, this._treesInGit);
 		const lock = this._checkpoint.exclusiveHolderLabel;
 		const hasAny = agents > 0 || wtActive > 0 || !!lock;
 		if (!hasAny) {
@@ -111,7 +146,9 @@ export class VibeMultiAgentObservationStatusBarContribution extends Disposable i
 			name: localize('vibeideMaObsSbName', 'VibeIDE агенты / воркдеревья'),
 			text: `A:${agents} W:${wtActive}${lock ? ' L' : ''}`,
 			ariaLabel: localize('vibeideMaObsAria', 'Агентов: {0}, агентских воркдеревьев: {1}. {2}', agents, wtActive, lockHint),
-			tooltip: localize('vibeideMaObsTip', '{0}; агенты привязаны к изолированным воркдеревьям.', lockHint),
+			tooltip: localize('vibeideMaObsTip', '{0}; агенты привязаны к изолированным воркдеревьям. Щёлкните, чтобы влить или убрать дерево.', lockHint),
+			// Счётчик без действия сообщает о ждущей работе и не даёт её забрать — отсюда команда деревьев.
+			command: 'vibeide.agent.worktrees',
 		};
 	}
 }

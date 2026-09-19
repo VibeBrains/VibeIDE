@@ -111,7 +111,7 @@ const DESIGN_HOOK_ATTEMPTS_KEY = 'vibeide.design.hook.maxAttempts';
 const DESIGN_HOOK_NOTE_LIMIT = 6;
 /** Widths the hook measures — the same pair the tool uses, so their counts cannot disagree. */
 const DESIGN_HOOK_VIEWPORTS: readonly ViewportLabel[] = ['desktop', 'mobile'];
-import { isContinuationRequest, buildScoutGoal, hasAgentWorkSinceLastUserMessage } from '../common/scoutTrigger.js';
+import { isContinuationRequest, buildScoutGoal, hasAgentWorkSinceLastUserMessage, DEFAULT_MAX_WORDS_BEYOND_PHRASE } from '../common/scoutTrigger.js';
 import { toolParamUri } from '../common/toolParamUri.js';
 import { IVibePlanEventJournalService } from '../common/vibePlanEventJournalService.js';
 import { IVibePlanBindingRegistry } from './vibePlanBindingRegistry.js';
@@ -9131,7 +9131,7 @@ We only need to do it for files that were edited since `from`, ie files between 
 		const forced = !!forceScout || !!this._scoutNextTurnByThread[threadId];
 		if (this._scoutNextTurnByThread[threadId]) { delete this._scoutNextTurnByThread[threadId]; this._onDidChangeScoutArmed.fire(threadId); } // one-shot consume → un-arm the toggle
 		const autoEnabled = this._configurationService.getValue<boolean>('vibeide.subagent.autoScout') ?? true;
-		const auto = autoEnabled && isContinuationRequest(userRequest);
+		const auto = autoEnabled && isContinuationRequest(userRequest, { maxWordsBeyondPhrase: this._configurationService.getValue<number>('vibeide.subagent.scoutMaxExtraWords') ?? DEFAULT_MAX_WORDS_BEYOND_PHRASE });
 		if (!forced && !auto) { return 'skip'; }
 		// Thin-context skip (v2): a live, incomplete plan already IS the continuation context; an explicit force overrides.
 		if (!forced && this._hasLiveClearPlan(threadId)) { return 'skip'; }

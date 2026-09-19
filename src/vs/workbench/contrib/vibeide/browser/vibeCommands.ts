@@ -20,6 +20,7 @@ import { VSBuffer } from '../../../../base/common/buffer.js';
 import { IWorkspaceContextService } from '../../../../platform/workspace/common/workspace.js';
 import { joinPath } from '../../../../base/common/resources.js';
 import { IVibeideSCMService } from '../common/vibeideSCMTypes.js';
+import { IVibeGitWorktreeService, WorktreeInfo } from '../common/vibeGitWorktreeService.js';
 import { vibeLog } from '../common/vibeLog.js';
 import { describeConflictsForAgent, MergeConflictReport, parseMergeConflicts } from '../common/vibeMergeConflictService.js';
 import { INotificationService, Severity } from '../../../../platform/notification/common/notification.js';
@@ -1639,5 +1640,92 @@ registerAction2(class VibeResolveMergeConflicts extends Action2 {
 		const threadId = chatThreadService.state.currentThreadId;
 		const task = describeConflictsForAgent(reports);
 		await chatThreadService.addUserMessageAndStreamResponse({ userMessage: task, threadId, displayContent: task });
+	}
+});
+
+/**
+ * Деревья агентов: что осталось от ролей, работавших в изоляции, и что с этим делать.
+ *
+ * Изоляция роли (`vibeide.subagent.worktree`) оставляет работу в ветке дерева — вливает её сама
+ * только под автопилотом. Без этой команды забрать работу можно было лишь из терминала, руками
+ * набирая `git merge` и `git worktree remove` в правильном порядке; неверный порядок теряет работу
+ * при конфликте. Здесь тот же порядок зашит, а необратимое действие спрашивает подтверждение.
+ */
+registerAction2(class VibeAgentWorktrees extends Action2 {
+	constructor() {
+		super({
+			id: 'vibeide.agent.worktrees',
+			f1: true,
+			title: localize2('vibeide.agent.worktrees.title', 'Деревья агентов'),
+			category: VIBE_COMMAND_CATEGORY,
+		});
+	}
+
+	async run(accessor: ServicesAccessor): Promise<void> {
+		const notifications = accessor.get(INotificationService);
+		const quickInput = accessor.get(IQuickInputService);
+		const dialogs = accessor.get(IDialogService);
+		const worktrees = accessor.get(IVibeGitWorktreeService);
+		const commands = accessor.get(ICommandService);
+
+		let trees: readonly WorktreeInfo[];
+		try {
+			trees = await worktrees.listAgentWorktrees();
+		} catch (error) {
+			notifications.notify({ severity: Severity.Warning, message: localize('vibeide.worktrees.listFailed', 'Не удалось спросить git о деревьях: {0}', String(error instanceof Error ? error.message : error)) });
+			return;
+		}
+		if (trees.length === 0) {
+			notifications.notify({ severity: Severity.Info, message: localize('vibeide.worktrees.none', 'Деревьев агентов нет — все роли работали в общей папке или их работа уже влита.') });
+			return;
+		}
+
+		const picked = await quickInput.pick(
+			trees.map(wt => ({ label: wt.branch, description: wt.path, wt })),
+			{ title: localize('vibeide.worktrees.pick', 'Дерево агента'), placeHolder: localize('vibeide.worktrees.pickPlaceholder', 'Работа роли, не влитая в проект') });
+		if (!picked) { return; }
+
+		type WorktreeAction = 'merge' | 'open' | 'discard';
+		const action = await quickInput.pick<IQuickPickItem & { action: WorktreeAction }>([
+			{ label: localize('vibeide.worktrees.merge', 'Влить в проект'), description: picked.wt.branch, action: 'merge' },
+			{ label: localize('vibeide.worktrees.open', 'Открыть папку дерева'), description: picked.wt.path, action: 'open' },
+			{ label: localize('vibeide.worktrees.discard', 'Выбросить вместе с работой'), description: localize('vibeide.worktrees.discardHint', 'Необратимо'), action: 'discard' },
+		], { title: picked.wt.branch });
+		if (!action) { return; }
+
+		if (action.action === 'open') {
+			await commands.executeCommand('revealFileInOS', URI.file(picked.wt.path));
+			return;
+		}
+
+		if (action.action === 'discard') {
+			// Число файлов тут не назвать, не прочитав дерево, поэтому подтверждение говорит прямо:
+			// исчезает вся работа роли. Обещать точность, которой нет, хуже, чем её не обещать.
+			const { confirmed } = await dialogs.confirm({
+				message: localize('vibeide.worktrees.discardConfirm', 'Выбросить дерево «{0}» вместе со всей работой роли?', picked.wt.branch),
+				detail: localize('vibeide.worktrees.discardDetail', 'Ветка и её коммиты будут удалены безвозвратно. Отменить это нечем.'),
+				primaryButton: localize('vibeide.worktrees.discardBtn', 'Выбросить'),
+				type: 'warning',
+			});
+			if (!confirmed) { return; }
+			try {
+				await worktrees.discardWorktree(picked.wt.id);
+				notifications.notify({ severity: Severity.Info, message: localize('vibeide.worktrees.discarded', 'Дерево «{0}» выброшено.', picked.wt.branch) });
+			} catch (error) {
+				notifications.notify({ severity: Severity.Error, message: localize('vibeide.worktrees.discardFailed', 'Выбросить дерево «{0}» не удалось: {1}', picked.wt.branch, String(error instanceof Error ? error.message : error)) });
+			}
+			return;
+		}
+
+		try {
+			await worktrees.mergeWorktree(picked.wt.id);
+			notifications.notify({ severity: Severity.Info, message: localize('vibeide.worktrees.merged', 'Ветка «{0}» влита, дерево убрано.', picked.wt.branch) });
+		} catch (error) {
+			// Конфликт слияния — не потеря: дерево и ветка остаются, и разобрать конфликт есть чем.
+			notifications.notify({
+				severity: Severity.Warning,
+				message: localize('vibeide.worktrees.mergeFailed', 'Слить «{0}» не удалось (вероятен конфликт): {1}. Дерево и ветка на месте — воспользуйтесь командой «Разрешить конфликты слияния».', picked.wt.branch, String(error instanceof Error ? error.message : error)),
+			});
+		}
 	}
 });

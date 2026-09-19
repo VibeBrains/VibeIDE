@@ -30,7 +30,7 @@ const RE_CONTINUATION = /(продолж|дальше|доделай|достр�
  * пользователь принёс контекст сам — текст ошибки, условие, что делать после, — разведывать нечего, а плата за
  * разведку — лишний прогон модели и задержка перед ответом.
  */
-const MAX_WORDS_BEYOND_PHRASE = 5;
+export const DEFAULT_MAX_WORDS_BEYOND_PHRASE = 5;
 
 /** Слова — серии букв и цифр любого языка: знаки препинания и пути не должны раздувать счёт втрое. */
 function countWords(text: string): number {
@@ -40,13 +40,17 @@ function countWords(text: string): number {
 /**
  * True when the request asks to continue prior work rather than describing a fresh, self-contained task.
  *
+ * Порог приходит объектом, а не вторым числом: функцию зовут через `map`, а `map` передаёт вторым
+ * аргументом индекс — числовой параметр молча получил бы его за порог. С объектом такой вызов не компилируется.
+ *
  * Одной фразы мало: «продолжи действия, а после того как решишь — поищи причину падения» содержит
  * слово-триггер, но это задание целиком, а не отсылка к тому, что уехало из виду.
  */
-export function isContinuationRequest(text: string): boolean {
+export function isContinuationRequest(text: string, opts?: { readonly maxWordsBeyondPhrase?: number }): boolean {
 	const match = RE_CONTINUATION.exec(text);
 	if (!match) { return false; }
-	return countWords(text) - countWords(match[0]) <= MAX_WORDS_BEYOND_PHRASE;
+	// Отрицательный порог из конфига не должен выключать разведку совсем — для этого есть свой тумблер.
+	return countWords(text) - countWords(match[0]) <= Math.max(0, opts?.maxWordsBeyondPhrase ?? DEFAULT_MAX_WORDS_BEYOND_PHRASE);
 }
 
 /**

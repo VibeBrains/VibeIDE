@@ -12,7 +12,14 @@ import { registerSingleton, InstantiationType } from '../../../../platform/insta
 import { IVibeCheckpointCoordinator } from './vibeCheckpointCoordinatorService.js';
 import { IVibeideSCMService } from './vibeideSCMTypes.js';
 import { IWorkspaceContextService } from '../../../../platform/workspace/common/workspace.js';
-import { parseWorktreeList, worktreeBranchName, worktreeRelativePath } from './worktreeNaming.js';
+import { AGENT_BRANCH_PREFIX, parseWorktreeList, worktreeBranchName, worktreeRelativePath } from './worktreeNaming.js';
+
+/**
+ * Чем кончилась фиксация работы роли в её ветке.
+ *
+ * `nothing` — роль ничего не записала; `failed` — записала, но коммит не состоялся и работа ждёт в дереве.
+ */
+export type WorktreeCommitOutcome = 'committed' | 'nothing' | 'failed';
 
 export interface WorktreeInfo {
 	id: string;
@@ -31,16 +38,27 @@ export interface IVibeGitWorktreeService {
 	createAgentWorktree(sessionId: string): Promise<WorktreeInfo | null>;
 
 	/**
-	 * Закоммитить в дереве всё, что прогон наработал, — и сказать, было ли что коммитить.
+	 * Закоммитить в дереве всё, что прогон наработал.
 	 *
 	 * Делается ВСЕГДА, независимо от того, сливаем ли дерево: `merge` берёт коммиты ветки, а правки
 	 * роли лежат в дереве некоммитнутыми. Без коммита слияние оказалось бы пустым, дерево —
 	 * неудаляемым, и работа роли осталась бы в папке, о которой никто не вспомнит.
+	 *
+	 * Исходов три, а не два, и это важно: «дерево чистое» и «коммит не состоялся» выглядят одинаково только
+	 * изнутри кода. Для пользователя это противоположности: в первом случае терять нечего, во втором его работа
+	 * лежит в дереве незафиксированной и ждёт рук. Сказать второе первым словами — значит соврать о потере.
 	 */
-	commitAgentWorktree(worktreeId: string, message: string): Promise<boolean>;
+	commitAgentWorktree(worktreeId: string, message: string): Promise<WorktreeCommitOutcome>;
 
 	/** Merge agent worktree to main after Approve */
 	mergeWorktree(worktreeId: string): Promise<void>;
+
+	/**
+	 * Отказаться от работы роли: снести дерево и его ветку вместе с невлитыми коммитами.
+	 *
+	 * Необратимо и потому вызывается только за подтверждением человека: всё, что роль наработала, исчезает.
+	 */
+	discardWorktree(worktreeId: string): Promise<void>;
 
 	/**
 	 * Create several agent worktrees in one batch (same mutex / logging path as singles).
@@ -123,10 +141,10 @@ class VibeGitWorktreeService extends Disposable implements IVibeGitWorktreeServi
 		}
 	}
 
-	async commitAgentWorktree(worktreeId: string, message: string): Promise<boolean> {
+	async commitAgentWorktree(worktreeId: string, message: string): Promise<WorktreeCommitOutcome> {
 		const wt = this._worktrees.get(worktreeId);
 		if (!wt) {
-			return false;
+			return 'failed';
 		}
 		// Тот же мьютекс, что у создания и слияния: индекс у дерева свой, но `git` в одном
 		// репозитории всё равно ходит через общие ссылки.
@@ -134,19 +152,45 @@ class VibeGitWorktreeService extends Disposable implements IVibeGitWorktreeServi
 			try {
 				const committed = await this._scm.commitWorktree(wt.path, message);
 				vibeLog.info('Worktree', committed ? `Зафиксировано в ${wt.branch}` : `Дерево ${wt.branch} чистое — коммитить нечего`);
-				return committed;
+				return committed ? 'committed' : 'nothing';
 			} catch (e) {
-				// Несостоявшийся коммит — это работа, оставшаяся в дереве. Сказать об этом важнее,
-				// чем продолжить: слияние дальше по потоку молча не принесёт ничего.
+				// Несостоявшийся коммит — это работа, оставшаяся в дереве незафиксированной: отдать
+				// её за «ничего не записала» значило бы соврать о потере работы.
 				vibeLog.error('Worktree', `Не удалось зафиксировать дерево ${wt.branch}:`, e);
-				return false;
+				return 'failed';
 			}
+		});
+	}
+
+	/**
+	 * Дерево по идентификатору — сначала из памяти окна, потом у git.
+	 *
+	 * Без второго шага дерево, оставшееся от прошлого окна, перечисляется, но не сливается и не убирается:
+	 * показывать человеку то, что нельзя тронуть, хуже, чем не показывать вовсе.
+	 */
+	private async _resolveWorktree(worktreeId: string): Promise<WorktreeInfo | undefined> {
+		return this._worktrees.get(worktreeId) ?? (await this.listAgentWorktrees()).find(wt => wt.id === worktreeId);
+	}
+
+	async discardWorktree(worktreeId: string): Promise<void> {
+		await this._checkpointCoordinator.runExclusive({ op: 'worktree:discard', holderLabel: worktreeId }, async () => {
+			const wt = await this._resolveWorktree(worktreeId);
+			const repoPath = this._repoPath();
+			if (!wt || !repoPath) {
+				return;
+			}
+			// `force` в обоих вызовах осознанно: суть команды — выбросить невлитую работу, и осторожный
+			// git отказал бы именно в том, зачем пришли. Подтверждение человека берётся выше, в команде.
+			await this._scm.removeWorktree(repoPath, wt.path, true);
+			await this._scm.deleteBranch(repoPath, wt.branch, true);
+			this._worktrees.delete(worktreeId);
+			vibeLog.info('Worktree', `Выброшено дерево ${wt.branch}`);
 		});
 	}
 
 	async mergeWorktree(worktreeId: string): Promise<void> {
 		await this._checkpointCoordinator.runExclusive({ op: 'worktree:merge', holderLabel: worktreeId }, async () => {
-			const wt = this._worktrees.get(worktreeId);
+			const wt = await this._resolveWorktree(worktreeId);
 			if (!wt) {
 				return;
 			}
@@ -180,7 +224,7 @@ class VibeGitWorktreeService extends Disposable implements IVibeGitWorktreeServi
 		try {
 			const entries = parseWorktreeList(await this._scm.listWorktrees(repoPath));
 			return entries
-				.filter(entry => entry.branch?.startsWith('vibe-agent-'))
+				.filter(entry => entry.branch?.startsWith(AGENT_BRANCH_PREFIX))
 				.map(entry => ({ id: `wt-${entry.branch}`, path: entry.path, branch: entry.branch!, isAgentWorktree: true }));
 		} catch (e) {
 			vibeLog.warn('Worktree', 'Не удалось перечислить деревья:', e);

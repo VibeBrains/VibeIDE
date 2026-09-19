@@ -126,8 +126,13 @@ export interface IVibeideSCMService {
 	 * @param path Любой путь внутри репозитория
 	 */
 	mergeWorktreeBranch(path: string, branch: string): Promise<void>;
-	/** Удалить ветку дерева после слияния. */
-	deleteBranch(path: string, branch: string): Promise<void>;
+	/**
+	 * Удалить ветку дерева после слияния.
+	 *
+	 * Без `force` git отказывается удалять ветку с невлитыми коммитами — это верное умолчание. `force`
+	 * нужен ровно там, где невлитую работу выбрасывают намеренно и за подтверждением человека.
+	 */
+	deleteBranch(path: string, branch: string, force?: boolean): Promise<void>;
 	/**
 	 * Файлы с неразрешённым конфликтом слияния — путями относительно корня репозитория.
 	 *

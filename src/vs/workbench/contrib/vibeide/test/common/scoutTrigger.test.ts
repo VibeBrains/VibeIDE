@@ -17,11 +17,11 @@ suite('Vibe Agents — scout trigger', () => {
 			[
 				'продолжи', 'продолжай с того же места', 'дальше', 'доделай форму', 'заверши начатое',
 				'continue', 'keep going', 'finish it',
-			].map(isContinuationRequest),
+			].map(text => isContinuationRequest(text)),
 			[true, true, true, true, true, true, true, true],
 		);
 		assert.deepStrictEqual(
-			['добавь кнопку логина', 'почини баг в парсере', 'запусти тесты', 'напиши функцию сортировки'].map(isContinuationRequest),
+			['добавь кнопку логина', 'почини баг в парсере', 'запусти тесты', 'напиши функцию сортировки'].map(text => isContinuationRequest(text)),
 			[false, false, false, false],
 		);
 	});
@@ -32,10 +32,10 @@ suite('Vibe Agents — scout trigger', () => {
 		const сСвоимКонтекстом = [
 			'опять упал на ошибке TypeError: Cannot read properties of undefined (reading \'fsPath\')\n\nпродолжи действия\n\nпосле того как решишь все действия по этой задаче - поищи почему ты падаешь по такой ошибке',
 			'продолжи работу над формой, но сначала перенеси валидацию в отдельный модуль и покрой её тестами',
-		].map(isContinuationRequest);
+		].map(text => isContinuationRequest(text));
 		const голыеПродолжения = [
 			'продолжи', 'продолжи действия', 'дальше', 'продолжай с того же места', 'continue', 'keep going',
-		].map(isContinuationRequest);
+		].map(text => isContinuationRequest(text));
 		assert.deepStrictEqual({ сСвоимКонтекстом, голыеПродолжения }, {
 			сСвоимКонтекстом: [false, false],
 			голыеПродолжения: [true, true, true, true, true, true],
@@ -60,6 +60,18 @@ suite('Vibe Agents — scout trigger', () => {
 			толькоЧекпоинты: false,
 			пустойТред: false,
 		});
+	});
+
+	test('порог слов настраивается: ноль оставляет только голую фразу', () => {
+		const текст = 'продолжи действия';
+		assert.deepStrictEqual({
+			поУмолчанию: isContinuationRequest(текст),
+			ноль: isContinuationRequest(текст, { maxWordsBeyondPhrase: 0 }),
+			// Отрицательное значение из конфига не должно выключать разведку молча — для этого есть
+			// свой тумблер `vibeide.subagent.autoScout`.
+			отрицательный: isContinuationRequest('продолжи', { maxWordsBeyondPhrase: -5 }),
+			щедрый: isContinuationRequest('продолжи работу над формой и заодно перенеси валидацию', { maxWordsBeyondPhrase: 50 }),
+		}, { поУмолчанию: true, ноль: false, отрицательный: true, щедрый: true });
 	});
 
 	test('scout goal includes changed files, plan, and always asks for leads + hypothesis', () => {

@@ -207,7 +207,11 @@ export class VibeideSCMService extends Disposable implements IVibeideSCMService 
 		if (!staged) {
 			return false;
 		}
-		await gitArgv(['commit', '-m', message], worktreePath);
+		// `--no-verify` намеренно: хуки пользователя написаны про его собственные коммиты, а этот —
+		// служебный снимок работы роли в её ветке. Упавший предкоммитный гейт (типы, линт, тесты) оставил бы
+		// работу незафиксированной в дереве — то есть ровно тот исход, ради которого коммит здесь и делается.
+		// Проверять работу роли гейтам положено при слиянии в проект, а не при записи в свою ветку.
+		await gitArgv(['commit', '--no-verify', '-m', message], worktreePath);
 		return true;
 	}
 
@@ -216,9 +220,9 @@ export class VibeideSCMService extends Disposable implements IVibeideSCMService 
 		await gitArgv(['merge', '--no-ff', branch], root);
 	}
 
-	async deleteBranch(path: string, branch: string): Promise<void> {
+	async deleteBranch(path: string, branch: string, force?: boolean): Promise<void> {
 		const root = await gitArgv(SNAPSHOT_ARGV.repoRoot, path);
-		await gitArgv(['branch', '-d', branch], root);
+		await gitArgv(['branch', force ? '-D' : '-d', branch], root);
 	}
 
 	async listConflictedFiles(path: string): Promise<string[]> {

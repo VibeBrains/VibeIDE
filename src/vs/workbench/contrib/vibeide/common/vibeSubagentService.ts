@@ -297,6 +297,14 @@ export interface IVibeSubagentService {
 /** Maximum characters in any SubagentResult field — enforces compact handoff contract */
 const MAX_RESULT_SUMMARY_CHARS = 500;
 
+/**
+ * Сколько собственного ответа роли остаётся, какой бы длинной ни вышла приписка про дерево.
+ *
+ * Путь дерева бывает длинным, и вычитание без пола дало бы отрицательный предел, а `slice` с ним режет
+ * с конца — ответ роли превратился бы в огрызок.
+ */
+const MIN_RESULT_SUMMARY_CHARS = 120;
+
 /** Длина темы коммита дерева: заголовок виден в каждом `git log --oneline`, задача роли длиннее. */
 const WORKTREE_COMMIT_SUBJECT_CHARS = 72;
 const DEFAULT_MAX_STEPS = 20;
@@ -696,7 +704,7 @@ class VibeSubagentService extends Disposable implements IVibeSubagentService {
 			status: outcome.status,
 			// Приписка про дерево занимает место ВНУТРИ предела, а не сверх него: предел существует,
 			// чтобы ответ роли оставался компактным, и обойти его собственной строкой было бы нечестно.
-			summary: `${this._truncate(outcome.summary, MAX_RESULT_SUMMARY_CHARS - worktreeNote.length)}${worktreeNote}`,
+			summary: `${this._truncate(outcome.summary, Math.max(MIN_RESULT_SUMMARY_CHARS, MAX_RESULT_SUMMARY_CHARS - worktreeNote.length))}${worktreeNote}`,
 			artifacts: outcome.artifacts,
 			tokensUsed: outcome.tokensUsedEst,
 			truncated: outcome.truncated || undefined,
@@ -721,8 +729,12 @@ class VibeSubagentService extends Disposable implements IVibeSubagentService {
 	 */
 	private async _settleWorktree(worktree: WorktreeInfo, entry: SubagentEntry, status: SubagentResult['status']): Promise<string> {
 		const committed = await this._worktrees.commitAgentWorktree(worktree.id, `агент(${entry.type}): ${this._truncate(entry.handoff.goal, WORKTREE_COMMIT_SUBJECT_CHARS)}`);
-		if (!committed) {
+		if (committed === 'nothing') {
 			return `\n\nРоль ничего не записала — дерево ${worktree.branch} осталось пустым.`;
+		}
+		if (committed === 'failed') {
+			// Работа есть, но она не зафиксирована — сливать нечего, и молчать об этом нельзя.
+			return `\n\nЗафиксировать работу в ветке ${worktree.branch} не удалось — она лежит НЕЗАФИКСИРОВАННОЙ в дереве ${worktree.path}. Причина — в журнале «Worktree».`;
 		}
 		const autopilot = this._settings.state.globalSettings.chatAgentAutopilot === true;
 		if (status !== 'success' || !autopilot) {

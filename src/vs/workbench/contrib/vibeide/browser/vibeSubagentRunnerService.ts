@@ -33,9 +33,8 @@ import { IVibeAgentActivityLogService } from './vibeAgentActivityLogService.js';
 import { URI } from '../../../../base/common/uri.js';
 import { IWorkspaceContextService } from '../../../../platform/workspace/common/workspace.js';
 import { stepMayWrite } from '../common/pipeline/vibePipelineFile.js';
-import { normalizePath, rebaseIntoWorktree, relativeToRoot } from '../common/worktreeRebase.js';
+import { rebaseParamsIntoWorktree, relativeToRoot } from '../common/worktreeRebase.js';
 import { isLinux } from '../../../../base/common/platform.js';
-import { Schemas } from '../../../../base/common/network.js';
 
 /** Under Autopilot, resource limits auto-extend rather than stop the role. This cooldown backstops a
  *  pathological tight loop (instant hops) from resetting the budget hundreds of times per second —
@@ -498,43 +497,14 @@ class VibeSubagentRunnerService extends Disposable implements IVibeSubagentRunne
 	}
 
 	/**
-	 * Перенести пути вызова в дерево прогона.
-	 *
-	 * Правило структурное — «значение типа URI под корнем открытой папки», а не список инструментов:
-	 * список пришлось бы дополнять при каждом новом инструменте, и забытая строка тихо вернула бы
-	 * роль в общую папку. Читающие вызовы переносятся наравне с пишущими: роль, которая правит своё
-	 * дерево, а читает общую папку, видит файл, которого она уже не правит.
+	 * Перенести пути вызова в дерево прогона. Правило чистое — см. `worktreeRebase.ts`.
 	 */
 	private _rebaseIntoRunRoot(params: unknown, runRoot: string | undefined): unknown {
 		const workspaceRoot = this._workspaceRoot();
-		if (!runRoot || !workspaceRoot || typeof params !== 'object' || params === null) {
+		if (!runRoot || !workspaceRoot) {
 			return params;
 		}
-		const move = (value: unknown): unknown => {
-			if (value instanceof URI) {
-				if (value.scheme !== Schemas.file) { return value; }
-				const target = normalizePath(value.fsPath);
-				const moved = rebaseIntoWorktree(workspaceRoot, runRoot, target, !isLinux);
-				return moved === target ? value : URI.file(moved);
-			}
-			if (Array.isArray(value)) { return value.map(move); }
-			return value;
-		};
-		const out: Record<string, unknown> = { ...(params as Record<string, unknown>) };
-		for (const key of Object.keys(out)) {
-			out[key] = move(out[key]);
-		}
-		// Команда оболочки не несёт URI — только строку папки, и по умолчанию это открытая папка.
-		// Оставить умолчание значило бы выполнить сборку и тесты роли мимо её дерева.
-		if ('command' in out && 'cwd' in out) {
-			const cwd = out['cwd'];
-			out['cwd'] = typeof cwd === 'string' && cwd.trim()
-				? (/^([a-zA-Z]:[\\/]|\/)/.test(cwd)
-					? rebaseIntoWorktree(workspaceRoot, runRoot, normalizePath(cwd), !isLinux)
-					: `${normalizePath(runRoot)}/${normalizePath(cwd)}`)
-				: normalizePath(runRoot);
-		}
-		return out;
+		return rebaseParamsIntoWorktree(params, workspaceRoot, runRoot, !isLinux);
 	}
 
 	private _invalidToolMessage(toolCall: RawToolCallObj, content: string): ChatMessage {
