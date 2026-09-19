@@ -19,23 +19,39 @@
  *   - a dated snapshot: `canonical_slug` differing from the id, e.g. `sakana/fugu-ultra-v2`
  *     resolving to `sakana/fugu-ultra-v2-20260911`.
  *
+ * ЭТО ДВА РАЗНЫХ ОБЕЩАНИЯ, и с 19.09.2026 они и называются по-разному (предложение VibeIDEA,
+ * подкреплённое их измерением на том же каталоге):
+ *   - алиас: «завтра под этим именем будет другая модель»;
+ *   - снимок: «сегодня это модель от такого-то числа, имя переедет на следующий снимок».
+ * Одним словом они схлопывались, и пометка, стоящая почти на каждой записи каталога, переставала
+ * что-либо значить: явных алиасов 16, снимков 294.
+ *
  * Display-only, like `modality`: nothing routes on it. Its whole job is to be visible in the model
  * list next to the id, so a person pinning a quirk knows which name to pin it to.
  *
  * Pure: a catalogue entry in, a string or nothing out.
  */
 
-/** The slug a floating id points at right now, or `undefined` when the id is fixed. */
-export function floatingTargetOf(model: unknown, id: string): string | undefined {
+/** Какое обещание стоит за именем: чужая модель завтра или снимок сегодня. */
+export type FloatingKind = 'alias' | 'snapshot';
+
+/** Куда ведёт имя сегодня и почему оно вообще едет. `undefined` — имя закреплено. */
+export interface FloatingRef {
+	readonly target: string;
+	readonly kind: FloatingKind;
+}
+
+/** Чем является id: алиасом, именем над снимком или закреплённым именем. */
+export function floatingRefOf(model: unknown, id: string): FloatingRef | undefined {
 	if (!model || typeof model !== 'object') { return undefined; }
 	const entry = model as { alias_target?: unknown; canonical_slug?: unknown };
 	const alias = entry.alias_target;
 	if (alias && typeof alias === 'object') {
 		const slug = (alias as { slug?: unknown }).slug;
-		if (typeof slug === 'string' && slug.length > 0 && slug !== id) { return slug; }
+		if (typeof slug === 'string' && slug.length > 0 && slug !== id) { return { target: slug, kind: 'alias' }; }
 	}
 	const canonical = entry.canonical_slug;
 	// A canonical slug equal to the id says the opposite of floating — the id IS the canonical name.
-	if (typeof canonical === 'string' && canonical.length > 0 && canonical !== id) { return canonical; }
+	if (typeof canonical === 'string' && canonical.length > 0 && canonical !== id) { return { target: canonical, kind: 'snapshot' }; }
 	return undefined;
 }

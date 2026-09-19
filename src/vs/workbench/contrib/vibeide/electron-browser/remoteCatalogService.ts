@@ -26,7 +26,7 @@ import { IRequestService, asTextOrError } from '../../../../platform/request/com
 import { IMainProcessService } from '../../../../platform/ipc/common/mainProcessService.js';
 import { IRemoteCatalogService, RemoteModelInfo, DynamicKeyValidation } from '../common/remoteCatalogService.js';
 import { normaliseCatalogCost } from '../common/catalogPricing.js';
-import { floatingTargetOf } from '../common/catalogAliases.js';
+import { floatingRefOf } from '../common/catalogAliases.js';
 
 /** Cached catalog entry with TTL. */
 interface CachedCatalog {
@@ -513,7 +513,8 @@ export class RemoteCatalogService implements IRemoteCatalogService {
 				}),
 				// A floating id — an alias or a dated snapshot behind a stable name — is display-only,
 				// but it is what tells a person that a quirk pinned here is pinned to moving ground.
-				floatsTo: floatingTargetOf(model, id),
+				floatsTo: floatingRefOf(model, id)?.target,
+				floatKind: floatingRefOf(model, id)?.kind,
 				deprecated: !!(model as { deprecated?: boolean }).deprecated,
 				beta: !!(model as { beta?: boolean }).beta,
 			};

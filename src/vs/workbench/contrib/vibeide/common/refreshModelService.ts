@@ -274,6 +274,9 @@ export class RefreshModelService extends Disposable implements IRefreshModelServ
 				// Display-only: what a floating id resolves to today, so a quirk is pinned knowingly.
 				if (typeof m.floatsTo === 'string' && m.floatsTo.length > 0) {
 					partial.floatsTo = m.floatsTo;
+					if (m.floatKind === 'alias' || m.floatKind === 'snapshot') {
+						partial.floatKind = m.floatKind;
+					}
 				}
 				if (Object.keys(partial).length) {
 					overrideUpdates[id] = partial;

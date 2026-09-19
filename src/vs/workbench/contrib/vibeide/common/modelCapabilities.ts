@@ -200,6 +200,7 @@ export type VibeideStaticModelInfo = { // not stateful
 	modality?: string; // display-only literal from catalog (e.g. "text+image->text"). Not used for routing — purely informational, surfaced in the model list UI.
 	floating?: boolean; // declared in providers.json: the id is an alias re-pointed without notice — see isFloatingModel
 	floatsTo?: string; // display-only: what a FLOATING catalog id points at today (alias target or dated snapshot). See catalogAliases.ts — a quirk pinned to such an id is pinned to moving ground.
+	floatKind?: 'alias' | 'snapshot'; // display-only: which promise is broken tomorrow — another model (`alias`) or the next dated build (`snapshot`).
 
 	additionalOpenAIPayload?: { [key: string]: string }; // additional payload in the message body for requests that are openai-compatible (ollama, vllm, openai, openrouter, etc)
 
@@ -285,6 +286,7 @@ export const modelOverrideKeys = [
 	'supportsVision',
 	'modality',
 	'floatsTo',
+	'floatKind',
 	'floating',
 	'reasoningCapabilities',
 	'additionalOpenAIPayload'

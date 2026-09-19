@@ -21,6 +21,7 @@ import { MCPUserStateOfName } from '../common/vibeideSettingsTypes.js';
 import { mergeServerEnv, transportRequestInit } from '../common/mcpServerEnv.js';
 import { McpCacheableMeta, parseCacheableMeta, refreshDelayMs } from '../common/mcpCacheableResult.js';
 import { describeUnansweredInput, parseInputRequired } from '../common/mcpMultiRoundTrip.js';
+import { filterToolsWithValidHeaders } from '../common/mcpHeaderAnnotation.js';
 
 const getClientConfig = (serverName: string) => {
 	return {
@@ -389,7 +390,14 @@ export class MCPChannel implements IServerChannel {
 		const listed = await client.listTools();
 		const meta = parseCacheableMeta(listed);
 		this._scheduleToolListRefresh(serverName, meta);
-		return { tools: listed.tools as MCPTool[] };
+		// Аннотация `x-mcp-header` приходит от сервера и уезжает в HTTP: негодное имя заголовка —
+		// это внедрение чужого заголовка, поэтому такой инструмент исключается из списка, а не
+		// «исправляется». Остальные инструменты сервера при этом продолжают работать.
+		const { tools, rejected } = filterToolsWithValidHeaders(listed.tools as MCPTool[]);
+		for (const item of rejected) {
+			vibeLog.warn('mcpChannel', `MCP server "${serverName}": инструмент «${item.name}» отвергнут — ${item.reason}`);
+		}
+		return { tools };
 	}
 
 	/** Перечитать список этого сервера, когда объявленный им срок истечёт. */
