@@ -19,7 +19,8 @@ import { ModelRate, billedTokens, blendedRate } from './cascadeEconomics.js';
  *
  *   - A task is a goal inside a thread. Runs group by `parentThreadId` plus the goal of the run that
  *     started the chain, and the chains the ledger already records — a replay (`replayOfRunId`), an
- *     escalation (`escalatedFromRunId`) — join their originals whatever their own goal text says.
+ *     escalation (`escalatedFromRunId`), a rework in the author's conversation (`continuesRunId`) —
+ *     join their originals whatever their own goal text says.
  *     Nothing else identifies a task today; a task id would be a better key, and adding one is a
  *     ledger change rather than a report change.
  *   - «Finished» means the chain ended in a completed run, NOT that a human approved the result. The
@@ -80,7 +81,7 @@ export function taskBills(
 	runs: readonly AgentRunRecord[],
 	rateOf: (provider: string | undefined, model: string | undefined) => ModelRate | undefined,
 ): TaskBillReport {
-	// Follow replay and escalation links back to the run that started the chain, so an attempt whose
+	// Follow replay, escalation and continuation links back to the run that started the chain, so an attempt whose
 	// goal was reworded on the retry still bills against the task it belongs to. A link pointing at a
 	// run already pruned away stops at the earliest record we still hold.
 	const byId = new Map(runs.map(r => [r.runId, r]));
@@ -93,7 +94,7 @@ export function taskBills(
 		while (!seen.has(current)) { // a cycle can only come from a corrupt log: stop, do not hang
 			seen.add(current);
 			const record = byId.get(current);
-			const parent = record?.replayOfRunId ?? record?.escalatedFromRunId;
+			const parent = record?.replayOfRunId ?? record?.escalatedFromRunId ?? record?.continuesRunId;
 			if (!parent || !byId.has(parent)) { break; }
 			current = parent;
 		}

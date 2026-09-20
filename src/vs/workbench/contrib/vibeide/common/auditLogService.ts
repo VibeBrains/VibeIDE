@@ -100,6 +100,10 @@ export interface AuditEvent {
 	// Every turn: requested model, the one that answered and the backend fingerprint — a substitution under
 	// the same name shows only in the fingerprint.
 	| 'llm_turn'
+	// User stop: how long the run took to actually halt, and whether the ceiling had to force it.
+	| 'agent_stop'
+	// A call to an MCP tool outside the server's `tools` list in mcp.json, refused before the server saw it.
+	| 'mcp_tool_refused'
 	| 'job_pr_creation'
 	| 'run_tests:start' | 'run_tests:complete'
 	| 'verify_gate:result'

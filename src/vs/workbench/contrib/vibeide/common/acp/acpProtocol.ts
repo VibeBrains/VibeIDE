@@ -167,6 +167,18 @@ export const initializeParams = (): JsonValue => ({
 	clientInfo: { name: 'VibeIDE', version: '1' },
 });
 
+/**
+ * Объявил ли агент поддержку MCP поверх HTTP (`agentCapabilities.mcpCapabilities.http`).
+ *
+ * Stdio-серверы спецификация объявляет поддержанными всегда, а HTTP — только по этому флагу.
+ * Отправить HTTP-запись агенту, который её не понимает, значит получить у него молча неработающий
+ * сервер: он не обязан ни отказать, ни пожаловаться.
+ */
+export function agentSupportsHttpMcp(greeting: JsonValue): boolean {
+	const caps = (greeting as { agentCapabilities?: { mcpCapabilities?: { http?: unknown } } } | null)?.agentCapabilities;
+	return caps?.mcpCapabilities?.http === true;
+}
+
 /** Способ войти, объявленный агентом в ответе на `initialize`. */
 export interface IAcpAuthMethod {
 	readonly id: string;
@@ -194,12 +206,16 @@ export function authMethodsOf(initializeResult: JsonValue | undefined): readonly
 	return methods;
 }
 
-/** Параметры `session/new`. Путь обязан быть абсолютным — это требование спецификации. */
-export const newSessionParams = (cwd: string): JsonValue => ({
+/**
+ * Параметры `session/new`. Путь обязан быть абсолютным — это требование спецификации.
+ *
+ * Пустой список, а не отсутствие поля: спецификация объявляет `mcpServers` обязательным, и агент
+ * вправе отказать в создании сессии, не найдя его. Непустой список — это КОНФИГУРАЦИИ серверов, к
+ * которым гость подключается сам (правила отбора — `acpMcpExport.ts`).
+ */
+export const newSessionParams = (cwd: string, mcpServers: readonly JsonValue[] = []): JsonValue => ({
 	cwd,
-	// Пустой список, а не отсутствие поля: спецификация объявляет `mcpServers` обязательным, и
-	// агент вправе отказать в создании сессии, не найдя его.
-	mcpServers: [],
+	mcpServers: [...mcpServers],
 });
 
 /** Параметры `session/prompt`: сообщение пользователя блоками содержимого. */
@@ -246,7 +262,13 @@ export interface IAcpDiff {
 }
 
 /** Стадия вызова инструмента. Неизвестное не выдаётся за завершённое. */
-export type AcpToolStatus = 'pending' | 'in_progress' | 'completed' | 'failed' | 'unknown';
+/**
+ * Стадия вызова инструмента.
+ *
+ * `cancelled` объявлен в схеме v2 и прислать его вправе любой агент — без ветки он сворачивался
+ * в «неизвестно», то есть отменённое выглядело как «непонятно, чем кончилось».
+ */
+export type AcpToolStatus = 'pending' | 'in_progress' | 'completed' | 'failed' | 'cancelled' | 'unknown';
 
 /**
  * Что приехало в `session/update`.
@@ -259,7 +281,7 @@ export type AcpUpdate =
 	/** Кусок ответа или размышления агента. */
 	| { readonly kind: 'text'; readonly text: string; readonly thought: boolean }
 	/** Вызов инструмента: чем занят агент и что именно меняет. */
-	| { readonly kind: 'tool'; readonly toolCallId: string; readonly title: string; readonly toolKind: string; readonly status: AcpToolStatus; readonly paths: readonly string[]; readonly diffs: readonly IAcpDiff[] }
+	| { readonly kind: 'tool'; readonly toolCallId: string; readonly title: string; readonly name: string; readonly toolKind: string; readonly status: AcpToolStatus; readonly paths: readonly string[]; readonly diffs: readonly IAcpDiff[] }
 	/** Расход контекста и денег за ход. */
 	| { readonly kind: 'usage'; readonly used: number; readonly size: number; readonly costUsd?: number };
 
@@ -283,6 +305,7 @@ export function parseSessionUpdate(params: JsonValue | undefined): AcpUpdate | u
 			kind: 'tool',
 			toolCallId,
 			title: facts.title,
+			name: facts.name,
 			toolKind: facts.toolKind,
 			status: toolStatusOf(update['status']),
 			paths: facts.paths,
@@ -307,6 +330,7 @@ function toolStatusOf(raw: JsonValue | undefined): AcpToolStatus {
 		case 'in_progress': return 'in_progress';
 		case 'completed': return 'completed';
 		case 'failed': return 'failed';
+		case 'cancelled': return 'cancelled';
 		default: return 'unknown';
 	}
 }
@@ -318,10 +342,14 @@ function toolStatusOf(raw: JsonValue | undefined): AcpToolStatus {
  * `session/request_permission`. Разбор общий: иначе вопрос человеку и журнал правок однажды
  * разойдутся в том, какой файл меняется.
  */
-export function toolCallFacts(toolCall: JsonValue | undefined): { readonly title: string; readonly toolKind: string; readonly paths: readonly string[]; readonly diffs: readonly IAcpDiff[] } {
+export function toolCallFacts(toolCall: JsonValue | undefined): { readonly title: string; readonly name: string; readonly toolKind: string; readonly paths: readonly string[]; readonly diffs: readonly IAcpDiff[] } {
 	const record = asObject(toolCall) ?? {};
 	return {
 		title: stringAt(record, 'title') ?? '',
+		// Программное имя инструмента (`read_file`): стабилизировано в ACP v1 17.09.2026, поле
+		// необязательное. В обновлении вызова пусто означает «не менять», а не «стереть», поэтому
+		// склейка карточки ниже пустое имя игнорирует.
+		name: stringAt(record, 'name') ?? '',
 		toolKind: stringAt(record, 'kind') ?? '',
 		paths: pathsOf(record),
 		diffs: diffsOf(record['content']),

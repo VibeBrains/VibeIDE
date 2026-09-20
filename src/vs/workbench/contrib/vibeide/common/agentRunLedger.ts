@@ -64,6 +64,16 @@ export interface AgentRunRecord {
 	readonly tokensUsed?: number;
 	/** Prompt-cache reads inside `tokensUsed` — what the run did NOT pay for a second time. */
 	readonly cachedTokens?: number;
+	/**
+	 * Разбивка того же счёта на вход и выход, когда провайдер её сообщил.
+	 *
+	 * Без неё цена прогона считалась по одной усреднённой ставке с постоянной долей выхода, а у модели с
+	 * неотключаемым рассуждением выход кратно больше и стоит впятеро дороже входа — потолок в долларах
+	 * получался систематически заниженным. Здесь это измерение, а не допущение: что провайдер не сообщил,
+	 * того здесь нет.
+	 */
+	readonly promptTokens?: number;
+	readonly completionTokens?: number;
 	readonly tokenQuota?: number;
 	readonly stepsDone?: number;
 	readonly maxSteps?: number;
@@ -93,6 +103,8 @@ export interface AgentRunRecord {
 	readonly escalatedFromRunId?: string;
 	/** Model of that draft, kept here so the report survives the draft record being rotated away. */
 	readonly escalatedFromModel?: string;
+	/** Set on a rework run that continued an earlier run in its own conversation. */
+	readonly continuesRunId?: string;
 	readonly failureReason?: string;
 }
 
@@ -319,6 +331,8 @@ function decodeUpdate(line: string): AgentRunUpdate | undefined {
 	assignIfDefined(update, 'endedAt', readNumber(raw.endedAt));
 	assignIfDefined(update, 'tokensUsed', readNumber(raw.tokensUsed));
 	assignIfDefined(update, 'cachedTokens', readNumber(raw.cachedTokens));
+	assignIfDefined(update, 'promptTokens', readNumber(raw.promptTokens));
+	assignIfDefined(update, 'completionTokens', readNumber(raw.completionTokens));
 	assignIfDefined(update, 'tokenQuota', readNumber(raw.tokenQuota));
 	assignIfDefined(update, 'stepsDone', readNumber(raw.stepsDone));
 	assignIfDefined(update, 'maxSteps', readNumber(raw.maxSteps));
@@ -333,6 +347,7 @@ function decodeUpdate(line: string): AgentRunUpdate | undefined {
 	assignIfDefined(update, 'cascadeDraft', typeof raw.cascadeDraft === 'boolean' ? raw.cascadeDraft : undefined);
 	assignIfDefined(update, 'escalatedFromRunId', readString(raw.escalatedFromRunId));
 	assignIfDefined(update, 'escalatedFromModel', readString(raw.escalatedFromModel));
+	assignIfDefined(update, 'continuesRunId', readString(raw.continuesRunId));
 	assignIfDefined(update, 'failureReason', readString(raw.failureReason));
 
 	return update as AgentRunUpdate;

@@ -65,6 +65,7 @@ const modelSchema: IJSONSchema = {
 		default: { type: 'boolean', description: 'Пометить как модель по умолчанию (авто-выбор).' },
 		pinned: { type: 'boolean', description: 'Показывать вверху списка.' },
 		protocol: { enum: ['openai', 'openai-responses', 'anthropic', 'gemini'], description: 'Формат API для ЭТОЙ модели — сильнее protocol провайдера. Нужен агрегаторам, которые на одном ключе отдают разные модели разными форматами.' },
+		floating: { type: 'boolean', description: 'id — плавающий алиас: вендор без предупреждения переводит его на новые снапшоты. «Авто» предпочитает ему закреплённую модель, совет моделей и план это отмечают.' },
 		deprecation: {
 			type: 'object',
 			description: 'Вендор объявил отключение модели. Показывается при выборе модели; отключённая не участвует в авто-выборе.',
@@ -136,6 +137,14 @@ const providerSchema: IJSONSchema = {
 		timeoutMs: { type: 'number', description: 'Таймаут запроса (мс). Агрегаторам нужно больше.' },
 		docsUrl: { type: 'string' },
 		apiKeyUrl: { type: 'string' },
+		quota: {
+			type: 'object', additionalProperties: false, required: ['url', 'format'],
+			description: 'Где спросить у вендора остаток подписки. Спрашивается только при открытии отчёта «Ключи и расход», показывается ответ вендора.',
+			properties: {
+				url: { type: 'string', pattern: '^https://', description: 'Адрес запроса остатка, только https. Запрос уходит с ключом провайдера.' },
+				format: { enum: ['minimax-token-plan', 'zai-monitor'], description: 'Как читать ответ: MiniMax Token Plan или Z.ai GLM Coding Plan.' },
+			},
+		},
 		models: {
 			type: 'object', additionalProperties: false,
 			properties: {

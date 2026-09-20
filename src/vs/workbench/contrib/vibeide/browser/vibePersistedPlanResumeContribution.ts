@@ -165,8 +165,9 @@ export class VibePersistedPlanResumeContribution extends Disposable implements I
 		const chat = state.modelSelectionOfFeature['Chat'];
 		const current = chat && chat.providerName !== 'auto' ? { provider: chat.providerName, model: chat.modelName } : undefined;
 		const settings = (state.settingsOfProvider as Record<string, { _didFillInProviderSettings?: boolean } | undefined>)[planned.provider];
+		const floatingNote = planned.floating ? '\n\n' + localize('vibeide.planResume.floatingModel', 'План одобрен на плавающем алиасе {0}: сегодня за этим именем может стоять другая модель.', planned.model) : '';
 		const drift = planModelDrift(planned, current, !!settings?._didFillInProviderSettings, parseServedModels(plan.machineData.servedModels));
-		return drift.map(item => {
+		return floatingNote + drift.map(item => {
 			switch (item.kind) {
 				case 'model-changed': return '\n\n' + localize('vibeide.planResume.modelChanged', 'План одобрен на модели {0} ({1}), а сейчас в чате выбрана {2} ({3}) — продолжит она.', item.planned.model, item.planned.provider, item.current.model, item.current.provider);
 				case 'provider-unavailable': return '\n\n' + localize('vibeide.planResume.providerUnavailable', 'У провайдера {0}, на котором план одобрен, сейчас нет рабочего ключа — ключ сменили или удалили.', item.planned.provider);

@@ -5,6 +5,9 @@
 
 // disable foreign import complaints
 /* eslint-disable */
+import { getModelQuirks } from '../modelQuirks/modelQuirksService.js';
+import { stripUnknownContentBlocks } from '../../common/anthropicStrictBlocks.js';
+import { signatureOfFunctionCallParts } from '../../common/thoughtSignature.js';
 import { vibeLog } from '../../common/vibeLog.js';
 import { traceSendEvent } from '../../common/llmSendTrace.js';
 import { lenientJsonParseObject } from '../../common/lenientJson.js';
@@ -1279,9 +1282,20 @@ const sendAnthropicChat = async ({ messages, providerName, onText, onFinalMessag
 		// Connection reuse is handled internally by the SDK
 	});
 
+	// Совместимый апстрим отвергает весь запрос из-за одного незнакомого типа блока — сужаем его по причуде.
+	// Отброшенное называется в журнале: иначе следующая такая же история снова не оставит следа.
+	let anthropicMessages = messages;
+	if (getModelQuirks(modelName, providerName).anthropicStrictBlocks === true) {
+		const strict = stripUnknownContentBlocks(messages as unknown as Array<{ content?: unknown }>);
+		if (strict.dropped.length > 0) {
+			console.warn(`[VibeIDE] anthropicStrictBlocks: отброшены типы блоков ${strict.dropped.join(', ')} для ${providerName}/${modelName}`);
+		}
+		anthropicMessages = strict.messages as unknown as typeof messages;
+	}
+
 	const stream = anthropic.messages.stream({
 		system: separateSystemMessage ?? undefined,
-		messages: messages as unknown as Anthropic.MessageParam[], // AnthropicLLMChatMessage type may not exactly match SDK's MessageParam, but is compatible at runtime
+		messages: anthropicMessages as unknown as Anthropic.MessageParam[], // AnthropicLLMChatMessage type may not exactly match SDK's MessageParam, but is compatible at runtime
 		model: modelName,
 		max_tokens: maxTokens ?? 4_096, // anthropic requires this
 		...includeInPayload,
@@ -1614,6 +1628,7 @@ const sendGeminiChat = async ({
 	let toolName = '';
 	let toolParamsStr = '';
 	let toolId = '';
+	let toolSignature: string | undefined;
 
 
 	genAI.models.generateContentStream({
@@ -1645,6 +1660,8 @@ const sendGeminiChat = async ({
 					toolParamsStr = JSON.stringify(functionCall.args ?? {});
 					toolId = functionCall.id ?? '';
 				}
+				// The signature rides on the part that carries the call; it must go back with that call next turn.
+				toolSignature ??= signatureOfFunctionCallParts(chunk.candidates?.[0]?.content?.parts);
 
 				// (do not handle reasoning yet)
 
@@ -1673,7 +1690,7 @@ const sendGeminiChat = async ({
 			} else {
 				if (!toolId) { toolId = generateUuid(); } // ids are empty, but other providers might expect an id
 				const toolCall = rawToolCallObjOfParamsStr(toolName, toolParamsStr, toolId);
-				const toolCallObj = toolCall ? { toolCall } : {};
+				const toolCallObj = toolCall ? { toolCall: toolSignature ? { ...toolCall, thoughtSignature: toolSignature } : toolCall } : {};
 				onFinalMessage({ fullText: fullTextSoFar, fullReasoning: fullReasoningSoFar, anthropicReasoning: null, ...toolCallObj });
 			}
 		})

@@ -7,8 +7,8 @@
 import { promisify } from 'util';
 import { exec as _exec, execFile as _execFile } from 'child_process';
 import { tmpdir } from 'os';
-import { join } from 'path';
-import { copyFile, rm } from 'fs/promises';
+import { join, join as pathJoin } from 'path';
+import { copyFile, mkdir, readFile, rm, writeFile } from 'fs/promises';
 import { Disposable } from '../../../../base/common/lifecycle.js';
 import { generateUuid } from '../../../../base/common/uuid.js';
 import { IVibeideSCMService, IWorkspaceSnapshotRestorePlan } from '../common/vibeideSCMTypes.js';
@@ -76,6 +76,32 @@ const gitArgv = async (
 	const env = { ...process.env, ...(indexFile ? { GIT_INDEX_FILE: indexFile } : {}), ...extraEnv };
 	const { stdout } = await execFile('git', [...args], { cwd, env, maxBuffer: 64 * 1024 * 1024 });
 	return stdout.trim();
+};
+
+/**
+ * Спрятать папку рабочего дерева от `git status` — в `.git/info/exclude`, а не в `.gitignore`.
+ *
+ * `.gitignore` — файл пользователя и он едет в коммит: дописывать туда служебную строку значит
+ * менять его репозиторий ради нашей механики. `info/exclude` делает ровно то же самое локально.
+ */
+const excludeFromGitStatus = async (root: string, relativePath: string): Promise<void> => {
+	try {
+		const infoDir = pathJoin(root, '.git', 'info');
+		const excludeFile = pathJoin(infoDir, 'exclude');
+		const line = `/${relativePath.replace(/\\/g, '/').replace(/^\/+/, '').replace(/\/+$/, '')}/`;
+		let current = '';
+		try {
+			current = await readFile(excludeFile, 'utf8');
+		} catch {
+			await mkdir(infoDir, { recursive: true });
+		}
+		if (current.split(/\r?\n/).includes(line)) {
+			return;
+		}
+		await writeFile(excludeFile, `${current}${current.endsWith('\n') || current === '' ? '' : '\n'}${line}\n`, 'utf8');
+	} catch {
+		// Не смогли — дерево всё равно создаётся; максимум, что теряется, это чистый `git status`.
+	}
 };
 
 /**
@@ -158,6 +184,56 @@ export class VibeideSCMService extends Disposable implements IVibeideSCMService 
 			'--name-only',
 			'--pretty=format:%H%x00%at%x00%s',
 		], path);
+	}
+
+	async addWorktree(path: string, branch: string, relativePath: string, baseRef?: string): Promise<string> {
+		const root = await gitArgv(SNAPSHOT_ARGV.repoRoot, path);
+		const worktreePath = pathJoin(root, relativePath);
+		await excludeFromGitStatus(root, relativePath);
+		await gitArgv(['worktree', 'add', '-b', branch, worktreePath, baseRef ?? 'HEAD'], root);
+		return worktreePath;
+	}
+
+	async removeWorktree(path: string, worktreePath: string, force?: boolean): Promise<void> {
+		const root = await gitArgv(SNAPSHOT_ARGV.repoRoot, path);
+		await gitArgv(['worktree', 'remove', ...(force ? ['--force'] : []), worktreePath], root);
+	}
+
+	async commitWorktree(worktreePath: string, message: string): Promise<boolean> {
+		// Индекс тут свой собственный: у каждого рабочего дерева git держит отдельный индекс, и
+		// `add -A` в дереве прогона не задевает индекс пользователя в основной папке.
+		await gitArgv(['add', '-A'], worktreePath);
+		const staged = await gitArgv(['diff', '--cached', '--name-only'], worktreePath);
+		if (!staged) {
+			return false;
+		}
+		// `--no-verify` намеренно: хуки пользователя написаны про его собственные коммиты, а этот —
+		// служебный снимок работы роли в её ветке. Упавший предкоммитный гейт (типы, линт, тесты) оставил бы
+		// работу незафиксированной в дереве — то есть ровно тот исход, ради которого коммит здесь и делается.
+		// Проверять работу роли гейтам положено при слиянии в проект, а не при записи в свою ветку.
+		await gitArgv(['commit', '--no-verify', '-m', message], worktreePath);
+		return true;
+	}
+
+	async mergeWorktreeBranch(path: string, branch: string): Promise<void> {
+		const root = await gitArgv(SNAPSHOT_ARGV.repoRoot, path);
+		await gitArgv(['merge', '--no-ff', branch], root);
+	}
+
+	async deleteBranch(path: string, branch: string, force?: boolean): Promise<void> {
+		const root = await gitArgv(SNAPSHOT_ARGV.repoRoot, path);
+		await gitArgv(['branch', force ? '-D' : '-d', branch], root);
+	}
+
+	async listConflictedFiles(path: string): Promise<string[]> {
+		const root = await gitArgv(SNAPSHOT_ARGV.repoRoot, path);
+		const out = await gitArgv(['diff', '--name-only', '--diff-filter=U'], root);
+		return out.split(/\r?\n/).map(line => line.trim()).filter(Boolean);
+	}
+
+	async listWorktrees(path: string): Promise<string> {
+		const root = await gitArgv(SNAPSHOT_ARGV.repoRoot, path);
+		return await gitArgv(['worktree', 'list', '--porcelain'], root);
 	}
 
 	async createWorkspaceSnapshot(path: string, meta?: SnapshotCommitMeta, previousCommit?: string): Promise<string | undefined> {

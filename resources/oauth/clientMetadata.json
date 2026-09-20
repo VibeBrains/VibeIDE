@@ -1,0 +1,10 @@
+{
+	"client_id": "https://vibebrains.github.io/VibeIDE/oauth/clientMetadata.json",
+	"client_name": "VibeIDE",
+	"client_uri": "https://github.com/VibeBrains/VibeIDE",
+	"application_type": "native",
+	"token_endpoint_auth_method": "none",
+	"grant_types": ["authorization_code", "refresh_token"],
+	"response_types": ["code"],
+	"redirect_uris": ["https://vscode.dev/redirect", "http://127.0.0.1/"]
+}

@@ -5,12 +5,15 @@
 
 
 import { vibeLog } from './vibeLog.js';
-import { AppResourcePath, FileAccess, nodeModulesPath } from '../../../../base/common/network.js';
+import { pageNeedsOcr } from './pdfTextLayer.js';
+import { appNodeModulesPath, AppResourcePath, FileAccess } from '../../../../base/common/network.js';
 import { CancellationToken } from '../../../../base/common/cancellation.js';
 
 export interface PDFPage {
 	pageNumber: number;
 	text: string;
+	/** Текст получен распознаванием картинки: текстового слоя на странице не было. */
+	viaOcr?: boolean;
 	images?: Array<{
 		data: Uint8Array;
 		mimeType: string;
@@ -31,6 +34,13 @@ export interface PDFDocument {
 }
 
 export interface PDFExtractionOptions {
+	/**
+	 * Чем распознать страницу без текстового слоя. Не задано — такая страница приедет пустой.
+	 *
+	 * Функцией, а не сервисом: разбор PDF живёт в `common`, а распознавание браузерное, и тянуть
+	 * его сюда значит привязать чтение документа к окружению, в котором оно не обязано работать.
+	 */
+	ocrPage?: (pageNumber: number, pngDataUrl: string) => Promise<string>;
 	extractImages?: boolean;
 	extractMetadata?: boolean;
 	pageRange?: { start: number; end: number }; // 1-indexed, inclusive
@@ -104,6 +114,9 @@ interface PdfJsLib {
  * Browser-based PDF service using PDF.js
  * Dynamically loads PDF.js to avoid bundle bloat
  */
+/** Во сколько раз увеличивать страницу перед распознаванием. */
+const OCR_RENDER_SCALE = 2;
+
 export class PDFService implements IPDFService {
 	private pdfjsLib: PdfJsLib | null = null;
 	private initialized = false;
@@ -116,11 +129,20 @@ export class PDFService implements IPDFService {
 			// shape is unverified at load time, so `getDocument` is treated as optional
 			// until the runtime guard confirms it.
 			let pdfjs: Partial<PdfJsLib> | null = null;
-			let lastError: unknown = null;
+			// Все попытки, а не последняя.
+			//
+			// Раньше наверх уходила ошибка ПОСЛЕДНЕГО кандидата — про голый спецификатор
+			// `pdfjs-dist/build/pdf`, — и она уводила читателя к бандлерам. Настоящая причина
+			// (20.09.2026: пакета не было в зависимостях вовсе) пряталась в первой попытке, которую
+			// никто не показывал. Диагноз по сообщению должен быть возможен без чтения исходников.
+			const attempts: string[] = [];
+			const noteFailure = (what: string, error: unknown) => {
+				attempts.push(`${what}: ${error instanceof Error ? error.message : String(error)}`);
+			};
 
 			// Approach 1: Try dynamic import with file URI
 			try {
-				const resourcePath: AppResourcePath = `${nodeModulesPath}/pdfjs-dist/build/pdf.mjs`;
+				const resourcePath: AppResourcePath = `${appNodeModulesPath}/pdfjs-dist/build/pdf.mjs`;
 				const fileUri = FileAccess.asBrowserUri(resourcePath).toString(true);
 				const mod = await import(fileUri) as { default?: Partial<PdfJsLib> } & Partial<PdfJsLib>;
 				pdfjs = mod.default ?? mod;
@@ -129,7 +151,7 @@ export class PDFService implements IPDFService {
 					// Set worker source to disable workers (use empty string or point to worker file)
 					// PDF.js v5 requires workerSrc to be set, but we can disable workers via getDocument options
 					if (lib.GlobalWorkerOptions) {
-						const workerPath: AppResourcePath = `${nodeModulesPath}/pdfjs-dist/build/pdf.worker.mjs`;
+						const workerPath: AppResourcePath = `${appNodeModulesPath}/pdfjs-dist/build/pdf.worker.mjs`;
 						const workerUri = FileAccess.asBrowserUri(workerPath).toString(true);
 						lib.GlobalWorkerOptions.workerSrc = workerUri;
 					}
@@ -138,7 +160,7 @@ export class PDFService implements IPDFService {
 					return lib;
 				}
 			} catch (error) {
-				lastError = error;
+				noteFailure('файл в node_modules', error);
 			}
 
 			// Approach 2: Try dynamic import with bare specifiers (for bundlers/webpack)
@@ -156,19 +178,21 @@ export class PDFService implements IPDFService {
 						break;
 					}
 				} catch (error) {
-					lastError = error;
+					noteFailure(specifier, error);
 				}
 			}
 
 			if (!pdfjs || !pdfjs.getDocument) {
-				throw lastError ?? new Error('Unable to load pdfjs module');
+				throw new Error(attempts.length > 0
+					? `не удалось загрузить pdfjs-dist. Попытки — ${attempts.join('; ')}`
+					: 'не удалось загрузить pdfjs-dist: модуль загрузился, но в нём нет getDocument');
 			}
 
 			const lib: PdfJsLib = { getDocument: pdfjs.getDocument, GlobalWorkerOptions: pdfjs.GlobalWorkerOptions };
 			// Set worker source to disable workers (use empty string or point to worker file)
 			// PDF.js v5 requires workerSrc to be set, but we can disable workers via getDocument options
 			if (lib.GlobalWorkerOptions) {
-				const workerPath: AppResourcePath = `${nodeModulesPath}/pdfjs-dist/build/pdf.worker.mjs`;
+				const workerPath: AppResourcePath = `${appNodeModulesPath}/pdfjs-dist/build/pdf.worker.mjs`;
 				const workerUri = FileAccess.asBrowserUri(workerPath).toString(true);
 				lib.GlobalWorkerOptions.workerSrc = workerUri;
 			}
@@ -190,7 +214,7 @@ export class PDFService implements IPDFService {
 	async extractPDF(file: File | Uint8Array, options: PDFExtractionOptions = {}): Promise<PDFDocument> {
 		const pdfjsLib = await this.ensureInitialized();
 
-		const { extractImages = false, extractMetadata = true, pageRange, cancellationToken } = options;
+		const { extractImages = false, extractMetadata = true, pageRange, cancellationToken, ocrPage } = options;
 
 		// Convert File to Uint8Array if needed
 		let data: Uint8Array;
@@ -279,6 +303,23 @@ export class PDFService implements IPDFService {
 					text,
 				};
 
+				// Сканированная страница: текста в PDF нет, есть картинка. Рисуем страницу и отдаём
+				// распознавателю — иначе она приезжает в контекст пустой строкой, и модель делает
+				// вид, что прочитала её.
+				if (ocrPage && pageNeedsOcr(text)) {
+					try {
+						const recognized = await this.renderAndRecognize(page, pageNum, ocrPage);
+						if (recognized) {
+							pdfPage.text = recognized;
+							pdfPage.viaOcr = true;
+						}
+					} catch (e) {
+						// Распознавание — дополнение, а не условие чтения: страница останется пустой,
+						// но остальные приедут.
+						vibeLog.warn('pdf', `OCR для страницы ${pageNum} не удался:`, e);
+					}
+				}
+
 				// Extract images if requested
 				if (extractImages) {
 					const images: PDFPage['images'] = [];
@@ -328,7 +369,7 @@ export class PDFService implements IPDFService {
 	): Promise<PDFExtractionWithPreviewsResult> {
 		const pdfjsLib = await this.ensureInitialized();
 
-		const { extractImages = false, extractMetadata = true, pageRange, previewPages, previewMaxWidth = 200, previewMaxHeight = 300 } = options;
+		const { extractImages = false, extractMetadata = true, pageRange, previewPages, previewMaxWidth = 200, previewMaxHeight = 300, ocrPage } = options;
 
 		// Convert File to Uint8Array if needed (single read)
 		let data: Uint8Array;
@@ -405,6 +446,23 @@ export class PDFService implements IPDFService {
 					pageNumber: pageNum,
 					text,
 				};
+
+				// Сканированная страница: текста в PDF нет, есть картинка. Рисуем страницу и отдаём
+				// распознавателю — иначе она приезжает в контекст пустой строкой, и модель делает
+				// вид, что прочитала её.
+				if (ocrPage && pageNeedsOcr(text)) {
+					try {
+						const recognized = await this.renderAndRecognize(page, pageNum, ocrPage);
+						if (recognized) {
+							pdfPage.text = recognized;
+							pdfPage.viaOcr = true;
+						}
+					} catch (e) {
+						// Распознавание — дополнение, а не условие чтения: страница останется пустой,
+						// но остальные приедут.
+						vibeLog.warn('pdf', `OCR для страницы ${pageNum} не удался:`, e);
+					}
+				}
 
 				// Extract images if requested
 				if (extractImages) {
@@ -485,6 +543,25 @@ export class PDFService implements IPDFService {
 			metadata,
 			pagePreviews: pagePreviews.length > 0 ? pagePreviews : undefined,
 		};
+	}
+
+	/**
+	 * Нарисовать страницу и отдать её распознавателю.
+	 *
+	 * Масштаб двойной намеренно: распознавание по картинке в размер экрана ошибается на мелком
+	 * шрифте, а удвоение — обычная практика для постраничного OCR.
+	 */
+	private async renderAndRecognize(page: PdfJsPage, pageNumber: number, ocrPage: NonNullable<PDFExtractionOptions['ocrPage']>): Promise<string> {
+		const viewport = page.getViewport({ scale: OCR_RENDER_SCALE });
+		const canvas = pdfDomGlobals.document.createElement('canvas');
+		canvas.width = viewport.width;
+		canvas.height = viewport.height;
+		const context = canvas.getContext('2d');
+		if (!context) {
+			throw new Error('Failed to get canvas context');
+		}
+		await page.render({ canvasContext: context, viewport }).promise;
+		return (await ocrPage(pageNumber, canvas.toDataURL('image/png'))).trim();
 	}
 
 	async getPagePreview(

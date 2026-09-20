@@ -49,6 +49,15 @@ export class SecretDetectionConfigurationContribution extends Disposable impleme
 					description: localize('secretDetection.disabledPatternIds', 'Список идентификаторов паттернов для отключения. Доступные паттерны: openai-key, anthropic-key, generic-api-key, jwt-token, bearer-token, aws-access-key, aws-secret-key, github-token, gitlab-token, google-api-key, stripe-key, password-pattern, private-key, generic-token.'),
 					scope: ConfigurationScope.APPLICATION,
 				},
+				'vibeide.secretDetection.enabledPatternIds': {
+					type: 'array',
+					items: {
+						type: 'string',
+					},
+					default: [],
+					description: localize('secretDetection.enabledPatternIds', 'Встроенные паттерны, выключенные по умолчанию и включённые обратно вашим решением. Сейчас такой один: `generic-token` — любая строка из 32, 40 или 64 шестнадцатеричных знаков. Он ловит настоящие секреты и столько же ненастоящих: контрольные суммы зависимостей, хеши коммитов, идентификаторы в сборочных файлах.'),
+					scope: ConfigurationScope.APPLICATION,
+				},
 				'vibeide.secretDetection.customPatterns': {
 					type: 'array',
 					items: {

@@ -15,6 +15,10 @@
  * electron-browser.
  */
 
+import { IQuickInputService } from '../../../../platform/quickinput/common/quickInput.js';
+import { IWorkspaceContextService } from '../../../../platform/workspace/common/workspace.js';
+import { coerceFieldValue, ElicitationAnswer, ElicitationForm, McpInputAsk, rootsAnswer } from '../common/mcpElicitation.js';
+import { AcpMcpExportResult, buildAcpMcpServers } from '../common/acp/acpMcpExport.js';
 import { localize } from '../../../../nls.js';
 import { builtinTools } from '../common/prompt/prompts.js';
 import { vibeLog } from '../common/vibeLog.js';
@@ -32,8 +36,10 @@ import { MCPConfigFileJSON, MCPConfigFileEntryJSON, MCPServer, MCPToolCallParams
 import { MCP } from '../../mcp/common/modelContextProtocol.js';
 import { mcpAppsEnabledConfig } from '../../../../platform/mcp/common/mcpManagement.js';
 import { isMcpToolCallableByApp, isMcpToolVisibleToModel, mcpAppUiOfTool } from '../common/mcpApps.js';
+import { isMcpToolAllowedByEntry } from '../common/mcpToolAllowlist.js';
+import { IAuditLogService } from '../common/auditLogService.js';
 import { Event, Emitter } from '../../../../base/common/event.js';
-import { RunOnceScheduler } from '../../../../base/common/async.js';
+import { RunOnceScheduler, raceTimeout } from '../../../../base/common/async.js';
 import { InternalToolInfo } from '../common/prompt/prompts.js';
 import { IVibeideSettingsService } from '../common/vibeideSettingsService.js';
 import { MCPUserStateOfName } from '../common/vibeideSettingsTypes.js';
@@ -44,7 +50,6 @@ import { scanMcpConfig, ConfigGuardFinding } from '../common/vibeConfigGuard.js'
 import { IMCPService, MCPServiceState } from '../common/mcpService.js';
 import { FoundMemoryServer, VIBE_MEMORY_SERVER_NAME, vibeMemoryServerPathSegments, withDiscoveredMemoryServer } from '../common/vibeMemoryServerDiscovery.js';
 import { MEMORY_PROJECT_RESOLVE_TOOL, MemoryProjectAnswer, parseProjectResolveAnswer } from '../common/vibeMemoryProject.js';
-import { raceTimeout } from '../../../../base/common/async.js';
 import { joinPath } from '../../../../base/common/resources.js';
 import { isWindows } from '../../../../base/common/platform.js';
 
@@ -109,6 +114,9 @@ class MCPService extends Disposable implements IMCPService {
 		@IVibeOutboundRingBuffer private readonly _outboundBuffer: IVibeOutboundRingBuffer,
 		@IConfigurationService private readonly _configurationService: IConfigurationService,
 		@INotificationService private readonly _notificationService: INotificationService,
+		@IAuditLogService private readonly _auditLogService: IAuditLogService,
+		@IQuickInputService private readonly _quickInput: IQuickInputService,
+		@IWorkspaceContextService private readonly _workspace: IWorkspaceContextService,
 	) {
 		super();
 		this.channel = this.mainProcessService.getChannel('vibe-channel-mcp');
@@ -122,6 +130,10 @@ class MCPService extends Disposable implements IMCPService {
 		this._register((this.channel.listen('onUpdate_server') satisfies Event<MCPServerEventResponse>)(onEvent));
 		this._register((this.channel.listen('onDelete_server') satisfies Event<MCPServerEventResponse>)(onEvent));
 
+		// MRTR: сервер просит ввод — вопрос показывается ЧЕЛОВЕКУ здесь, в окне, и ответ уходит
+		// обратно в главный процесс, который повторяет вызов. Модель в этом не участвует.
+		this._register((this.channel.listen('onInputRequest') satisfies Event<McpInputAsk>)(ask => void this._answerInputRequest(ask)));
+
 		// Turning MCP Apps on or off changes what every client announces, so all servers reconnect.
 		this._register(this._configurationService.onDidChangeConfiguration(e => {
 			if (e.affectsConfiguration(mcpAppsEnabledConfig)) { this._scheduleMcpConfigRefresh.schedule(); }
@@ -130,6 +142,69 @@ class MCPService extends Disposable implements IMCPService {
 		this._initialize();
 	}
 
+
+	/**
+	 * Спросить человека по просьбе сервера и ответить главному процессу.
+	 *
+	 * Отказ — законный исход: закрытый вопрос возвращается словом `decline`, как того требует
+	 * протокол, а не пустым ответом, который сервер принял бы за согласие.
+	 */
+	private async _answerInputRequest(ask: McpInputAsk): Promise<void> {
+		const responses: Record<string, unknown> = {};
+		try {
+			// `roots/list` отвечается без человека: папки окна известны, а лишний диалог превратил
+			// бы обычный вызов инструмента в допрос.
+			for (const key of ask.rootKeys) {
+				responses[key] = rootsAnswer(this._workspace.getWorkspace().folders.map(folder => ({ uri: folder.uri.toString(), name: folder.name })));
+			}
+			for (const { key, form } of ask.elicitations) {
+				const answer = await this._askHuman(ask, form);
+				if (answer.action !== 'accept') {
+					// Отказ прекращает весь вызов: отвечать на часть просьб и молчать об остальных
+					// значит отдать серверу состояние, по которому он не сможет продолжить.
+					this.channel.call('answerInputRequest', { requestId: ask.requestId, answer: { ok: false, reason: answer.action === 'decline' ? 'пользователь отказался отвечать' : 'пользователь закрыл вопрос' } });
+					return;
+				}
+				responses[key] = answer;
+			}
+			this.channel.call('answerInputRequest', { requestId: ask.requestId, answer: { ok: true, responses } });
+		} catch (error) {
+			vibeLog.error('mcp', 'не удалось спросить пользователя по просьбе MCP-сервера', error);
+			this.channel.call('answerInputRequest', { requestId: ask.requestId, answer: { ok: false, reason: 'окно не смогло показать вопрос' } });
+		}
+	}
+
+	/** Форма по полям схемы: строка, число, булево и перечисление — большего спека не допускает. */
+	private async _askHuman(ask: McpInputAsk, form: ElicitationForm): Promise<ElicitationAnswer> {
+		const title = `${ask.serverName} → ${ask.toolName}`;
+		if (form.fields.length === 0) {
+			// Просьба без полей — это вопрос «да или нет» по самому сообщению.
+			const confirmed = await this._quickInput.pick(
+				[{ label: localize('vibeide.mcp.elicit.yes', 'Разрешить') }, { label: localize('vibeide.mcp.elicit.no', 'Отказать') }],
+				{ title, placeHolder: form.message });
+			return confirmed?.label === localize('vibeide.mcp.elicit.yes', 'Разрешить') ? { action: 'accept', content: {} } : { action: 'decline' };
+		}
+		const content: Record<string, unknown> = {};
+		for (const field of form.fields) {
+			const prompt = field.description ? `${field.label} — ${field.description}` : field.label;
+			let raw: string | undefined;
+			if (field.type === 'boolean') {
+				const picked = await this._quickInput.pick([{ label: 'true' }, { label: 'false' }], { title, placeHolder: prompt });
+				raw = picked?.label;
+			} else if (field.type === 'enum' && field.options?.length) {
+				const picked = await this._quickInput.pick(field.options.map(option => ({ label: option })), { title, placeHolder: prompt });
+				raw = picked?.label;
+			} else {
+				raw = await this._quickInput.input({ title, prompt: form.message, placeHolder: prompt });
+			}
+			if (raw === undefined) { return { action: 'cancel' }; }
+			// Необязательное поле, оставленное пустым, не уезжает вовсе: пустая строка — это ответ
+			// «пусто», а отсутствие поля — «не отвечал», и сервер читает их по-разному.
+			if (raw === '' && !field.required) { continue; }
+			content[field.key] = coerceFieldValue(field, raw);
+		}
+		return { action: 'accept', content };
+	}
 
 	private async _initialize() {
 		try {
@@ -285,6 +360,8 @@ class MCPService extends Disposable implements IMCPService {
 			server.tools?.forEach(tool => {
 				// An app-only tool exists for the app's buttons; offering it to the model would break the spec's promise.
 				if (!isMcpToolVisibleToModel(tool)) { return; }
+				// A tool outside the entry's own list is not offered: the model cannot ask for what it never saw.
+				if (!isMcpToolAllowedByEntry(this._serverEntries[serverName], tool.name)) { return; }
 				const sanitizedTool = sanitizeMcpIdentifier(tool.name);
 				// Model-facing identifier with collision-safe `<server>_<tool>` prefix.
 				// Two MCP servers exposing same-named tools used to alias each other —
@@ -445,6 +522,7 @@ class MCPService extends Disposable implements IMCPService {
 		const newConfigFileJSON = await this._parseMCPConfigFile();
 		if (!newConfigFileJSON) { vibeLog.info('mcp', `Not setting state: MCP config file not found`); return; }
 		if (!newConfigFileJSON?.mcpServers) { vibeLog.info('mcp', `Not setting state: MCP config file did not have an 'mcpServers' field`); return; }
+		this._serverEntries = { ...newConfigFileJSON.mcpServers };
 
 		// The family's shared memory joins by itself when VibeMemory is installed; a user entry with the
 		// same name wins. Added before Config Guard, so the discovered entry is scanned like any other.
@@ -521,6 +599,7 @@ class MCPService extends Disposable implements IMCPService {
 		if (!isMcpToolCallableByApp(tool)) {
 			throw new Error(`Tool ${toolName} is not callable by an app`);
 		}
+		this._refuseUnlistedTool(serverName, toolName);
 		const params: MCPToolCallParams = { serverName, toolName, params: args };
 		const t0 = Date.now();
 		const outcome = await this.channel.call<MCPAppRequestOutcome<MCP.CallToolResult> | undefined>('callToolForApp', params);
@@ -545,6 +624,20 @@ class MCPService extends Disposable implements IMCPService {
 		return outcome.value;
 	}
 
+	/** Entries of the last read `mcp.json`, for the per-server tool list. */
+	private _serverEntries: Record<string, MCPConfigFileEntryJSON> = {};
+
+	/** Refuse a call outside the entry's tool list before it reaches the server, and say so in the audit log. */
+	private _refuseUnlistedTool(serverName: string, toolName: string): void {
+		if (isMcpToolAllowedByEntry(this._serverEntries[serverName], toolName)) {
+			return;
+		}
+		if (this._auditLogService.isEnabled()) {
+			void this._auditLogService.append({ ts: Date.now(), actor: 'agent', action: 'mcp_tool_refused', ok: false, meta: { serverName, toolName } }).catch(() => { });
+		}
+		throw new Error(localize('vibeide.mcp.toolNotListed', 'Инструмент «{0}» сервера «{1}» не входит в список tools его записи в mcp.json — вызов отклонён до обращения к серверу.', toolName, serverName));
+	}
+
 	public getLastGuardFindings(): readonly ConfigGuardFinding[] {
 		return this._lastGuardFindings;
 	}
@@ -565,6 +658,18 @@ class MCPService extends Disposable implements IMCPService {
 		return toolResultStr;
 	}
 
+	public getAcpMcpServers(names: readonly string[]): AcpMcpExportResult {
+		// Выключатель читается оттуда же, откуда его пишет `toggleServerIsOn`: выключенный у нас сервер
+		// не должен оказаться включённым у гостя. Новый сервер без записи состояния считается включённым — так же,
+		// как при загрузке конфига.
+		const userState = this.vibeideSettingsService.state.mcpUserStateOfName;
+		return buildAcpMcpServers({
+			entries: this._serverEntries,
+			allowed: names,
+			isEnabled: name => userState[name]?.isOn !== false,
+		});
+	}
+
 	// toggle MCP server and update isOn in void settings
 	public async toggleServerIsOn(serverName: string, isOn: boolean): Promise<void> {
 		this._setMCPServerState(serverName, { status: 'loading', tools: [] });
@@ -575,6 +680,7 @@ class MCPService extends Disposable implements IMCPService {
 
 
 	public async callMCPTool(toolData: MCPToolCallParams): Promise<{ result: RawMCPToolCall }> {
+		this._refuseUnlistedTool(toolData.serverName, toolData.toolName);
 		const t0 = Date.now();
 		const result = await this.channel.call<RawMCPToolCall>('callTool', toolData);
 		// Network panel collector (roadmap §1043) — record MCP tool call in ring buffer.

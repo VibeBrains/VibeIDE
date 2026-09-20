@@ -23,6 +23,8 @@ export interface CouncilOpinion {
 	readonly text: string;
 	readonly error?: string;
 	readonly durationMs: number;
+	/** The adviser's id is a floating alias — its opinion may come from a different model next time. */
+	readonly floating?: boolean;
 }
 
 export interface CouncilRequest {
@@ -117,7 +119,7 @@ export function formatCouncilResult(request: CouncilRequest, result: CouncilResu
 	}
 
 	for (const opinion of answered) {
-		lines.push('', `<details><summary>${opinion.providerName}/${opinion.modelName} — ${(opinion.durationMs / 1000).toFixed(1)} с</summary>`, '', trimOpinion(opinion.text), '', '</details>');
+		lines.push('', `<details><summary>${opinion.providerName}/${opinion.modelName}${opinion.floating ? ' (плавающий алиас)' : ''} — ${(opinion.durationMs / 1000).toFixed(1)} с</summary>`, '', trimOpinion(opinion.text), '', '</details>');
 	}
 	if (failed.length) {
 		lines.push('', '**Не ответили:**', ...failed.map(o => `• ${o.providerName}/${o.modelName} — ${o.error ?? 'пустой ответ'}`));

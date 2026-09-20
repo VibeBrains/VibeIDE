@@ -470,6 +470,9 @@ function composeGoal(step: VibePipelineStep): string {
  * worker's summary is that story: a reviewer who first reads «сделал X, всё проверил» checks the
  * claim instead of the files. `showWorkerSummary` brings the old behaviour back for comparison; the
  * mode travels with the verdict, so the two can be told apart afterwards.
+ *
+ * Findings come in two blocks — the task and the craft — because one masks the other when they are
+ * ranked together: clean code that quietly delivers half the task reads as a good result.
  */
 export function composeReviewGoal(step: Pick<VibePipelineStep, 'role' | 'task' | 'acceptance'>, workerSummary: string, showWorkerSummary: boolean): string {
 	return [
@@ -480,8 +483,30 @@ export function composeReviewGoal(step: Pick<VibePipelineStep, 'role' | 'task' |
 		showWorkerSummary
 			? 'Проверьте по файлам, а не по пересказу. Закончите ответ строкой «ВЕРДИКТ: принято» или'
 			: 'Проверьте по файлам: пересказа исполнителя здесь нет намеренно. Закончите ответ строкой «ВЕРДИКТ: принято» или',
-		'«ВЕРДИКТ: доработать», а перед ней перечислите замечания, если они есть.',
+		'«ВЕРДИКТ: доработать», а перед ней перечислите замечания двумя блоками, не смешивая их:',
+		'«По задаче» — сделано ли то, что просит задача, целиком: не сужена ли она и не заменена ли другим;',
+		'«По качеству» — годится ли код, чтобы строить на нём дальше.',
+		'Блок без замечаний пометьте словом «нет».',
 	].filter(Boolean).join('\n');
+}
+
+/**
+ * Задание автору шага, которого ревьюер вернул на доработку.
+ *
+ * It goes into the author's own conversation, so the task is not repeated: the author already holds
+ * it and the reasons behind the code. The cause comes first because a fix that starts from the
+ * symptom returns through another door; a weakened assertion is named because it is the literal way
+ * to make «the test is red» go away.
+ */
+export function composeReworkRequest(reviewNotes: string): string {
+	return [
+		'Ревьюер вернул шаг на доработку. Его замечания:',
+		reviewNotes,
+		'',
+		'По каждому замечанию сначала одной строкой назовите причину, потом исправьте её.',
+		'Ослабить или удалить проверку в тесте — не исправление.',
+		'Не трогайте то, о чём замечания не говорят.',
+	].join('\n');
 }
 
 /**

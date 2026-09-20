@@ -5,6 +5,7 @@
 
 // disable foreign import complaints
 /* eslint-disable */
+import { googleThoughtSignatureOf, googleThoughtSignatureOptions } from '../../common/thoughtSignature.js';
 import { vibeLog } from '../../common/vibeLog.js';
 import { ANSWERED_MODEL_PEEK_CHARS, readServedIdentity } from '../../common/modelEcho.js';
 import { OrchestrationTokens, orchestrationTokensOfTail, withOrchestration } from '../../common/orchestrationUsage.js';
@@ -753,7 +754,7 @@ const convertMessagesToModelMessages = (messages: LLMChatMessage[], modelName: s
 					} else if (p?.type === 'tool_use' && typeof p?.id === 'string' && typeof p?.name === 'string') {
 						// Anthropic shape: tool calls live as content blocks, not `tool_calls`.
 						// Dropped before → the model's own prior calls vanished from history.
-						parts.push({ type: 'tool-call', toolCallId: p.id, toolName: p.name, input: p.input ?? {} });
+						parts.push({ type: 'tool-call', toolCallId: p.id, toolName: p.name, input: p.input ?? {}, ...googleThoughtSignatureOptions((p as { thoughtSignature?: unknown }).thoughtSignature) });
 					}
 					// AnthropicReasoning parts intentionally skipped.
 				}
@@ -1369,6 +1370,7 @@ export const sendViaAISdk = async (params: SendChatParams_Internal): Promise<voi
 	let fullReasoningSoFar = '';
 	let toolName = '';
 	let toolId = '';
+	let toolSignature: string | undefined;
 	let toolParamsStr = '';
 	let firstTokenReceived = false;
 	let firstTokenTimeoutId: ReturnType<typeof setTimeout> | null = null;
@@ -1456,7 +1458,7 @@ export const sendViaAISdk = async (params: SendChatParams_Internal): Promise<voi
 				fullText: fullTextSoFar,
 				fullReasoning: fullReasoningSoFar,
 				anthropicReasoning: null,
-				...(tc ? { toolCall: tc } : {}),
+				...(tc ? { toolCall: toolSignature ? { ...tc, thoughtSignature: toolSignature } : tc } : {}),
 				...usageField(withOrchestration(lastUsage, lastOrchestrationTokens)),
 				...(lastQuota ? { providerQuota: lastQuota } : {}),
 				...(lastAnsweredModel ? { answeredModel: lastAnsweredModel } : {}),
@@ -1639,6 +1641,7 @@ export const sendViaAISdk = async (params: SendChatParams_Internal): Promise<voi
 						toolName = part.toolName;
 						toolId = part.toolCallId ?? toolId;
 					}
+					toolSignature ??= googleThoughtSignatureOf((part as { providerMetadata?: unknown }).providerMetadata);
 					const input = part.input;
 					if (input !== undefined) {
 						try { toolParamsStr = JSON.stringify(input); }
@@ -1737,7 +1740,7 @@ export const sendViaAISdk = async (params: SendChatParams_Internal): Promise<voi
 			fullText: fullTextSoFar,
 			fullReasoning: fullReasoningSoFar,
 			anthropicReasoning: null,
-			...(tc ? { toolCall: tc } : {}),
+			...(tc ? { toolCall: toolSignature ? { ...tc, thoughtSignature: toolSignature } : tc } : {}),
 			...usageField(withOrchestration(lastUsage, lastOrchestrationTokens)),
 			...(lastQuota ? { providerQuota: lastQuota } : {}),
 			...(lastAnsweredModel ? { answeredModel: lastAnsweredModel } : {}),

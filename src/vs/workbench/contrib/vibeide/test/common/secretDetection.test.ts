@@ -6,12 +6,66 @@
 
 import * as assert from 'assert';
 import { ensureNoDisposablesAreLeakedInTestSuite } from '../../../../../base/test/common/utils.js';
-import { detectSecrets, redactSecretsInObject, SecretDetectionConfig, DEFAULT_SECRET_PATTERNS } from '../../common/secretDetection.js';
+import { detectSecrets, getActivePatterns, redactSecretsInObject, SecretDetectionConfig, DEFAULT_SECRET_PATTERNS } from '../../common/secretDetection.js';
 import { SECRET_CANARIES, findSecretCanaries } from './securityTestFixtures.js';
 
 suite('Secret Detection', () => {
 
 	ensureNoDisposablesAreLeakedInTestSuite();
+
+	/**
+	 * Жалоба пользователя 20.09.2026: `build.gradle` признан секретом (Generic Token), защитный
+	 * предохранитель залип и заблокировал все запросы. Правило числилось выключенным в коде и всё равно работало.
+	 */
+	suite('выключенное в коде правило не работает без решения человека', () => {
+		const config = (over: Partial<SecretDetectionConfig> = {}): SecretDetectionConfig => ({
+			enabled: true, customPatterns: [], disabledPatternIds: [], mode: 'redact', ...over,
+		});
+		// Обычная строка из сборочного файла: контрольная сумма зависимости, а не секрет.
+		const gradle = "implementation 'com.example:lib:1.2.3' // sha1 = 2fd4e1c67a2d28fced849ee1bb76e7391b93eb12";
+
+		test('generic-token молчит по умолчанию и говорит, когда его включили', () => {
+			assert.deepStrictEqual({
+				поУмолчанию: detectSecrets(gradle, config()).matches.map(m => m.pattern.id),
+				включёнВручную: detectSecrets(gradle, config({ enabledPatternIds: ['generic-token'] })).matches.map(m => m.pattern.id),
+				// Выключение сильнее включения: явный запрет не должен обходиться списком разрешённых.
+				запретСильнее: detectSecrets(gradle, config({ enabledPatternIds: ['generic-token'], disabledPatternIds: ['generic-token'] })).matches.length,
+			}, {
+				поУмолчанию: [],
+				включёнВручную: ['generic-token'],
+				запретСильнее: 0,
+			});
+		});
+
+		test('включённое правило судит и адреса — исключения для URL нет', () => {
+			// Исключение здесь было (20.09.2026) и убрано в тот же день: «хеш в адресе — контрольная
+			// сумма» верно до первого `?token=<32 знака>`, а молча пропущенный секрет дороже лишнего
+			// вопроса. Ложное срабатывание снимается человеком и называет идентификатор правила.
+			const on = config({ enabledPatternIds: ['generic-token'] });
+			assert.deepStrictEqual({
+				вURL: detectSecrets('distributionUrl=https://cdn.example.com/2fd4e1c67a2d28fced849ee1bb76e7391b93eb12/gradle.zip', on).matches.length,
+				секретВURL: detectSecrets('https://api.example.com/download?token=9b74c9897bac770ffc029102a200c5de', on).matches.length,
+				безURL: detectSecrets('apiToken = 9b74c9897bac770ffc029102a200c5de', on).matches.length,
+				// Выключенное по умолчанию правило по-прежнему молчит: вернулось исключение, а не правило.
+				поУмолчанию: detectSecrets('distributionUrl=https://cdn.example.com/2fd4e1c67a2d28fced849ee1bb76e7391b93eb12/gradle.zip', config()).matches.length,
+			}, { вURL: 1, секретВURL: 1, безURL: 1, поУмолчанию: 0 });
+		});
+
+		test('правила, включённые в коде, остались на месте', () => {
+			// Порядок здесь не при чём: `getActivePatterns` сортирует по приоритету. Проверяется состав.
+			const active = new Set(getActivePatterns(config()).map(p => p.id));
+			const shippedOn = DEFAULT_SECRET_PATTERNS.filter(p => p.enabled !== false).map(p => p.id);
+			assert.deepStrictEqual({
+				всеВключённыеНаМесте: shippedOn.every(id => active.has(id)),
+				выключенногоНет: active.has('generic-token'),
+				число: active.size,
+			}, {
+				всеВключённыеНаМесте: true,
+				выключенногоНет: false,
+				число: shippedOn.length,
+			});
+		});
+	});
 
 	suite('detectSecrets', () => {
 		test('should detect OpenAI API keys', () => {

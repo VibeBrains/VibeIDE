@@ -52,6 +52,12 @@ export type ElementSnapshot = {
 	color: [number, number, number];
 	/** Effective background behind the element (collector walks up through transparent parents). */
 	backgroundColor: [number, number, number];
+	/**
+	 * Фон под текстом — картинка или градиент (`background-image` у элемента или у предка раньше
+	 * первого сплошного фона). Тогда `backgroundColor` не то, что видит читатель, и контраст по нему
+	 * врёт в обе стороны. Необязательное: снимки прежних сборщиков поля не несут.
+	 */
+	backgroundUnmeasurable?: boolean;
 	/** Alpha of the element's OWN background — an opaque layer can occlude what is under it. */
 	ownBackgroundAlpha: number;
 	backgroundImage: string;
@@ -115,6 +121,16 @@ export type ElementSnapshot = {
 	outlineWidthPx: number;
 	/** Есть ли в CSS правило `:focus` или `:focus-visible`, применимое к элементу. */
 	hasFocusRule: boolean;
+	/**
+	 * Обводка снята ОБЪЯВЛЕНИЕМ в таблице стилей (`outline: none` или `outline: 0`).
+	 *
+	 * Вычисленный `outlineStyle` для этого не годится: у любого элемента ВНЕ фокуса он и так `none`, а
+	 * снимок снимается именно в покое. Поймано тестом-фикстурой 20.09.2026: правило обвиняло каждую
+	 * кнопку на опрятной странице, хотя его собственное описание это прямо запрещает.
+	 *
+	 * Необязательное: снимок старой сборки этого поля не несёт, и отсутствие читается как «не снимали».
+	 */
+	outlineSuppressed?: boolean;
 	/** Есть ли правило `:hover`. */
 	hasHoverRule: boolean;
 	/** Элемент действительно выключен: атрибут `disabled` или `aria-disabled="true"`. */
@@ -170,6 +186,15 @@ export type DocumentSnapshot = {
 	/** Document scroll extent — horizontal overflow of the page as a whole. */
 	documentScrollWidthPx?: number;
 	elements: ElementSnapshot[];
+	/**
+	 * Что таблицы стилей говорят о движении. Отсутствие поля — «не измеряли», и правила молчат.
+	 */
+	motion?: {
+		/** В стилях есть правило под `@media (prefers-reduced-motion …)`. */
+		readonly reducedMotionQuery: boolean;
+		/** Часть таблиц не прочиталась (cross-origin): «правила нет» тогда значит «не посмотрели». */
+		readonly rulesUnreadable: boolean;
+	};
 	/** Headings in document order, for hierarchy checks. */
 	headings: { tag: string; text: string; fontSizePx: number }[];
 	/**

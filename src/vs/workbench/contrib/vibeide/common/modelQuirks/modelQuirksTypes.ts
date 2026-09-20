@@ -78,6 +78,21 @@ export interface ModelQuirksRule {
 	 * kimi-k2-thinking) read this top-level field, not the AI-SDK content[] reasoning part.
 	 */
 	readonly mirrorReasoningContent?: boolean;
+	/**
+	 * Рассуждение у модели не выключается, а его трейс биллится как выход.
+	 *
+	 * Пометка, а не множитель: сама доля выхода измеряется по журналу прогонов той же модели
+	 * (`observedOutputShare`), а этот флаг объясняет человеку, почему выход у модели дорогой и
+	 * почему его нельзя срезать настройкой. Число в квирке было бы выдумкой: вендоры его не публикуют.
+	 */
+	readonly reasoningAlwaysBilled?: boolean;
+	/**
+	 * Шлёт к этому апстриму только те типы блоков, которые anthropic-совместимые прокси принимают повсеместно.
+	 *
+	 * Незнакомый дискриминатор типа такой апстрим не игнорирует, а отвергает запрос целиком. По умолчанию
+	 * выключено: сужать запрос к тому, кто всё принимает, значит терять возможности молча.
+	 */
+	readonly anthropicStrictBlocks?: boolean;
 
 	/**
 	 * Template appended to the system prompt to carry the reasoning-effort level for models
@@ -123,6 +138,13 @@ export interface ModelQuirksRule {
 	 * talk to behaves.
 	 */
 	readonly reasoningBoundToModel?: boolean;
+
+	/**
+	 * The vendor signs its reasoning and requires the signature back on the next turn's function call
+	 * (Gemini 3: «MUST always resend all thought blocks»). Only these models receive `thoughtSignature` in
+	 * the history; for every other model it is stripped — an unknown field in a tool block can be a 400.
+	 */
+	readonly roundtripThoughtSignature?: boolean;
 
 	// ---------- Metadata ----------
 	/** Free-text note for catalog contributors. Not consumed at runtime. */
@@ -254,10 +276,13 @@ export function validateCatalog(raw: unknown): ModelQuirksCatalog {
 			...readIntPositive(rr, 'topK'),
 			...readBool(rr, 'forceEmptyReasoning'),
 			...readBool(rr, 'mirrorReasoningContent'),
+			...readBool(rr, 'reasoningAlwaysBilled'),
+			...readBool(rr, 'anthropicStrictBlocks'),
 			...readString(rr, 'reasoningEffortInSystemPrompt'),
 			...readEnum(rr, 'forceToolCallFormat', ['native', 'xml', 'auto']),
 			...readBool(rr, 'forcedToolChoiceUnsupported'),
 			...readBool(rr, 'reasoningBoundToModel'),
+			...readBool(rr, 'roundtripThoughtSignature'),
 			...readString(rr, 'note'),
 		};
 		rules.push(rule);
@@ -338,6 +363,7 @@ export function applyUserOverride(catalogQuirks: ResolvedModelQuirks, userOverri
 		...readEnum(oo, 'forceToolCallFormat', ['native', 'xml', 'auto']),
 		...readBool(oo, 'forcedToolChoiceUnsupported'),
 		...readBool(oo, 'reasoningBoundToModel'),
+		...readBool(oo, 'roundtripThoughtSignature'),
 	};
 	return sanitized;
 }

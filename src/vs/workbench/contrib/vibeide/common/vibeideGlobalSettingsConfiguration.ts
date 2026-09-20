@@ -668,6 +668,13 @@ export class VibeideGlobalSettingsConfigurationContribution extends Disposable i
 			title: localize('vibeide.model.title', 'VibeIDE — Model Routing'),
 			type: 'object',
 			properties: {
+				'vibeide.model.routes': {
+					type: 'object',
+					additionalProperties: { type: 'string' },
+					default: {},
+					description: localize('vibeide.model.routes', 'Логические имена моделей: { "fast": "openai/gpt-5.6-terra", "smart": "anthropic/claude-opus-5" }. На такое имя ссылаются как «@fast» в правилах маршрутизации по пути и в шагах пайплайна (`model`, `escalateTo`, `reviewWith`). Вендор поднял цену или снял модель — правка в одном месте вместо трёх. Имени, которого нет в таблице, подстановки не будет: шаг остановится и скажет об этом.'),
+					scope: ConfigurationScope.RESOURCE,
+				},
 				'vibeide.model.routing': {
 					type: 'array',
 					items: {
@@ -680,7 +687,7 @@ export class VibeideGlobalSettingsConfigurationContribution extends Disposable i
 						additionalProperties: false,
 					},
 					default: [],
-					description: localize('vibeide.model.routing', 'Упорядоченный список правил { pattern, modelId } для маршрутизации модели по пути файла. Первое совпадение побеждает; при отсутствии совпадений — модель по умолчанию. modelId: "provider/modelName" или просто "modelName" (провайдер выбирается автоматически). Пример: [{ "pattern": "**/*.md", "modelId": "anthropic/claude-haiku-4-5" }, { "pattern": "src/**/*.spec.ts", "modelId": "sonnet" }].'),
+					description: localize('vibeide.model.routing', 'Упорядоченный список правил { pattern, modelId } для маршрутизации модели по пути файла. Первое совпадение побеждает; при отсутствии совпадений — модель по умолчанию. modelId: "provider/modelName" или просто "modelName" (провайдер выбирается автоматически). Пример: [{ "pattern": "**/*.md", "modelId": "anthropic/claude-haiku-4-5" }, { "pattern": "src/**/*.spec.ts", "modelId": "sonnet" }]. Вместо имени модели можно поставить логическое имя из `vibeide.model.routes`: "@fast".'),
 					scope: ConfigurationScope.RESOURCE,
 				},
 			},

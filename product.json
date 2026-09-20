@@ -41,6 +41,7 @@
 	"reportIssueUrl": "https://github.com/VibeBrains/VibeIDE/issues/new",
 	"nodejsRepository": "https://nodejs.org",
 	"urlProtocol": "vibeide",
+	"authClientIdMetadataUrl": "https://vibebrains.github.io/VibeIDE/oauth/clientMetadata.json",
 	"extensionsGallery": {
 		"serviceUrl": "https://open-vsx.org/vscode/gallery",
 		"itemUrl": "https://open-vsx.org/vscode/item",

@@ -35,7 +35,9 @@ import { IVibeideSettingsService } from '../common/vibeideSettingsService.js';
 import { IMCPService } from '../common/mcpService.js';
 import { ISecretDetectionService } from '../common/secretDetectionService.js';
 import type { SecretMatch } from '../common/secretDetection.js';
-import { INotificationService } from '../../../../platform/notification/common/notification.js';
+import { INotificationService, Severity } from '../../../../platform/notification/common/notification.js';
+import { ICommandService } from '../../../../platform/commands/common/commands.js';
+import { localize } from '../../../../nls.js';
 import { IConfigurationService } from '../../../../platform/configuration/common/configuration.js';
 import { NormalizeCounterKey } from '../common/xmlToolNormalize.js';
 import type { LlmSendTraceEvent } from '../common/llmSendTrace.js';
@@ -100,6 +102,7 @@ export class LLMMessageService extends Disposable implements ILLMMessageService 
 		@IVibeTokenBudgetService private readonly tokenBudgetService: IVibeTokenBudgetService,
 		@IConfigurationService private readonly configurationService: IConfigurationService,
 		@IVibeImageCostService private readonly imageCostService: IVibeImageCostService,
+		@ICommandService private readonly commandService: ICommandService,
 	) {
 		super();
 
@@ -269,20 +272,53 @@ export class LLMMessageService extends Disposable implements ILLMMessageService 
 				const typesListForUser = Array.from(countByType.entries())
 					.map(([name, count]) => `${name} (${count})`)
 					.join(', ');
+				// Идентификаторы правил, а не только имена: имя объясняет, что сработало, а в настройку
+				// вписывают идентификатор. Без него человеку нечего выключать (жалоба 20.09.2026).
+				const ruleIdsForUser = Array.from(new Set(totalMatches.map(m => m.pattern.id))).join(', ');
 
 				if (config.mode === 'block') {
-					// Always show block notifications (they're important)
+					// Строгий режим: отправки не будет. Правило названо идентификатором по той же причине,
+					// что и ниже, — иначе выключить его человеку нечем. Текст по-русски: это сообщение
+					// пользователю, а не запись в журнал.
 					this.notificationService.warn(
-						`Secret detected: ${typesListForUser}. Message blocked from sending. Use environment variables or secure vaults instead of pasting keys into chat.`
+						localize('vibeide.secrets.blocked', 'Похоже на секрет: {0}. Сообщение не отправлено. Держите ключи в переменных окружения или хранилище, а не в тексте чата. Если это не секрет — правило {1} выключается настройкой «vibeide.secretDetection.disabledPatternIds».', typesListForUser, ruleIdsForUser)
 					);
 					onError({
-						message: `Message blocked: Secrets detected (${typesListForUser}). Please remove secrets before sending.`,
+						message: localize('vibeide.secrets.blockedError', 'Сообщение не отправлено: похоже на секрет ({0}). Уберите его из текста или выключите правило {1}.', typesListForUser, ruleIdsForUser),
 						fullError: null,
 					});
 					return null;
 				} else {
-					// Redact mode - silently redact without notification
-					// (Notification removed per user request)
+					// Режим замены больше не молчит.
+					//
+					// Молчание здесь и есть та самая третья дорога, которой быть не должно: подменённый
+					// кусок уходит модели, модель принимает его за текст задачи и записывает подстановку
+					// в файл. Живой прогон 20.09.2026: человек попросил строку
+					// `distributionUrl=https://…/2fd4e1c6…/gradle.zip`, а на диск легло
+					// `…/[[REDACTED:Generic Token]]/gradle.zip`, и ни одного слова об этом сказано не было.
+					// Предохранитель тут не спасает: в файле уже не секрет, а подстановка, и проверка хода
+					// не находит ничего.
+					//
+					// Поэтому: сказать, что скрыто и каким правилом, и дать дорогу «выключить навсегда».
+					// Уведомление показывается на каждой такой отправке намеренно (решение владельца
+					// 20.09.2026): пусть спрашивает каждый раз — или правило выключают совсем.
+					this.notificationService.notify({
+						severity: Severity.Warning,
+						message: localize(
+							'vibeide.secrets.redactedFromMessage',
+							'Из сообщения модели скрыто похожее на секрет: {0}. Модель увидит вместо этого подстановку — если это не секрет, ответ может оказаться неверным. Правило: {1}.',
+							typesListForUser, ruleIdsForUser),
+						actions: {
+							primary: [{
+								id: 'vibeide.secrets.openSettings',
+								enabled: true,
+								label: localize('vibeide.secrets.redactedFromMessage.where', 'Где выключить правило'),
+								tooltip: '',
+								class: undefined,
+								run: () => { void this.commandService.executeCommand('workbench.action.openSettings', 'vibeide.secretDetection.disabledPatternIds'); },
+							}],
+						},
+					});
 				}
 			}
 		}

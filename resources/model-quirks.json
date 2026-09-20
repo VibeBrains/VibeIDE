@@ -1,6 +1,6 @@
 {
 	"version": 1,
-	"date": "2026-09-02",
+	"date": "2026-09-19",
 	"description": "VibeIDE model behaviour quirks. Source of truth — see README.md section 'Model behaviour quirks'. PRs welcome. Каждое правило — утверждение о чужом сервере: указывайте `source` (ссылка/коммит/лог) и `observedAt`; правило без источника считается черновиком и называется проверкой `npm run quirks-provenance-check`. Schema: ./src/vs/workbench/contrib/vibeide/common/modelQuirks/modelQuirksTypes.ts.",
 	"docs": "https://github.com/VibeBrains/VibeIDE#model-behaviour-quirks",
 	"rules": [
@@ -18,9 +18,10 @@
 			"temperature": 1.0,
 			"topP": 0.95,
 			"mirrorReasoningContent": true,
-			"note": "Kimi K3 (Moonshot, 2026-07) — CONFIRMED by the vendor. kimi.com/blog/kimi-k3 states outright: 'K3 was trained in the preserved thinking history mode. If the agent harness fails to pass back all the historical thinking content as required ... generation quality may become highly unstable.' That is exactly what mirrorReasoningContent does, so the rule is no longer an analogy with the kimi-k2.x family. Without an explicit k3 rule the substring matcher would fall through to the broad 'kimi' preset, which omits mirroring entirely. Reasoning effort: the promised modes SHIPPED — platform.kimi.ai now states 'Reasoning effort supports low, high, and max (default max)' (verified 2026-08-05), and the preset in .vibe-defaults/providers/moonshot-kimi.jsonc carries all three. Note there is no 'medium' on K3 (unlike K2.7) and thinking still cannot be turned off, so the effort level is the only cost lever on this model. See docs/knowledge/architecture/modelQuirks.md.",
+			"note": "Kimi K3 (Moonshot, 2026-07) — CONFIRMED by the vendor. kimi.com/blog/kimi-k3 states outright: 'K3 was trained in the preserved thinking history mode. If the agent harness fails to pass back all the historical thinking content as required ... generation quality may become highly unstable.' That is exactly what mirrorReasoningContent does, so the rule is no longer an analogy with the kimi-k2.x family. Without an explicit k3 rule the substring matcher would fall through to the broad 'kimi' preset, which omits mirroring entirely. Reasoning effort: the promised modes SHIPPED — platform.kimi.ai now states 'Reasoning effort supports low, high, and max (default max)' (verified 2026-08-05), and the preset in .vibe-defaults/providers/moonshot-kimi.jsonc carries all three. Note there is no 'medium' on K3 (unlike K2.7) and thinking still cannot be turned off, so the effort level is the only cost lever on this model. Re-checked 19.09.2026 on platform.kimi.ai/docs/guide/use-reasoning-effort: 'supports low, high, and max, with max as the default' — the recurring claim that K3 accepts ONLY max is about the DEFAULT, and this is the third time it has come back through a secondary source. See docs/knowledge/architecture/modelQuirks.md. РАСХОД: Рассуждение не выключается, и трейс биллится как ВЫХОД по $15/M при входе $3/M (platform.kimi.ai/docs/pricing/chat, сверено 20.09.2026). Сторонние замеры говорят о трейсе в 2–5 раз длиннее видимого ответа (benchlm.ai/moonshot/api-pricing) — число в квирк не вписано намеренно: доля выхода измеряется по журналу прогонов, а выдуманный множитель был бы хуже честного умолчания.",
 			"source": "kimi.com/blog/kimi-k3",
-			"observedAt": "2026-08-05"
+			"observedAt": "2026-09-19",
+			"reasoningAlwaysBilled": true
 		},
 		{
 			"match": "kimi-k2.6",
@@ -29,6 +30,26 @@
 			"mirrorReasoningContent": true,
 			"note": "kimi-k2.x family — opencode upstream transform.ts:478-510",
 			"source": "transform.ts:478-510"
+		},
+		{
+			"match": "kimi-k2.7",
+			"temperature": 1.0,
+			"topP": 0.95,
+			"mirrorReasoningContent": true,
+			"note": "Kimi K2.7 Code и K2.7 Code Highspeed (Moonshot). Вендор закрепил temperature 1.0 и top_p 0.95 — другое значение даёт ошибку; рассуждение у модели не выключается. Без этого правила id совпадал с устаревшим 'kimi-k2' (T=0.6, без возврата рассуждения): оно длиннее общего 'kimi' и побеждало — модель получала запрещённую температуру и теряла reasoning_content в раундах инструментов (400 со второго хода). РАСХОД: Рассуждение у модели не выключается, значит трейс всегда в счёте как выход.",
+			"source": "platform.kimi.ai/docs/api/models-overview",
+			"observedAt": "2026-09-17",
+			"reasoningAlwaysBilled": true
+		},
+		{
+			"match": "kimi-for-coding",
+			"temperature": 1.0,
+			"topP": 0.95,
+			"mirrorReasoningContent": true,
+			"note": "Kimi Code (подписка): kimi-for-coding — с 11.09.2026 это K2.8 Preview. При включённом рассуждении вендор требует reasoning_content у каждого сообщения ассистента с вызовом инструмента. Без правила id падал на общий 'kimi' без возврата рассуждения. Условия вендора (kimi.com/en/help/kimi-code/benefits, сверено 17.09.2026) пускают сторонние инструменты по ключу API и запрещают подмену User-Agent; сообщение о 403 для неизвестных клиентов первоисточником не подтверждено. РАСХОД: Подписка Kimi Code: рассуждение включено и в счёте идёт как выход.",
+			"source": "kimi.com/code/docs/en/kimi-code/error-reference.html",
+			"observedAt": "2026-09-17",
+			"reasoningAlwaysBilled": true
 		},
 		{
 			"match": "kimi-k2.5",
@@ -159,6 +180,13 @@
 			"match": "glm",
 			"temperature": 1.0,
 			"note": "GLM family (z.ai) — 4.6/4.7/5/5.1, single preset"
+		},
+		{
+			"match": "gemini-3",
+			"roundtripThoughtSignature": true,
+			"note": "Gemini 3.x signs its reasoning and requires thoughtSignature back on the functionCall part of the next turn (ai.google.dev/gemini-api/docs/thinking: MUST always resend all thought blocks). Without it the OpenAI-compat layer answers 400 and @ai-sdk/google injects a skip-signature placeholder with a warning.",
+			"source": "ai.google.dev/gemini-api/docs/thinking",
+			"observedAt": "2026-09-15"
 		},
 		{
 			"match": "gemini-2",

@@ -4,110 +4,113 @@
  *--------------------------------------------------------------------------------------------*/
 
 
-import { vibeLog } from './vibeLog.js';
-import { Disposable } from '../../../../base/common/lifecycle.js';
-import { createDecorator } from '../../../../platform/instantiation/common/instantiation.js';
-import { registerSingleton, InstantiationType } from '../../../../platform/instantiation/common/extensions.js';
+/**
+ * Разбор конфликтов слияния: факты о файле, а не догадка о том, чья версия лучше.
+ *
+ * ЧТО УБРАНО И ПОЧЕМУ (18.09.2026): прежний разбор выбирал сторону эвристикой «блок короче — тот и
+ * берём» и помечал ответ уверенностью `low`. Потребителей у него не было ни одного, а сам выбор —
+ * это ровно то решение, которое нельзя принимать по длине: короткая сторона бывает удалением чужой
+ * работы. Claude Code в той же ситуации оставляет конфликт обычным конфликтом и передаёт его
+ * агенту — решение принимает тот, кто читает код, а не счётчик строк.
+ *
+ * Поэтому здесь остаётся разбор: где блоки, чьи они, что в них. Решение принимает агент, получив
+ * файлы командой «Разрешить конфликты слияния».
+ */
 
-export interface MergeConflictResolution {
-	filePath: string;
-	conflictCount: number;
-	resolutions: Array<{
-		marker: string;
-		chosen: 'ours' | 'theirs' | 'both' | 'custom';
-		explanation: string;
-	}>;
-	confidence: 'high' | 'medium' | 'low';
+/** Один конфликтный блок, как он записан в файле. */
+export interface MergeConflictBlock {
+	/** Номер строки с `<<<<<<<`, считая с единицы — по нему открывают место в редакторе. */
+	readonly startLine: number;
+	/** Подпись нашей стороны из маркера (обычно `HEAD`). */
+	readonly ourLabel: string;
+	/** Подпись чужой стороны из маркера (ветка или коммит). */
+	readonly theirLabel: string;
+	readonly ourLines: readonly string[];
+	readonly theirLines: readonly string[];
+	/** Блок закрыт маркером `>>>>>>>`; незакрытый — испорченный файл, о нём говорят отдельно. */
+	readonly closed: boolean;
 }
 
-export const IVibeMergeConflictService = createDecorator<IVibeMergeConflictService>('vibeMergeConflictService');
+export interface MergeConflictReport {
+	readonly filePath: string;
+	readonly blocks: readonly MergeConflictBlock[];
+	/** Есть незакрытый блок: файл резали руками, и его нельзя разбирать как обычный конфликт. */
+	readonly malformed: boolean;
+}
 
-export interface IVibeMergeConflictService {
-	readonly _serviceBrand: undefined;
+const CONFLICT_START = '<<<<<<< ';
+const CONFLICT_SEP = '=======';
+const CONFLICT_END = '>>>>>>> ';
 
-	/**
-	 * Analyze merge conflict markers in a file.
-	 * Phase 1: structural analysis. Phase 2: LLM-assisted resolution.
-	 */
-	analyzeConflicts(filePath: string, content: string): MergeConflictResolution;
+/** Разобрать содержимое файла на конфликтные блоки. Чистая функция — тестируется без репозитория. */
+export function parseMergeConflicts(filePath: string, content: string): MergeConflictReport {
+	const blocks: MergeConflictBlock[] = [];
+	const lines = content.split('\n');
+	let current: { startLine: number; ourLabel: string; ourLines: string[]; theirLines: string[] } | undefined;
+	let side: 'ours' | 'theirs' = 'ours';
+	let malformed = false;
 
-	/** Check if file has unresolved merge conflicts */
-	hasConflicts(content: string): boolean;
+	for (let i = 0; i < lines.length; i++) {
+		const line = lines[i];
+		if (line.startsWith(CONFLICT_START)) {
+			if (current) {
+				// Вложенный или незакрытый блок — дальше разбирать нечего, файл не в том состоянии.
+				malformed = true;
+			}
+			current = { startLine: i + 1, ourLabel: line.slice(CONFLICT_START.length).trim(), ourLines: [], theirLines: [] };
+			side = 'ours';
+			continue;
+		}
+		if (!current) {
+			continue;
+		}
+		if (line.trimEnd() === CONFLICT_SEP) {
+			side = 'theirs';
+			continue;
+		}
+		if (line.startsWith(CONFLICT_END)) {
+			blocks.push({
+				startLine: current.startLine,
+				ourLabel: current.ourLabel,
+				theirLabel: line.slice(CONFLICT_END.length).trim(),
+				ourLines: current.ourLines,
+				theirLines: current.theirLines,
+				closed: true,
+			});
+			current = undefined;
+			continue;
+		}
+		(side === 'ours' ? current.ourLines : current.theirLines).push(line);
+	}
 
-	/** Count conflict markers */
-	countConflicts(content: string): number;
+	if (current) {
+		malformed = true;
+		blocks.push({ startLine: current.startLine, ourLabel: current.ourLabel, theirLabel: '', ourLines: current.ourLines, theirLines: current.theirLines, closed: false });
+	}
+
+	return { filePath, blocks, malformed };
+}
+
+/** Есть ли в файле неразрешённый конфликт. */
+export function hasMergeConflicts(content: string): boolean {
+	return content.includes(CONFLICT_START);
 }
 
 /**
- * VibeIDE AI Merge Conflict Resolution.
- * Analyzes conflict markers and proposes resolution with explanation.
- * Part of Upstream Conflict UI.
+ * Задание агенту: какие файлы и какие места, без указания, чью сторону брать.
+ *
+ * Сторону выбирает тот, кто прочитал код; задание называет места и запрещает единственный способ
+ * «решить» конфликт, который выглядит как решение, — стереть чужую сторону не читая.
  */
-class VibeMergeConflictService extends Disposable implements IVibeMergeConflictService {
-	declare readonly _serviceBrand: undefined;
-
-	// Git conflict markers
-	private readonly CONFLICT_START = '<<<<<<< ';
-	private readonly CONFLICT_SEP = '=======';
-	private readonly CONFLICT_END = '>>>>>>> ';
-
-	constructor(
-	) {
-		super();
+export function describeConflictsForAgent(reports: readonly MergeConflictReport[]): string {
+	const lines: string[] = ['Разреши конфликты слияния. Файлы и места:'];
+	for (const report of reports) {
+		const places = report.blocks.map(block => `строка ${block.startLine} (${block.ourLabel || 'наша сторона'} ↔ ${block.theirLabel || 'чужая сторона'})`).join('; ');
+		lines.push(`- ${report.filePath}: ${report.blocks.length} конфликт(ов) — ${places}${report.malformed ? ' [есть незакрытый маркер: файл правили руками]' : ''}`);
 	}
-
-	hasConflicts(content: string): boolean {
-		return content.includes(this.CONFLICT_START);
-	}
-
-	countConflicts(content: string): number {
-		return (content.match(/<<<<<<< /g) ?? []).length;
-	}
-
-	analyzeConflicts(filePath: string, content: string): MergeConflictResolution {
-		const count = this.countConflicts(content);
-		const resolutions = [];
-
-		if (count === 0) {
-			return { filePath, conflictCount: 0, resolutions: [], confidence: 'high' };
-		}
-
-		// Parse conflict blocks
-		const lines = content.split('\n');
-		let inConflict = false;
-		let oursBlock: string[] = [];
-		let theirsBlock: string[] = [];
-		let marker = '';
-
-		for (const line of lines) {
-			if (line.startsWith(this.CONFLICT_START)) {
-				inConflict = true;
-				marker = line;
-				oursBlock = [];
-				theirsBlock = [];
-			} else if (line === this.CONFLICT_SEP && inConflict) {
-				// Switch from ours to theirs
-			} else if (line.startsWith(this.CONFLICT_END) && inConflict) {
-				inConflict = false;
-				// Heuristic: prefer shorter/simpler block
-				const chosen: 'ours' | 'theirs' = oursBlock.length <= theirsBlock.length ? 'ours' : 'theirs';
-				resolutions.push({
-					marker,
-					chosen,
-					explanation: `Phase 2: LLM will explain the semantic difference. Current: prefer ${chosen} (${oursBlock.length} vs ${theirsBlock.length} lines).`,
-				});
-			}
-		}
-
-		vibeLog.debug('MergeConflict', `${count} conflicts in ${filePath}`);
-
-		return {
-			filePath,
-			conflictCount: count,
-			resolutions,
-			confidence: 'low', // Phase 1 heuristics only
-		};
-	}
+	lines.push('');
+	lines.push('Правила: прочитай обе стороны и оставь тот код, который сохраняет смысл обеих правок.');
+	lines.push('Выбирать сторону по длине блока или стирать чужую не читая — нельзя.');
+	lines.push('Маркеры конфликта удали полностью, после правки прогони проверки проекта.');
+	return lines.join('\n');
 }
-
-registerSingleton(IVibeMergeConflictService, VibeMergeConflictService, InstantiationType.Eager);

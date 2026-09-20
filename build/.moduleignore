@@ -286,3 +286,16 @@ koffi/**
 # in websocket's browser.js inside a try/catch with a globalThis fallback,
 # so it is unnecessary in the browsers/runtimes VS Code supports.
 es5-ext/**
+
+# pdfjs-dist объявляет @napi-rs/canvas НЕОБЯЗАТЕЛЬНОЙ зависимостью — она нужна ему только когда
+# страницу рисуют в Node. Мы рисуем в окне, браузерным канвасом (см. common/pdfService.ts), поэтому
+# в дистрибутив она не едет: это 26 МБ бинарников на семь платформ ради пути, которого у нас нет.
+@napi-rs/canvas/**
+@napi-rs/canvas-*/**
+
+# Сборка pdfjs для старых браузеров (18 МБ) и его .d.ts: у нас один рантайм — Electron текущей
+# версии, — а типы в рантайме не нужны вовсе. Карты кодировок (cmaps) и шрифты-заменители
+# (standard_fonts) НЕ трогаем: их путь задаётся в getDocument, и если завтра понадобится CJK,
+# исключение здесь превратится в молча битый текст вместо иероглифов.
+pdfjs-dist/legacy/**
+pdfjs-dist/types/**

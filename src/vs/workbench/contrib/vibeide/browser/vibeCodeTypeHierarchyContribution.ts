@@ -14,7 +14,8 @@ import { TypeHierarchyItem, TypeHierarchyProvider, TypeHierarchyProviderRegistry
 import { containerLabel, extensionsOf, symbolLanguageIds } from '../common/codeSymbols/treeSitterSymbols.js';
 import { shortNameOf } from '../common/codeSymbols/nameConventions.js';
 import { enclosingContainerOf } from '../common/codeSymbols/codeIndexCore.js';
-import { IndexedSymbol, IVibeCodeIndexService } from './vibeCodeIndexService.js';
+import { IVibeCodeIndexService } from './vibeCodeIndexService.js';
+import type { IndexedSymbol } from './vibeCodeIndexService.js';
 import { rangeOf, SYMBOL_KIND_MAP } from './vibeCodeSymbolPresentation.js';
 
 /**

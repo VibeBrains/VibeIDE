@@ -3,6 +3,7 @@
  *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
 
+import { AcpMcpServer } from './acpMcpExport.js';
 import { Event } from '../../../../../base/common/event.js';
 import { AcpStopReason, AcpToolStatus, IAcpAuthMethod, IAcpDiff } from './acpProtocol.js';
 
@@ -25,6 +26,14 @@ export interface IAcpAgentLaunch {
 	readonly env?: Readonly<Record<string, string>>;
 	/** Рабочая папка сессии. Абсолютный путь — требование протокола. */
 	readonly cwd: string;
+	/**
+	 * MCP-серверы, которые гость получает при создании сессии (политика `mcpServers` записи агента).
+	 *
+	 * Список уже отфильтрован по политике и по выключателям пользователя. HTTP-записи из него
+	 * отсеиваются ещё раз, в главном процессе, если гость не объявил поддержку такого транспорта в
+	 * рукопожатии: узнать это раньше неоткуда.
+	 */
+	readonly mcpServers?: readonly AcpMcpServer[];
 }
 
 /** Запрос разрешения от агента, ждущий ответа человека. */
@@ -49,7 +58,7 @@ export type AcpEvent =
 	/** Агент просит разрешения. */
 	| { readonly kind: 'permission'; readonly request: IAcpPermissionRequest }
 	/** Агент взялся за инструмент: чем занят и что меняет. */
-	| { readonly kind: 'tool'; readonly sessionId: string; readonly toolCallId: string; readonly title: string; readonly toolKind: string; readonly status: AcpToolStatus; readonly paths: readonly string[]; readonly diffs: readonly IAcpDiff[] }
+	| { readonly kind: 'tool'; readonly sessionId: string; readonly toolCallId: string; readonly title: string; readonly name: string; readonly toolKind: string; readonly status: AcpToolStatus; readonly paths: readonly string[]; readonly diffs: readonly IAcpDiff[] }
 	/** Расход контекста и денег за ход. */
 	| { readonly kind: 'usage'; readonly sessionId: string; readonly used: number; readonly size: number; readonly costUsd?: number }
 	/** Агент записал файл нашими руками — путь `fs/write_text_file`. */

@@ -15,16 +15,32 @@
  * nearest one it has; on a tie the higher wins, which is how vendors fold their own scales (DeepSeek:
  * `medium` → `high`). A word that is on no scale at all says nothing about distance, so it becomes the
  * model's default.
+ *
+ * An intensifier folds to the level it intensifies, tie or not: `xhigh` is «high, but more», `ultra` is
+ * «max, but more». DeepSeek's own table says exactly that — `xhigh → high`, `ultra → max`
+ * (api-docs.deepseek.com/guides/thinking_mode, checked 18.09.2026) — and the tie rule alone would have
+ * sent `xhigh` up to `max`, where the user pays the top rate for a level they did not pick.
  */
 const EFFORT_SCALE: readonly string[] = ['none', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max', 'ultra'];
+
+/** Levels that are a named level plus emphasis — they fold back to that level when the model lacks them. */
+const INTENSIFIER_BASE: Record<string, string> = { xhigh: 'high', ultra: 'max' };
 
 export function effortWithinValues(stored: string | undefined, values: readonly string[], defaultValue: string): string {
 	if (stored === undefined || values.includes(stored)) {
 		return stored ?? defaultValue;
 	}
-	const storedRank = EFFORT_SCALE.indexOf(stored.toLowerCase());
+	const lowered = stored.toLowerCase();
+	const storedRank = EFFORT_SCALE.indexOf(lowered);
 	if (storedRank < 0) {
 		return defaultValue;
+	}
+	const base = INTENSIFIER_BASE[lowered];
+	if (base !== undefined) {
+		const offered = values.find(value => value.toLowerCase() === base);
+		if (offered !== undefined) {
+			return offered;
+		}
 	}
 	let best: string | undefined;
 	let bestDistance = Number.POSITIVE_INFINITY;

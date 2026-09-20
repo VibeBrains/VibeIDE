@@ -35,6 +35,16 @@ export interface VibeAgentEntry {
 	readonly env?: Readonly<Record<string, string>>;
 	/** Рабочая папка агента относительно корня проекта. По умолчанию — корень. */
 	readonly dir?: string;
+
+	/**
+	 * MCP-серверы проекта, которые этот гость получает при создании сессии, — поимённо.
+	 *
+	 * Отсутствует или пусто — гость не получает ни одного: ACP передаёт ему КОНФИГУРАЦИИ серверов
+	 * (вместе с `env` и `headers`, а там бывают ключи), и он подключается к ним сам. «Отдать всё»
+	 * поэтому не предусмотрено даже как значение: список, растущий сам при добавлении сервера в
+	 * `mcp.json`, однажды увёз бы гостю то, чего человек не имел в виду.
+	 */
+	readonly mcpServers?: readonly string[];
 }
 
 export interface VibeAgentsFile {
@@ -108,6 +118,10 @@ function validateEntry(item: unknown, index: number, seen: ReadonlySet<string>):
 	if (env !== undefined && !isStringMap(env)) {
 		return `запись "${id}": "env" — пары «имя: значение», значения строками`;
 	}
+	const mcpServers = record['mcpServers'];
+	if (mcpServers !== undefined && (!Array.isArray(mcpServers) || mcpServers.some(name => typeof name !== 'string'))) {
+		return `запись "${id}": "mcpServers" — список имён серверов из mcp.json, строками`;
+	}
 
 	return {
 		id,
@@ -117,6 +131,7 @@ function validateEntry(item: unknown, index: number, seen: ReadonlySet<string>):
 		...(args ? { args: [...(args as string[])] } : {}),
 		...(env ? { env: { ...(env as Record<string, string>) } } : {}),
 		...(stringOf(record['dir']) ? { dir: stringOf(record['dir'])! } : {}),
+		...(mcpServers ? { mcpServers: [...(mcpServers as string[])] } : {}),
 	};
 }
 

@@ -158,6 +158,14 @@ export interface MCPConfigFileEntryJSON {
 	 */
 	type?: 'http' | 'sse';
 	headers?: Record<string, string>;
+
+	/**
+	 * Tools of this server the agent may see and call, by their names on the server. Absent — all of them.
+	 *
+	 * Enforced here, before the call, not by trusting the server: tool annotations such as `readOnlyHint`
+	 * are untrusted by the MCP spec, so a read-only profile is a list the user wrote, not a claim the server made.
+	 */
+	tools?: string[];
 }
 
 export interface MCPConfigFileJSON {

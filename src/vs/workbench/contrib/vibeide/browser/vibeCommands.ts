@@ -17,8 +17,17 @@ import { Action2, registerAction2 } from '../../../../platform/actions/common/ac
 import { localize, localize2 } from '../../../../nls.js';
 import { IFileService } from '../../../../platform/files/common/files.js';
 import { VSBuffer } from '../../../../base/common/buffer.js';
-import { joinPath } from '../../../../base/common/resources.js';
 import { IWorkspaceContextService } from '../../../../platform/workspace/common/workspace.js';
+import { joinPath } from '../../../../base/common/resources.js';
+import { IVibeideSCMService } from '../common/vibeideSCMTypes.js';
+import { IVibeGitWorktreeService, WorktreeInfo } from '../common/vibeGitWorktreeService.js';
+import { vibeDefaultContent } from '../common/vibeDefaults.js';
+import { waiveRequirement } from '../common/taskBrief.js';
+import { buildAcceptanceGoal, parseAcceptance, summarizeAcceptance } from '../common/blindAcceptance.js';
+import { IVibeSubagentService } from '../common/vibeSubagentService.js';
+import { briefFileName } from '../common/taskBriefFile.js';
+import { vibeLog } from '../common/vibeLog.js';
+import { describeConflictsForAgent, MergeConflictReport, parseMergeConflicts } from '../common/vibeMergeConflictService.js';
 import { INotificationService, Severity } from '../../../../platform/notification/common/notification.js';
 import { generateUuid } from '../../../../base/common/uuid.js';
 import { URI } from '../../../../base/common/uri.js';
@@ -539,20 +548,35 @@ CommandsRegistry.registerCommand('vibeide.doctor.run', async (accessor: Services
 });
 
 // Export audit log (GDPR)
+// Through the service, not `scripts/vibe-session-export.js`: that script lives in the VibeIDE repository, and the
+// terminal ran it in the user's own folder, where it does not exist.
 CommandsRegistry.registerCommand('vibeide.audit.export', async (accessor: ServicesAccessor) => {
-	await runInVibeTerminal(accessor.get(ITerminalService), 'VibeIDE Audit Export', 'node scripts/vibe-session-export.js --all --output vibe-audit-export.json');
+	const audit = accessor.get(IAuditLogService);
+	const fileDialog = accessor.get(IFileDialogService);
+	const fileService = accessor.get(IFileService);
+	const notifications = accessor.get(INotificationService);
+	const target = await fileDialog.showSaveDialog({
+		title: localize('vibeide.audit.export.title', 'Сохранить журнал аудита'),
+		defaultUri: joinPath(await fileDialog.defaultFilePath(), 'vibe-audit-export.json'),
+		filters: [{ name: 'JSON', extensions: ['json'] }],
+	});
+	if (!target) { return; }
+	await fileService.writeFile(target, VSBuffer.fromString(await audit.exportAll()));
+	notifications.info(localize('vibeide.audit.export.done', 'Журнал аудита сохранён: {0}', target.fsPath));
 });
 
 CommandsRegistry.registerCommand('vibeide.audit.deleteAll', async (accessor: ServicesAccessor) => {
 	const dialog = accessor.get(IDialogService);
-	const terminal = accessor.get(ITerminalService);
+	const audit = accessor.get(IAuditLogService);
+	const notifications = accessor.get(INotificationService);
 	const confirmed = await dialog.confirm({
-		message: localize('vibeide.audit.deleteAll.confirm', 'Удалить все данные аудита/сессий VibeIDE?'),
-		detail: localize('vibeide.audit.deleteAll.detail', 'Операция необратима. Скрипт удаления запустится в терминале.'),
+		message: localize('vibeide.audit.deleteAll.confirm', 'Удалить весь журнал аудита VibeIDE?'),
+		detail: localize('vibeide.audit.deleteAll.detail2', 'Операция необратима: журнал этой рабочей области будет удалён.'),
 		primaryButton: localize('vibeide.audit.deleteAll.primary', 'Удалить'),
 	});
 	if (!confirmed.confirmed) { return; }
-	await runInVibeTerminal(terminal, 'VibeIDE Audit Delete', 'node scripts/vibe-session-export.js --delete-all');
+	await audit.deleteAll();
+	notifications.info(localize('vibeide.audit.deleteAll.done', 'Журнал аудита удалён.'));
 });
 
 /**
@@ -1558,5 +1582,345 @@ registerAction2(class extends Action2 {
 			severity: Severity.Info,
 			message: localize('vibeideCopyIssueReportDone', 'Диагностический отчёт скопирован в буфер обмена.'),
 		});
+	}
+});
+
+/**
+ * «Разрешить конфликты слияния» — конфликт остаётся конфликтом, а работа уходит агенту.
+ *
+ * Сторону не выбирает ни команда, ни эвристика: задание называет файлы и места, а решает тот, кто
+ * прочитает обе стороны. Файлы берутся у git (`diff --diff-filter=U`), а не поиском по маркерам:
+ * маркер в чужом коде или в тесте — не конфликт слияния, и вести из-за него агента в правку незачем.
+ */
+registerAction2(class VibeResolveMergeConflicts extends Action2 {
+	constructor() {
+		super({
+			id: 'vibeide.git.resolveMergeConflicts',
+			f1: true,
+			title: localize2('vibeide.git.resolveMergeConflicts.title', 'Разрешить конфликты слияния'),
+			category: VIBE_COMMAND_CATEGORY,
+		});
+	}
+
+	async run(accessor: ServicesAccessor): Promise<void> {
+		const notifications = accessor.get(INotificationService);
+		const workspace = accessor.get(IWorkspaceContextService);
+		const fileService = accessor.get(IFileService);
+		const chatThreadService = accessor.get(IChatThreadService);
+		const scm = accessor.get(IVibeideSCMService);
+
+		const folder = workspace.getWorkspace().folders[0];
+		if (!folder) {
+			notifications.notify({ severity: Severity.Info, message: localize('vibeide.git.noFolder', 'Нет открытой папки проекта.') });
+			return;
+		}
+
+		let conflicted: string[];
+		try {
+			conflicted = (await scm.listConflictedFiles(folder.uri.fsPath)).filter(Boolean);
+		} catch (error) {
+			notifications.notify({ severity: Severity.Warning, message: localize('vibeide.git.listFailed', 'Не удалось спросить git о конфликтах: {0}', String(error instanceof Error ? error.message : error)) });
+			return;
+		}
+		if (conflicted.length === 0) {
+			notifications.notify({ severity: Severity.Info, message: localize('vibeide.git.noConflicts', 'Неразрешённых конфликтов слияния нет.') });
+			return;
+		}
+
+		const reports: MergeConflictReport[] = [];
+		for (const relative of conflicted) {
+			try {
+				const uri = joinPath(folder.uri, relative);
+				const content = (await fileService.readFile(uri)).value.toString();
+				reports.push(parseMergeConflicts(relative, content));
+			} catch (error) {
+				vibeLog.warn('mergeConflicts', `Файл ${relative} не прочитан: ${error}`);
+			}
+		}
+		if (reports.length === 0) {
+			notifications.notify({ severity: Severity.Warning, message: localize('vibeide.git.unreadable', 'Git назвал конфликтные файлы, но прочитать их не удалось.') });
+			return;
+		}
+
+		const threadId = chatThreadService.state.currentThreadId;
+		const task = describeConflictsForAgent(reports);
+		await chatThreadService.addUserMessageAndStreamResponse({ userMessage: task, threadId, displayContent: task });
+	}
+});
+
+/**
+ * Деревья агентов: что осталось от ролей, работавших в изоляции, и что с этим делать.
+ *
+ * Изоляция роли (`vibeide.subagent.worktree`) оставляет работу в ветке дерева — вливает её сама
+ * только под автопилотом. Без этой команды забрать работу можно было лишь из терминала, руками
+ * набирая `git merge` и `git worktree remove` в правильном порядке; неверный порядок теряет работу
+ * при конфликте. Здесь тот же порядок зашит, а необратимое действие спрашивает подтверждение.
+ */
+registerAction2(class VibeAgentWorktrees extends Action2 {
+	constructor() {
+		super({
+			id: 'vibeide.agent.worktrees',
+			f1: true,
+			title: localize2('vibeide.agent.worktrees.title', 'Деревья агентов'),
+			category: VIBE_COMMAND_CATEGORY,
+		});
+	}
+
+	async run(accessor: ServicesAccessor): Promise<void> {
+		const notifications = accessor.get(INotificationService);
+		const quickInput = accessor.get(IQuickInputService);
+		const dialogs = accessor.get(IDialogService);
+		const worktrees = accessor.get(IVibeGitWorktreeService);
+		const commands = accessor.get(ICommandService);
+
+		let trees: readonly WorktreeInfo[];
+		try {
+			trees = await worktrees.listAgentWorktrees();
+		} catch (error) {
+			notifications.notify({ severity: Severity.Warning, message: localize('vibeide.worktrees.listFailed', 'Не удалось спросить git о деревьях: {0}', String(error instanceof Error ? error.message : error)) });
+			return;
+		}
+		if (trees.length === 0) {
+			notifications.notify({ severity: Severity.Info, message: localize('vibeide.worktrees.none', 'Деревьев агентов нет — все роли работали в общей папке или их работа уже влита.') });
+			return;
+		}
+
+		const picked = await quickInput.pick(
+			trees.map(wt => ({ label: wt.branch, description: wt.path, wt })),
+			{ title: localize('vibeide.worktrees.pick', 'Дерево агента'), placeHolder: localize('vibeide.worktrees.pickPlaceholder', 'Работа роли, не влитая в проект') });
+		if (!picked) { return; }
+
+		type WorktreeAction = 'merge' | 'open' | 'discard';
+		const action = await quickInput.pick<IQuickPickItem & { action: WorktreeAction }>([
+			{ label: localize('vibeide.worktrees.merge', 'Влить в проект'), description: picked.wt.branch, action: 'merge' },
+			{ label: localize('vibeide.worktrees.open', 'Открыть папку дерева'), description: picked.wt.path, action: 'open' },
+			{ label: localize('vibeide.worktrees.discard', 'Выбросить вместе с работой'), description: localize('vibeide.worktrees.discardHint', 'Необратимо'), action: 'discard' },
+		], { title: picked.wt.branch });
+		if (!action) { return; }
+
+		if (action.action === 'open') {
+			await commands.executeCommand('revealFileInOS', URI.file(picked.wt.path));
+			return;
+		}
+
+		if (action.action === 'discard') {
+			// Число файлов тут не назвать, не прочитав дерево, поэтому подтверждение говорит прямо:
+			// исчезает вся работа роли. Обещать точность, которой нет, хуже, чем её не обещать.
+			const { confirmed } = await dialogs.confirm({
+				message: localize('vibeide.worktrees.discardConfirm', 'Выбросить дерево «{0}» вместе со всей работой роли?', picked.wt.branch),
+				detail: localize('vibeide.worktrees.discardDetail', 'Ветка и её коммиты будут удалены безвозвратно. Отменить это нечем.'),
+				primaryButton: localize('vibeide.worktrees.discardBtn', 'Выбросить'),
+				type: 'warning',
+			});
+			if (!confirmed) { return; }
+			try {
+				await worktrees.discardWorktree(picked.wt.id);
+				notifications.notify({ severity: Severity.Info, message: localize('vibeide.worktrees.discarded', 'Дерево «{0}» выброшено.', picked.wt.branch) });
+			} catch (error) {
+				notifications.notify({ severity: Severity.Error, message: localize('vibeide.worktrees.discardFailed', 'Выбросить дерево «{0}» не удалось: {1}', picked.wt.branch, String(error instanceof Error ? error.message : error)) });
+			}
+			return;
+		}
+
+		try {
+			await worktrees.mergeWorktree(picked.wt.id);
+			notifications.notify({ severity: Severity.Info, message: localize('vibeide.worktrees.merged', 'Ветка «{0}» влита, дерево убрано.', picked.wt.branch) });
+		} catch (error) {
+			// Конфликт слияния — не потеря: дерево и ветка остаются, и разобрать конфликт есть чем.
+			notifications.notify({
+				severity: Severity.Warning,
+				message: localize('vibeide.worktrees.mergeFailed', 'Слить «{0}» не удалось (вероятен конфликт): {1}. Дерево и ветка на месте — воспользуйтесь командой «Разрешить конфликты слияния».', picked.wt.branch, String(error instanceof Error ? error.message : error)),
+			});
+		}
+	}
+});
+
+/**
+ * Создать `AGENTS.md` в корне проекта из шаблона набора.
+ *
+ * Шаблон засевается в `.vibe/AGENTS.template.md`, а не в корень: `AGENTS.md` — файл репозитория
+ * пользователя, он едет в коммит и его читают чужие агенты (Codex, Copilot в пул-реквесте). Создать
+ * его без спроса значит записать в чужой репозиторий, поэтому файл кладётся сюда командой — так же,
+ * как файл базового языка даётся кнопкой, а не засевается.
+ *
+ * Существующий файл не трогается ни при каких условиях: в нём правила, которые писал человек.
+ */
+registerAction2(class VibeCreateAgentsMd extends Action2 {
+	constructor() {
+		super({
+			id: 'vibeide.rules.createAgentsMd',
+			f1: true,
+			title: localize2('vibeide.rules.createAgentsMd.title', 'Создать AGENTS.md'),
+			category: VIBE_COMMAND_CATEGORY,
+		});
+	}
+
+	async run(accessor: ServicesAccessor): Promise<void> {
+		const notifications = accessor.get(INotificationService);
+		const workspace = accessor.get(IWorkspaceContextService);
+		const fileService = accessor.get(IFileService);
+		const editorService = accessor.get(IEditorService);
+
+		const folder = workspace.getWorkspace().folders[0];
+		if (!folder) {
+			notifications.notify({ severity: Severity.Info, message: localize('vibeide.agentsMd.noFolder', 'Нет открытой папки проекта.') });
+			return;
+		}
+		const target = joinPath(folder.uri, 'AGENTS.md');
+		if (await fileService.exists(target)) {
+			// Открыть, а не перезаписать: человек просил файл — он уже есть, и показать его полезнее,
+			// чем отказать. Содержимое остаётся его.
+			notifications.notify({ severity: Severity.Info, message: localize('vibeide.agentsMd.exists', 'AGENTS.md уже есть в корне проекта — открываю его.') });
+			await editorService.openEditor({ resource: target });
+			return;
+		}
+
+		// Шаблон берётся из набора, а не из строки в коде: набор общий с VibeIDEA, и вторая копия
+		// текста разъехалась бы с первой молча.
+		const template = vibeDefaultContent('AGENTS.template.md');
+		if (template === undefined) {
+			notifications.notify({ severity: Severity.Warning, message: localize('vibeide.agentsMd.noTemplate', 'Шаблон AGENTS.md не найден в наборе — сборка собрана без него.') });
+			return;
+		}
+		try {
+			await fileService.writeFile(target, VSBuffer.fromString(template));
+		} catch (error) {
+			notifications.notify({ severity: Severity.Error, message: localize('vibeide.agentsMd.writeFailed', 'Создать AGENTS.md не удалось: {0}', String(error instanceof Error ? error.message : error)) });
+			return;
+		}
+		await editorService.openEditor({ resource: target });
+	}
+});
+
+/**
+ * Требования задачи: посмотреть, что обещано, и снять требование.
+ *
+ * Снятие живёт ЗДЕСЬ, а не среди инструментов агента, и это не вопрос удобства. Снять требование —
+ * значит отказаться от части просьбы; такое решение принимает тот, кто просил. Дай агенту эту
+ * возможность — и слепая приёмка превратится в самоаттестацию: не сделал, вычеркнул, отчитался.
+ */
+registerAction2(class VibeTaskRequirements extends Action2 {
+	constructor() {
+		super({
+			id: 'vibeide.task.requirements',
+			f1: true,
+			title: localize2('vibeide.task.requirements.title', 'Требования задачи'),
+			category: VIBE_COMMAND_CATEGORY,
+		});
+	}
+
+	async run(accessor: ServicesAccessor): Promise<void> {
+		const notifications = accessor.get(INotificationService);
+		const quickInput = accessor.get(IQuickInputService);
+		const workspace = accessor.get(IWorkspaceContextService);
+		const plans = accessor.get(IVibePersistedPlanService);
+		const chatThreadService = accessor.get(IChatThreadService);
+
+		const folder = workspace.getWorkspace().folders[0];
+		if (!folder) {
+			notifications.notify({ severity: Severity.Info, message: localize('vibeide.requirements.noFolder', 'Нет открытой папки проекта.') });
+			return;
+		}
+		const threadId = chatThreadService.state.currentThreadId;
+		const messages = chatThreadService.state.allThreads[threadId]?.messages ?? [];
+		// Сужение по роли до поиска: у общего сообщения треда поля `briefId` нет и быть не должно.
+		const briefId = [...messages].reverse()
+			.filter((m): m is Extract<typeof m, { role: 'plan' }> => m.role === 'plan')
+			.find(m => m.briefId)?.briefId;
+		if (!briefId) {
+			notifications.notify({ severity: Severity.Info, message: localize('vibeide.requirements.none', 'У этого разговора нет разобранной задачи — требований пока нет.') });
+			return;
+		}
+		const brief = await plans.loadBrief(folder.uri, briefId);
+		if (!brief) {
+			notifications.notify({ severity: Severity.Warning, message: localize('vibeide.requirements.missing', 'Файл требований не найден: {0}', briefFileName(briefId)) });
+			return;
+		}
+
+		const picked = await quickInput.pick(
+			brief.requirements.map(requirement => ({
+				label: `${requirement.waived ? '$(check) ' : ''}${requirement.id}. ${requirement.quote}`,
+				description: requirement.waived ? localize('vibeide.requirements.waivedBy', 'снято: {0}', requirement.waived.reason) : undefined,
+				requirement,
+			})),
+			{ title: localize('vibeide.requirements.pick', 'Требования задачи'), placeHolder: localize('vibeide.requirements.pickHint', 'Выберите требование, чтобы снять его с исполнения') });
+		if (!picked) { return; }
+		if (picked.requirement.waived) {
+			notifications.notify({ severity: Severity.Info, message: localize('vibeide.requirements.already', 'Это требование уже снято.') });
+			return;
+		}
+
+		// Причина обязательна: «вычеркнуто без объяснения» через месяц неотличимо от забытого.
+		const reason = await quickInput.input({
+			title: localize('vibeide.requirements.waiveTitle', 'Снять требование {0}', picked.requirement.id),
+			prompt: picked.requirement.quote,
+			placeHolder: localize('vibeide.requirements.waivePrompt', 'Почему это требование больше не нужно выполнять'),
+		});
+		if (reason === undefined) { return; }
+		const updated = waiveRequirement(brief, picked.requirement.id, reason, Date.now());
+		if (!updated) {
+			notifications.notify({ severity: Severity.Warning, message: localize('vibeide.requirements.needReason', 'Требование не снято: нужна причина.') });
+			return;
+		}
+		await plans.saveBrief(folder.uri, updated);
+		notifications.notify({ severity: Severity.Info, message: localize('vibeide.requirements.waived', 'Требование {0} снято с исполнения.', picked.requirement.id) });
+	}
+});
+
+/**
+ * Слепая приёмка: сверить сделанное с исходным текстом задачи — и больше ни с чем.
+ *
+ * Приёмщик получает задание, собранное `buildAcceptanceGoal`, который плана не принимает вовсе:
+ * изоляция структурная, а не обещанная. Роль read-only (`explore`) — приёмщик говорит правду о
+ * работе, а не улучшает её; дай ему право писать, и он перестанет быть независимым.
+ */
+registerAction2(class VibeBlindAcceptance extends Action2 {
+	constructor() {
+		super({
+			id: 'vibeide.task.blindAcceptance',
+			f1: true,
+			title: localize2('vibeide.task.blindAcceptance.title', 'Слепая приёмка задачи'),
+			category: VIBE_COMMAND_CATEGORY,
+		});
+	}
+
+	async run(accessor: ServicesAccessor): Promise<void> {
+		const notifications = accessor.get(INotificationService);
+		const workspace = accessor.get(IWorkspaceContextService);
+		const plans = accessor.get(IVibePersistedPlanService);
+		const chatThreadService = accessor.get(IChatThreadService);
+		const subagents = accessor.get(IVibeSubagentService);
+
+		const folder = workspace.getWorkspace().folders[0];
+		if (!folder) {
+			notifications.notify({ severity: Severity.Info, message: localize('vibeide.acceptance.noFolder', 'Нет открытой папки проекта.') });
+			return;
+		}
+		const threadId = chatThreadService.state.currentThreadId;
+		const messages = chatThreadService.state.allThreads[threadId]?.messages ?? [];
+		const briefId = [...messages].reverse()
+			.filter((m): m is Extract<typeof m, { role: 'plan' }> => m.role === 'plan')
+			.find(m => m.briefId)?.briefId;
+		const brief = briefId ? await plans.loadBrief(folder.uri, briefId) : undefined;
+		if (!brief) {
+			notifications.notify({ severity: Severity.Info, message: localize('vibeide.acceptance.noBrief', 'У этого разговора нет разобранной задачи — принимать не по чему.') });
+			return;
+		}
+
+		const changed = chatThreadService.changedPathsOfThread(threadId);
+		const { awaitResult } = await subagents.spawnExplore({
+			parentThreadId: threadId,
+			goal: buildAcceptanceGoal(brief, changed),
+		});
+		const result = await awaitResult();
+		const lines = parseAcceptance(result.summary ?? '', brief.requirements);
+		const report = [
+			localize('vibeide.acceptance.header', 'Слепая приёмка: {0}', summarizeAcceptance(lines)),
+			'',
+			...lines.map(line => `${line.id} — ${line.verdict}: ${line.note}`),
+		].join('\n');
+		// Отчёт уходит в тред: приёмка — это разговор о работе, а не всплывающее окно, которое
+		// закрывается и не находится.
+		await chatThreadService.addUserMessageAndStreamResponse({ userMessage: report, threadId, displayContent: report });
 	}
 });

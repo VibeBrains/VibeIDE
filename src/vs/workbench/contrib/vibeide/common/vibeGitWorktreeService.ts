@@ -10,6 +10,16 @@ import { Emitter, Event } from '../../../../base/common/event.js';
 import { createDecorator } from '../../../../platform/instantiation/common/instantiation.js';
 import { registerSingleton, InstantiationType } from '../../../../platform/instantiation/common/extensions.js';
 import { IVibeCheckpointCoordinator } from './vibeCheckpointCoordinatorService.js';
+import { IVibeideSCMService } from './vibeideSCMTypes.js';
+import { IWorkspaceContextService } from '../../../../platform/workspace/common/workspace.js';
+import { AGENT_BRANCH_PREFIX, parseWorktreeList, worktreeBranchName, worktreeRelativePath } from './worktreeNaming.js';
+
+/**
+ * Чем кончилась фиксация работы роли в её ветке.
+ *
+ * `nothing` — роль ничего не записала; `failed` — записала, но коммит не состоялся и работа ждёт в дереве.
+ */
+export type WorktreeCommitOutcome = 'committed' | 'nothing' | 'failed';
 
 export interface WorktreeInfo {
 	id: string;
@@ -27,8 +37,28 @@ export interface IVibeGitWorktreeService {
 	/** Create a new worktree for agent work */
 	createAgentWorktree(sessionId: string): Promise<WorktreeInfo | null>;
 
+	/**
+	 * Закоммитить в дереве всё, что прогон наработал.
+	 *
+	 * Делается ВСЕГДА, независимо от того, сливаем ли дерево: `merge` берёт коммиты ветки, а правки
+	 * роли лежат в дереве некоммитнутыми. Без коммита слияние оказалось бы пустым, дерево —
+	 * неудаляемым, и работа роли осталась бы в папке, о которой никто не вспомнит.
+	 *
+	 * Исходов три, а не два, и это важно: «дерево чистое» и «коммит не состоялся» выглядят одинаково только
+	 * изнутри кода. Для пользователя это противоположности: в первом случае терять нечего, во втором его работа
+	 * лежит в дереве незафиксированной и ждёт рук. Сказать второе первым словами — значит соврать о потере.
+	 */
+	commitAgentWorktree(worktreeId: string, message: string): Promise<WorktreeCommitOutcome>;
+
 	/** Merge agent worktree to main after Approve */
 	mergeWorktree(worktreeId: string): Promise<void>;
+
+	/**
+	 * Отказаться от работы роли: снести дерево и его ветку вместе с невлитыми коммитами.
+	 *
+	 * Необратимо и потому вызывается только за подтверждением человека: всё, что роль наработала, исчезает.
+	 */
+	discardWorktree(worktreeId: string): Promise<void>;
 
 	/**
 	 * Create several agent worktrees in one batch (same mutex / logging path as singles).
@@ -38,6 +68,9 @@ export interface IVibeGitWorktreeService {
 
 	/** Get all active worktrees */
 	getWorktrees(): WorktreeInfo[];
+
+	/** Деревья агентов по данным git, а не по памяти окна: переживают перезапуск IDE. */
+	listAgentWorktrees(): Promise<WorktreeInfo[]>;
 
 	readonly onWorktreeCreated: Event<WorktreeInfo>;
 	readonly onWorktreeMerged: Event<WorktreeInfo>;
@@ -64,16 +97,30 @@ class VibeGitWorktreeService extends Disposable implements IVibeGitWorktreeServi
 
 	constructor(
 		@IVibeCheckpointCoordinator private readonly _checkpointCoordinator: IVibeCheckpointCoordinator,
+		@IVibeideSCMService private readonly _scm: IVibeideSCMService,
+		@IWorkspaceContextService private readonly _workspace: IWorkspaceContextService,
 	) {
 		super();
 	}
 
-	async createAgentWorktree(sessionId: string): Promise<WorktreeInfo | null> {
-		const branch = `vibe-agent-${sessionId.slice(0, 8)}`;
-		const path = `.vibe-worktrees/${branch}`;
+	/** Папка репозитория, внутри которой живут деревья; без открытой папки изоляция невозможна. */
+	private _repoPath(): string | undefined {
+		return this._workspace.getWorkspace().folders[0]?.uri.fsPath;
+	}
 
+	async createAgentWorktree(sessionId: string): Promise<WorktreeInfo | null> {
+		const repoPath = this._repoPath();
+		if (!repoPath) {
+			vibeLog.warn('Worktree', 'Нет открытой папки — рабочее дерево создавать негде');
+			return null;
+		}
+		const branch = worktreeBranchName(sessionId);
+		const relativePath = worktreeRelativePath(branch);
 		try {
-			// Phase 1: notify, Phase 2: actual git worktree add
+			// Создание и слияние идут через тот же мьютекс, что и чекпоинты: две операции с индексом
+			// одного репозитория одновременно — это гонка за `.git/index`, а не параллелизм.
+			const path = await this._checkpointCoordinator.runExclusive({ op: 'worktree:create', holderLabel: branch }, async () =>
+				await this._scm.addWorktree(repoPath, branch, relativePath));
 			const worktree: WorktreeInfo = {
 				id: `wt-${sessionId}`,
 				path,
@@ -83,24 +130,106 @@ class VibeGitWorktreeService extends Disposable implements IVibeGitWorktreeServi
 			};
 			this._worktrees.set(worktree.id, worktree);
 			this._onWorktreeCreated.fire(worktree);
-			vibeLog.info('Worktree', `Created: ${branch}`);
+			vibeLog.info('Worktree', `Создано дерево ${branch} → ${path}`);
 			return worktree;
 		} catch (e) {
-			vibeLog.error('Worktree', 'Failed to create:', e);
+			// Занятое имя ветки, грязный индекс, не-репозиторий — всё это причины, по которым
+			// изоляции не будет. Молча вернуть «дерево есть» нельзя: вызывающий станет писать в
+			// общую папку, думая, что пишет в свою.
+			vibeLog.error('Worktree', `Не удалось создать дерево ${branch}:`, e);
 			return null;
 		}
 	}
 
+	async commitAgentWorktree(worktreeId: string, message: string): Promise<WorktreeCommitOutcome> {
+		const wt = this._worktrees.get(worktreeId);
+		if (!wt) {
+			return 'failed';
+		}
+		// Тот же мьютекс, что у создания и слияния: индекс у дерева свой, но `git` в одном
+		// репозитории всё равно ходит через общие ссылки.
+		return await this._checkpointCoordinator.runExclusive({ op: 'worktree:commit', holderLabel: wt.branch }, async () => {
+			try {
+				const committed = await this._scm.commitWorktree(wt.path, message);
+				vibeLog.info('Worktree', committed ? `Зафиксировано в ${wt.branch}` : `Дерево ${wt.branch} чистое — коммитить нечего`);
+				return committed ? 'committed' : 'nothing';
+			} catch (e) {
+				// Несостоявшийся коммит — это работа, оставшаяся в дереве незафиксированной: отдать
+				// её за «ничего не записала» значило бы соврать о потере работы.
+				vibeLog.error('Worktree', `Не удалось зафиксировать дерево ${wt.branch}:`, e);
+				return 'failed';
+			}
+		});
+	}
+
+	/**
+	 * Дерево по идентификатору — сначала из памяти окна, потом у git.
+	 *
+	 * Без второго шага дерево, оставшееся от прошлого окна, перечисляется, но не сливается и не убирается:
+	 * показывать человеку то, что нельзя тронуть, хуже, чем не показывать вовсе.
+	 */
+	private async _resolveWorktree(worktreeId: string): Promise<WorktreeInfo | undefined> {
+		return this._worktrees.get(worktreeId) ?? (await this.listAgentWorktrees()).find(wt => wt.id === worktreeId);
+	}
+
+	async discardWorktree(worktreeId: string): Promise<void> {
+		await this._checkpointCoordinator.runExclusive({ op: 'worktree:discard', holderLabel: worktreeId }, async () => {
+			const wt = await this._resolveWorktree(worktreeId);
+			const repoPath = this._repoPath();
+			if (!wt || !repoPath) {
+				return;
+			}
+			// `force` в обоих вызовах осознанно: суть команды — выбросить невлитую работу, и осторожный
+			// git отказал бы именно в том, зачем пришли. Подтверждение человека берётся выше, в команде.
+			await this._scm.removeWorktree(repoPath, wt.path, true);
+			await this._scm.deleteBranch(repoPath, wt.branch, true);
+			this._worktrees.delete(worktreeId);
+			vibeLog.info('Worktree', `Выброшено дерево ${wt.branch}`);
+		});
+	}
+
 	async mergeWorktree(worktreeId: string): Promise<void> {
 		await this._checkpointCoordinator.runExclusive({ op: 'worktree:merge', holderLabel: worktreeId }, async () => {
-			const wt = this._worktrees.get(worktreeId);
+			const wt = await this._resolveWorktree(worktreeId);
 			if (!wt) {
 				return;
 			}
+			const repoPath = this._repoPath();
+			if (!repoPath) {
+				return;
+			}
+			// Порядок важен: сначала слияние. Конфликт — это остановка с сохранённым деревом, а не
+			// потеря работы: удали мы дерево первым, чинить конфликт было бы уже нечем.
+			await this._scm.mergeWorktreeBranch(repoPath, wt.branch);
+			await this._scm.removeWorktree(repoPath, wt.path);
+			try {
+				await this._scm.deleteBranch(repoPath, wt.branch);
+			} catch (e) {
+				// Ветка после слияния может остаться (например, на неё уже кто-то сослался) — это не
+				// повод считать слияние несостоявшимся.
+				vibeLog.warn('Worktree', `Ветка ${wt.branch} не удалена после слияния:`, e);
+			}
 			this._worktrees.delete(worktreeId);
 			this._onWorktreeMerged.fire(wt);
-			vibeLog.info('Worktree', `Merged: ${wt.branch}`);
+			vibeLog.info('Worktree', `Влито и убрано: ${wt.branch}`);
 		});
+	}
+
+	/** Деревья агентов, которые git знает прямо сейчас, — включая оставшиеся от прошлых окон. */
+	async listAgentWorktrees(): Promise<WorktreeInfo[]> {
+		const repoPath = this._repoPath();
+		if (!repoPath) {
+			return [];
+		}
+		try {
+			const entries = parseWorktreeList(await this._scm.listWorktrees(repoPath));
+			return entries
+				.filter(entry => entry.branch?.startsWith(AGENT_BRANCH_PREFIX))
+				.map(entry => ({ id: `wt-${entry.branch}`, path: entry.path, branch: entry.branch!, isAgentWorktree: true }));
+		} catch (e) {
+			vibeLog.warn('Worktree', 'Не удалось перечислить деревья:', e);
+			return [];
+		}
 	}
 
 	async createMultipleAgentWorktrees(sessionPrefix: string, suffixKeys: string[]): Promise<Array<WorktreeInfo | null>> {

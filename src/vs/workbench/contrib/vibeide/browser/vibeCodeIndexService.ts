@@ -24,7 +24,10 @@ import { createDecorator } from '../../../../platform/instantiation/common/insta
 import { InstantiationType, registerSingleton } from '../../../../platform/instantiation/common/extensions.js';
 import { IWorkspaceContextService } from '../../../../platform/workspace/common/workspace.js';
 import { CodeSymbol, extensionsOf, extractSymbols, grammarNameOf, indexKeyOf, isInsideSpans, nonCodeSpans, supportsSymbolExtraction, symbolLanguageIds, SyntaxNodeLike, TextSpan } from '../common/codeSymbols/treeSitterSymbols.js';
-import { ancestryOf, collectMatches, createSymbolIndex, descendantsOf, IndexedSymbol, preferOpenBuffers, replaceFileSymbols, SymbolIndex } from '../common/codeSymbols/codeIndexCore.js';
+import { ancestryOf, collectMatches, createSymbolIndex, descendantsOf, preferOpenBuffers, replaceFileSymbols } from '../common/codeSymbols/codeIndexCore.js';
+// Типы — отдельным `import type`: быстрая транспиляция не типопроверяет и оставляет имя в списке
+// импорта, а в собранном модуле такого экспорта нет — браузерный прогон падал ЦЕЛИКОМ на загрузке модулей.
+import type { IndexedSymbol, SymbolIndex } from '../common/codeSymbols/codeIndexCore.js';
 import { vibeLog } from '../common/vibeLog.js';
 
 /**
@@ -143,7 +146,7 @@ Registry.as<IConfigurationRegistry>(ConfigurationExtensions.Configuration).regis
 	},
 });
 
-export { IndexedSymbol };
+export type { IndexedSymbol };
 
 /** A language's index as a person would want it described. */
 export interface IndexStatus {

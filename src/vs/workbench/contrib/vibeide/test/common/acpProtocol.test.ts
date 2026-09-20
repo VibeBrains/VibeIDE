@@ -124,6 +124,7 @@ suite('acpProtocol', () => {
 					sessionUpdate: 'tool_call_update',
 					toolCallId: 'toolu_01',
 					title: 'Edit /app/hello.txt',
+					name: 'Edit',
 					kind: 'edit',
 					status: 'completed',
 					rawInput: { file_path: '/app/hello.txt', old_string: 'привет мир', new_string: 'привет друг' },
@@ -135,6 +136,7 @@ suite('acpProtocol', () => {
 				kind: 'tool',
 				toolCallId: 'toolu_01',
 				title: 'Edit /app/hello.txt',
+				name: 'Edit',
 				toolKind: 'edit',
 				status: 'completed',
 				paths: ['/app/hello.txt'],
@@ -142,9 +144,14 @@ suite('acpProtocol', () => {
 			});
 		});
 
-		test('незнакомая стадия не выдаётся за завершённую', () => {
-			const update = parseSessionUpdate({ update: { sessionUpdate: 'tool_call', toolCallId: 't', status: 'нечто' } });
-			assert.deepStrictEqual(update, { kind: 'tool', toolCallId: 't', title: '', toolKind: '', status: 'unknown', paths: [], diffs: [] });
+		test('незнакомая стадия не выдаётся за завершённую, а отмена читается отменой', () => {
+			const unknown = parseSessionUpdate({ update: { sessionUpdate: 'tool_call', toolCallId: 't', status: 'нечто' } });
+			// `cancelled` объявлен в схеме v2 и прислать его вправе любой агент.
+			const cancelled = parseSessionUpdate({ update: { sessionUpdate: 'tool_call', toolCallId: 't', status: 'cancelled' } });
+			assert.deepStrictEqual([unknown, cancelled], [
+				{ kind: 'tool', toolCallId: 't', title: '', name: '', toolKind: '', status: 'unknown', paths: [], diffs: [] },
+				{ kind: 'tool', toolCallId: 't', title: '', name: '', toolKind: '', status: 'cancelled', paths: [], diffs: [] },
+			]);
 		});
 
 		test('расход хода: контекст и деньги', () => {
@@ -188,7 +195,7 @@ suite('acpProtocol', () => {
 		});
 
 		test('вызов без файлов не выдумывает путей', () => {
-			assert.deepStrictEqual(toolCallFacts({ kind: 'execute', title: 'Bash' }), { title: 'Bash', toolKind: 'execute', paths: [], diffs: [] });
+			assert.deepStrictEqual(toolCallFacts({ kind: 'execute', title: 'Bash' }), { title: 'Bash', name: '', toolKind: 'execute', paths: [], diffs: [] });
 		});
 	});
 

@@ -22,6 +22,7 @@
  * is diagnosable from the log AND from the «VibeIDE: Показать распознанные провайдеры» command.
  */
 
+import { parseQuotaSpec, QuotaTarget } from '../common/subscriptionQuota.js';
 import { vibeLog } from '../common/vibeLog.js';
 import { Disposable, MutableDisposable, toDisposable } from '../../../../base/common/lifecycle.js';
 import { Emitter, Event } from '../../../../base/common/event.js';
@@ -36,7 +37,7 @@ import { INotificationService } from '../../../../platform/notification/common/n
 import { IStorageService, StorageScope, StorageTarget } from '../../../../platform/storage/common/storage.js';
 import { IPathService } from '../../../services/path/common/pathService.js';
 import { scanProviderConfig, scanEnvFileSecrets, ConfigGuardFinding } from '../common/vibeConfigGuard.js';
-import { builtinProviderIdOf, isBuiltinProviderId, VibeideStatefulModelInfo } from '../common/vibeideSettingsTypes.js';
+import { builtinProviderIdOf, isBuiltinProviderId, VibeideStatefulModelInfo, apiKeyEnvVarOfProvider, ProviderName } from '../common/vibeideSettingsTypes.js';
 import { IVibeideSettingsService, VibeProviderActiveOverrides, ModelOption, DynProviderTransportConfig, DynamicProviderSeed } from '../common/vibeideSettingsService.js';
 import { setExternalProviders, ExternalProviderDescriptor, VibeideStaticModelInfo, ModelLongContext } from '../common/modelCapabilities.js';
 import { IRemoteCatalogService, DynamicKeyValidation } from '../common/remoteCatalogService.js';
@@ -150,6 +151,7 @@ export function modelEntryToCaps(m: VibeProviderModelEntry): Partial<VibeideStat
 	// Retirement announced by the vendor. Carried through as-is; the judgement (retired / soon /
 	// announced) is made at display time, because it depends on the clock and this mapping does not.
 	if (m.deprecation && typeof m.deprecation === 'object') { c.deprecation = { ...m.deprecation }; }
+	if (m.floating === true) { c.floating = true; }
 	if (typeof m.maxTools === 'number' && m.maxTools > 0) { c.maxTools = Math.floor(m.maxTools); }
 	if (typeof m.maxPromptDirectoryChars === 'number' && m.maxPromptDirectoryChars > 0) { c.maxPromptDirectoryChars = Math.floor(m.maxPromptDirectoryChars); }
 	// reasoning → reasoningCapabilities. An `effort` list maps to an effort_slider, which the
@@ -253,6 +255,11 @@ export interface IVibeDynamicProvidersService {
 	getLastGuardFindings(): readonly ConfigGuardFinding[];
 	/** Active dynamic providers (resolvable key or OS-env key), flattened for the diagnostics modal. */
 	getDiagnosticsTargets(): ProviderDiagnosticsTarget[];
+	/**
+	 * Active providers with a valid `quota` and a key the main process can resolve. A provider that patches a built-in
+	 * (`minimax`, `zai`) uses the built-in's key and its environment variable.
+	 */
+	getQuotaTargets(): QuotaTarget[];
 }
 
 const EMPTY_STATE: VibeDynamicProvidersState = { fileExists: false, providers: [], warnings: [] };
@@ -733,6 +740,9 @@ class VibeDynamicProvidersService extends Disposable implements IVibeDynamicProv
 					warnings.push(`«${entry.id}»: новый провайдер без baseURL — он не сможет отправлять запросы`);
 				}
 			}
+			if (parseQuotaSpec(resolved.quota) === 'invalid') {
+				warnings.push(`«${entry.id}»: quota не разобран (url только https, format — minimax-token-plan или zai-monitor) — остаток подписки не запрашивается`);
+			}
 			// A broken hour schedule is dropped whole and named: a price from half a schedule is wrong silently.
 			for (const model of resolved.models?.static ?? []) {
 				if (parseTimeOfDay(model.cost?.timeOfDay) === 'invalid' || parseTimeOfDay(model.costAfter?.timeOfDay) === 'invalid') {
@@ -792,6 +802,22 @@ class VibeDynamicProvidersService extends Disposable implements IVibeDynamicProv
 	 *  value never reaches the renderer; electron-main resolves it at send time). */
 	private _hasOsEnvKey(p: ResolvedProviderEntry): boolean {
 		return !!p.entry.apiKeyEnv && this._settingsService.getEnvApiKeyProviderIds().has(p.id);
+	}
+
+	getQuotaTargets(): QuotaTarget[] {
+		const out: QuotaTarget[] = [];
+		for (const p of this._state.providers) {
+			if (p.entry.active === false) { continue; }
+			const spec = parseQuotaSpec(p.entry.quota);
+			if (!spec || spec === 'invalid') { continue; }
+			const builtinId = p.kind === 'override' ? p.id : p.kind === 'extends-builtin' ? p.extendsBuiltin : undefined;
+			const builtinKey = builtinId ? this._settingsService.state.settingsOfProvider[builtinId as ProviderName]?.apiKey?.trim() : undefined;
+			const apiKey = this._resolveBrowserKey(p) || builtinKey || undefined;
+			const apiKeyEnv = p.entry.apiKeyEnv || (builtinId ? (apiKeyEnvVarOfProvider as Record<string, string | undefined>)[builtinId] : undefined);
+			if (!apiKey && !apiKeyEnv) { continue; }
+			out.push({ providerId: p.id, displayName: p.entry.name || p.id, url: spec.url, format: spec.format, ...(apiKey ? { apiKey } : {}), ...(apiKeyEnv ? { apiKeyEnv } : {}) });
+		}
+		return out;
 	}
 
 	getDiagnosticsTargets(): ProviderDiagnosticsTarget[] {

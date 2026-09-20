@@ -39,6 +39,7 @@ import { VIBE_COMMAND_CATEGORY } from '../common/vibeCommandCategory.js';
 import {
 	buildStepInput,
 	composeReviewGoal,
+	composeReworkRequest,
 	parseModelRef,
 	parsePipelineFile,
 	parseReviewVerdict,
@@ -52,6 +53,7 @@ import { readRolesFile } from '../common/pipeline/vibeRolesFile.js';
 import { IVibeideSettingsService } from '../common/vibeideSettingsService.js';
 import { getModelCapabilities } from '../common/modelCapabilities.js';
 import { nextOffPeakMoment } from '../common/modelPriceSchedule.js';
+import { normalizeModelRoutes, resolveModelReference } from '../common/modelRouteKeys.js';
 
 const CONFIG_REVIEWER_SEES_SUMMARY = 'vibeide.pipeline.reviewerSeesStepSummary';
 
@@ -199,12 +201,30 @@ export class VibePipelineService extends Disposable implements IVibePipelineServ
 	 * has the reasoning. The setting that brings the worker's account back exists to compare the two,
 	 * so the mode is logged next to every verdict and kept in the outcome.
 	 */
+	/**
+	 * Ссылка на модель из файла пайплайна: логическое имя (`@fast`) разворачивается по
+	 * `vibeide.model.routes`, обычное имя идёт как есть. Имени, которого нет в таблице,
+	 * подстановки не будет — шаг об этом скажет.
+	 */
+	private _modelRefOf(reference: string | undefined, where: string): string | undefined {
+		if (!reference) {
+			return undefined;
+		}
+		const routes = normalizeModelRoutes(this._configuration.getValue<unknown>('vibeide.model.routes'));
+		const resolution = resolveModelReference(reference, routes);
+		if (resolution.kind === 'unknown-key') {
+			vibeLog.warn('Pipeline', `${where}: логического имени «@${resolution.key}» нет в vibeide.model.routes — шаг пойдёт на модели по умолчанию`);
+			return undefined;
+		}
+		return resolution.reference;
+	}
+
 	private async _review(step: VibePipelineStep, result: { summary: string; artifacts?: readonly string[] }, parentThreadId: string): Promise<PipelineStepOutcome['review']> {
-		const reviewer = parseModelRef(step.reviewWith);
+		const reviewer = parseModelRef(this._modelRefOf(step.reviewWith, `шаг ${step.role}, reviewWith`));
 		if (!reviewer) {
 			return undefined;
 		}
-		const worker = parseModelRef(step.model);
+		const worker = parseModelRef(this._modelRefOf(step.model, `шаг ${step.role}, model`));
 		if (worker && worker.providerName === reviewer.providerName) {
 			// Not refused — the provider is a weak proxy for the model family, and one provider does
 			// serve several families. Said out loud because a critique by a sibling model is the case
@@ -262,6 +282,9 @@ export class VibePipelineService extends Disposable implements IVibePipelineServ
 
 				this._onProgress.fire({ pipelineId, stepIndex: i, totalSteps: pipeline.steps.length, role: step.role, state: 'started' });
 				const input = buildStepInput(step, outcomes);
+				// Runs of this step stay registered until the step is decided: the author's conversation
+				// is what a rework continues, and disposing a run releases it.
+				const stepRunIds: string[] = [];
 				try {
 					// An unknown role must fail loudly here. Cast into the union and the subagent would
 					// look up a tool whitelist that does not exist — an agent with no tools, silently
@@ -269,12 +292,17 @@ export class VibePipelineService extends Disposable implements IVibePipelineServ
 					if (!isSubagentType(step.role)) {
 						throw new Error(localize('vibeide.pipeline.badRole', 'Неизвестная роль «{0}». Доступны: {1}', step.role, SUBAGENT_TYPES.join(', ')));
 					}
-					const runStep = async (modelRef: string | undefined, cascadeDraft: boolean, escalatedFrom?: { runId: string; model?: string }, reviewNotes?: string) => {
-						const model = parseModelRef(modelRef);
+					const runStep = async (modelRef: string | undefined, cascadeDraft: boolean, escalatedFrom?: { runId: string; model?: string }, rework?: { runId: string; notes: string }) => {
+						const model = parseModelRef(this._modelRefOf(modelRef, `шаг ${step.role}`));
 						const subagentId = await this._subagents.spawn({
 							parentThreadId,
 							type: step.role as SubagentType,
-							goal: reviewNotes ? `${input.goal}\n\nЗАМЕЧАНИЯ РЕВЬЮЕРА (устраните их):\n${reviewNotes}` : input.goal,
+							// The rework goes to the author, in its own conversation: it holds why the code is
+							// the way it is, and a fresh reader fixes the symptom and breaks the reason.
+							goal: rework ? composeReworkRequest(rework.notes) : input.goal,
+							...(rework ? { continuesRunId: rework.runId } : {}),
+							// Only a reviewed step can come back for rework, so only its runs keep a conversation.
+							...(step.reviewWith ? { keepTranscript: true } : {}),
 							...(step.acceptance ? { acceptanceCriteria: step.acceptance } : {}),
 							...(input.contextItems.length > 0 ? { contextItems: [...input.contextItems] } : {}),
 							...(step.maxTokens !== undefined ? { maxTokens: step.maxTokens } : {}),
@@ -292,8 +320,8 @@ export class VibePipelineService extends Disposable implements IVibePipelineServ
 							...(cascadeDraft ? { cascadeDraft: true } : {}),
 							...(escalatedFrom ? { escalatedFrom } : {}),
 						});
+						stepRunIds.push(subagentId);
 						const result = await this._subagents.awaitResult(subagentId);
-						this._subagents.disposeSubagent(subagentId);
 						return { subagentId, result };
 					};
 
@@ -307,6 +335,7 @@ export class VibePipelineService extends Disposable implements IVibePipelineServ
 					const drafting = step.escalateTo !== undefined;
 					const first = await runStep(step.model, drafting);
 					let result = first.result;
+					let authorRunId = first.subagentId;
 					let escalated = false;
 					// A project-owned gate on top of the step's own outcome: a draft can succeed and
 					// still be too thin to keep. Exit 2 from a `pipelineStepEnd` hook rejects it, which
@@ -333,6 +362,7 @@ export class VibePipelineService extends Disposable implements IVibePipelineServ
 						// like a model in the report, and «ran on the role's default» is the honest answer.
 						const second = await runStep(step.escalateTo, false, { runId: first.subagentId, ...(step.model ? { model: step.model } : {}) });
 						result = second.result;
+						authorRunId = second.subagentId;
 						escalated = true;
 					}
 					// Critique: a second model reads the result and says whether it stands. Only after a
@@ -347,8 +377,10 @@ export class VibePipelineService extends Disposable implements IVibePipelineServ
 							// One revision, not a loop: two models disagreeing can trade opinions forever,
 							// and the user is paying per exchange. The verdict travels with the outcome, so
 							// a result that stayed unconvincing is visible rather than retried in silence.
-							const revised = await runStep(escalated ? step.escalateTo : step.model, false, undefined, review.notes);
-							result = revised.result;
+							const revised = await runStep(escalated ? step.escalateTo : step.model, false, undefined, { runId: authorRunId, notes: review.notes });
+							// The files the author touched before the rework are still the step's result.
+							const artifacts = [...new Set([...(result.artifacts ?? []), ...(revised.result.artifacts ?? [])])];
+							result = { ...revised.result, artifacts };
 						}
 					}
 					outcomes.push({
@@ -369,6 +401,10 @@ export class VibePipelineService extends Disposable implements IVibePipelineServ
 						summary: err instanceof Error ? err.message : String(err),
 						artifacts: [],
 					});
+				} finally {
+					for (const runId of stepRunIds) {
+						this._subagents.disposeSubagent(runId);
+					}
 				}
 				this._onProgress.fire({ pipelineId, stepIndex: i, totalSteps: pipeline.steps.length, role: step.role, state: 'finished' });
 			}

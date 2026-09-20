@@ -12,6 +12,8 @@ import { setExternalProviders, ExternalProviderDescriptor, VibeideStaticModelInf
 import { traceSendEvent } from '../../common/llmSendTrace.js';
 import { sendLLMMessageToProviderImplementation, dynamicProviderImplementation } from './sendLLMMessage.impl.js';
 import { setLLMProxyConfig } from './systemCAFetch.js';
+import { getModelQuirks } from '../modelQuirks/modelQuirksService.js';
+import { withoutThoughtSignatures } from '../../common/thoughtSignature.js';
 
 /**
  * Register dynamic providers (.vibe/providers.json) into THIS process's caps registry. The renderer's
@@ -178,7 +180,9 @@ export const sendLLMMessage = async ({
 		}
 		const { sendFIM, sendChat } = implementation;
 		if (messagesType === 'chatMessages') {
-			await sendChat({ messages: messages_, onText, onFinalMessage, onError, settingsOfProvider, modelSelectionOptions, overridesOfModel, modelName, _setAborter, providerName, separateSystemMessage, chatMode, mcpTools, runtimeOptions });
+			// Signatures travel in the history for every model; only a model that requires them receives them.
+			const chatMessages = getModelQuirks(modelName, providerName).roundtripThoughtSignature === true ? messages_ : withoutThoughtSignatures(messages_);
+			await sendChat({ messages: chatMessages, onText, onFinalMessage, onError, settingsOfProvider, modelSelectionOptions, overridesOfModel, modelName, _setAborter, providerName, separateSystemMessage, chatMode, mcpTools, runtimeOptions });
 			return;
 		}
 		if (messagesType === 'FIMMessage') {

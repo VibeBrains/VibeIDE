@@ -47,14 +47,20 @@ suite('ModelQuirks — настоящий каталог resources/model-quirks.
 		['kimi-k2.6', { temperature: 1.0, topP: 0.95, mirrorReasoningContent: true }],
 		// K3 — preserved-thinking-history: наследует зеркалирование, а не общий пресет `kimi`.
 		['kimi-k3', { temperature: 1.0, topP: 0.95, mirrorReasoningContent: true }],
+		// K2.7 Code used to fall onto the legacy 'kimi-k2' rule (T=0.6, no mirror) because it is longer than 'kimi'.
+		['kimi-k2.7-code', { temperature: 1.0, topP: 0.95, mirrorReasoningContent: true }],
+		['kimi-k2.7-code-highspeed', { temperature: 1.0, topP: 0.95, mirrorReasoningContent: true }],
+		['kimi-for-coding', { temperature: 1.0, topP: 0.95, mirrorReasoningContent: true }],
+		['kimi-k2', { temperature: 0.6 }],
 		['minimax-m2.7', { temperature: 1.0, topP: 0.95, topK: 40 }],
 		['glm-5.1', { temperature: 1.0 }],
 		// Сэмплинг скоуплен на поколения, которые его ещё уважают: Google объявил
 		// temperature/top_p/top_k устаревшими, поэтому Gemini 3.x не должен совпасть ни с чем.
 		['gemini-2.5-pro', { temperature: 1.0, topP: 0.95, topK: 64 }],
 		['gemini-1.5-pro', { temperature: 1.0, topP: 0.95, topK: 64 }],
-		['gemini-3.6-flash', null],
-		['gemini-3-pro-preview', null],
+		// Gemini 3 signs its reasoning and wants the signature back with the tool call (rule added 15.09.2026).
+		['gemini-3.6-flash', { roundtripThoughtSignature: true }],
+		['gemini-3-pro-preview', { roundtripThoughtSignature: true }],
 		['mimo-v2-pro', null],
 		['hy3-preview', null],
 	];

@@ -33,21 +33,34 @@ suite('acpSessionLog', () => {
 		// Иначе сказанное до действия и сказанное после читались бы как одна мысль.
 		const log = new AcpSessionLog();
 		log.appendText('сейчас прочитаю', false);
-		log.applyTool('t1', 'Read', 'read', 'completed', ['/app/a.ts'], []);
+		log.applyTool({ toolCallId: 't1', title: 'Read', name: '', toolKind: 'read', status: 'completed', paths: ['/app/a.ts'], diffs: [] });
 		log.appendText('прочитал', false);
 		assert.deepStrictEqual(log.snapshot.entries.map(entry => entry.id), ['m1', 't1', 'm2']);
+	});
+
+	/** Имя инструмента стабилизировано в ACP v1; в обновлении пустое значит «не менять». */
+	test('имя инструмента запоминается и не затирается пустым кадром, отмена не читается как «неизвестно»', () => {
+		const log = new AcpSessionLog();
+		log.applyTool({ toolCallId: 't9', title: 'Читаю файл', name: 'read_file', toolKind: 'read', status: 'in_progress', paths: [], diffs: [] });
+		log.applyTool({ toolCallId: 't9', title: '', name: '', toolKind: '', status: 'cancelled', paths: [], diffs: [] });
+		const entry = log.snapshot.entries[0];
+		assert.deepStrictEqual(
+			entry.kind === 'tool' ? [entry.name, entry.title, entry.status] : [],
+			['read_file', 'Читаю файл', 'cancelled'],
+		);
 	});
 
 	test('кадры одного вызова сворачиваются в одну карточку, дифф доживает до конца', () => {
 		// Порядок живого прогона: дифф в среднем кадре, завершающий приходит пустым.
 		const log = new AcpSessionLog();
-		log.applyTool('t1', 'Edit', 'edit', 'pending', [], []);
-		log.applyTool('t1', 'Edit /app/hello.txt', 'edit', 'unknown', ['/app/hello.txt'], [diff]);
-		log.applyTool('t1', '', '', 'completed', [], []);
+		log.applyTool({ toolCallId: 't1', title: 'Edit', name: '', toolKind: 'edit', status: 'pending', paths: [], diffs: [] });
+		log.applyTool({ toolCallId: 't1', title: 'Edit /app/hello.txt', name: '', toolKind: 'edit', status: 'unknown', paths: ['/app/hello.txt'], diffs: [diff] });
+		log.applyTool({ toolCallId: 't1', title: '', name: '', toolKind: '', status: 'completed', paths: [], diffs: [] });
 		assert.deepStrictEqual(log.snapshot.entries, [{
 			kind: 'tool',
 			id: 't1',
 			title: 'Edit /app/hello.txt',
+			name: '',
 			toolKind: 'edit',
 			status: 'completed',
 			paths: ['/app/hello.txt'],
@@ -57,16 +70,16 @@ suite('acpSessionLog', () => {
 
 	test('провал вызова виден: стадия меняется в любую сторону', () => {
 		const log = new AcpSessionLog();
-		log.applyTool('t1', 'Edit', 'edit', 'in_progress', [], [diff]);
-		log.applyTool('t1', '', '', 'failed', [], []);
+		log.applyTool({ toolCallId: 't1', title: 'Edit', name: '', toolKind: 'edit', status: 'in_progress', paths: [], diffs: [diff] });
+		log.applyTool({ toolCallId: 't1', title: '', name: '', toolKind: '', status: 'failed', paths: [], diffs: [] });
 		assert.strictEqual((log.snapshot.entries[0] as { status: string }).status, 'failed');
 	});
 
 	test('карточка обновляется на месте, а не уезжает в конец ленты', () => {
 		const log = new AcpSessionLog();
-		log.applyTool('t1', 'Read', 'read', 'pending', [], []);
+		log.applyTool({ toolCallId: 't1', title: 'Read', name: '', toolKind: 'read', status: 'pending', paths: [], diffs: [] });
 		log.appendText('пишу', false);
-		log.applyTool('t1', 'Read', 'read', 'completed', [], []);
+		log.applyTool({ toolCallId: 't1', title: 'Read', name: '', toolKind: 'read', status: 'completed', paths: [], diffs: [] });
 		assert.deepStrictEqual(log.snapshot.entries.map(entry => entry.id), ['t1', 'm1']);
 	});
 

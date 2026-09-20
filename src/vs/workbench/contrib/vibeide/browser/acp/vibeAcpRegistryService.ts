@@ -13,6 +13,8 @@
  * ОТСУТСТВИЕ ФАЙЛА — НЕ ОШИБКА, а сегодняшнее поведение: внешних агентов просто нет.
  */
 
+import { IMCPService } from '../../common/mcpService.js';
+import { vibeLog } from '../../common/vibeLog.js';
 import { Emitter, Event } from '../../../../../base/common/event.js';
 import { Disposable, MutableDisposable } from '../../../../../base/common/lifecycle.js';
 import { URI } from '../../../../../base/common/uri.js';
@@ -58,6 +60,7 @@ class VibeAcpRegistryService extends Disposable implements IVibeAcpRegistryServi
 	constructor(
 		@IFileService private readonly _fileService: IFileService,
 		@IWorkspaceContextService private readonly _workspaceContextService: IWorkspaceContextService,
+		@IMCPService private readonly _mcp: IMCPService,
 	) {
 		super();
 		this._register(this._workspaceContextService.onDidChangeWorkspaceFolders(() => void this.reload()));
@@ -81,6 +84,15 @@ class VibeAcpRegistryService extends Disposable implements IVibeAcpRegistryServi
 		const root = this._root();
 		if (!root) { return undefined; }
 		const cwd = agent.dir ? joinPath(root, agent.dir) : root;
+		// Политика записи — единственный источник: нет списка, нет и серверов у гостя.
+		const { servers: mcpServers, skipped } = agent.mcpServers?.length
+			? this._mcp.getAcpMcpServers(agent.mcpServers)
+			: { servers: [], skipped: [] };
+		for (const miss of skipped) {
+			// Пропуск называется вслух: гость без сервера ведёт себя так, будто сервер сломан, и без
+			// этой строки причину искали бы у него.
+			vibeLog.warn('ACP', `${agent.id}: сервер «${miss.name}» гостю не передан — ${miss.reason}`);
+		}
 		return {
 			name: agent.name ?? agent.id,
 			command: agent.command,
@@ -89,6 +101,7 @@ class VibeAcpRegistryService extends Disposable implements IVibeAcpRegistryServi
 			// Протокол требует абсолютный путь, а агент — обычный процесс: ему нужен путь файловой
 			// системы, а не URI со схемой.
 			cwd: cwd.fsPath,
+			...(mcpServers.length > 0 ? { mcpServers } : {}),
 		};
 	}
 

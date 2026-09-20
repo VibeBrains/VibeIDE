@@ -71,6 +71,13 @@ export type PlanStep = {
 	/** When non-empty, MCP tool calls must use one of these full tool names (case-insensitive). */
 	mcpToolsAllow?: string[];
 	files?: string[]; // files that will be affected
+	/**
+	 * Требования задачи, которые закрывает этот шаг (`r1`, `r2`, … из брифа `briefId`).
+	 *
+	 * Пусто — шаг ни к чему не привязан, то есть работа, о которой не просили. Это не запрещено, но
+	 * видно в покрытии: такая работа стоит денег и риска ровно столько же, сколько заказанная.
+	 */
+	requirementIds?: string[];
 	status?: StepStatus; // execution status
 	checkpointIdx?: number | null; // checkpoint before this step
 	toolCalls?: string[]; // tool message IDs executed for this step
@@ -94,6 +101,12 @@ export type PlanMessage = {
 	executionStartTime?: number; // timestamp when execution started
 	/** UUID written next to `.vibe/plans/*.plan.md` artifact when approve persists to disk */
 	persistedPlanId?: string;
+	/**
+	 * Бриф задачи (`.vibe/plans/<id>.brief.md`), под который составлен план.
+	 *
+	 * Ссылка, а не копия: план можно отбросить и составить заново, требования при этом те же.
+	 */
+	briefId?: string;
 	/** Advisory-only heuristic from IVibeLLMJudgeService when approving the plan */
 	secondOpinion?: {
 		readonly verdict: 'looks_ok' | 'potential_issue' | 'security_concern';
@@ -283,6 +296,8 @@ export type ChatMessage =
 		pinned?: boolean; // pin-context: honored by budget-fill truncation; setter (UI) pending
 
 		anthropicReasoning: AnthropicReasoning[] | null; // anthropic reasoning
+		/** Vendor signature of the reasoning behind this turn's tool call (Gemini 3) — sent back with that call. */
+		thoughtSignature?: { toolCallId: string; signature: string };
 		createdAt?: number; // unix ms when message was added to thread
 		// Set on the synthetic notice the agent appends when it stops in agent mode because the
 		// model returned text with NO tool call (and Autopilot is off / nudge budget spent). The UI

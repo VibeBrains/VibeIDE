@@ -211,7 +211,13 @@ export const DEFAULT_SECRET_PATTERNS: SecretPattern[] = [
 		id: 'generic-token',
 		name: 'Generic Token',
 		pattern: /\b([a-f0-9]{32}|[a-f0-9]{40}|[a-f0-9]{64})\b/g,
-		enabled: false, // Disabled by default - too many false positives
+		// Выключено по умолчанию: слишком много ложных срабатываний. Включается явным решением
+		// человека (`vibeide.secretDetection.enabledPatternIds`), и тогда судит всё подряд, включая
+		// адреса. Исключение для адресов здесь было и убрано 20.09.2026: «хеш в адресе — это
+		// контрольная сумма» верно ровно до первого адреса вида `.../download?token=<32 знака>`, а
+		// молча пропущенный секрет дороже лишнего вопроса. Ложное срабатывание теперь снимается
+		// человеком в один клик и называет идентификатор правила, чтобы его можно было выключить.
+		enabled: false,
 		priority: 50,
 	},
 ];
@@ -232,6 +238,13 @@ export interface SecretDetectionConfig {
 	}>;
 	/** Pattern IDs to disable */
 	disabledPatternIds: string[];
+	/**
+	 * Идентификаторы встроенных правил, выключенных в коде и включённых обратно решением пользователя.
+	 *
+	 * Правило вроде `generic-token` ловит настоящие секреты и столько же ненастоящих; кому нужна его
+	 * строгость — включает сам и знает, на что идёт.
+	 */
+	enabledPatternIds?: string[];
 	/** Strictness mode: 'block' blocks sending, 'redact' allows with redaction */
 	mode: 'block' | 'redact';
 }
@@ -254,10 +267,22 @@ export function getActivePatterns(config: SecretDetectionConfig = DEFAULT_CONFIG
 	const patterns: SecretPattern[] = [];
 
 	// Add default patterns (excluding disabled ones)
+	//
+	// `pattern.enabled` у встроенного правила раньше НЕ читался, хотя у пользовательского читается ниже.
+	// Из-за этого работало `generic-token` — правило, выключенное в коде со словами «too many false
+	// positives»: любая строка из 32/40/64 шестнадцатеричных знаков считалась секретом. В `build.gradle` такая
+	// строка — обычная контрольная сумма зависимости, а цена ошибки здесь не предупреждение, а защитный
+	// предохранитель: он залипает, переживает перезапуск IDE и останавливает ВСЕ прогоны до решения
+	// человека (жалоба пользователя 20.09.2026).
 	for (const pattern of DEFAULT_SECRET_PATTERNS) {
-		if (!config.disabledPatternIds.includes(pattern.id)) {
-			patterns.push(pattern);
+		if (config.disabledPatternIds.includes(pattern.id)) {
+			continue;
 		}
+		// Выключенное в коде правило включается только явным решением пользователя.
+		if (pattern.enabled === false && !config.enabledPatternIds?.includes(pattern.id)) {
+			continue;
+		}
+		patterns.push(pattern);
 	}
 
 	// Add custom patterns

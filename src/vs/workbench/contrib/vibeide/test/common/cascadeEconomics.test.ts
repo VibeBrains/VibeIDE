@@ -5,7 +5,7 @@
 
 import assert from 'assert';
 import { ensureNoDisposablesAreLeakedInTestSuite } from '../../../../../base/test/common/utils.js';
-import { cascadeEconomics, ModelRate } from '../../common/cascadeEconomics.js';
+import { cascadeEconomics, ModelRate, blendedRate, observedOutputShare } from '../../common/cascadeEconomics.js';
 import { AgentRunRecord } from '../../common/agentRunLedger.js';
 
 /**
@@ -17,6 +17,35 @@ import { AgentRunRecord } from '../../common/agentRunLedger.js';
  */
 suite('cascade economics', () => {
 	ensureNoDisposablesAreLeakedInTestSuite();
+
+	test('доля выхода измеряется, а не выдумывается', () => {
+		const сРазбивкой = [
+			run({ runId: 'a', provider: 'p', model: 'think', promptTokens: 1000, completionTokens: 1000 }),
+			run({ runId: 'b', provider: 'p', model: 'think', promptTokens: 3000, completionTokens: 1000 }),
+			// Чужая модель и прогон без разбивки в счёт не идут.
+			run({ runId: 'c', provider: 'p', model: 'other', promptTokens: 1, completionTokens: 99 }),
+			run({ runId: 'd', provider: 'p', model: 'think', tokensUsed: 5000 }),
+		];
+		const rate = { input: 3, output: 15 };
+		assert.deepStrictEqual({
+			доля: observedOutputShare(сРазбивкой, 'p', 'think'),
+			// Истории нет — честное undefined, а не ноль и не выдуманный множитель.
+			безИстории: observedOutputShare([], 'p', 'think'),
+			// Умолчание: 15% выхода — $4.8/M.
+			ставкаПоУмолчанию: Number((blendedRate(rate)! * 1_000_000).toFixed(2)),
+			// Измеренная треть выхода дороже — именно на этом занижался долларовый потолок.
+			ставкаПоИзмерению: Number((blendedRate(rate, 1 / 3)! * 1_000_000).toFixed(2)),
+			// Значение вне 0..1 не должно давать отрицательный вес входа.
+			заПределом: Number((blendedRate(rate, 5)! * 1_000_000).toFixed(2)),
+		}, {
+			// 2000 выхода на 6000 всего — треть.
+			доля: 1 / 3,
+			безИстории: undefined,
+			ставкаПоУмолчанию: 4.80,
+			ставкаПоИзмерению: 7.00,
+			заПределом: 15.00,
+		});
+	});
 
 	const run = (over: Partial<AgentRunRecord>): AgentRunRecord => ({
 		runId: 'r', epoch: 'e', fence: 0 as never, role: 'coder', goal: 'g', parentThreadId: 't',

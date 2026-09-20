@@ -25,6 +25,7 @@ import { createDecorator, ServicesAccessor } from '../../../../platform/instanti
 import { registerSingleton, InstantiationType } from '../../../../platform/instantiation/common/extensions.js';
 import { ILogService } from '../../../../platform/log/common/log.js';
 import { IFileService } from '../../../../platform/files/common/files.js';
+import { DEFAULT_NESTED_RULE_DEPTH, NESTED_RULE_FILE_NAME, isSkippedRuleDir } from '../common/nestedRulesScan.js';
 import { IWorkspaceContextService } from '../../../../platform/workspace/common/workspace.js';
 import { URI } from '../../../../base/common/uri.js';
 import { joinPath, relativePath } from '../../../../base/common/resources.js';
@@ -127,6 +128,8 @@ const DEFAULT_MAX_COMBINED_CHARS = 20000;
 const normalizeRuleKey = (p: string): string => p.replace(/\\/g, '/').toLowerCase();
 const MAX_FILES_KEY = 'vibeide.projectRules.maxFiles';
 const MAX_FOLDER_DEPTH_KEY = 'vibeide.projectRules.maxFolderDepth';
+/** Глубина поиска вложенных `AGENTS.md`; 0 выключает поиск, не трогая корневой файл. */
+const NESTED_DEPTH_KEY = 'vibeide.projectRules.nestedAgentsDepth';
 const MAX_FILE_BYTES_KEY = 'vibeide.projectRules.maxFileBytes';
 // R.x — Cursor-style link resolution: pull files referenced by rule content into the prompt.
 const RESOLVE_LINKS_KEY = 'vibeide.projectRules.resolveLinks';
@@ -340,6 +343,21 @@ class VibeProjectRulesService extends Disposable implements IVibeProjectRulesSer
 				const source = await this._tryLoadRuleFile(uri, name, maxBytes);
 				if (source) { sources.push(source); }
 			}
+			// Стандарт agents.md: у подпроекта монорепозитория свой `AGENTS.md`, и корневой его не заменяет.
+			// Идёт после корневых файлов и до папки правил: порядок источников виден модели, и правила
+			// пакета должны стоять после общих, а не перед ними.
+			if (sources.length < maxFiles) {
+				const nestedDepth = this._config.getValue<number>(NESTED_DEPTH_KEY) ?? DEFAULT_NESTED_RULE_DEPTH;
+				for (const nestedUri of await this._collectNestedAgentsUris(folder.uri, 0, Math.max(0, nestedDepth))) {
+					if (sources.length >= maxFiles) {
+						this._log.warn(`[VibeProjectRules] Hit maxFiles=${maxFiles}; remaining nested ${NESTED_RULE_FILE_NAME} skipped`);
+						break;
+					}
+					const rel = relativePath(folder.uri, nestedUri) ?? nestedUri.path;
+					const source = await this._tryLoadRuleFile(nestedUri, rel, maxBytes);
+					if (source) { sources.push(source); }
+				}
+			}
 			// R.1 — recursively discover rule files in `.vibe/rules/`.
 			for (const folderName of RULE_FOLDER_NAMES) {
 				if (sources.length >= maxFiles) { break; }
@@ -467,6 +485,35 @@ class VibeProjectRulesService extends Disposable implements IVibeProjectRulesSer
 		} catch {
 			return null; // File does not exist or cannot be read
 		}
+	}
+
+	/**
+	 * Вложенные `AGENTS.md` подпроектов — без корневого файла, он читается отдельно.
+	 *
+	 * Порядок детерминирован (дети по имени), иначе модель видела бы правила в разном порядке от запуска
+	 * к запуску, а это меняет кэш промпта на ровном месте.
+	 */
+	private async _collectNestedAgentsUris(dirUri: URI, depth: number, maxDepth: number): Promise<URI[]> {
+		if (depth >= maxDepth) { return []; }
+		let stat;
+		try {
+			stat = await this._fileService.resolve(dirUri);
+		} catch {
+			return [];
+		}
+		if (!stat.isDirectory || !stat.children) { return []; }
+		const found: URI[] = [];
+		const children = [...stat.children].sort((a, b) => a.name.localeCompare(b.name));
+		for (const child of children) {
+			if (!child.isDirectory) { continue; }
+			if (isSkippedRuleDir(child.name)) { continue; }
+			for (const grand of child.children ?? []) {
+				if (!grand.isDirectory && grand.name === NESTED_RULE_FILE_NAME) { found.push(grand.resource); }
+			}
+			// Разрешённая глубина меряется папками от корня: `packages/<имя>/AGENTS.md` — второй уровень.
+			found.push(...await this._collectNestedAgentsUris(child.resource, depth + 1, maxDepth));
+		}
+		return found;
 	}
 
 	/**

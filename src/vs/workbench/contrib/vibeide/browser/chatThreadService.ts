@@ -22,7 +22,7 @@ import { TOOL_NAME_ALIASES, applyParamAliases, detectToolByParamShape } from '..
 import { toolCallSignature, resolveAntiLoopThreshold, endsWithQuestion, looksLikeCompletionText, QUESTION_AUTO_CONTINUE_DEFAULT } from '../common/agentLoopHeuristics.js';
 import { IVibeImageCostService } from './vibeImageCostService.js';
 import { IVibeTokenBudgetService } from '../common/vibeTokenBudgetService.js';
-import type { AutoDowngradeReason } from '../common/modelCapabilities.js';
+import { getModelCapabilities, isFloatingModel, type AutoDowngradeReason } from '../common/modelCapabilities.js';
 import { ProviderRefusalDiagnostics, AnthropicReasoning, getErrorMessage, GeminiLLMChatMessage, LLMChatMessage, LLMTokenUsage, parseContextOverflowError, parseEmptyResponseError, RawToolCallObj, RawToolParamsObj } from '../common/sendLLMMessageTypes.js';
 import { isQuotaLow, pickRateLimitHeaders, ProviderQuotaSnapshot, tightestBucket } from '../common/providerQuota.js';
 import { IVibeSpendLedgerService } from './vibeSpendLedgerService.js';
@@ -31,6 +31,7 @@ import { translateProviderError } from '../common/providerErrorTranslator.js';
 import { generateUuid } from '../../../../base/common/uuid.js';
 import { autoFallbackProviderIds, ChatMode, FeatureName, ModelSelection, ModelSelectionOptions, ProviderName } from '../common/vibeideSettingsTypes.js';
 import { isModelVisionCapable } from '../common/modelVisionHeuristics.js';
+import { AutoModelPin, pinnedAutoModel } from '../common/autoModelStickiness.js';
 import { detectVisionDropResponse } from '../common/visionDropDetector.js';
 import { IVibeideSettingsService } from '../common/vibeideSettingsService.js';
 import { BuiltinToolCallParams, BuiltinToolResultType, TerminalResolveReason, ToolCallParams, ToolName, ToolResult } from '../common/toolsServiceTypes.js';
@@ -110,7 +111,11 @@ const DESIGN_HOOK_ATTEMPTS_KEY = 'vibeide.design.hook.maxAttempts';
 const DESIGN_HOOK_NOTE_LIMIT = 6;
 /** Widths the hook measures — the same pair the tool uses, so their counts cannot disagree. */
 const DESIGN_HOOK_VIEWPORTS: readonly ViewportLabel[] = ['desktop', 'mobile'];
-import { isContinuationRequest, buildScoutGoal } from '../common/scoutTrigger.js';
+import { isContinuationRequest, buildScoutGoal, hasAgentWorkSinceLastUserMessage, DEFAULT_MAX_WORDS_BEYOND_PHRASE } from '../common/scoutTrigger.js';
+import { toolParamUri } from '../common/toolParamUri.js';
+import { currentTaskOf, taskReminderLine } from '../common/autopilotNudge.js';
+import { coverageOf, isCovered, parseBrief } from '../common/taskBrief.js';
+import { VIBEIDE_CIRCUIT_BREAKERS_ACTION_ID } from './vibeCircuitBreakerCommands.js';
 import { IVibePlanEventJournalService } from '../common/vibePlanEventJournalService.js';
 import { IVibePlanBindingRegistry } from './vibePlanBindingRegistry.js';
 import { IVibeTaskDecompositionService } from '../common/vibeTaskDecompositionService.js';
@@ -127,6 +132,12 @@ import { isModelSubstituted } from '../common/modelEcho.js';
  * раз: на каждом ходе она превратилась бы в шум, который перестают читать.
  */
 const saidModelSubstituted = new Set<string>();
+
+/**
+ * How long a stop waits for the running step to hand back its interruptor before the state is cleared
+ * anyway. A safety ceiling, not a preference: a stop that can hang is not a stop.
+ */
+const ABORT_INTERRUPT_CEILING_MS = 2_000;
 import { IConfigurationService } from '../../../../platform/configuration/common/configuration.js';
 import { IVibeTokenCostForecastService } from '../common/vibeTokenCostForecastService.js';
 import {
@@ -146,6 +157,7 @@ import { decideResume, appendChunk, PartialResponse } from '../common/responseRe
 import { IVibeSessionMemoryService } from '../common/vibeSessionMemoryService.js';
 import { IVibeAgentTerritorialLockService } from './vibeAgentTerritorialLockService.js';
 import { resolveModelForPath, decodeRoutingRules } from '../common/modelRoutingByPath.js';
+import { normalizeModelRoutes, resolveModelReference } from '../common/modelRouteKeys.js';
 import { IVibeMentionService } from '../common/vibeMentionService.js';
 import { IVibeSearchContextService } from '../common/vibeSearchContextService.js';
 import { IVibeAIDebuggingService } from './vibeAIDebuggingContribution.js';
@@ -454,6 +466,15 @@ export type ThreadType = {
 		// the AI SDK surfaces a `usage` block on `finish`. Used by the UI context-usage
 		// indicator as the authoritative base instead of relying on length/4 heuristics.
 		lastUsage?: LLMTokenUsage;
+
+		/**
+		 * Модель, которую «Авто» выбрал для ЭТОГО разговора, и условия выбора.
+		 *
+		 * Живёт в состоянии треда, потому что липкость — свойство разговора: маршрутизатор,
+		 * запускаемый на каждое сообщение, менял модель посреди задачи, и вместе с ней терялся
+		 * кэш промпта. Пересматривается только по правилам `pinnedAutoModel`.
+		 */
+		autoModelPin?: AutoModelPin;
 
 		// Rate-limit allowance the provider reported on its last response in this thread
 		// (passive quota tracking). Unlike `lastUsage` this is the provider's own view of the
@@ -784,6 +805,8 @@ export interface IChatThreadService {
 	 *  by budget-fill truncation in convertToLLMMessageService (the honor side already exists). */
 	toggleMessagePinned(opts: { threadId: string; messageIdx: number }): void;
 	dismissAllPendingPlans(threadId: string, opts?: { resumeBlockedMessage?: boolean }): number;
+	/** Файлы, изменённые в этом разговоре — для слепой приёмки. */
+	changedPathsOfThread(threadId: string): string[];
 
 	// Step execution control
 	pauseAgentExecution(opts: { threadId: string }): Promise<void>;
@@ -1397,6 +1420,14 @@ class ChatThreadService extends Disposable implements IChatThreadService {
 		const prior = this.streamState[threadId];
 		this.streamState[threadId] = state;
 
+		// Та же единственная воронка — и единственное место, где ошибку, показанную пользователю, можно
+		// записать один раз и наверняка, кто бы её ни поймал. До этого ошибка вроде «TypeError: … reading 'fsPath'»
+		// висела в треде и не попадала никуда: ни в журнал, ни в сохранённый тред, — и искать её было негде.
+		// Стек важнее самого текста: без него сообщение называет симптом и не называет место.
+		if (state?.error && prior?.error?.message !== state.error.message) {
+			vibeLog.error('chatThread', `Ошибка хода (тред ${threadId}): ${state.error.message}`, state.error.fullError ?? undefined);
+		}
+
 		// Notification sound on the single funnel: fire when the thread transitions into a
 		// "waiting for the user / work not proceeding" state. All gates (enabled, per-event,
 		// focus, debounce) live in the sound service. Cheap: the vast majority of calls are
@@ -1677,6 +1708,8 @@ class ChatThreadService extends Disposable implements IChatThreadService {
 			if (globalSettings.imageQADevMode || isCodebaseQuestion) {
 				const logData = {
 					selected: `${routingDecision.modelSelection.providerName}/${routingDecision.modelSelection.modelName}`,
+					// Слой-победитель машинным словом: по нему журнал фильтруется, по `reasoning` — нет.
+					source: routingDecision.source,
 					confidence: routingDecision.confidence,
 					reasoning: routingDecision.reasoning,
 					qualityTier: routingDecision.qualityTier,
@@ -1717,6 +1750,20 @@ class ChatThreadService extends Disposable implements IChatThreadService {
 	 * Order: catalog-driven `supportsVision` override (set by RemoteCatalogService for aggregators
 	 * like OpenRouter where modality info is per-model) → provider heuristics → name-based fallback.
 	 */
+	/** Запомнить выбор «Авто» за тредом; следующее сообщение того же разговора идёт на той же модели. */
+	private _setThreadAutoModelPin(threadId: string, pin: AutoModelPin): void {
+		const thread = this.state.allThreads[threadId];
+		if (!thread) {
+			return;
+		}
+		this._setState({
+			allThreads: {
+				...this.state.allThreads,
+				[threadId]: { ...thread, state: { ...thread.state, autoModelPin: pin } },
+			},
+		});
+	}
+
 	private _isModelVisionCapable(modelSelection: ModelSelection, capabilities: { supportsVision?: boolean } | undefined): boolean {
 		// Single source of truth (common/modelVisionHeuristics.ts) — shared with the subagent runner's
 		// vision-role fallback so the image-attach gate and the fallback can never disagree.
@@ -2169,7 +2216,11 @@ class ChatThreadService extends Disposable implements IChatThreadService {
 			// say when it continues on a different one. `auto` names no model and records nothing.
 			const chatModel = this._settingsService.state.modelSelectionOfFeature['Chat'];
 			const plannedModel = chatModel && chatModel.providerName !== 'auto'
-				? { provider: chatModel.providerName, model: chatModel.modelName }
+				? {
+					provider: chatModel.providerName,
+					model: chatModel.modelName,
+					...(isFloatingModel(getModelCapabilities(chatModel.providerName, chatModel.modelName, this._settingsService.state.overridesOfModel)) ? { floating: true } : {}),
+				}
 				: undefined;
 			written = await this._persistedPlanService.writeApprovedAgentPlan({
 				workspaceFolder,
@@ -2205,6 +2256,36 @@ class ChatThreadService extends Disposable implements IChatThreadService {
 		void this._approvePlanAndRun(opts).catch(err => vibeLog.error('chatThread', 'approvePlan failed', err));
 	}
 
+	/**
+	 * Показать непокрытые требования и спросить, одобрять ли всё равно.
+	 *
+	 * `true` — продолжаем. Брифа нет (план старше этой возможности или задача не разбиралась) — тоже
+	 * `true`: требовать требований там, где их нет, значило бы сломать работу тем, кто о них не просил.
+	 */
+	private async _confirmRequirementCoverage(plan: PlanMessage): Promise<boolean> {
+		if (!plan.briefId) { return true; }
+		const folder = this._workspaceContextService.getWorkspace().folders[0];
+		if (!folder) { return true; }
+		const brief = await this._persistedPlanService.loadBrief(folder.uri, plan.briefId);
+		if (!brief) { return true; }
+		const coverage = coverageOf(brief, plan.steps);
+		if (isCovered(coverage)) { return true; }
+
+		const lines: string[] = [];
+		for (const requirement of coverage.uncovered) {
+			lines.push(`• ${requirement.id}: ${requirement.quote}`);
+		}
+		if (coverage.unknownRefs.length > 0) {
+			lines.push(localize('vibeide.brief.unknownRefs', 'Шаги ссылаются на требования, которых нет: {0}', coverage.unknownRefs.join(', ')));
+		}
+		const { confirmed } = await this._dialogService.confirm({
+			message: localize('vibeide.brief.uncovered', 'В плане нет шагов под часть требований задачи ({0})', coverage.uncovered.length),
+			detail: `${lines.join('\n')}\n\n${localize('vibeide.brief.uncoveredDetail', 'Одобрить всё равно — значит оставить эти требования невыполненными. Чтобы снять требование совсем, воспользуйтесь командой «VibeIDE: Требования задачи» — это решение только ваше.')}`,
+			primaryButton: localize('vibeide.brief.approveAnyway', 'Одобрить'),
+		});
+		return confirmed;
+	}
+
 	private async _approvePlanAndRun(opts: { threadId: string; messageIdx: number }): Promise<void> {
 		const thread = this.state.allThreads[opts.threadId];
 		if (!thread) { return; }
@@ -2212,6 +2293,14 @@ class ChatThreadService extends Disposable implements IChatThreadService {
 		if (!message || message.role !== 'plan') { return; }
 
 		const plan = message as PlanMessage;
+
+		// Требования задачи сверяются ДО одобрения: после него план уже исполняется, и «об этом не
+		// просили» выясняется постфактум. Решение остаётся за человеком — мы не запрещаем, а не даём пропустить
+		// непокрытое молча: вычеркнуть требование может только он сам.
+		if (!await this._confirmRequirementCoverage(plan)) {
+			return;
+		}
+
 		const planBlob = [
 			plan.summary,
 			...plan.steps.map(step =>
@@ -3415,6 +3504,31 @@ class ChatThreadService extends Disposable implements IChatThreadService {
 	}
 
 	// Generate plan from user request by asking LLM
+	/**
+	 * Разобрать задачу на требования и привязать бриф к плану.
+	 *
+	 * Исходный текст — последнее НЕСИНТЕТИЧЕСКОЕ сообщение человека: подсказки автопилота пишем мы сами,
+	 * и принять их за задачу значило бы принимать работу по собственному же тексту.
+	 *
+	 * Нет открытой папки или требований не вышло — план остаётся как был: работа не должна ломаться из-за
+	 * того, что требования не разобрались.
+	 */
+	private async _attachBriefToPlan(threadId: string, plan: PlanMessage): Promise<PlanMessage> {
+		try {
+			const folder = this._workspaceContextService.getWorkspace().folders[0];
+			if (!folder) { return plan; }
+			const text = currentTaskOf(this.state.allThreads[threadId]?.messages ?? []);
+			if (!text) { return plan; }
+			const brief = parseBrief(text, generateUuid().slice(0, 8), Date.now());
+			if (brief.requirements.length === 0) { return plan; }
+			await this._persistedPlanService.saveBrief(folder.uri, brief);
+			return { ...plan, briefId: brief.id };
+		} catch (error) {
+			vibeLog.warn('chatThread', 'требования задачи не разобрались', error);
+			return plan;
+		}
+	}
+
 	private async _generatePlanFromUserRequest(
 		threadId: string,
 		modelSelection: ModelSelection | null,
@@ -3539,8 +3653,12 @@ Output ONLY the JSON, no other text. Start with { and end with }.`;
 									approvalState: 'pending'
 								};
 
+								// Бриф рождается здесь же, из ТОГО ЖЕ сообщения, из которого составлен план, и ложится
+								// СВОИМ файлом: план можно отбросить и составить заново, требования при этом те же.
+								const withBrief = await this._attachBriefToPlan(threadId, planMessage);
+
 								// Add plan to thread (DO NOT add assistant message - hide the raw JSON)
-								this._addMessageToThread(threadId, planMessage);
+								this._addMessageToThread(threadId, withBrief);
 								// CRITICAL: Invalidate cache immediately so subsequent checks see the new plan
 								this._planCache.delete(threadId);
 								// CRITICAL: Stop execution immediately - set state to idle (don't abort which adds messages)
@@ -3595,6 +3713,10 @@ Output ONLY the JSON, no other text. Start with { and end with }.`;
 	async abortRunning(threadId: string) {
 		const thread = this.state.allThreads[threadId];
 		if (!thread) { return; } // should never happen
+		// Stopping is enforced, not requested — so it can be measured: from the press to the cleared state.
+		const stopRequestedAt = Date.now();
+		const stoppedWhile = this.streamState[threadId]?.isRunning ?? 'idle';
+		let forcedByCeiling = false;
 
 		// User-initiated stop: suppress the run-end notification sound for this thread (the user is
 		// at the keyboard). Covers the several undefined-transitions one abort can produce.
@@ -3632,20 +3754,31 @@ Output ONLY the JSON, no other text. Start with { and end with }.`;
 		// quickly, but never blocks a new send for more than that.
 		const interruptPromise = this.streamState[threadId]?.interrupt;
 		if (interruptPromise) {
-			const HANG_MS = 2_000;
 			let timedOut = false;
 			const winner = await Promise.race([
 				interruptPromise,
-				new Promise<'__timeout__'>(resolve => setTimeout(() => { timedOut = true; resolve('__timeout__'); }, HANG_MS)),
+				new Promise<'__timeout__'>(resolve => setTimeout(() => { timedOut = true; resolve('__timeout__'); }, ABORT_INTERRUPT_CEILING_MS)),
 			]);
 			if (timedOut) {
-				vibeLog.warn('chatThread', `abortRunning timeout: interrupt Promise did not resolve within ${HANG_MS}ms (threadId=${threadId}). Forcibly clearing state.`);
+				forcedByCeiling = true;
+				vibeLog.warn('chatThread', `abortRunning timeout: interrupt Promise did not resolve within ${ABORT_INTERRUPT_CEILING_MS}ms (threadId=${threadId}). Forcibly clearing state.`);
 			} else if (typeof winner === 'function') {
 				try { winner(); } catch (e) { vibeLog.warn('chatThread', 'interrupt() threw:', e); }
 			}
 		}
 
 		this._setStreamState(threadId, undefined);
+		if (stoppedWhile !== 'idle' && this._auditLogService.isEnabled()) {
+			void this._auditLogService.append({
+				ts: Date.now(),
+				actor: 'human',
+				action: 'agent_stop',
+				ok: !forcedByCeiling,
+				traceId: threadId,
+				latencyMs: Date.now() - stopRequestedAt,
+				meta: { stoppedWhile, forcedByCeiling },
+			}).catch(() => { });
+		}
 	}
 
 	forceResetChatState(threadId: string): boolean {
@@ -4640,7 +4773,7 @@ Output ONLY the JSON, no other text. Start with { and end with }.`;
 		// Check for duplicate read_file calls after validation but before execution
 		if (toolName === 'read_file' && isBuiltInTool) {
 			const readFileParams = toolParams as BuiltinToolCallParams['read_file'];
-			const cacheKey = `${readFileParams.uri.fsPath}|${readFileParams.startLine ?? 'null'}|${readFileParams.endLine ?? 'null'}|${readFileParams.pageNumber ?? 1}`;
+			const cacheKey = `${toolParamUri(toolName, readFileParams).fsPath}|${readFileParams.startLine ?? 'null'}|${readFileParams.endLine ?? 'null'}|${readFileParams.pageNumber ?? 1}`;
 
 			// Check cache
 			let threadCache = this._fileReadCache.get(threadId);
@@ -4920,7 +5053,7 @@ Output ONLY the JSON, no other text. Start with { and end with }.`;
 		if (toolName === 'read_file' && isBuiltInTool) {
 			const readFileParams = toolParams as BuiltinToolCallParams['read_file'];
 			const readFileResult = toolResult as BuiltinToolResultType['read_file'];
-			const cacheKey = `${readFileParams.uri.fsPath}|${readFileParams.startLine ?? 'null'}|${readFileParams.endLine ?? 'null'}|${readFileParams.pageNumber ?? 1}`;
+			const cacheKey = `${toolParamUri(toolName, readFileParams).fsPath}|${readFileParams.startLine ?? 'null'}|${readFileParams.endLine ?? 'null'}|${readFileParams.pageNumber ?? 1}`;
 
 			let threadCache = this._fileReadCache.get(threadId);
 			if (!threadCache) {
@@ -4956,9 +5089,7 @@ Output ONLY the JSON, no other text. Start with { and end with }.`;
 
 		// Invalidate cache when files are modified or deleted
 		if ((toolName === 'edit_file' || toolName === 'rewrite_file' || toolName === 'delete_file_or_folder') && isBuiltInTool) {
-			const fileParams = toolParams as BuiltinToolCallParams['edit_file'] | BuiltinToolCallParams['rewrite_file'] | BuiltinToolCallParams['delete_file_or_folder'];
-			const fileUri = fileParams.uri;
-			this._invalidateFileReadCache(threadId, fileUri.fsPath);
+			this._invalidateFileReadCache(threadId, toolParamUri(toolName, toolParams).fsPath);
 		}
 		return {};
 	};
@@ -5012,8 +5143,61 @@ Output ONLY the JSON, no other text. Start with { and end with }.`;
 				// thing twice. The title is still what the management command lists — there it labels
 				// breakers that have no reason text yet.
 				const list = blocking.map(id => `• ${this._circuitBreakers.snapshot(id).reason || breakerName(id)}`).join('\n');
-				const note = localize('vibeide.agent.blockedByBreaker', '⛔ Агент не запущен: сработал защитный предохранитель. Он снимается только вашим решением — команда «VibeIDE: Предохранители агента».\n\n{0}', list);
+				// Две дороги, обе названы прямо в сообщении: снять сейчас — или выключить правило
+				// навсегда. Пока их не было, человек с ложным срабатыванием оставался один на один с
+				// запертым агентом: жалоба 20.09.2026 — «я еле нашёл, как отключить, и мне пришлось
+				// спросить у агента в другом проекте». Идентификатор правила стоит в строке причины
+				// выше, поэтому здесь достаточно назвать настройку, куда его вписывают.
+				const note = localize(
+					'vibeide.agent.blockedByBreaker',
+					'⛔ Агент не запущен: сработал защитный предохранитель.\n\n{0}\n\nЧто с этим делать:\n• разово — снять предохранитель кнопкой в уведомлении или командой «VibeIDE: Предохранители агента», и повторить запрос;\n• навсегда — выключить сработавшее правило: настройка «vibeide.secretDetection.disabledPatternIds», в неё вписывается идентификатор правила из строки выше (для закрытых путей — «.vibe/constraints.json» и «.vibe/permissions.json»).\n\nПерезапуск IDE предохранитель не снимает: это защита, а не сбой.',
+					list);
 				this._addMessageToThread(threadId, { role: 'assistant', displayContent: note, reasoning: '', anthropicReasoning: null });
+				// Сообщение в треде уезжает вверх с каждым следующим запросом, а предохранитель залипает и
+				// переживает перезапуск IDE — человек остаётся с неработающим агентом и без способа его вернуть.
+				// Кнопка ведёт туда, где предохранитель снимается (жалоба пользователя 20.09.2026: «как чинить?»).
+				this._notificationService.notify({
+					severity: Severity.Warning,
+					message: localize('vibeide.agent.blockedByBreaker.notify', 'Агент остановлен защитным предохранителем и не запустится, пока вы его не снимете. Перезапуск IDE его не снимает — это защита, а не сбой.'),
+					actions: {
+						primary: [{
+							// Разовое разрешение: человек посмотрел на причину и говорит «это не секрет».
+							// Снимает ровно те предохранители, что держат прогон, и ничего не меняет в
+							// настройках — следующее такое же срабатывание снова спросит.
+							id: 'vibeide.agent.liftBreakersOnce',
+							enabled: true,
+							label: localize('vibeide.agent.blockedByBreaker.liftOnce', 'Разрешить этот раз'),
+							tooltip: '',
+							class: undefined,
+							run: () => {
+								const lifted = blocking.filter(id => this._circuitBreakers.recover(id, true).state === 'closed');
+								vibeLog.info('circuitBreaker', `сняты человеком разово: ${lifted.join(', ') || '—'}`);
+								this._notificationService.notify({
+									severity: Severity.Info,
+									message: lifted.length === blocking.length
+										? localize('vibeide.agent.blockedByBreaker.lifted', 'Предохранитель снят. Повторите запрос — правило осталось включённым и сработает снова на таком же случае.')
+										: localize('vibeide.agent.blockedByBreaker.liftedPartly', 'Снять удалось не всё: откройте «VibeIDE: Предохранители агента».'),
+								});
+							},
+						}, {
+							// Вторая дорога — выключить правило навсегда. Настройку не правим за
+							// человека: открываем её на нужном ключе, идентификатор он берёт из причины.
+							id: 'vibeide.agent.openSecretSettings',
+							enabled: true,
+							label: localize('vibeide.agent.blockedByBreaker.disableForever', 'Где выключить правило'),
+							tooltip: '',
+							class: undefined,
+							run: () => { void this._commandService.executeCommand('workbench.action.openSettings', 'vibeide.secretDetection.disabledPatternIds'); },
+						}, {
+							id: 'vibeide.agent.openCircuitBreakers',
+							enabled: true,
+							label: localize('vibeide.agent.blockedByBreaker.open', 'Показать предохранители'),
+							tooltip: '',
+							class: undefined,
+							run: () => { void this._commandService.executeCommand(VIBEIDE_CIRCUIT_BREAKERS_ACTION_ID); },
+						}],
+					},
+				});
 				vibeLog.warn('circuitBreaker', `прогон отклонён: открыты предохранители ${blocking.join(', ')}`);
 				this._setStreamState(threadId, { isRunning: undefined });
 				return;
@@ -5052,7 +5236,13 @@ Output ONLY the JSON, no other text. Start with { and end with }.`;
 					const filePath = fileItem.uri.fsPath.replace(/\\/g, '/');
 					const decision = resolveModelForPath(filePath, routingDecoded.value, resolvedModelSelection.modelName);
 					if (decision.source === 'rule') {
-						const routed = this._findModelSelectionForId(decision.resolvedModelId);
+						// Правило могло назвать логическое имя (`@fast`) — разворачиваем его до модели.
+						const routes = normalizeModelRoutes(this._configurationService.getValue<unknown>('vibeide.model.routes'));
+						const resolution = resolveModelReference(decision.resolvedModelId, routes);
+						if (resolution.kind === 'unknown-key') {
+							vibeLog.warn('chatThread', `model-routing: правило для ${filePath} ссылается на «@${resolution.key}», которого нет в vibeide.model.routes — правило пропущено`);
+						}
+						const routed = resolution.kind === 'model' ? this._findModelSelectionForId(resolution.reference) : undefined;
 						if (routed) {
 							resolvedModelSelection = routed;
 							const rp = routed.providerName as Exclude<ProviderName, 'auto'>;
@@ -7642,7 +7832,7 @@ Output ONLY the JSON, no other text. Start with { and end with }.`;
 						lastMessage.displayContent === info.fullText;
 
 					if (!messageAlreadyAdded) {
-						this._addMessageToThread(threadId, { role: 'assistant', displayContent: info.fullText, reasoning: info.fullReasoning, anthropicReasoning: info.anthropicReasoning });
+						this._addMessageToThread(threadId, { role: 'assistant', displayContent: info.fullText, reasoning: info.fullReasoning, anthropicReasoning: info.anthropicReasoning, ...(toolCall?.thoughtSignature ? { thoughtSignature: { toolCallId: toolCall.id, signature: toolCall.thoughtSignature } } : {}) });
 					}
 				}
 
@@ -7724,10 +7914,13 @@ Output ONLY the JSON, no other text. Start with { and end with }.`;
 									// See docs/knowledge/chatUx/chatInterruptAndInject.md.
 									: '⚙️ Авто-продолжение (автопилот): ход не закрывается текстом — только вызовом инструмента.\n\n'
 									+ 'Задача выполнена → вызови `vibe_complete`. Это единственный способ закончить. Перед вызовом перепроверь: правки применены, сборка и тесты проходят, шагов не осталось.\n\n'
-									+ 'Задача НЕ выполнена → продолжай ровно ту работу, которая была поставлена: вызови нужный инструмент.\n\n'
+									+ 'Задача НЕ выполнена → продолжай ровно её: вызови нужный инструмент.\n\n'
 									+ 'ЗАПРЕЩЕНО: придумывать новую работу, о которой не просили; создавать файлы «на всякий случай»; выдумывать данные, которых нет в проекте. Если не знаешь, что делать дальше, — значит работа закончена: вызывай `vibe_complete`. Если для ПОСТАВЛЕННОЙ задачи не хватает данных — выбери разумный вариант из тех, что уже известны из проекта, назови его одной строкой и продолжай.';
 						// Text-only completion case only (not the question / empty-turn variants) gets the XML hint.
 						if (!askedQuestion && info.fullText.trim().length !== 0) { corrective += xmlCompleteHint; }
+						// Задача называется дословно. Без этого «продолжай поставленную работу» в треде с оборвавшимся
+						// прежним ходом читается как прежняя задача — её в контексте больше (жалоба пользователя 20.09.2026).
+						corrective += taskReminderLine(currentTaskOf(this.state.allThreads[threadId]?.messages ?? []));
 						this._addMessageToThread(threadId, { role: 'user', content: corrective, displayContent: corrective, selections: null, isSyntheticNudge: true, state: defaultMessageState });
 						shouldSendAnotherMessage = true;
 						// Force the follow-up turn to emit a tool call (vibe_complete or a real tool) so a
@@ -8949,6 +9142,9 @@ We only need to do it for files that were edited since `from`, ie files between 
 				this._setStreamState(threadId, { isRunning: 'idle', interrupt: 'not_needed' });
 				return;
 			}
+			// Сюда прилетает сырое исключение хода — единственное место, где у него ещё есть стек.
+			// Дальше он уходит в общий обработчик, где превращается в строку без места падения.
+			vibeLog.error('chatThread', `Ход упал с исключением (тред ${threadId})`, e);
 			if (threadId !== this.state.currentThreadId) { notify({ error: getErrorMessage(e) }); }
 			throw e;
 		});
@@ -9013,6 +9209,15 @@ We only need to do it for files that were edited since `from`, ie files between 
 	}
 
 	/** Files touched recently in this thread (from checkpoint snapshots) — context for the scout goal. */
+	/**
+	 * Файлы, изменённые в этом разговоре, — факт о репозитории, а не часть плана.
+	 *
+	 * Нужны слепой приёмке: она смотрит на текст задачи и на то, что действительно изменилось, и ни на что больше.
+	 */
+	changedPathsOfThread(threadId: string): string[] {
+		return this._recentChangedPaths(threadId);
+	}
+
 	private _recentChangedPaths(threadId: string): string[] {
 		const thread = this.state.allThreads[threadId];
 		if (!thread) { return []; }
@@ -9063,10 +9268,13 @@ We only need to do it for files that were edited since `from`, ie files between 
 		const forced = !!forceScout || !!this._scoutNextTurnByThread[threadId];
 		if (this._scoutNextTurnByThread[threadId]) { delete this._scoutNextTurnByThread[threadId]; this._onDidChangeScoutArmed.fire(threadId); } // one-shot consume → un-arm the toggle
 		const autoEnabled = this._configurationService.getValue<boolean>('vibeide.subagent.autoScout') ?? true;
-		const auto = autoEnabled && isContinuationRequest(userRequest);
+		const auto = autoEnabled && isContinuationRequest(userRequest, { maxWordsBeyondPhrase: this._configurationService.getValue<number>('vibeide.subagent.scoutMaxExtraWords') ?? DEFAULT_MAX_WORDS_BEYOND_PHRASE });
 		if (!forced && !auto) { return 'skip'; }
 		// Thin-context skip (v2): a live, incomplete plan already IS the continuation context; an explicit force overrides.
 		if (!forced && this._hasLiveClearPlan(threadId)) { return 'skip'; }
+		// Агент работал в этом же треде после прошлого сообщения пользователя — его ход виден на экране
+		// и лежит в контексте, то есть разведка пересказала бы ему его же собственную работу за отдельный прогон модели.
+		if (!forced && hasAgentWorkSinceLastUserMessage((this.state.allThreads[threadId]?.messages ?? []).map(m => m.role))) { return 'skip'; }
 
 		const changedPaths = this._recentChangedPaths(threadId);
 		const planSummary = this._unfinishedPlanSummary(threadId);
@@ -9317,7 +9525,21 @@ We only need to do it for files that were edited since `from`, ie files between 
 
 			// Start router decision and repo indexer query in parallel
 			// PERFORMANCE: Repo indexer query doesn't need model selection - start it early
-			const routerPromise = this._autoSelectModel(instructions, images, pdfs);
+			//
+			// Липкость: пока условия выбора не изменились, разговор остаётся на той же модели —
+			// иначе каждое сообщение роняет кэш промпта предыдущей и меняет голос ответов.
+			const pinnedThread = this.state.allThreads[threadId];
+			const needsVision = !!(images && images.length > 0) || !!(pdfs && pdfs.length > 0);
+			const pinned = pinnedAutoModel(pinnedThread?.state.autoModelPin, {
+				chatMode: this._settingsService.state.globalSettings.chatMode,
+				needsVision,
+				isAvailable: selection => this._settingsService.state._modelOptions.some(option =>
+					option.selection.providerName === selection.providerName && option.selection.modelName === selection.modelName),
+			});
+			if (pinned) {
+				vibeLog.info('chatThread', `[Auto Model Select] source=pinned ${pinned.providerName}/${pinned.modelName} — разговор остаётся на выбранной ранее модели`);
+			}
+			const routerPromise = pinned ? Promise.resolve(pinned) : this._autoSelectModel(instructions, images, pdfs);
 			const thread = this.state.allThreads[threadId];
 			const chatMessages = thread?.messages ?? [];
 			const { chatMode } = this._settingsService.state.globalSettings;
@@ -9329,6 +9551,17 @@ We only need to do it for files that were edited since `from`, ie files between 
 			const autoSelectedModel = await routerPromise;
 			chatLatencyAudit.markRouterEnd(earlyRequestId);
 			modelSelection = autoSelectedModel;
+			if (autoSelectedModel && !pinned) {
+				// Vision is recorded WITH the pin: an attachment in a later message must be able to
+				// tell «the pinned model cannot read this» without re-deriving capabilities then.
+				const { getModelCapabilities } = await import('../common/modelCapabilities.js');
+				const capabilities = getModelCapabilities(autoSelectedModel.providerName, autoSelectedModel.modelName, this._settingsService.state.overridesOfModel);
+				this._setThreadAutoModelPin(threadId, {
+					selection: autoSelectedModel,
+					chatMode: this._settingsService.state.globalSettings.chatMode,
+					vision: this._isModelVisionCapable(autoSelectedModel, capabilities),
+				});
+			}
 
 			// CRITICAL: If auto selection failed, we need a fallback to prevent null modelSelection
 			// This ensures we never send empty messages to the API (which causes "invalid message format" error)

@@ -3,6 +3,8 @@
  *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
 
+import { formatQuotaSection } from '../common/subscriptionQuota.js';
+import { IVibeSubscriptionQuotaService } from '../common/vibeSubscriptionQuotaService.js';
 import { Disposable } from '../../../../base/common/lifecycle.js';
 import { createDecorator } from '../../../../platform/instantiation/common/instantiation.js';
 import { registerSingleton, InstantiationType } from '../../../../platform/instantiation/common/extensions.js';
@@ -18,8 +20,8 @@ export const IVibeProviderDashboardService = createDecorator<IVibeProviderDashbo
 
 export interface IVibeProviderDashboardService {
 	readonly _serviceBrand: undefined;
-	/** Markdown report: which keys are configured and what they cost. */
-	generateReport(): string;
+	/** Markdown report: which keys are configured, what they cost and, where declared, what the subscription has left. */
+	generateReport(): Promise<string>;
 }
 
 /** How many tools the context-tax table names before the tail stops being actionable. */
@@ -52,12 +54,26 @@ class VibeProviderDashboardService extends Disposable implements IVibeProviderDa
 		@IVibeideSettingsService private readonly _settingsService: IVibeideSettingsService,
 		@IVibeToolContextCostService private readonly _toolCost: IVibeToolContextCostService,
 		@IVibeDynamicProvidersService private readonly _dynamicProviders: IVibeDynamicProvidersService,
+		@IVibeSubscriptionQuotaService private readonly _quota: IVibeSubscriptionQuotaService,
 	) {
 		super();
 		vibeLog.debug('ProviderDashboard', 'ready');
 	}
 
-	generateReport(): string {
+	async generateReport(): Promise<string> {
+		const report = this._baseReport();
+		// Asked only now, when the person opened the report: no background polling of a subscription.
+		const targets = this._dynamicProviders.getQuotaTargets();
+		if (targets.length === 0) {
+			return report;
+		}
+		const askedAt = Date.now();
+		const rows = await this._quota.fetchAll(targets).catch(error => targets.map(t => ({ providerId: t.providerId, displayName: t.displayName, format: t.format, outcome: { kind: 'failed' as const, reason: String(error) } })));
+		const section = formatQuotaSection(rows, askedAt);
+		return section.length > 0 ? `${report}\n\n${section.join('\n')}\n` : report;
+	}
+
+	private _baseReport(): string {
 		const lines: string[] = ['# Ключи и расход', ''];
 
 		lines.push(...this._keysSection(), '');

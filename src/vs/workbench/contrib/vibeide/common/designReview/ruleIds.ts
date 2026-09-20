@@ -46,6 +46,9 @@ export const RULE = {
 	darkGlow: 'dark-glow',
 	radialHalo: 'radial-halo',
 	beigeSurface: 'beige-surface',
+	contrastUnmeasurable: 'contrast-unmeasurable',
+	destructiveWrongIntent: 'destructive-wrong-intent',
+	pureBlackText: 'pure-black-text',
 
 	// surface decoration
 	extremeRadius: 'extreme-radius',
@@ -57,6 +60,7 @@ export const RULE = {
 	decorativeGridBackground: 'decorative-grid-background',
 	shapeAssembledArt: 'shape-assembled-art',
 	invisibleBorder: 'invisible-border',
+	uniformRadiusAndShadow: 'uniform-radius-and-shadow',
 
 	// состояния интерактивных элементов
 	focusNotVisible: 'focus-not-visible',
@@ -122,6 +126,11 @@ export const RULE = {
 	numericColumnNotRightAligned: 'numeric-column-not-right-aligned',
 	tableHeaderScrollsAway: 'table-header-scrolls-away',
 	dialogOverflowsViewport: 'dialog-overflows-viewport',
+
+	// Разбор набора plugin87/ux-ui-agent-skills (MIT, 17.09.2026): проверки, которых у нас не было.
+	targetBelowWcag: 'target-below-wcag',
+	motionWithoutReducedMotion: 'motion-without-reduced-motion',
+	emojiAsIcon: 'emoji-as-icon',
 } as const;
 
 export type RuleId = typeof RULE[keyof typeof RULE];
@@ -160,6 +169,12 @@ export const RULE_META: Record<RuleId, RuleMeta> = {
 	[RULE.darkGlow]: { ruleClass: 'drift', category: 'color' },
 	[RULE.radialHalo]: { ruleClass: 'drift', category: 'color' },
 	[RULE.beigeSurface]: { ruleClass: 'drift', category: 'color' },
+	// Не дефект, а «не измерено»: текст на фото с затемнением бывает читаемым. Проект, проверивший
+	// глазами, принимает находку с причиной; полом она заставила бы переделывать каждый герой.
+	[RULE.contrastUnmeasurable]: { ruleClass: 'drift', category: 'color' },
+	// Синее «Удалить» — ошибка смысла, а не вкуса: цвет обещает безопасное действие.
+	[RULE.destructiveWrongIntent]: { ruleClass: 'floor', category: 'color' },
+	[RULE.pureBlackText]: { ruleClass: 'drift', category: 'color' },
 
 	[RULE.extremeRadius]: { ruleClass: 'drift', category: 'visual' },
 	[RULE.radiusScaleSprawl]: { ruleClass: 'drift', category: 'visual' },
@@ -170,6 +185,7 @@ export const RULE_META: Record<RuleId, RuleMeta> = {
 	[RULE.decorativeGridBackground]: { ruleClass: 'drift', category: 'visual' },
 	[RULE.shapeAssembledArt]: { ruleClass: 'drift', category: 'visual' },
 	[RULE.invisibleBorder]: { ruleClass: 'drift', category: 'visual' },
+	[RULE.uniformRadiusAndShadow]: { ruleClass: 'drift', category: 'visual' },
 	// Фокус и различимость выключенного — пол качества: без них интерфейс нельзя пройти с
 	// клавиатуры и нельзя понять, почему кнопка не срабатывает. Отклик на наведение —
 	// вопрос вкуса и устройства ввода, поэтому drift.
@@ -184,7 +200,9 @@ export const RULE_META: Record<RuleId, RuleMeta> = {
 	[RULE.requiredOnlyVisual]: { ruleClass: 'floor', category: 'markup' },
 
 	[RULE.lineLength]: { ruleClass: 'drift', category: 'layout' },
-	[RULE.crampedTarget]: { ruleClass: 'floor', category: 'layout' },
+	// 44px — рекомендация Apple и Google, а не норма: пол по размеру цели держит `targetBelowWcag`
+	// (WCAG 2.5.8, 24px). Пока 44 было полом, строгий хук возвращал агента за кнопку 40×40.
+	[RULE.crampedTarget]: { ruleClass: 'drift', category: 'layout' },
 	[RULE.nestedCards]: { ruleClass: 'drift', category: 'layout' },
 	[RULE.contentOverflow]: { ruleClass: 'floor', category: 'layout' },
 	[RULE.pageOverflow]: { ruleClass: 'floor', category: 'layout' },
@@ -229,6 +247,10 @@ export const RULE_META: Record<RuleId, RuleMeta> = {
 	[RULE.numericColumnNotRightAligned]: { ruleClass: 'floor', category: 'layout' },
 	[RULE.tableHeaderScrollsAway]: { ruleClass: 'drift', category: 'layout' },
 	[RULE.dialogOverflowsViewport]: { ruleClass: 'floor', category: 'layout' },
+	[RULE.targetBelowWcag]: { ruleClass: 'floor', category: 'layout' },
+	// Вестибулярные расстройства — доступность, а не вкус.
+	[RULE.motionWithoutReducedMotion]: { ruleClass: 'floor', category: 'motion' },
+	[RULE.emojiAsIcon]: { ruleClass: 'drift', category: 'copy' },
 };
 
 /** Every id the catalogue can report. */

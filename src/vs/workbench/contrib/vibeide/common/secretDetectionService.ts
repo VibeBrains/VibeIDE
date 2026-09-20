@@ -64,6 +64,7 @@ class SecretDetectionService extends Disposable implements ISecretDetectionServi
 				priority: number;
 			}>;
 			disabledPatternIds?: string[];
+			enabledPatternIds?: string[];
 			mode?: 'block' | 'redact';
 		}>('vibeide.secretDetection');
 
@@ -71,6 +72,7 @@ class SecretDetectionService extends Disposable implements ISecretDetectionServi
 			enabled: config?.enabled ?? true,
 			customPatterns: config?.customPatterns ?? [],
 			disabledPatternIds: config?.disabledPatternIds ?? [],
+			enabledPatternIds: config?.enabledPatternIds ?? [],
 			mode: config?.mode ?? 'redact',
 		};
 	}

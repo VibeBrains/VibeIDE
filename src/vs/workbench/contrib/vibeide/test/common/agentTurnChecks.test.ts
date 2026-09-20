@@ -45,7 +45,7 @@ suite('agentTurnChecks — deterministic checks on what a turn did', () => {
 	test('each check fails on its own kind of evidence', () => {
 		assert.deepStrictEqual(
 			[
-				failedIds(facts({ secretHits: [{ file: '.env', kind: 'aws-key' }] })),
+				failedIds(facts({ secretHits: [{ file: '.env', kind: 'AWS Access Key', patternId: 'aws-access-key' }] })),
 				failedIds(facts({ protectedHits: [{ file: 'dist/app.js', pattern: 'dist/**' }] })),
 				failedIds(facts({ forbiddenTools: ['run_command'] })),
 				failedIds(facts({ tokensUsed: 200_000 })),
@@ -72,7 +72,7 @@ suite('agentTurnChecks — deterministic checks on what a turn did', () => {
 	});
 
 	test('only enabled checks run — the default pair protects data and nothing else', () => {
-		const noisy = facts({ forbiddenTools: ['run_command'], tokensUsed: 200_000, secretHits: [{ file: '.env', kind: 'token' }] });
+		const noisy = facts({ forbiddenTools: ['run_command'], tokensUsed: 200_000, secretHits: [{ file: '.env', kind: 'Generic Token', patternId: 'generic-token' }] });
 		assert.deepStrictEqual(
 			[
 				evaluateTurnChecks(noisy, DEFAULT_ENABLED_CHECKS).map(r => r.id),
@@ -86,7 +86,7 @@ suite('agentTurnChecks — deterministic checks on what a turn did', () => {
 	});
 
 	test('decision mirrors the other gates: notify never blocks, enforce bounces then stops', () => {
-		const failures = evaluateTurnChecks(facts({ secretHits: [{ file: '.env', kind: 'token' }] }), ['no-secret-leak']).filter(r => !r.passed);
+		const failures = evaluateTurnChecks(facts({ secretHits: [{ file: '.env', kind: 'Generic Token', patternId: 'generic-token' }] }), ['no-secret-leak']).filter(r => !r.passed);
 		assert.deepStrictEqual(
 			[
 				decideTurnChecks({ mode: 'off', failures, attemptsUsed: 0, maxAttempts: 2 }),

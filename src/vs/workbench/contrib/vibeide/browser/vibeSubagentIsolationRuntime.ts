@@ -46,6 +46,18 @@ Registry.as<IConfigurationRegistry>(ConfigurationExtensions.Configuration).regis
 			maximum: 1000000,
 			description: localize('vibeide.subagent.maxTokens', 'Токен-бюджет одного субагента: и размер контекстного окна изоляции (worker/process), и потолок суммарного расхода токенов, после которого субагент останавливается. Бюджет независим от остатка бюджета сессии. По умолчанию 100 000.'),
 		},
+		'vibeide.subagent.scoutMaxExtraWords': {
+			type: 'number',
+			default: 5,
+			minimum: 0,
+			maximum: 50,
+			description: localize('vibeide.subagent.scoutMaxExtraWords', 'Сколько слов сверх самой фразы продолжения («продолжи», «дальше») ещё запускают авто-разведку контекста. Длинное сообщение со своим контекстом разведки не требует — вы уже всё сказали. 0 — только голая фраза. По умолчанию 5.'),
+		},
+		'vibeide.subagent.worktree': {
+			type: 'boolean',
+			default: false,
+			description: localize('vibeide.subagent.worktree', 'Запускать роль-исполнителя в отдельном рабочем дереве git (`.vibe-worktrees/<ветка>`): её правки и команды не попадают в общую папку, пока работа не влита. По окончании работа фиксируется коммитом в ветке дерева всегда; вливается автоматически только под автопилотом и только при успехе, иначе ветка остаётся вам на решение. Требует, чтобы открытая папка была репозиторием git. По умолчанию выключено.'),
+		},
 		'vibeide.subagent.forceInline': {
 			type: 'boolean',
 			default: false,

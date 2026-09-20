@@ -173,7 +173,7 @@ registerAction2(class extends Action2 {
 		const commandService = accessor.get(ICommandService);
 
 		try {
-			const report = dashboardService.generateReport();
+			const report = await dashboardService.generateReport();
 			// Open as untitled markdown editor for easy reading/copy/export
 			const input: IUntitledTextResourceEditorInput = {
 				resource: undefined,
