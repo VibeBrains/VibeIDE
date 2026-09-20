@@ -5,6 +5,7 @@
 
 import { importAMDNodeModule } from '../../../../../amdX.js';
 import { vibeLog } from '../vibeLog.js';
+import { OcrRecognizeResponse } from './ocrTransport.js';
 
 /**
  * OCR Service for extracting text from images
@@ -64,6 +65,68 @@ interface TesseractModule {
 }
 
 /**
+ * Распознаватель, поставленный снаружи (окно ставит тот, что работает в главном процессе).
+ *
+ * WHY через установку, а не через внедрение зависимости: эта служба живёт в `common` и вызывается
+ * из React-хуков, у которых нет доступа к сервисам воркбенча. Ставит его одна точка — вклад
+ * `electron-browser/vibeOcrRemote.contribution.ts`.
+ */
+export type OcrRemoteRecognizer = (image: Uint8Array) => Promise<OcrRecognizeResponse>;
+
+let remoteRecognizer: OcrRemoteRecognizer | undefined;
+
+export function setOcrRemoteRecognizer(recognizer: OcrRemoteRecognizer | undefined): void {
+	remoteRecognizer = recognizer;
+}
+
+/** Пустой результат с названной причиной: «не нашли текст» и «не смогли посмотреть» — разное. */
+function emptyOcrResult(error: string): OCRResult {
+	return { blocks: [], tables: [], code_blocks: [], errors: [error], fullText: '', totalChars: 0 };
+}
+
+/**
+ * Слова в блоки: слова одной строки склеиваются, рамки объединяются.
+ *
+ * Вынесено из `extract`, потому что теперь источников слов два — распознаватель в окне и он же в
+ * главном процессе, — а разбор у них обязан быть один: иначе два пути однажды дадут разный ответ
+ * на одну картинку.
+ */
+export function buildOcrResult(fullText: string, words: readonly TesseractWord[]): OCRResult {
+	const blocks: OCRBlock[] = [];
+	const code_blocks: OCRBlock[] = [];
+	let currentBlock: OCRBlock | null = null;
+
+	for (const word of words) {
+		const bbox = {
+			x: word.bbox.x0,
+			y: word.bbox.y0,
+			width: word.bbox.x1 - word.bbox.x0,
+			height: word.bbox.y1 - word.bbox.y0,
+		};
+		const isCode = /^[{}[\]()=><;:+\-*\/\\|&!@#$%^_]+$/.test(word.text) ||
+			/^(function|const|let|var|if|for|while|return|import|export)/i.test(word.text);
+		const block: OCRBlock = { bbox, text: word.text, type: isCode ? 'code' : 'text', confidence: word.confidence || 0 };
+		if (isCode) { code_blocks.push(block); }
+
+		if (!currentBlock || Math.abs(bbox.y - currentBlock.bbox.y) > bbox.height * 0.5) {
+			if (currentBlock) { blocks.push(currentBlock); }
+			currentBlock = { ...block };
+		} else {
+			currentBlock.text += ' ' + block.text;
+			currentBlock.bbox = {
+				x: Math.min(currentBlock.bbox.x, bbox.x),
+				y: Math.min(currentBlock.bbox.y, bbox.y),
+				width: Math.max(currentBlock.bbox.x + currentBlock.bbox.width, bbox.x + bbox.width) - Math.min(currentBlock.bbox.x, bbox.x),
+				height: Math.max(currentBlock.bbox.y + currentBlock.bbox.height, bbox.y + bbox.height) - Math.min(currentBlock.bbox.y, bbox.y),
+			};
+		}
+	}
+	if (currentBlock) { blocks.push(currentBlock); }
+
+	return { blocks, tables: [], code_blocks, errors: [], fullText, totalChars: fullText.length };
+}
+
+/**
  * OCR Service interface
  */
 export interface IOCRService {
@@ -119,6 +182,20 @@ export class TesseractOCRService implements IOCRService {
 	}
 
 	async extract(imageData: Uint8Array, mimeType: string): Promise<OCRResult> {
+		// Распознаватель из главного процесса, если его туда поставили при старте окна.
+		//
+		// В окне `new Worker(<строка>)` запрещён Trusted Types, поэтому здешний путь там не
+		// поднимается вовсе. Держим оба: в вебе и в тестах окна нет главного процесса, и падать
+		// из-за его отсутствия нечестно.
+		const viaMain = remoteRecognizer;
+		if (viaMain) {
+			const recognized = await viaMain(imageData);
+			if (!recognized.ok) {
+				return emptyOcrResult(recognized.error);
+			}
+			return buildOcrResult(recognized.text, recognized.words);
+		}
+
 		const tesseractWorker = await this.ensureWorker();
 
 		try {

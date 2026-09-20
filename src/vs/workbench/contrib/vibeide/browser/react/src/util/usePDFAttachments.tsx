@@ -146,7 +146,9 @@ export function usePDFAttachments(): UsePDFAttachmentsReturn {
 						const base64 = pngDataUrl.slice(pngDataUrl.indexOf(',') + 1);
 						const bytes = Uint8Array.from(atob(base64), char => char.charCodeAt(0));
 						const result = await getOCRService().extract(bytes, 'image/png');
-						return result.text ?? '';
+						// Именно `fullText`: поля `text` у результата нет, и прежнее `result.text`
+						// всегда давало пустую строку — распознанное терялось молча.
+						return result.fullText ?? '';
 					},
 					extractImages: false,
 					extractMetadata: true,

@@ -57,6 +57,8 @@ import { VibeVideoMainService } from './video/vibeVideoMainService.js';
 import { VibeVideoChannel } from './video/vibeVideoChannel.js';
 import { VIBE_VIDEO_CHANNEL } from '../common/video/vibeVideoTypes.js';
 import { ILogService } from '../../../../platform/log/common/log.js';
+import { VIBE_OCR_CHANNEL } from '../common/imageQA/ocrTransport.js';
+import { VibeOcrChannel } from './ocrChannel.js';
 import { ILifecycleMainService } from '../../../../platform/lifecycle/electron-main/lifecycleMainService.js';
 import { IWindowsMainService } from '../../../../platform/windows/electron-main/windows.js';
 
@@ -103,6 +105,14 @@ export function registerVibeideMainProcessChannels(
 
 	const mcpChannel = new MCPChannel();
 	mainProcessElectronServer.registerChannel('vibe-channel-mcp', mcpChannel);
+
+	// Распознавание текста живёт здесь, а не в окне: там `new Worker(<строка>)` запрещён
+	// Trusted Types, и распознаватель не поднимался вовсе (см. common/imageQA/ocrTransport.ts).
+	// Языковые данные кладутся рядом с настройками пользователя — один раз на машину.
+	mainProcessElectronServer.registerChannel(VIBE_OCR_CHANNEL, new VibeOcrChannel(
+		join(accessor.get(IEnvironmentMainService).userDataPath, 'ocr-langdata'),
+		accessor.get(ILogService),
+	));
 	mainProcessElectronServer.registerChannel(VIBE_SUBSCRIPTION_QUOTA_CHANNEL, ProxyChannel.fromService(new VibeSubscriptionQuotaMainService(), disposables));
 
 	const scmService = disposables.add(new VibeideSCMService());

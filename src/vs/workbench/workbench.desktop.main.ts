@@ -220,6 +220,7 @@ import './contrib/vibeide/electron-browser/mcpService.js';
 import './contrib/vibeide/electron-browser/vibeSubscriptionQuotaService.js';
 import './contrib/vibeide/electron-browser/modelQuirksCatalogStatusService.js';
 import './contrib/vibeide/electron-browser/ollamaInstallerService.js';
+import './contrib/vibeide/electron-browser/vibeOcrRemote.contribution.js';
 import './contrib/vibeide/electron-browser/remoteCatalogService.js';
 import './contrib/vibeide/electron-browser/sendLLMMessageService.js';
 import './contrib/vibeide/electron-browser/modelsDevCatalogStatusService.js';
