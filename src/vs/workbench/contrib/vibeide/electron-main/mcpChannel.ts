@@ -20,8 +20,12 @@ import { mcpAppsClientCapabilities } from '../common/mcpApps.js';
 import { MCPUserStateOfName } from '../common/vibeideSettingsTypes.js';
 import { mergeServerEnv, transportRequestInit } from '../common/mcpServerEnv.js';
 import { McpCacheableMeta, parseCacheableMeta, refreshDelayMs } from '../common/mcpCacheableResult.js';
-import { describeUnansweredInput, parseInputRequired } from '../common/mcpMultiRoundTrip.js';
+import { describeUnansweredInput, parseInputRequired, withInputResponses } from '../common/mcpMultiRoundTrip.js';
+import { MAX_INPUT_ROUNDS, McpInputAnswer, McpInputAsk, planInputRequests } from '../common/mcpElicitation.js';
 import { filterToolsWithValidHeaders } from '../common/mcpHeaderAnnotation.js';
+
+/** Сколько ждать человека, прежде чем снять вопрос и отпустить вызов инструмента. */
+const INPUT_REQUEST_TIMEOUT_MS = 5 * 60 * 1000;
 
 const getClientConfig = (serverName: string) => {
 	return {
@@ -77,6 +81,42 @@ export class MCPChannel implements IServerChannel {
 	constructor(
 	) { }
 
+	/**
+	 * Просьбы сервера о вводе, ждущие ответа из окна.
+	 *
+	 * Клиент MCP живёт в главном процессе, а спросить человека может только окно — отсюда мост
+	 * «главный процесс → окно → главный процесс»: событие туда, вызов `answerInputRequest` обратно.
+	 */
+	private readonly _pendingInput = new Map<string, { resolve: (value: McpInputAnswer) => void; timer: ReturnType<typeof setTimeout> }>();
+	private readonly _onInputRequest = new Emitter<McpInputAsk>();
+	private _inputRequestSeq = 0;
+
+	/** Ответ окна на просьбу сервера. Неизвестный id — окно опоздало: вопрос уже снят по времени. */
+	private _resolveInputRequest(requestId: string, answer: McpInputAnswer): void {
+		const pending = this._pendingInput.get(requestId);
+		if (!pending) { return; }
+		clearTimeout(pending.timer);
+		this._pendingInput.delete(requestId);
+		pending.resolve(answer);
+	}
+
+	/**
+	 * Спросить окно и дождаться ответа.
+	 *
+	 * Ожидание ограничено по времени: вопрос без человека у экрана иначе держал бы вызов
+	 * инструмента открытым до конца сессии, а сервер — открытым свой `requestState`.
+	 */
+	private _askWindowForInput(ask: McpInputAsk): Promise<McpInputAnswer> {
+		return new Promise<McpInputAnswer>(resolve => {
+			const timer = setTimeout(() => {
+				this._pendingInput.delete(ask.requestId);
+				resolve({ ok: false, reason: 'ответа от пользователя не было — вопрос снят по времени' });
+			}, INPUT_REQUEST_TIMEOUT_MS);
+			this._pendingInput.set(ask.requestId, { resolve, timer });
+			this._onInputRequest.fire(ask);
+		});
+	}
+
 	// browser uses this to listen for changes
 	listen<T>(_: unknown, event: string): Event<T> {
 
@@ -84,6 +124,8 @@ export class MCPChannel implements IServerChannel {
 		if (event === 'onAdd_server') { return this.mcpEmitters.serverEvent.onAdd.event as Event<T>; }
 		else if (event === 'onUpdate_server') { return this.mcpEmitters.serverEvent.onUpdate.event as Event<T>; }
 		else if (event === 'onDelete_server') { return this.mcpEmitters.serverEvent.onDelete.event as Event<T>; }
+		// Просьба сервера о вводе (MRTR): окно показывает вопрос и отвечает `answerInputRequest`.
+		else if (event === 'onInputRequest') { return this._onInputRequest.event as Event<T>; }
 		// else if (event === 'onLoading_server') return this.mcpEmitters.serverEvent.onChangeLoading.event;
 
 		// tool call events
@@ -106,6 +148,11 @@ export class MCPChannel implements IServerChannel {
 			else if (command === 'toggleMCPServer') {
 				const p = params as { serverName: string; isOn: boolean };
 				await this._toggleMCPServer(p.serverName, p.isOn);
+				return undefined as T;
+			}
+			else if (command === 'answerInputRequest') {
+				const p = params as { requestId: string; answer: McpInputAnswer };
+				this._resolveInputRequest(p.requestId, p.answer);
 				return undefined as T;
 			}
 			else if (command === 'callTool') {
@@ -546,17 +593,45 @@ export class MCPChannel implements IServerChannel {
 		// Call the tool with the provided parameters. `toolName` arrives here as the
 		// bare name (caller passes mcpTool.originalName via chatThreadService), so no
 		// stripping is needed — pass straight through to the MCP server.
-		const response = await client.callTool({
-			name: toolName,
-			arguments: params
-		});
-		// Конверт MRTR — не результат инструмента: в нём нет ни content, ни structuredContent, и
-		// прежний разбор падал на пустом `content[0]` сообщением, по которому не понять, что сервер
-		// задал вопрос. Отвечаем моделью читаемой строкой, а не сбоем (SEP-2322).
-		const inputRequired = parseInputRequired(response);
-		if (inputRequired) {
-			vibeLog.info('mcpChannel', `MCP server "${serverName}": инструмент ${toolName} просит ввод — ${inputRequired.inputRequests.map(r => r.method).join(', ') || '(метод не назван)'}`);
-			throw new Error(describeUnansweredInput(toolName, inputRequired));
+		// Конверт MRTR — не результат инструмента: в нём нет ни content, ни structuredContent. Сервер задал вопрос —
+		// спрашиваем человека и повторяем тот же вызов с ответами (SEP-2322). Модель в этом не участвует:
+		// вопрос адресован человеку, и пересказывать его моделью значило бы платить за ход и портить формулировку.
+		let callParams = params;
+		let response = await client.callTool({ name: toolName, arguments: callParams });
+		for (let round = 0; round < MAX_INPUT_ROUNDS; round++) {
+			const inputRequired = parseInputRequired(response);
+			if (!inputRequired) { break; }
+			const methods = inputRequired.inputRequests.map(r => r.method).join(', ') || '(метод не назван)';
+			vibeLog.info('mcpChannel', `MCP server "${serverName}": инструмент ${toolName} просит ввод — ${methods} (круг ${round + 1})`);
+
+			const plan = planInputRequests(inputRequired.inputRequests);
+			// Хоть одна просьба, на которую мы не умеем ответить, — и повтор всё равно не состоится.
+			// Спрашивать человека ради заведомо неполного ответа значит тратить его время заранее впустую.
+			if (plan.unsupported.length > 0) {
+				vibeLog.warn('mcpChannel', `MCP server "${serverName}": не умеем отвечать на ${plan.unsupported.join(', ')}`);
+				throw new Error(describeUnansweredInput(toolName, inputRequired));
+			}
+
+			const requestId = `mcp-input-${++this._inputRequestSeq}`;
+			const ask: McpInputAsk = {
+				requestId,
+				serverName,
+				toolName,
+				elicitations: plan.elicitations.map(item => ({ key: item.request.key, form: item.form })),
+				rootKeys: plan.roots.map(request => request.key),
+			};
+			const answer = await this._askWindowForInput(ask);
+			if (!answer.ok) {
+				throw new Error(`Инструмент «${toolName}» не выполнен: сервер просил ввод, но ${answer.reason}.`);
+			}
+			// `requestState` уезжает дословно и с ДРУГИМ id запроса — это требование спеки; новый id даёт сам SDK.
+			callParams = withInputResponses(callParams, answer.responses, inputRequired.requestState);
+			response = await client.callTool({ name: toolName, arguments: callParams });
+		}
+		// Круги кончились, а сервер всё просит: продолжать значило бы держать человека в бесконечном допросе.
+		const stillAsking = parseInputRequired(response);
+		if (stillAsking) {
+			throw new Error(`Инструмент «${toolName}» не выполнен: сервер продолжает просить ввод после ${MAX_INPUT_ROUNDS} кругов ответов.`);
 		}
 
 		const { content, structuredContent } = response as import('@modelcontextprotocol/sdk/types.js').CallToolResult;

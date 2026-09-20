@@ -15,6 +15,9 @@
  * electron-browser.
  */
 
+import { IQuickInputService } from '../../../../platform/quickinput/common/quickInput.js';
+import { IWorkspaceContextService } from '../../../../platform/workspace/common/workspace.js';
+import { coerceFieldValue, ElicitationAnswer, ElicitationForm, McpInputAsk, rootsAnswer } from '../common/mcpElicitation.js';
 import { AcpMcpExportResult, buildAcpMcpServers } from '../common/acp/acpMcpExport.js';
 import { localize } from '../../../../nls.js';
 import { builtinTools } from '../common/prompt/prompts.js';
@@ -112,6 +115,8 @@ class MCPService extends Disposable implements IMCPService {
 		@IConfigurationService private readonly _configurationService: IConfigurationService,
 		@INotificationService private readonly _notificationService: INotificationService,
 		@IAuditLogService private readonly _auditLogService: IAuditLogService,
+		@IQuickInputService private readonly _quickInput: IQuickInputService,
+		@IWorkspaceContextService private readonly _workspace: IWorkspaceContextService,
 	) {
 		super();
 		this.channel = this.mainProcessService.getChannel('vibe-channel-mcp');
@@ -125,6 +130,10 @@ class MCPService extends Disposable implements IMCPService {
 		this._register((this.channel.listen('onUpdate_server') satisfies Event<MCPServerEventResponse>)(onEvent));
 		this._register((this.channel.listen('onDelete_server') satisfies Event<MCPServerEventResponse>)(onEvent));
 
+		// MRTR: сервер просит ввод — вопрос показывается ЧЕЛОВЕКУ здесь, в окне, и ответ уходит
+		// обратно в главный процесс, который повторяет вызов. Модель в этом не участвует.
+		this._register((this.channel.listen('onInputRequest') satisfies Event<McpInputAsk>)(ask => void this._answerInputRequest(ask)));
+
 		// Turning MCP Apps on or off changes what every client announces, so all servers reconnect.
 		this._register(this._configurationService.onDidChangeConfiguration(e => {
 			if (e.affectsConfiguration(mcpAppsEnabledConfig)) { this._scheduleMcpConfigRefresh.schedule(); }
@@ -133,6 +142,69 @@ class MCPService extends Disposable implements IMCPService {
 		this._initialize();
 	}
 
+
+	/**
+	 * Спросить человека по просьбе сервера и ответить главному процессу.
+	 *
+	 * Отказ — законный исход: закрытый вопрос возвращается словом `decline`, как того требует
+	 * протокол, а не пустым ответом, который сервер принял бы за согласие.
+	 */
+	private async _answerInputRequest(ask: McpInputAsk): Promise<void> {
+		const responses: Record<string, unknown> = {};
+		try {
+			// `roots/list` отвечается без человека: папки окна известны, а лишний диалог превратил
+			// бы обычный вызов инструмента в допрос.
+			for (const key of ask.rootKeys) {
+				responses[key] = rootsAnswer(this._workspace.getWorkspace().folders.map(folder => ({ uri: folder.uri.toString(), name: folder.name })));
+			}
+			for (const { key, form } of ask.elicitations) {
+				const answer = await this._askHuman(ask, form);
+				if (answer.action !== 'accept') {
+					// Отказ прекращает весь вызов: отвечать на часть просьб и молчать об остальных
+					// значит отдать серверу состояние, по которому он не сможет продолжить.
+					this.channel.call('answerInputRequest', { requestId: ask.requestId, answer: { ok: false, reason: answer.action === 'decline' ? 'пользователь отказался отвечать' : 'пользователь закрыл вопрос' } });
+					return;
+				}
+				responses[key] = answer;
+			}
+			this.channel.call('answerInputRequest', { requestId: ask.requestId, answer: { ok: true, responses } });
+		} catch (error) {
+			vibeLog.error('mcp', 'не удалось спросить пользователя по просьбе MCP-сервера', error);
+			this.channel.call('answerInputRequest', { requestId: ask.requestId, answer: { ok: false, reason: 'окно не смогло показать вопрос' } });
+		}
+	}
+
+	/** Форма по полям схемы: строка, число, булево и перечисление — большего спека не допускает. */
+	private async _askHuman(ask: McpInputAsk, form: ElicitationForm): Promise<ElicitationAnswer> {
+		const title = `${ask.serverName} → ${ask.toolName}`;
+		if (form.fields.length === 0) {
+			// Просьба без полей — это вопрос «да или нет» по самому сообщению.
+			const confirmed = await this._quickInput.pick(
+				[{ label: localize('vibeide.mcp.elicit.yes', 'Разрешить') }, { label: localize('vibeide.mcp.elicit.no', 'Отказать') }],
+				{ title, placeHolder: form.message });
+			return confirmed?.label === localize('vibeide.mcp.elicit.yes', 'Разрешить') ? { action: 'accept', content: {} } : { action: 'decline' };
+		}
+		const content: Record<string, unknown> = {};
+		for (const field of form.fields) {
+			const prompt = field.description ? `${field.label} — ${field.description}` : field.label;
+			let raw: string | undefined;
+			if (field.type === 'boolean') {
+				const picked = await this._quickInput.pick([{ label: 'true' }, { label: 'false' }], { title, placeHolder: prompt });
+				raw = picked?.label;
+			} else if (field.type === 'enum' && field.options?.length) {
+				const picked = await this._quickInput.pick(field.options.map(option => ({ label: option })), { title, placeHolder: prompt });
+				raw = picked?.label;
+			} else {
+				raw = await this._quickInput.input({ title, prompt: form.message, placeHolder: prompt });
+			}
+			if (raw === undefined) { return { action: 'cancel' }; }
+			// Необязательное поле, оставленное пустым, не уезжает вовсе: пустая строка — это ответ
+			// «пусто», а отсутствие поля — «не отвечал», и сервер читает их по-разному.
+			if (raw === '' && !field.required) { continue; }
+			content[field.key] = coerceFieldValue(field, raw);
+		}
+		return { action: 'accept', content };
+	}
 
 	private async _initialize() {
 		try {
