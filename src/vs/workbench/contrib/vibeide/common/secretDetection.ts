@@ -29,6 +29,14 @@ export interface SecretPattern {
 	 * regex matches (previous behavior).
 	 */
 	validate?: (candidate: string) => boolean;
+	/**
+	 * Отбрасывать совпадение, если оно внутри URL.
+	 *
+	 * Шестнадцатеричный кусок в адресе — это контрольная сумма дистрибутива, хеш коммита или
+	 * имя файла в CDN, а не секрет. Настоящий секрет в адресе подписан словом (`token=`, `key=`,
+	 * `Bearer`) и ловится правилами, которые смотрят на это слово, а не на форму строки.
+	 */
+	skipInsideUrl?: boolean;
 }
 
 /** Shannon entropy in bits/char — low for words/identifiers, high for random keys. */
@@ -212,6 +220,7 @@ export const DEFAULT_SECRET_PATTERNS: SecretPattern[] = [
 		name: 'Generic Token',
 		pattern: /\b([a-f0-9]{32}|[a-f0-9]{40}|[a-f0-9]{64})\b/g,
 		enabled: false, // Disabled by default - too many false positives
+		skipInsideUrl: true,
 		priority: 50,
 	},
 ];
@@ -232,6 +241,13 @@ export interface SecretDetectionConfig {
 	}>;
 	/** Pattern IDs to disable */
 	disabledPatternIds: string[];
+	/**
+	 * Идентификаторы встроенных правил, выключенных в коде и включённых обратно решением пользователя.
+	 *
+	 * Правило вроде `generic-token` ловит настоящие секреты и столько же ненастоящих; кому нужна его
+	 * строгость — включает сам и знает, на что идёт.
+	 */
+	enabledPatternIds?: string[];
 	/** Strictness mode: 'block' blocks sending, 'redact' allows with redaction */
 	mode: 'block' | 'redact';
 }
@@ -246,6 +262,21 @@ const DEFAULT_CONFIG: SecretDetectionConfig = {
 /**
  * Gets all active patterns (defaults + custom, filtered by enabled/disabled)
  */
+/**
+ * Стоит ли совпадение в позиции `start` внутри URL.
+ *
+ * Смотрим назад до пробела или кавычки — то есть на слово, внутри которого стоит кандидат, — и
+ * ищем в нём схему. Разбор настоящим анализатором URL здесь не нужен: вопрос не «валидный ли адрес»,
+ * а «не часть ли это адреса».
+ */
+export function isInsideUrl(text: string, start: number): boolean {
+	let from = start;
+	while (from > 0 && !/[\s"'`<>(),;]/.test(text[from - 1])) {
+		from--;
+	}
+	return text.slice(from, start).includes('://');
+}
+
 export function getActivePatterns(config: SecretDetectionConfig = DEFAULT_CONFIG): SecretPattern[] {
 	if (!config.enabled) {
 		return [];
@@ -254,10 +285,22 @@ export function getActivePatterns(config: SecretDetectionConfig = DEFAULT_CONFIG
 	const patterns: SecretPattern[] = [];
 
 	// Add default patterns (excluding disabled ones)
+	//
+	// `pattern.enabled` у встроенного правила раньше НЕ читался, хотя у пользовательского читается ниже.
+	// Из-за этого работало `generic-token` — правило, выключенное в коде со словами «too many false
+	// positives»: любая строка из 32/40/64 шестнадцатеричных знаков считалась секретом. В `build.gradle` такая
+	// строка — обычная контрольная сумма зависимости, а цена ошибки здесь не предупреждение, а защитный
+	// предохранитель: он залипает, переживает перезапуск IDE и останавливает ВСЕ прогоны до решения
+	// человека (жалоба пользователя 20.09.2026).
 	for (const pattern of DEFAULT_SECRET_PATTERNS) {
-		if (!config.disabledPatternIds.includes(pattern.id)) {
-			patterns.push(pattern);
+		if (config.disabledPatternIds.includes(pattern.id)) {
+			continue;
 		}
+		// Выключенное в коде правило включается только явным решением пользователя.
+		if (pattern.enabled === false && !config.enabledPatternIds?.includes(pattern.id)) {
+			continue;
+		}
+		patterns.push(pattern);
 	}
 
 	// Add custom patterns
@@ -319,7 +362,8 @@ export function detectSecrets(
 			// before overlap handling so a rejected candidate neither lands nor evicts
 			// a legitimately-matched lower-priority secret. The zero-length-bump below
 			// still runs because we only skip the push, not the loop iteration.
-			const accepted = !pattern.validate || pattern.validate(matchedText);
+			const accepted = (!pattern.validate || pattern.validate(matchedText))
+				&& !(pattern.skipInsideUrl && isInsideUrl(text, start));
 
 			// Check for overlaps with existing matches (prefer higher priority)
 			const overlaps = matches.some(

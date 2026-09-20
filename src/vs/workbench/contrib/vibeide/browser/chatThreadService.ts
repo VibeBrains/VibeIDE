@@ -113,6 +113,8 @@ const DESIGN_HOOK_NOTE_LIMIT = 6;
 const DESIGN_HOOK_VIEWPORTS: readonly ViewportLabel[] = ['desktop', 'mobile'];
 import { isContinuationRequest, buildScoutGoal, hasAgentWorkSinceLastUserMessage, DEFAULT_MAX_WORDS_BEYOND_PHRASE } from '../common/scoutTrigger.js';
 import { toolParamUri } from '../common/toolParamUri.js';
+import { currentTaskOf, taskReminderLine } from '../common/autopilotNudge.js';
+import { VIBEIDE_CIRCUIT_BREAKERS_ACTION_ID } from './vibeCircuitBreakerCommands.js';
 import { IVibePlanEventJournalService } from '../common/vibePlanEventJournalService.js';
 import { IVibePlanBindingRegistry } from './vibePlanBindingRegistry.js';
 import { IVibeTaskDecompositionService } from '../common/vibeTaskDecompositionService.js';
@@ -5073,6 +5075,23 @@ Output ONLY the JSON, no other text. Start with { and end with }.`;
 				const list = blocking.map(id => `• ${this._circuitBreakers.snapshot(id).reason || breakerName(id)}`).join('\n');
 				const note = localize('vibeide.agent.blockedByBreaker', '⛔ Агент не запущен: сработал защитный предохранитель. Он снимается только вашим решением — команда «VibeIDE: Предохранители агента».\n\n{0}', list);
 				this._addMessageToThread(threadId, { role: 'assistant', displayContent: note, reasoning: '', anthropicReasoning: null });
+				// Сообщение в треде уезжает вверх с каждым следующим запросом, а предохранитель залипает и
+				// переживает перезапуск IDE — человек остаётся с неработающим агентом и без способа его вернуть.
+				// Кнопка ведёт туда, где предохранитель снимается (жалоба пользователя 20.09.2026: «как чинить?»).
+				this._notificationService.notify({
+					severity: Severity.Warning,
+					message: localize('vibeide.agent.blockedByBreaker.notify', 'Агент остановлен защитным предохранителем и не запустится, пока вы его не снимете. Перезапуск IDE его не снимает — это защита, а не сбой.'),
+					actions: {
+						primary: [{
+							id: 'vibeide.agent.openCircuitBreakers',
+							enabled: true,
+							label: localize('vibeide.agent.blockedByBreaker.open', 'Показать предохранители'),
+							tooltip: '',
+							class: undefined,
+							run: () => { void this._commandService.executeCommand(VIBEIDE_CIRCUIT_BREAKERS_ACTION_ID); },
+						}],
+					},
+				});
 				vibeLog.warn('circuitBreaker', `прогон отклонён: открыты предохранители ${blocking.join(', ')}`);
 				this._setStreamState(threadId, { isRunning: undefined });
 				return;
@@ -7789,10 +7808,13 @@ Output ONLY the JSON, no other text. Start with { and end with }.`;
 									// See docs/knowledge/chatUx/chatInterruptAndInject.md.
 									: '⚙️ Авто-продолжение (автопилот): ход не закрывается текстом — только вызовом инструмента.\n\n'
 									+ 'Задача выполнена → вызови `vibe_complete`. Это единственный способ закончить. Перед вызовом перепроверь: правки применены, сборка и тесты проходят, шагов не осталось.\n\n'
-									+ 'Задача НЕ выполнена → продолжай ровно ту работу, которая была поставлена: вызови нужный инструмент.\n\n'
+									+ 'Задача НЕ выполнена → продолжай ровно её: вызови нужный инструмент.\n\n'
 									+ 'ЗАПРЕЩЕНО: придумывать новую работу, о которой не просили; создавать файлы «на всякий случай»; выдумывать данные, которых нет в проекте. Если не знаешь, что делать дальше, — значит работа закончена: вызывай `vibe_complete`. Если для ПОСТАВЛЕННОЙ задачи не хватает данных — выбери разумный вариант из тех, что уже известны из проекта, назови его одной строкой и продолжай.';
 						// Text-only completion case only (not the question / empty-turn variants) gets the XML hint.
 						if (!askedQuestion && info.fullText.trim().length !== 0) { corrective += xmlCompleteHint; }
+						// Задача называется дословно. Без этого «продолжай поставленную работу» в треде с оборвавшимся
+						// прежним ходом читается как прежняя задача — её в контексте больше (жалоба пользователя 20.09.2026).
+						corrective += taskReminderLine(currentTaskOf(this.state.allThreads[threadId]?.messages ?? []));
 						this._addMessageToThread(threadId, { role: 'user', content: corrective, displayContent: corrective, selections: null, isSyntheticNudge: true, state: defaultMessageState });
 						shouldSendAnotherMessage = true;
 						// Force the follow-up turn to emit a tool call (vibe_complete or a real tool) so a
