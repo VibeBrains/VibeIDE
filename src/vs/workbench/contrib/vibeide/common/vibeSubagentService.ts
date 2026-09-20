@@ -345,6 +345,14 @@ function writeScopeField(scope: WriteScope | undefined): { writeScope?: WriteSco
 
 // ── Implementation ────────────────────────────────────────────────────────────
 
+/**
+ * Инструменты, которыми роль меняет проект.
+ *
+ * Список явный, а не «всё, кроме чтения»: новый пишущий инструмент должен попадать сюда
+ * осознанно, иначе роль однажды получит право записи и останется без изоляции молча.
+ */
+const WRITING_TOOLS = new Set(['edit_file', 'rewrite_file', 'create_file_or_folder', 'run_command', 'write_file']);
+
 class VibeSubagentService extends Disposable implements IVibeSubagentService {
 	declare readonly _serviceBrand: undefined;
 
@@ -632,7 +640,18 @@ class VibeSubagentService extends Disposable implements IVibeSubagentService {
 		// Изоляция: роль-исполнитель может работать в своём дереве git, а не в общей папке.
 		// Включается либо просьбой вызывающего, либо настройкой — сама по себе не включается нигде:
 		// дерево меняет то, где окажется работа, и решать это за пользователя нельзя.
-		const wantsWorktree = entry.type === 'implement-step'
+		// Изолируется ЛЮБАЯ роль, которая умеет писать, а не только внутренний `implement-step`.
+		//
+		// Раньше условие проверяло один этот тип, и настройка, обещающая «запускать роль-исполнителя
+		// в отдельном дереве», ничего не делала для ролей, которые пользователь видит: прогон
+		// маршрута ролей 20.09.2026 с включённой настройкой дал `no-worktree` у backend-dev,
+		// frontend-dev, code-reviewer, qa и designer. Сам `implement-step` скрыт от чата как
+		// внутренний — то есть обещание не выполнялось ни в одном заметном человеку случае.
+		//
+		// Роль без права записи не изолируется намеренно: дерево нужно, чтобы правки не попали в
+		// общую папку, а читающей роли класть туда нечего — лишнее дерево только мусорило бы.
+		const canWrite = allowedTools.some(tool => WRITING_TOOLS.has(tool));
+		const wantsWorktree = canWrite
 			&& (handoff.useWorktree ?? this._configuration.getValue<boolean>('vibeide.subagent.worktree') === true);
 		let worktree: WorktreeInfo | null = null;
 		if (wantsWorktree) {
