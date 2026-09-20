@@ -15,6 +15,7 @@
  * electron-browser.
  */
 
+import { AcpMcpExportResult, buildAcpMcpServers } from '../common/acp/acpMcpExport.js';
 import { localize } from '../../../../nls.js';
 import { builtinTools } from '../common/prompt/prompts.js';
 import { vibeLog } from '../common/vibeLog.js';
@@ -583,6 +584,18 @@ class MCPService extends Disposable implements IMCPService {
 			toolResultStr = JSON.stringify(result);
 		}
 		return toolResultStr;
+	}
+
+	public getAcpMcpServers(names: readonly string[]): AcpMcpExportResult {
+		// Выключатель читается оттуда же, откуда его пишет `toggleServerIsOn`: выключенный у нас сервер
+		// не должен оказаться включённым у гостя. Новый сервер без записи состояния считается включённым — так же,
+		// как при загрузке конфига.
+		const userState = this.vibeideSettingsService.state.mcpUserStateOfName;
+		return buildAcpMcpServers({
+			entries: this._serverEntries,
+			allowed: names,
+			isEnabled: name => userState[name]?.isOn !== false,
+		});
 	}
 
 	// toggle MCP server and update isOn in void settings

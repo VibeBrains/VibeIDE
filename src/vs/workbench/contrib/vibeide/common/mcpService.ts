@@ -4,6 +4,7 @@
  *--------------------------------------------------------------------------------------------*/
 
 
+import { AcpMcpExportResult } from './acp/acpMcpExport.js';
 import { createDecorator } from '../../../../platform/instantiation/common/instantiation.js';
 import { Event } from '../../../../base/common/event.js';
 import { MCPServerOfName, MCPToolCallParams, RawMCPToolCall } from './mcpServiceTypes.js';
@@ -46,6 +47,14 @@ export interface IMCPService {
 	readAppResource(serverName: string, uri: string): Promise<MCP.ReadResourceResult>;
 	/** MCP Apps: `tools/call` from an app — only a tool of the same server whose visibility includes `app`. */
 	callToolFromApp(serverName: string, toolName: string, args: Record<string, unknown>): Promise<MCP.CallToolResult>;
+
+	/**
+	 * Серверы для гостевого ACP-агента — поимённо, с причинами пропусков.
+	 *
+	 * Живёт здесь, а не в реестре агентов: `mcp.json` разбирается ровно один раз, и второй разбор разошёлся бы с
+	 * первым молча. Правила отбора чистые — `acpMcpExport.ts`.
+	 */
+	getAcpMcpServers(names: readonly string[]): AcpMcpExportResult;
 
 	/** Config Guard findings from the last load of `mcp.json` (empty if disabled/clean). */
 	getLastGuardFindings(): readonly ConfigGuardFinding[];

@@ -167,6 +167,18 @@ export const initializeParams = (): JsonValue => ({
 	clientInfo: { name: 'VibeIDE', version: '1' },
 });
 
+/**
+ * Объявил ли агент поддержку MCP поверх HTTP (`agentCapabilities.mcpCapabilities.http`).
+ *
+ * Stdio-серверы спецификация объявляет поддержанными всегда, а HTTP — только по этому флагу.
+ * Отправить HTTP-запись агенту, который её не понимает, значит получить у него молча неработающий
+ * сервер: он не обязан ни отказать, ни пожаловаться.
+ */
+export function agentSupportsHttpMcp(greeting: JsonValue): boolean {
+	const caps = (greeting as { agentCapabilities?: { mcpCapabilities?: { http?: unknown } } } | null)?.agentCapabilities;
+	return caps?.mcpCapabilities?.http === true;
+}
+
 /** Способ войти, объявленный агентом в ответе на `initialize`. */
 export interface IAcpAuthMethod {
 	readonly id: string;
@@ -194,12 +206,16 @@ export function authMethodsOf(initializeResult: JsonValue | undefined): readonly
 	return methods;
 }
 
-/** Параметры `session/new`. Путь обязан быть абсолютным — это требование спецификации. */
-export const newSessionParams = (cwd: string): JsonValue => ({
+/**
+ * Параметры `session/new`. Путь обязан быть абсолютным — это требование спецификации.
+ *
+ * Пустой список, а не отсутствие поля: спецификация объявляет `mcpServers` обязательным, и агент
+ * вправе отказать в создании сессии, не найдя его. Непустой список — это КОНФИГУРАЦИИ серверов, к
+ * которым гость подключается сам (правила отбора — `acpMcpExport.ts`).
+ */
+export const newSessionParams = (cwd: string, mcpServers: readonly JsonValue[] = []): JsonValue => ({
 	cwd,
-	// Пустой список, а не отсутствие поля: спецификация объявляет `mcpServers` обязательным, и
-	// агент вправе отказать в создании сессии, не найдя его.
-	mcpServers: [],
+	mcpServers: [...mcpServers],
 });
 
 /** Параметры `session/prompt`: сообщение пользователя блоками содержимого. */

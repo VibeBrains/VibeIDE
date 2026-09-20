@@ -4,6 +4,7 @@
  *--------------------------------------------------------------------------------------------*/
 
 
+import { isHttpAcpMcpServer } from '../../common/acp/acpMcpExport.js';
 import { promises as fsPromises } from 'fs';
 import { ChildProcessWithoutNullStreams, spawn } from 'child_process';
 import { Emitter, Event } from '../../../../../base/common/event.js';
@@ -26,6 +27,7 @@ import {
 	isRequest,
 	isResponse,
 	newSessionParams,
+	agentSupportsHttpMcp,
 	parseSessionUpdate,
 	promptParams,
 	requestFrame,
@@ -142,7 +144,20 @@ export class VibeAcpMainService extends Disposable implements IVibeAcpMain {
 
 		const greeting = await this._call(agent, ACP_AGENT_METHOD.initialize, initializeParams());
 		agent.authMethods = authMethodsOf(greeting);
-		const created = await this._call(agent, ACP_AGENT_METHOD.newSession, newSessionParams(launch.cwd));
+		// HTTP-серверы отсеиваются здесь, а не в окне: поддержку такого транспорта агент объявляет
+		// в рукопожатии, и раньше этого момента узнать её неоткуда. Отсеянное называется в журнале —
+		// у гостя это выглядело бы как неработающий сервер без всякой причины.
+		const wanted = launch.mcpServers ?? [];
+		const httpOk = agentSupportsHttpMcp(greeting);
+		const mcpServers = httpOk ? wanted : wanted.filter(server => !isHttpAcpMcpServer(server));
+		if (mcpServers.length !== wanted.length) {
+			const dropped = wanted.filter(server => isHttpAcpMcpServer(server)).map(server => server.name);
+			vibeLog.warn('ACP', `${launch.name}: агент не объявил MCP поверх HTTP — не переданы серверы ${dropped.join(', ')}`);
+		}
+		if (mcpServers.length > 0) {
+			vibeLog.info('ACP', `${launch.name}: гостю переданы MCP-серверы ${mcpServers.map(server => server.name).join(', ')}`);
+		}
+		const created = await this._call(agent, ACP_AGENT_METHOD.newSession, newSessionParams(launch.cwd, mcpServers as unknown as JsonValue[]));
 		const sessionId = readString(created, 'sessionId');
 		if (!sessionId) {
 			child.kill();
