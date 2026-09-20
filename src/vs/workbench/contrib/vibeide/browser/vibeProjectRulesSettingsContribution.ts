@@ -71,6 +71,13 @@ Registry.as<IConfigurationRegistry>(ConfigurationExtensions.Configuration).regis
 			maximum: 20,
 			description: localize('vibeide.projectRules.maxFolderDepth', 'Глубина рекурсивного сканирования папок правил `.vibe/rules/`.'),
 		},
+		'vibeide.projectRules.nestedAgentsDepth': {
+			type: 'number',
+			default: 3,
+			minimum: 0,
+			maximum: 10,
+			description: localize('vibeide.projectRules.nestedAgentsDepth', 'Глубина поиска вложенных `AGENTS.md` у подпроектов монорепозитория (стандарт agents.md: у пакета свой файл правил). `packages/<имя>/AGENTS.md` — второй уровень. 0 выключает поиск, не трогая корневой файл. По умолчанию 3.'),
+		},
 		'vibeide.projectRules.maxFileBytes': {
 			type: 'number',
 			default: 102400,

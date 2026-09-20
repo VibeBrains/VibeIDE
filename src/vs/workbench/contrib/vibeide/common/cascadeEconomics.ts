@@ -59,19 +59,57 @@ export function billedTokens(run: AgentRunRecord): number {
 }
 
 /**
- * A blended per-token price, in dollars per token.
+ * Доля входа в расходе, когда измеренной доли нет.
  *
- * The ledger keeps one token total per run, not an input/output split, so a single blended rate is
- * the honest resolution here. Weighted towards input because an agent run is overwhelmingly prompt:
- * tool results, files and history dwarf what the model writes back.
+ * Обычный прогон агента — это подавляюще промпт: результаты инструментов, файлы и история кратно
+ * превосходят то, что модель пишет в ответ. Это умолчание, а не истина: у модели с неотключаемым
+ * рассуждением выход сильно больше, и там работает измеренная доля (`observedOutputShare`).
  */
 const INPUT_WEIGHT = 0.85;
 
-export function blendedRate(rate: ModelRate | undefined): number | undefined {
+
+/**
+ * Доля выхода в расходе прогона по его собственной истории, или `undefined`, если истории нет.
+ *
+ * Умолчание 0.15 описывает обычный прогон агента, где подавляющая часть счёта — промпт. У модели с
+ * неотключаемым рассуждением это неверно: трейс биллится как выход, а выход у таких моделей дороже входа
+ * в несколько раз. Заменять умолчание выдуманным множителем нельзя — поэтому берётся измеренная доля из
+ * журнала прогонов той же модели, а при отсутствии истории честно возвращается `undefined`.
+ */
+export function observedOutputShare(
+	runs: readonly AgentRunRecord[],
+	provider: string | undefined,
+	model: string | undefined,
+): number | undefined {
+	let prompt = 0;
+	let completion = 0;
+	for (const run of runs) {
+		if (run.provider !== provider || run.model !== model) { continue; }
+		if (run.promptTokens === undefined || run.completionTokens === undefined) { continue; }
+		prompt += run.promptTokens;
+		completion += run.completionTokens;
+	}
+	const total = prompt + completion;
+	if (total <= 0) { return undefined; }
+	return completion / total;
+}
+
+/**
+ * A blended per-token price, in dollars per token.
+ *
+ * Одна ставка на прогон, потому что счёт токенов у прогона один; разбивка, когда провайдер её
+ * сообщил, идёт в вес через `outputShare`.
+ *
+ * @param outputShare Измеренная доля выхода; без неё берётся умолчание обычного прогона
+ */
+export function blendedRate(rate: ModelRate | undefined, outputShare?: number): number | undefined {
 	if (!rate) {
 		return undefined;
 	}
-	return (rate.input * INPUT_WEIGHT + rate.output * (1 - INPUT_WEIGHT)) / 1_000_000;
+	const output = outputShare === undefined || !Number.isFinite(outputShare)
+		? 1 - INPUT_WEIGHT
+		: Math.min(1, Math.max(0, outputShare));
+	return (rate.input * (1 - output) + rate.output * output) / 1_000_000;
 }
 
 /**

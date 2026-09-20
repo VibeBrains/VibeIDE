@@ -5,6 +5,8 @@
 
 // disable foreign import complaints
 /* eslint-disable */
+import { getModelQuirks } from '../modelQuirks/modelQuirksService.js';
+import { stripUnknownContentBlocks } from '../../common/anthropicStrictBlocks.js';
 import { signatureOfFunctionCallParts } from '../../common/thoughtSignature.js';
 import { vibeLog } from '../../common/vibeLog.js';
 import { traceSendEvent } from '../../common/llmSendTrace.js';
@@ -1280,9 +1282,20 @@ const sendAnthropicChat = async ({ messages, providerName, onText, onFinalMessag
 		// Connection reuse is handled internally by the SDK
 	});
 
+	// Совместимый апстрим отвергает весь запрос из-за одного незнакомого типа блока — сужаем его по причуде.
+	// Отброшенное называется в журнале: иначе следующая такая же история снова не оставит следа.
+	let anthropicMessages = messages;
+	if (getModelQuirks(modelName, providerName).anthropicStrictBlocks === true) {
+		const strict = stripUnknownContentBlocks(messages as unknown as Array<{ content?: unknown }>);
+		if (strict.dropped.length > 0) {
+			console.warn(`[VibeIDE] anthropicStrictBlocks: отброшены типы блоков ${strict.dropped.join(', ')} для ${providerName}/${modelName}`);
+		}
+		anthropicMessages = strict.messages as unknown as typeof messages;
+	}
+
 	const stream = anthropic.messages.stream({
 		system: separateSystemMessage ?? undefined,
-		messages: messages as unknown as Anthropic.MessageParam[], // AnthropicLLMChatMessage type may not exactly match SDK's MessageParam, but is compatible at runtime
+		messages: anthropicMessages as unknown as Anthropic.MessageParam[], // AnthropicLLMChatMessage type may not exactly match SDK's MessageParam, but is compatible at runtime
 		model: modelName,
 		max_tokens: maxTokens ?? 4_096, // anthropic requires this
 		...includeInPayload,

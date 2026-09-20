@@ -21,6 +21,7 @@ import { IWorkspaceContextService } from '../../../../platform/workspace/common/
 import { joinPath } from '../../../../base/common/resources.js';
 import { IVibeideSCMService } from '../common/vibeideSCMTypes.js';
 import { IVibeGitWorktreeService, WorktreeInfo } from '../common/vibeGitWorktreeService.js';
+import { vibeDefaultContent } from '../common/vibeDefaults.js';
 import { vibeLog } from '../common/vibeLog.js';
 import { describeConflictsForAgent, MergeConflictReport, parseMergeConflicts } from '../common/vibeMergeConflictService.js';
 import { INotificationService, Severity } from '../../../../platform/notification/common/notification.js';
@@ -1727,5 +1728,62 @@ registerAction2(class VibeAgentWorktrees extends Action2 {
 				message: localize('vibeide.worktrees.mergeFailed', 'Слить «{0}» не удалось (вероятен конфликт): {1}. Дерево и ветка на месте — воспользуйтесь командой «Разрешить конфликты слияния».', picked.wt.branch, String(error instanceof Error ? error.message : error)),
 			});
 		}
+	}
+});
+
+/**
+ * Создать `AGENTS.md` в корне проекта из шаблона набора.
+ *
+ * Шаблон засевается в `.vibe/AGENTS.template.md`, а не в корень: `AGENTS.md` — файл репозитория
+ * пользователя, он едет в коммит и его читают чужие агенты (Codex, Copilot в пул-реквесте). Создать
+ * его без спроса значит записать в чужой репозиторий, поэтому файл кладётся сюда командой — так же,
+ * как файл базового языка даётся кнопкой, а не засевается.
+ *
+ * Существующий файл не трогается ни при каких условиях: в нём правила, которые писал человек.
+ */
+registerAction2(class VibeCreateAgentsMd extends Action2 {
+	constructor() {
+		super({
+			id: 'vibeide.rules.createAgentsMd',
+			f1: true,
+			title: localize2('vibeide.rules.createAgentsMd.title', 'Создать AGENTS.md'),
+			category: VIBE_COMMAND_CATEGORY,
+		});
+	}
+
+	async run(accessor: ServicesAccessor): Promise<void> {
+		const notifications = accessor.get(INotificationService);
+		const workspace = accessor.get(IWorkspaceContextService);
+		const fileService = accessor.get(IFileService);
+		const editorService = accessor.get(IEditorService);
+
+		const folder = workspace.getWorkspace().folders[0];
+		if (!folder) {
+			notifications.notify({ severity: Severity.Info, message: localize('vibeide.agentsMd.noFolder', 'Нет открытой папки проекта.') });
+			return;
+		}
+		const target = joinPath(folder.uri, 'AGENTS.md');
+		if (await fileService.exists(target)) {
+			// Открыть, а не перезаписать: человек просил файл — он уже есть, и показать его полезнее,
+			// чем отказать. Содержимое остаётся его.
+			notifications.notify({ severity: Severity.Info, message: localize('vibeide.agentsMd.exists', 'AGENTS.md уже есть в корне проекта — открываю его.') });
+			await editorService.openEditor({ resource: target });
+			return;
+		}
+
+		// Шаблон берётся из набора, а не из строки в коде: набор общий с VibeIDEA, и вторая копия
+		// текста разъехалась бы с первой молча.
+		const template = vibeDefaultContent('AGENTS.template.md');
+		if (template === undefined) {
+			notifications.notify({ severity: Severity.Warning, message: localize('vibeide.agentsMd.noTemplate', 'Шаблон AGENTS.md не найден в наборе — сборка собрана без него.') });
+			return;
+		}
+		try {
+			await fileService.writeFile(target, VSBuffer.fromString(template));
+		} catch (error) {
+			notifications.notify({ severity: Severity.Error, message: localize('vibeide.agentsMd.writeFailed', 'Создать AGENTS.md не удалось: {0}', String(error instanceof Error ? error.message : error)) });
+			return;
+		}
+		await editorService.openEditor({ resource: target });
 	}
 });

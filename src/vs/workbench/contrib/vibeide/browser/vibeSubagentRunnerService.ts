@@ -16,6 +16,8 @@ import { vibeLog } from '../common/vibeLog.js';
 import { ModelSelection } from '../common/vibeideSettingsTypes.js';
 import { getModelCapabilities } from '../common/modelCapabilities.js';
 import { tokenQuotaForUsd } from '../common/agentRoleBudget.js';
+import { observedOutputShare } from '../common/cascadeEconomics.js';
+import { IVibeAgentRunLedgerService } from '../common/vibeAgentRunLedgerService.js';
 import { isModelVisionCapable } from '../common/modelVisionHeuristics.js';
 import { IVibeideSettingsService } from '../common/vibeideSettingsService.js';
 import { ChatMessage } from '../common/chatThreadServiceTypes.js';
@@ -100,6 +102,7 @@ class VibeSubagentRunnerService extends Disposable implements IVibeSubagentRunne
 		@IVibeSubagentRegistryService private readonly _registry: IVibeSubagentRegistryService,
 		@IWorkspaceContextService private readonly _workspaceContextService: IWorkspaceContextService,
 		@IVibeSpendLedgerService private readonly _spendLedger: IVibeSpendLedgerService,
+		@IVibeAgentRunLedgerService private readonly _runLedger: IVibeAgentRunLedgerService,
 	) {
 		super();
 	}
@@ -153,7 +156,13 @@ class VibeSubagentRunnerService extends Disposable implements IVibeSubagentRunne
 		// A model without a known price keeps the token quota it already had: an unknown rate cannot
 		// be turned into a ceiling, and refusing the run instead would punish the user for our gap.
 		const usdPerRun = this._settings.state.usdBudgetOfRole?.[req.type]?.perRun;
-		const usdQuota = tokenQuotaForUsd(usdPerRun, getModelCapabilities(modelSelection.providerName, modelSelection.modelName, this._settings.state.overridesOfModel).cost);
+		// Доля выхода берётся из истории прогонов ЭТОЙ же модели: у модели с неотключаемым рассуждением
+		// трейс биллится как выход, и усреднённая ставка «почти всё — промпт» давала слишком большую квоту.
+		// Истории нет — остаётся прежнее умолчание: выдуманный множитель был бы хуже честного умолчания.
+		const outputShare = usdPerRun !== undefined
+			? observedOutputShare(await this._runLedger.getRuns().catch(() => []), modelSelection.providerName, modelSelection.modelName)
+			: undefined;
+		const usdQuota = tokenQuotaForUsd(usdPerRun, getModelCapabilities(modelSelection.providerName, modelSelection.modelName, this._settings.state.overridesOfModel).cost, outputShare);
 		const maxTokensEst = usdQuota !== undefined ? Math.min(req.maxTokensEst, usdQuota) : req.maxTokensEst;
 		// Mutable: under Autopilot the resource limits are SOFT — they auto-extend instead of stopping
 		// the role (see the reset block in the loop). cancelled/denied-actions stay hard.

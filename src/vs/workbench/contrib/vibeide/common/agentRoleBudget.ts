@@ -19,7 +19,7 @@
  */
 
 import { AgentRunRecord } from './agentRunLedger.js';
-import { ModelRate, billedTokens, blendedRate } from './cascadeEconomics.js';
+import { ModelRate, billedTokens, blendedRate, observedOutputShare } from './cascadeEconomics.js';
 
 /** No budget configured for a role means "not limited" — never "limited to zero". */
 export type RoleBudgets = Readonly<Record<string, number | null | undefined>>;
@@ -132,7 +132,7 @@ export function sumRoleSpendUsd(
 	let unpricedRuns = 0;
 	for (const record of records) {
 		if (record.role !== role || record.startedAt < sinceMs) { continue; }
-		const rate = blendedRate(rateOf(record.provider, record.model));
+		const rate = blendedRate(rateOf(record.provider, record.model), observedOutputShare(records, record.provider, record.model));
 		if (rate === undefined) { unpricedRuns++; continue; }
 		usd += billedTokens(record) * rate;
 		priced++;
@@ -172,9 +172,12 @@ export function evaluateRoleUsdBudget(
  * An unknown price does NOT silently drop the ceiling to zero (that would refuse every run on an
  * unpriced model) and does not silently ignore it either — the caller reports which one happened.
  */
-export function tokenQuotaForUsd(usdPerRun: number | undefined, rate: ModelRate | undefined): number | undefined {
+export function tokenQuotaForUsd(usdPerRun: number | undefined, rate: ModelRate | undefined, outputShare?: number): number | undefined {
 	if (usdPerRun === undefined || usdPerRun <= 0) { return undefined; }
-	const perToken = blendedRate(rate);
+	// Доля выхода — из истории этой же модели, когда она есть. У модели с неотключаемым
+	// рассуждением трейс биллится как выход по ставке выхода, и без этого квота по долларовому потолку
+	// выходила завышенной — роль тратила больше денег, чем разрешил человек.
+	const perToken = blendedRate(rate, outputShare);
 	if (perToken === undefined || perToken <= 0) { return undefined; }
 	return Math.floor(usdPerRun / perToken);
 }

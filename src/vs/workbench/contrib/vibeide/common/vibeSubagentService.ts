@@ -766,6 +766,8 @@ class VibeSubagentService extends Disposable implements IVibeSubagentService {
 			endedAt: Date.now(),
 			tokensUsed: result.tokensUsed,
 			cachedTokens: result.cachedTokensUsed,
+			promptTokens: result.promptTokensUsed,
+			completionTokens: result.completionTokensUsed,
 			stepsDone: entry.liveStepsDone,
 			artifacts: result.artifacts,
 			stopCode: result.stopCode,
