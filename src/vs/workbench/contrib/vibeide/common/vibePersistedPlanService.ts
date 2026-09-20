@@ -4,6 +4,8 @@
  *--------------------------------------------------------------------------------------------*/
 
 
+import { TaskBrief } from './taskBrief.js';
+import { briefFileName, parseBriefFile, serializeBrief } from './taskBriefFile.js';
 import { vibeLog } from './vibeLog.js';
 import { isModelSubstituted } from './modelEcho.js';
 import { Disposable } from '../../../../base/common/lifecycle.js';
@@ -214,6 +216,18 @@ export interface IVibePersistedPlanService {
 	ensurePlansDirectory(workspaceFolder: URI): Promise<void>;
 
 	/**
+	 * Записать бриф задачи рядом с планами.
+	 *
+	 * Бриф — СВОЙ артефакт, а не часть плана: план можно отбросить и составить заново, а требования
+	 * при этом не меняются. И пайплайны с очередью задач работают без плана — им тоже нужно,
+	 * о чём просили.
+	 */
+	saveBrief(workspaceFolder: URI, brief: TaskBrief): Promise<void>;
+
+	/** Прочитать бриф по идентификатору; `undefined` — файла нет или он не наш. */
+	loadBrief(workspaceFolder: URI, briefId: string): Promise<TaskBrief | undefined>;
+
+	/**
 	 * Acquire or refresh `.vibe/plans/.leases/<planId>.json`.
 	 * Blocks parallel execution of the same planId from a different chat thread while the lease is fresh.
 	 */
@@ -267,6 +281,23 @@ class VibePersistedPlanService extends Disposable implements IVibePersistedPlanS
 		@IVibePlanEventJournalService private readonly _planEventJournal: IVibePlanEventJournalService,
 	) {
 		super();
+	}
+
+	async saveBrief(workspaceFolder: URI, brief: TaskBrief): Promise<void> {
+		await this.ensurePlansDirectory(workspaceFolder);
+		const uri = joinPath(this.plansDirectoryUri(workspaceFolder), briefFileName(brief.id));
+		await this._fileService.writeFile(uri, VSBuffer.fromString(serializeBrief(brief)));
+	}
+
+	async loadBrief(workspaceFolder: URI, briefId: string): Promise<TaskBrief | undefined> {
+		const uri = joinPath(this.plansDirectoryUri(workspaceFolder), briefFileName(briefId));
+		try {
+			return parseBriefFile((await this._fileService.readFile(uri)).value.toString());
+		} catch {
+			// Файла нет или он нечитаем — это «брифа нет», а не ошибка плана: планы старше этой
+			// возможности живут без требований и должны продолжать работать.
+			return undefined;
+		}
 	}
 
 	plansDirectoryUri(workspaceFolder: URI): URI {

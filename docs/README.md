@@ -30,6 +30,7 @@
 - [choosingModel.md](manuals/choosingModel.md) — как выбирать модель: почему вендорские проценты меряют связку «модель + харнесс», а не модель, и что смотреть вместо них.
 - [designWorkflow.md](manuals/designWorkflow.md) — дизайнер: предусловие (превью), первый запуск тремя шагами, три класса находок, вкус против дефекта, режимы авто-замера, словарь команд.
 - [subagentWorktree.md](manuals/subagentWorktree.md) — изоляция роли-исполнителя в рабочем дереве git: предусловия, включение, что происходит с работой роли и как найти её ветку.
+- [taskBriefSpec.md](manuals/taskBriefSpec.md) — формат `.vibe/plans/<id>.brief.md`: требования задачи цитатами, кто может их снимать и как устроена слепая приёмка.
 - [firstRun.md](manuals/firstRun.md) — первый запуск: SmartScreen на Windows и Gatekeeper на macOS (в Sequoia и новее — только через Системные настройки).
 - [howToContribute.md](manuals/howToContribute.md) — сборка и запуск из исходников (prerequisites, dev mode).
 - [providersSpec.md](manuals/providersSpec.md) — формат `.vibe/providers.json` (скормить LLM → готовый конфиг).

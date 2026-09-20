@@ -71,6 +71,13 @@ export type PlanStep = {
 	/** When non-empty, MCP tool calls must use one of these full tool names (case-insensitive). */
 	mcpToolsAllow?: string[];
 	files?: string[]; // files that will be affected
+	/**
+	 * Требования задачи, которые закрывает этот шаг (`r1`, `r2`, … из брифа `briefId`).
+	 *
+	 * Пусто — шаг ни к чему не привязан, то есть работа, о которой не просили. Это не запрещено, но
+	 * видно в покрытии: такая работа стоит денег и риска ровно столько же, сколько заказанная.
+	 */
+	requirementIds?: string[];
 	status?: StepStatus; // execution status
 	checkpointIdx?: number | null; // checkpoint before this step
 	toolCalls?: string[]; // tool message IDs executed for this step
@@ -94,6 +101,12 @@ export type PlanMessage = {
 	executionStartTime?: number; // timestamp when execution started
 	/** UUID written next to `.vibe/plans/*.plan.md` artifact when approve persists to disk */
 	persistedPlanId?: string;
+	/**
+	 * Бриф задачи (`.vibe/plans/<id>.brief.md`), под который составлен план.
+	 *
+	 * Ссылка, а не копия: план можно отбросить и составить заново, требования при этом те же.
+	 */
+	briefId?: string;
 	/** Advisory-only heuristic from IVibeLLMJudgeService when approving the plan */
 	secondOpinion?: {
 		readonly verdict: 'looks_ok' | 'potential_issue' | 'security_concern';

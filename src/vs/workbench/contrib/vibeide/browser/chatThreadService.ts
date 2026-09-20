@@ -114,6 +114,7 @@ const DESIGN_HOOK_VIEWPORTS: readonly ViewportLabel[] = ['desktop', 'mobile'];
 import { isContinuationRequest, buildScoutGoal, hasAgentWorkSinceLastUserMessage, DEFAULT_MAX_WORDS_BEYOND_PHRASE } from '../common/scoutTrigger.js';
 import { toolParamUri } from '../common/toolParamUri.js';
 import { currentTaskOf, taskReminderLine } from '../common/autopilotNudge.js';
+import { coverageOf, isCovered, parseBrief } from '../common/taskBrief.js';
 import { VIBEIDE_CIRCUIT_BREAKERS_ACTION_ID } from './vibeCircuitBreakerCommands.js';
 import { IVibePlanEventJournalService } from '../common/vibePlanEventJournalService.js';
 import { IVibePlanBindingRegistry } from './vibePlanBindingRegistry.js';
@@ -804,6 +805,8 @@ export interface IChatThreadService {
 	 *  by budget-fill truncation in convertToLLMMessageService (the honor side already exists). */
 	toggleMessagePinned(opts: { threadId: string; messageIdx: number }): void;
 	dismissAllPendingPlans(threadId: string, opts?: { resumeBlockedMessage?: boolean }): number;
+	/** Файлы, изменённые в этом разговоре — для слепой приёмки. */
+	changedPathsOfThread(threadId: string): string[];
 
 	// Step execution control
 	pauseAgentExecution(opts: { threadId: string }): Promise<void>;
@@ -2253,6 +2256,36 @@ class ChatThreadService extends Disposable implements IChatThreadService {
 		void this._approvePlanAndRun(opts).catch(err => vibeLog.error('chatThread', 'approvePlan failed', err));
 	}
 
+	/**
+	 * Показать непокрытые требования и спросить, одобрять ли всё равно.
+	 *
+	 * `true` — продолжаем. Брифа нет (план старше этой возможности или задача не разбиралась) — тоже
+	 * `true`: требовать требований там, где их нет, значило бы сломать работу тем, кто о них не просил.
+	 */
+	private async _confirmRequirementCoverage(plan: PlanMessage): Promise<boolean> {
+		if (!plan.briefId) { return true; }
+		const folder = this._workspaceContextService.getWorkspace().folders[0];
+		if (!folder) { return true; }
+		const brief = await this._persistedPlanService.loadBrief(folder.uri, plan.briefId);
+		if (!brief) { return true; }
+		const coverage = coverageOf(brief, plan.steps);
+		if (isCovered(coverage)) { return true; }
+
+		const lines: string[] = [];
+		for (const requirement of coverage.uncovered) {
+			lines.push(`• ${requirement.id}: ${requirement.quote}`);
+		}
+		if (coverage.unknownRefs.length > 0) {
+			lines.push(localize('vibeide.brief.unknownRefs', 'Шаги ссылаются на требования, которых нет: {0}', coverage.unknownRefs.join(', ')));
+		}
+		const { confirmed } = await this._dialogService.confirm({
+			message: localize('vibeide.brief.uncovered', 'В плане нет шагов под часть требований задачи ({0})', coverage.uncovered.length),
+			detail: `${lines.join('\n')}\n\n${localize('vibeide.brief.uncoveredDetail', 'Одобрить всё равно — значит оставить эти требования невыполненными. Чтобы снять требование совсем, воспользуйтесь командой «VibeIDE: Требования задачи» — это решение только ваше.')}`,
+			primaryButton: localize('vibeide.brief.approveAnyway', 'Одобрить'),
+		});
+		return confirmed;
+	}
+
 	private async _approvePlanAndRun(opts: { threadId: string; messageIdx: number }): Promise<void> {
 		const thread = this.state.allThreads[opts.threadId];
 		if (!thread) { return; }
@@ -2260,6 +2293,14 @@ class ChatThreadService extends Disposable implements IChatThreadService {
 		if (!message || message.role !== 'plan') { return; }
 
 		const plan = message as PlanMessage;
+
+		// Требования задачи сверяются ДО одобрения: после него план уже исполняется, и «об этом не
+		// просили» выясняется постфактум. Решение остаётся за человеком — мы не запрещаем, а не даём пропустить
+		// непокрытое молча: вычеркнуть требование может только он сам.
+		if (!await this._confirmRequirementCoverage(plan)) {
+			return;
+		}
+
 		const planBlob = [
 			plan.summary,
 			...plan.steps.map(step =>
@@ -3463,6 +3504,31 @@ class ChatThreadService extends Disposable implements IChatThreadService {
 	}
 
 	// Generate plan from user request by asking LLM
+	/**
+	 * Разобрать задачу на требования и привязать бриф к плану.
+	 *
+	 * Исходный текст — последнее НЕСИНТЕТИЧЕСКОЕ сообщение человека: подсказки автопилота пишем мы сами,
+	 * и принять их за задачу значило бы принимать работу по собственному же тексту.
+	 *
+	 * Нет открытой папки или требований не вышло — план остаётся как был: работа не должна ломаться из-за
+	 * того, что требования не разобрались.
+	 */
+	private async _attachBriefToPlan(threadId: string, plan: PlanMessage): Promise<PlanMessage> {
+		try {
+			const folder = this._workspaceContextService.getWorkspace().folders[0];
+			if (!folder) { return plan; }
+			const text = currentTaskOf(this.state.allThreads[threadId]?.messages ?? []);
+			if (!text) { return plan; }
+			const brief = parseBrief(text, generateUuid().slice(0, 8), Date.now());
+			if (brief.requirements.length === 0) { return plan; }
+			await this._persistedPlanService.saveBrief(folder.uri, brief);
+			return { ...plan, briefId: brief.id };
+		} catch (error) {
+			vibeLog.warn('chatThread', 'требования задачи не разобрались', error);
+			return plan;
+		}
+	}
+
 	private async _generatePlanFromUserRequest(
 		threadId: string,
 		modelSelection: ModelSelection | null,
@@ -3587,8 +3653,12 @@ Output ONLY the JSON, no other text. Start with { and end with }.`;
 									approvalState: 'pending'
 								};
 
+								// Бриф рождается здесь же, из ТОГО ЖЕ сообщения, из которого составлен план, и ложится
+								// СВОИМ файлом: план можно отбросить и составить заново, требования при этом те же.
+								const withBrief = await this._attachBriefToPlan(threadId, planMessage);
+
 								// Add plan to thread (DO NOT add assistant message - hide the raw JSON)
-								this._addMessageToThread(threadId, planMessage);
+								this._addMessageToThread(threadId, withBrief);
 								// CRITICAL: Invalidate cache immediately so subsequent checks see the new plan
 								this._planCache.delete(threadId);
 								// CRITICAL: Stop execution immediately - set state to idle (don't abort which adds messages)
@@ -9103,6 +9173,15 @@ We only need to do it for files that were edited since `from`, ie files between 
 	}
 
 	/** Files touched recently in this thread (from checkpoint snapshots) — context for the scout goal. */
+	/**
+	 * Файлы, изменённые в этом разговоре, — факт о репозитории, а не часть плана.
+	 *
+	 * Нужны слепой приёмке: она смотрит на текст задачи и на то, что действительно изменилось, и ни на что больше.
+	 */
+	changedPathsOfThread(threadId: string): string[] {
+		return this._recentChangedPaths(threadId);
+	}
+
 	private _recentChangedPaths(threadId: string): string[] {
 		const thread = this.state.allThreads[threadId];
 		if (!thread) { return []; }

@@ -22,6 +22,10 @@ import { joinPath } from '../../../../base/common/resources.js';
 import { IVibeideSCMService } from '../common/vibeideSCMTypes.js';
 import { IVibeGitWorktreeService, WorktreeInfo } from '../common/vibeGitWorktreeService.js';
 import { vibeDefaultContent } from '../common/vibeDefaults.js';
+import { waiveRequirement } from '../common/taskBrief.js';
+import { buildAcceptanceGoal, parseAcceptance, summarizeAcceptance } from '../common/blindAcceptance.js';
+import { IVibeSubagentService } from '../common/vibeSubagentService.js';
+import { briefFileName } from '../common/taskBriefFile.js';
 import { vibeLog } from '../common/vibeLog.js';
 import { describeConflictsForAgent, MergeConflictReport, parseMergeConflicts } from '../common/vibeMergeConflictService.js';
 import { INotificationService, Severity } from '../../../../platform/notification/common/notification.js';
@@ -1785,5 +1789,138 @@ registerAction2(class VibeCreateAgentsMd extends Action2 {
 			return;
 		}
 		await editorService.openEditor({ resource: target });
+	}
+});
+
+/**
+ * Требования задачи: посмотреть, что обещано, и снять требование.
+ *
+ * Снятие живёт ЗДЕСЬ, а не среди инструментов агента, и это не вопрос удобства. Снять требование —
+ * значит отказаться от части просьбы; такое решение принимает тот, кто просил. Дай агенту эту
+ * возможность — и слепая приёмка превратится в самоаттестацию: не сделал, вычеркнул, отчитался.
+ */
+registerAction2(class VibeTaskRequirements extends Action2 {
+	constructor() {
+		super({
+			id: 'vibeide.task.requirements',
+			f1: true,
+			title: localize2('vibeide.task.requirements.title', 'Требования задачи'),
+			category: VIBE_COMMAND_CATEGORY,
+		});
+	}
+
+	async run(accessor: ServicesAccessor): Promise<void> {
+		const notifications = accessor.get(INotificationService);
+		const quickInput = accessor.get(IQuickInputService);
+		const workspace = accessor.get(IWorkspaceContextService);
+		const plans = accessor.get(IVibePersistedPlanService);
+		const chatThreadService = accessor.get(IChatThreadService);
+
+		const folder = workspace.getWorkspace().folders[0];
+		if (!folder) {
+			notifications.notify({ severity: Severity.Info, message: localize('vibeide.requirements.noFolder', 'Нет открытой папки проекта.') });
+			return;
+		}
+		const threadId = chatThreadService.state.currentThreadId;
+		const messages = chatThreadService.state.allThreads[threadId]?.messages ?? [];
+		// Сужение по роли до поиска: у общего сообщения треда поля `briefId` нет и быть не должно.
+		const briefId = [...messages].reverse()
+			.filter((m): m is Extract<typeof m, { role: 'plan' }> => m.role === 'plan')
+			.find(m => m.briefId)?.briefId;
+		if (!briefId) {
+			notifications.notify({ severity: Severity.Info, message: localize('vibeide.requirements.none', 'У этого разговора нет разобранной задачи — требований пока нет.') });
+			return;
+		}
+		const brief = await plans.loadBrief(folder.uri, briefId);
+		if (!brief) {
+			notifications.notify({ severity: Severity.Warning, message: localize('vibeide.requirements.missing', 'Файл требований не найден: {0}', briefFileName(briefId)) });
+			return;
+		}
+
+		const picked = await quickInput.pick(
+			brief.requirements.map(requirement => ({
+				label: `${requirement.waived ? '$(check) ' : ''}${requirement.id}. ${requirement.quote}`,
+				description: requirement.waived ? localize('vibeide.requirements.waivedBy', 'снято: {0}', requirement.waived.reason) : undefined,
+				requirement,
+			})),
+			{ title: localize('vibeide.requirements.pick', 'Требования задачи'), placeHolder: localize('vibeide.requirements.pickHint', 'Выберите требование, чтобы снять его с исполнения') });
+		if (!picked) { return; }
+		if (picked.requirement.waived) {
+			notifications.notify({ severity: Severity.Info, message: localize('vibeide.requirements.already', 'Это требование уже снято.') });
+			return;
+		}
+
+		// Причина обязательна: «вычеркнуто без объяснения» через месяц неотличимо от забытого.
+		const reason = await quickInput.input({
+			title: localize('vibeide.requirements.waiveTitle', 'Снять требование {0}', picked.requirement.id),
+			prompt: picked.requirement.quote,
+			placeHolder: localize('vibeide.requirements.waivePrompt', 'Почему это требование больше не нужно выполнять'),
+		});
+		if (reason === undefined) { return; }
+		const updated = waiveRequirement(brief, picked.requirement.id, reason, Date.now());
+		if (!updated) {
+			notifications.notify({ severity: Severity.Warning, message: localize('vibeide.requirements.needReason', 'Требование не снято: нужна причина.') });
+			return;
+		}
+		await plans.saveBrief(folder.uri, updated);
+		notifications.notify({ severity: Severity.Info, message: localize('vibeide.requirements.waived', 'Требование {0} снято с исполнения.', picked.requirement.id) });
+	}
+});
+
+/**
+ * Слепая приёмка: сверить сделанное с исходным текстом задачи — и больше ни с чем.
+ *
+ * Приёмщик получает задание, собранное `buildAcceptanceGoal`, который плана не принимает вовсе:
+ * изоляция структурная, а не обещанная. Роль read-only (`explore`) — приёмщик говорит правду о
+ * работе, а не улучшает её; дай ему право писать, и он перестанет быть независимым.
+ */
+registerAction2(class VibeBlindAcceptance extends Action2 {
+	constructor() {
+		super({
+			id: 'vibeide.task.blindAcceptance',
+			f1: true,
+			title: localize2('vibeide.task.blindAcceptance.title', 'Слепая приёмка задачи'),
+			category: VIBE_COMMAND_CATEGORY,
+		});
+	}
+
+	async run(accessor: ServicesAccessor): Promise<void> {
+		const notifications = accessor.get(INotificationService);
+		const workspace = accessor.get(IWorkspaceContextService);
+		const plans = accessor.get(IVibePersistedPlanService);
+		const chatThreadService = accessor.get(IChatThreadService);
+		const subagents = accessor.get(IVibeSubagentService);
+
+		const folder = workspace.getWorkspace().folders[0];
+		if (!folder) {
+			notifications.notify({ severity: Severity.Info, message: localize('vibeide.acceptance.noFolder', 'Нет открытой папки проекта.') });
+			return;
+		}
+		const threadId = chatThreadService.state.currentThreadId;
+		const messages = chatThreadService.state.allThreads[threadId]?.messages ?? [];
+		const briefId = [...messages].reverse()
+			.filter((m): m is Extract<typeof m, { role: 'plan' }> => m.role === 'plan')
+			.find(m => m.briefId)?.briefId;
+		const brief = briefId ? await plans.loadBrief(folder.uri, briefId) : undefined;
+		if (!brief) {
+			notifications.notify({ severity: Severity.Info, message: localize('vibeide.acceptance.noBrief', 'У этого разговора нет разобранной задачи — принимать не по чему.') });
+			return;
+		}
+
+		const changed = chatThreadService.changedPathsOfThread(threadId);
+		const { awaitResult } = await subagents.spawnExplore({
+			parentThreadId: threadId,
+			goal: buildAcceptanceGoal(brief, changed),
+		});
+		const result = await awaitResult();
+		const lines = parseAcceptance(result.summary ?? '', brief.requirements);
+		const report = [
+			localize('vibeide.acceptance.header', 'Слепая приёмка: {0}', summarizeAcceptance(lines)),
+			'',
+			...lines.map(line => `${line.id} — ${line.verdict}: ${line.note}`),
+		].join('\n');
+		// Отчёт уходит в тред: приёмка — это разговор о работе, а не всплывающее окно, которое
+		// закрывается и не находится.
+		await chatThreadService.addUserMessageAndStreamResponse({ userMessage: report, threadId, displayContent: report });
 	}
 });
