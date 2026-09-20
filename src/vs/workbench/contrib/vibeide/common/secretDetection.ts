@@ -29,14 +29,6 @@ export interface SecretPattern {
 	 * regex matches (previous behavior).
 	 */
 	validate?: (candidate: string) => boolean;
-	/**
-	 * Отбрасывать совпадение, если оно внутри URL.
-	 *
-	 * Шестнадцатеричный кусок в адресе — это контрольная сумма дистрибутива, хеш коммита или
-	 * имя файла в CDN, а не секрет. Настоящий секрет в адресе подписан словом (`token=`, `key=`,
-	 * `Bearer`) и ловится правилами, которые смотрят на это слово, а не на форму строки.
-	 */
-	skipInsideUrl?: boolean;
 }
 
 /** Shannon entropy in bits/char — low for words/identifiers, high for random keys. */
@@ -219,8 +211,13 @@ export const DEFAULT_SECRET_PATTERNS: SecretPattern[] = [
 		id: 'generic-token',
 		name: 'Generic Token',
 		pattern: /\b([a-f0-9]{32}|[a-f0-9]{40}|[a-f0-9]{64})\b/g,
-		enabled: false, // Disabled by default - too many false positives
-		skipInsideUrl: true,
+		// Выключено по умолчанию: слишком много ложных срабатываний. Включается явным решением
+		// человека (`vibeide.secretDetection.enabledPatternIds`), и тогда судит всё подряд, включая
+		// адреса. Исключение для адресов здесь было и убрано 20.09.2026: «хеш в адресе — это
+		// контрольная сумма» верно ровно до первого адреса вида `.../download?token=<32 знака>`, а
+		// молча пропущенный секрет дороже лишнего вопроса. Ложное срабатывание теперь снимается
+		// человеком в один клик и называет идентификатор правила, чтобы его можно было выключить.
+		enabled: false,
 		priority: 50,
 	},
 ];
@@ -262,21 +259,6 @@ const DEFAULT_CONFIG: SecretDetectionConfig = {
 /**
  * Gets all active patterns (defaults + custom, filtered by enabled/disabled)
  */
-/**
- * Стоит ли совпадение в позиции `start` внутри URL.
- *
- * Смотрим назад до пробела или кавычки — то есть на слово, внутри которого стоит кандидат, — и
- * ищем в нём схему. Разбор настоящим анализатором URL здесь не нужен: вопрос не «валидный ли адрес»,
- * а «не часть ли это адреса».
- */
-export function isInsideUrl(text: string, start: number): boolean {
-	let from = start;
-	while (from > 0 && !/[\s"'`<>(),;]/.test(text[from - 1])) {
-		from--;
-	}
-	return text.slice(from, start).includes('://');
-}
-
 export function getActivePatterns(config: SecretDetectionConfig = DEFAULT_CONFIG): SecretPattern[] {
 	if (!config.enabled) {
 		return [];
@@ -362,8 +344,7 @@ export function detectSecrets(
 			// before overlap handling so a rejected candidate neither lands nor evicts
 			// a legitimately-matched lower-priority secret. The zero-length-bump below
 			// still runs because we only skip the push, not the loop iteration.
-			const accepted = (!pattern.validate || pattern.validate(matchedText))
-				&& !(pattern.skipInsideUrl && isInsideUrl(text, start));
+			const accepted = !pattern.validate || pattern.validate(matchedText);
 
 			// Check for overlaps with existing matches (prefer higher priority)
 			const overlaps = matches.some(

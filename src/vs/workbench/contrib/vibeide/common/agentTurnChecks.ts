@@ -61,7 +61,20 @@ export interface TurnFacts {
 	/** Workspace-relative paths the turn wrote to. */
 	readonly changedFiles: readonly string[];
 	/** Secret matches found in those files: path plus the detector's label. */
-	readonly secretHits: readonly { readonly file: string; readonly kind: string }[];
+	readonly secretHits: readonly {
+		readonly file: string;
+		/** Человеческое имя правила: «Generic Token». */
+		readonly kind: string;
+		/**
+		 * Идентификатор правила: `generic-token`.
+		 *
+		 * Он попадает в текст сообщения не для красоты: именно его человек вписывает в настройку
+		 * `vibeide.secretDetection.disabledPatternIds`, чтобы правило больше не срабатывало. Пока
+		 * сообщение называло только имя («Generic Token»), выключить правило по нему было нельзя —
+		 * пользователь 20.09.2026 искал способ в другом проекте, спрашивая у стороннего агента.
+		 */
+		readonly patternId: string;
+	}[];
 	/** Writes that landed on a closed path, with the pattern that closed it. */
 	readonly protectedHits: readonly { readonly file: string; readonly pattern: string }[];
 	/** Changed files that match the verification patterns — see `matchVerificationPaths`. */
@@ -139,7 +152,9 @@ export function evaluateTurnChecks(facts: TurnFacts, enabled: readonly TurnCheck
 					passed: hits.length === 0,
 					detail: hits.length === 0
 						? 'Секретов в изменённых файлах не найдено.'
-						: `Похоже на секрет в изменённых файлах: ${hits.map(h => `${h.file} (${h.kind})`).join(', ')}.`,
+						// Правило названо и именем, и идентификатором: имя объясняет, что сработало,
+						// идентификатор — то, что вписывают в настройку, чтобы выключить его навсегда.
+						: `Похоже на секрет в изменённых файлах: ${hits.map(h => `${h.file} (${h.kind}, правило ${h.patternId})`).join(', ')}.`,
 				});
 				break;
 			}

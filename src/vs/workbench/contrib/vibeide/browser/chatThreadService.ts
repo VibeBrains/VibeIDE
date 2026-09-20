@@ -5143,7 +5143,15 @@ Output ONLY the JSON, no other text. Start with { and end with }.`;
 				// thing twice. The title is still what the management command lists — there it labels
 				// breakers that have no reason text yet.
 				const list = blocking.map(id => `• ${this._circuitBreakers.snapshot(id).reason || breakerName(id)}`).join('\n');
-				const note = localize('vibeide.agent.blockedByBreaker', '⛔ Агент не запущен: сработал защитный предохранитель. Он снимается только вашим решением — команда «VibeIDE: Предохранители агента».\n\n{0}', list);
+				// Две дороги, обе названы прямо в сообщении: снять сейчас — или выключить правило
+				// навсегда. Пока их не было, человек с ложным срабатыванием оставался один на один с
+				// запертым агентом: жалоба 20.09.2026 — «я еле нашёл, как отключить, и мне пришлось
+				// спросить у агента в другом проекте». Идентификатор правила стоит в строке причины
+				// выше, поэтому здесь достаточно назвать настройку, куда его вписывают.
+				const note = localize(
+					'vibeide.agent.blockedByBreaker',
+					'⛔ Агент не запущен: сработал защитный предохранитель.\n\n{0}\n\nЧто с этим делать:\n• разово — снять предохранитель кнопкой в уведомлении или командой «VibeIDE: Предохранители агента», и повторить запрос;\n• навсегда — выключить сработавшее правило: настройка «vibeide.secretDetection.disabledPatternIds», в неё вписывается идентификатор правила из строки выше (для закрытых путей — «.vibe/constraints.json» и «.vibe/permissions.json»).\n\nПерезапуск IDE предохранитель не снимает: это защита, а не сбой.',
+					list);
 				this._addMessageToThread(threadId, { role: 'assistant', displayContent: note, reasoning: '', anthropicReasoning: null });
 				// Сообщение в треде уезжает вверх с каждым следующим запросом, а предохранитель залипает и
 				// переживает перезапуск IDE — человек остаётся с неработающим агентом и без способа его вернуть.
@@ -5153,6 +5161,34 @@ Output ONLY the JSON, no other text. Start with { and end with }.`;
 					message: localize('vibeide.agent.blockedByBreaker.notify', 'Агент остановлен защитным предохранителем и не запустится, пока вы его не снимете. Перезапуск IDE его не снимает — это защита, а не сбой.'),
 					actions: {
 						primary: [{
+							// Разовое разрешение: человек посмотрел на причину и говорит «это не секрет».
+							// Снимает ровно те предохранители, что держат прогон, и ничего не меняет в
+							// настройках — следующее такое же срабатывание снова спросит.
+							id: 'vibeide.agent.liftBreakersOnce',
+							enabled: true,
+							label: localize('vibeide.agent.blockedByBreaker.liftOnce', 'Разрешить этот раз'),
+							tooltip: '',
+							class: undefined,
+							run: () => {
+								const lifted = blocking.filter(id => this._circuitBreakers.recover(id, true).state === 'closed');
+								vibeLog.info('circuitBreaker', `сняты человеком разово: ${lifted.join(', ') || '—'}`);
+								this._notificationService.notify({
+									severity: Severity.Info,
+									message: lifted.length === blocking.length
+										? localize('vibeide.agent.blockedByBreaker.lifted', 'Предохранитель снят. Повторите запрос — правило осталось включённым и сработает снова на таком же случае.')
+										: localize('vibeide.agent.blockedByBreaker.liftedPartly', 'Снять удалось не всё: откройте «VibeIDE: Предохранители агента».'),
+								});
+							},
+						}, {
+							// Вторая дорога — выключить правило навсегда. Настройку не правим за
+							// человека: открываем её на нужном ключе, идентификатор он берёт из причины.
+							id: 'vibeide.agent.openSecretSettings',
+							enabled: true,
+							label: localize('vibeide.agent.blockedByBreaker.disableForever', 'Где выключить правило'),
+							tooltip: '',
+							class: undefined,
+							run: () => { void this._commandService.executeCommand('workbench.action.openSettings', 'vibeide.secretDetection.disabledPatternIds'); },
+						}, {
 							id: 'vibeide.agent.openCircuitBreakers',
 							enabled: true,
 							label: localize('vibeide.agent.blockedByBreaker.open', 'Показать предохранители'),

@@ -37,15 +37,18 @@ suite('Secret Detection', () => {
 			});
 		});
 
-		test('хеш внутри URL не секрет, даже если правило включили', () => {
-			// Именно это увидел пользователь 20.09.2026: в адресе был хэш, а детектор прочёл его как токен.
+		test('включённое правило судит и адреса — исключения для URL нет', () => {
+			// Исключение здесь было (20.09.2026) и убрано в тот же день: «хеш в адресе — контрольная
+			// сумма» верно до первого `?token=<32 знака>`, а молча пропущенный секрет дороже лишнего
+			// вопроса. Ложное срабатывание снимается человеком и называет идентификатор правила.
 			const on = config({ enabledPatternIds: ['generic-token'] });
 			assert.deepStrictEqual({
 				вURL: detectSecrets('distributionUrl=https://cdn.example.com/2fd4e1c67a2d28fced849ee1bb76e7391b93eb12/gradle.zip', on).matches.length,
-				вКавычкахURL: detectSecrets('url "https://repo.example.com/9b74c9897bac770ffc029102a200c5de"', on).matches.length,
-				// Та же строка САМА ПО СЕБЕ — по-прежнему кандидат: правило сужено, а не отменено.
+				секретВURL: detectSecrets('https://api.example.com/download?token=9b74c9897bac770ffc029102a200c5de', on).matches.length,
 				безURL: detectSecrets('apiToken = 9b74c9897bac770ffc029102a200c5de', on).matches.length,
-			}, { вURL: 0, вКавычкахURL: 0, безURL: 1 });
+				// Выключенное по умолчанию правило по-прежнему молчит: вернулось исключение, а не правило.
+				поУмолчанию: detectSecrets('distributionUrl=https://cdn.example.com/2fd4e1c67a2d28fced849ee1bb76e7391b93eb12/gradle.zip', config()).matches.length,
+			}, { вURL: 1, секретВURL: 1, безURL: 1, поУмолчанию: 0 });
 		});
 
 		test('правила, включённые в коде, остались на месте', () => {

@@ -184,8 +184,8 @@ class VibeTurnChecksService extends Disposable implements IVibeTurnChecksService
 		return uri.path;
 	}
 
-	private async _findSecrets(files: readonly string[]): Promise<{ file: string; kind: string }[]> {
-		const hits: { file: string; kind: string }[] = [];
+	private async _findSecrets(files: readonly string[]): Promise<{ file: string; kind: string; patternId: string }[]> {
+		const hits: { file: string; kind: string; patternId: string }[] = [];
 		for (const file of files) {
 			const uri = this._toUri(file);
 			if (!uri) {
@@ -195,7 +195,7 @@ class VibeTurnChecksService extends Disposable implements IVibeTurnChecksService
 				const content = (await this._fileService.readFile(uri)).value.toString();
 				const result = this._secrets.detectSecrets(content);
 				for (const match of result.matches) {
-					hits.push({ file, kind: match.pattern.name });
+					hits.push({ file, kind: match.pattern.name, patternId: match.pattern.id });
 				}
 			} catch {
 				// Unreadable (deleted, binary, permissions) — nothing to report for this file.

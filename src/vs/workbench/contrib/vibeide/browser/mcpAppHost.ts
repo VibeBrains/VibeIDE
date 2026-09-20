@@ -207,7 +207,7 @@ export class VibeMcpAppHost extends Disposable {
 				return undefined;
 			}
 			case 'notifications/message':
-				vibeLog.info('mcpApp', `MCP App ${this._data.serverName}:`, message.params);
+				this._logFromApp(message.params as MCP.LoggingMessageNotificationParams | undefined);
 				return undefined;
 			case 'ui/notifications/initialized':
 			case 'ui/notifications/sandbox-wheel':
@@ -255,6 +255,26 @@ export class VibeMcpAppHost extends Disposable {
 	private _message(params: McpApps.McpUiMessageRequest['params']): McpApps.McpUiMessageResult {
 		const placed = this._chatThreadService.offerThreadDraft(this._data.threadId, mcpAppMessageText(params.content));
 		return { isError: !placed };
+	}
+
+	/**
+	 * A log line from the app.
+	 *
+	 * The app states a severity, so an error from it must not be filed as information: a line that
+	 * lies about its own level is worse than no line, because it hides the one that mattered. The
+	 * mapping mirrors upstream's `translateMcpLogMessage` (`mcp/common/mcpTypesUtils.ts`), which
+	 * takes an `ILogger` our category-based log is not.
+	 */
+	private _logFromApp(params: MCP.LoggingMessageNotificationParams | undefined): void {
+		const data = typeof params?.data === 'string' ? params.data : JSON.stringify(params?.data ?? null);
+		const who = params?.logger ? `${this._data.serverName}/${params.logger}` : this._data.serverName;
+		const text = `MCP App ${who}: ${data}`;
+		switch (params?.level) {
+			case 'debug': vibeLog.debug('mcpApp', text); return;
+			case 'warning': vibeLog.warn('mcpApp', text); return;
+			case 'error': case 'critical': case 'alert': case 'emergency': vibeLog.error('mcpApp', text); return;
+			default: vibeLog.info('mcpApp', text); return;
+		}
 	}
 
 	private async _post(message: object): Promise<void> {
