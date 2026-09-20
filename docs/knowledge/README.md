@@ -191,6 +191,7 @@
 | [editFileIndentationAlignment.md](toolSystem/editFileIndentationAlignment.md) | Выравнивание отступа при толерантном матче `edit_file` — корень, фикс (v1.2.4), урок |
 | [globAndGrep.md](toolSystem/globAndGrep.md) | Поиск на ripgrep: `glob` (по именам) vs `grep` (по содержимому); почему два тула, а не один слитый |
 | [backgroundCommands.md](toolSystem/backgroundCommands.md) | `run_in_background` / `read_background_output` / `kill_background_command`: когда какой, жизненный цикл, границы; почему не делали push-уведомления |
+| [mcpMrtrStand.md](toolSystem/mcpMrtrStand.md) | MRTR на подставном сервере: сервер написан БЕЗ SDK намеренно (иначе проверялось бы согласие SDK сериализовать наш же конверт, а не спека) — выяснено, что SDK 1.29.0 **не срезает** `resultType`/`requestState`/`inputRequests`; сервер, настаивающий на ревизии `2026-07-28`, отвергается клиентом **до** первого вызова (`SUPPORTED_PROTOCOL_VERSIONS` кончается на `2025-11-25`), поэтому обработка достижима только при договорённости о более ранней ревизии; диалог с человеком и мост «главный процесс → окно» стендом не покрыты |
 
 ### [runtimeQuirks/](runtimeQuirks/) — runtime-ловушки
 

@@ -21,7 +21,7 @@ import { MCPUserStateOfName } from '../common/vibeideSettingsTypes.js';
 import { mergeServerEnv, transportRequestInit } from '../common/mcpServerEnv.js';
 import { McpCacheableMeta, parseCacheableMeta, refreshDelayMs } from '../common/mcpCacheableResult.js';
 import { describeUnansweredInput, parseInputRequired, withInputResponses } from '../common/mcpMultiRoundTrip.js';
-import { MAX_INPUT_ROUNDS, McpInputAnswer, McpInputAsk, planInputRequests } from '../common/mcpElicitation.js';
+import { describeProtocolMismatch, MAX_INPUT_ROUNDS, McpInputAnswer, McpInputAsk, planInputRequests } from '../common/mcpElicitation.js';
 import { filterToolsWithValidHeaders } from '../common/mcpHeaderAnnotation.js';
 
 /** Сколько ждать человека, прежде чем снять вопрос и отпустить вызов инструмента. */
@@ -502,7 +502,10 @@ export class MCPChannel implements IServerChannel {
 		} catch (err) {
 			vibeLog.error('mcpChannel', `❌ Failed to connect to server "${serverName}":`, err);
 			const fullCommand = !serverConfig.command ? '' : `${serverConfig.command} ${serverConfig.args?.join(' ') || ''}`;
-			const c: MCPServerError = { status: 'error', error: err + '', command: fullCommand, };
+			// Отказ из-за ревизии протокола приходит из недр SDK английской строкой, по которой не понять
+			// ни причины, ни что делать. Случай настоящий: сервер ревизии 2026-07-28 отвергается на рукопожатии.
+			const mismatch = describeProtocolMismatch(err);
+			const c: MCPServerError = { status: 'error', error: mismatch ?? (err + ''), command: fullCommand, };
 			return { mcpServerEntryJSON: serverConfig, mcpServer: c, };
 		}
 	}

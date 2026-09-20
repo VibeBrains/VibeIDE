@@ -5,7 +5,7 @@
 
 import * as assert from 'assert';
 import { ensureNoDisposablesAreLeakedInTestSuite } from '../../../../../base/test/common/utils.js';
-import { coerceFieldValue, parseElicitationParams, planInputRequests, rootsAnswer } from '../../common/mcpElicitation.js';
+import { coerceFieldValue, describeProtocolMismatch, parseElicitationParams, planInputRequests, rootsAnswer } from '../../common/mcpElicitation.js';
 
 suite('mcpElicitation — вопрос сервера, адресованный человеку', () => {
 
@@ -58,6 +58,19 @@ suite('mcpElicitation — вопрос сервера, адресованный 
 			окну: plan.roots.map(r => r.key),
 			неУмеем: plan.unsupported,
 		}, { человеку: ['a'], окну: ['b'], неУмеем: ['sampling/createMessage'] });
+	});
+
+	test('отказ из-за ревизии объясняется по-человечески', () => {
+		// Дословно та строка, которую выдал SDK на стенде 20.09.2026.
+		const real = new Error("Server's protocol version is not supported: 2026-07-28");
+		const explained = describeProtocolMismatch(real);
+		assert.deepStrictEqual({
+			названаРевизия: explained?.includes('2026-07-28'),
+			сказаноЧтоНеНастройка: explained?.includes('не ошибка настройки'),
+			// Чужая ошибка не получает выдуманного объяснения.
+			чужая: describeProtocolMismatch(new Error('ENOENT: command not found')),
+			пусто: describeProtocolMismatch(undefined),
+		}, { названаРевизия: true, сказаноЧтоНеНастройка: true, чужая: undefined, пусто: undefined });
 	});
 
 	test('значения приводятся к типу, а неразбираемое число остаётся строкой', () => {

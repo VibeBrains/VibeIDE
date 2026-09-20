@@ -169,3 +169,21 @@ export interface McpInputAsk {
 export type McpInputAnswer =
 	| { readonly ok: true; readonly responses: Record<string, unknown> }
 	| { readonly ok: false; readonly reason: string };
+
+/**
+ * Читаемое объяснение отказа подключиться из-за ревизии протокола.
+ *
+ * `undefined` — отказ не про ревизию, и выдумывать объяснение нельзя.
+ *
+ * Проверено стендом 20.09.2026: клиент SDK 1.29.0 объявляет максимум `2025-11-25`, а сервер,
+ * настаивающий на `2026-07-28` (ревизия, которая и ввела MRTR), получает отказ ещё на рукопожатии —
+ * с английской строкой из недр SDK, по которой пользователю не понять ни причины, ни что делать.
+ */
+export function describeProtocolMismatch(error: unknown): string | undefined {
+	const text = error instanceof Error ? error.message : String(error ?? '');
+	const match = /protocol version is not supported:\s*(\S+)/i.exec(text);
+	if (!match) { return undefined; }
+	return `Сервер говорит на ревизии протокола ${match[1]}, а клиент MCP внутри VibeIDE её пока не знает — соединение отклонено на рукопожатии. `
+		+ 'Это не ошибка настройки: поддержка ревизии приезжает с обновлением клиента. '
+		+ 'Если у сервера есть режим совместимости с более ранней ревизией — включите его на его стороне.';
+}
