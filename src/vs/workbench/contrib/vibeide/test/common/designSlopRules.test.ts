@@ -500,19 +500,31 @@ suite('designSlopRules', () => {
 			el({ selector: 'button', tag: 'button', text: 'Отправить', interactive: true, widthPx: 120, heightPx: 44, ...over });
 
 		test('снятая обводка без замены — находка', () => {
-			const findings = reviewDesign(doc([button({ outlineStyle: 'none', outlineWidthPx: 0, hasFocusRule: false })]))
+			const findings = reviewDesign(doc([button({ outlineSuppressed: true, hasFocusRule: false })]))
 				.filter(f => f.rule === 'focus-not-visible');
 			assert.deepStrictEqual(findings.map(f => f.selector), ['button']);
 		});
 
 		test('обводка снята, но свой стиль фокуса задан — молчим', () => {
-			const findings = reviewDesign(doc([button({ outlineStyle: 'none', outlineWidthPx: 0, hasFocusRule: true })]))
+			const findings = reviewDesign(doc([button({ outlineSuppressed: true, hasFocusRule: true })]))
 				.filter(f => f.rule === 'focus-not-visible');
 			assert.deepStrictEqual(findings, []);
 		});
 
 		test('обводку никто не трогал — молчим: браузер нарисует сам', () => {
 			const findings = reviewDesign(doc([button({ hasFocusRule: false })]))
+				.filter(f => f.rule === 'focus-not-visible');
+			assert.deepStrictEqual(findings, []);
+		});
+
+		/**
+		 * Тот самый случай, из-за которого правило обвиняло всех подряд (пойман фикстурой 20.09.2026).
+		 *
+		 * У любого элемента ВНЕ фокуса вычисленный `outline-style` равен `none`, а снимок снимается
+		 * именно в покое. Синтетическая фикстура этого не показывала, потому что задавала обводку сама.
+		 */
+		test('покоящийся `outline: none` сам по себе не находка', () => {
+			const findings = reviewDesign(doc([button({ outlineStyle: 'none', outlineWidthPx: 0, hasFocusRule: false })]))
 				.filter(f => f.rule === 'focus-not-visible');
 			assert.deepStrictEqual(findings, []);
 		});

@@ -45,12 +45,18 @@ export function buildReloadClientScript(wsPath: string): string {
 		'function post(m){try{parent.postMessage(m,"*");}catch(e){}}',
 		'function report(){post({__vibeBrowser:"nav",href:location.href,title:document.title});}',
 		'function refreshCss(){var ls=document.getElementsByTagName("link");for(var i=0;i<ls.length;i++){var l=ls[i];if(l.rel&&l.rel.toLowerCase()==="stylesheet"&&l.href){var h=l.href.replace(/[?&]_vibecss=\\d+/,"");l.href=h+(h.indexOf("?")>=0?"&":"?")+"_vibecss="+Date.now();}}}',
+		// Страница без хоста (`about:srcdoc`, `file:`, блоб) — соединяться не с кем: адрес `ws:///…`
+		// бросает исключение сразу, и оно вылетало из скрипта наружу. Перезагрузка там и не нужна, а замер
+		// страницы нужен — именно так страница открывается в тестах-фикстурах.
 		'function connect(){',
+		'if(!location.host){return;}',
+		'try{',
 		'var proto=location.protocol==="https:"?"wss:":"ws:";',
 		'var ws=new WebSocket(proto+"//"+location.host+P);',
 		'ws.onmessage=function(e){if(document.body&&document.body.hasAttribute("data-server-no-reload")){return;}if(e.data==="css"){refreshCss();}else{location.reload();}};',
 		'ws.onclose=function(){setTimeout(connect,1000);};',
 		'ws.onerror=function(){try{ws.close();}catch(x){}};',
+		'}catch(e){}',
 		'}',
 		'window.addEventListener("load",report);',
 		'window.addEventListener("popstate",report);',
@@ -92,7 +98,7 @@ export function buildReloadClientScript(wsPath: string): string {
 		// бы скролл и изменил ту самую страницу, которую мы измеряем. Селекторы разбираются один
 		// раз на скан и кэшируются — обход правил на каждый элемент стоил бы слишком дорого.
 		'var dsStateSel=null,dsStateBad=false;',
-		'function dsStateRules(){if(dsStateSel){return dsStateSel;}var focus=[],hover=[],rm=false;',
+		'function dsStateRules(){if(dsStateSel){return dsStateSel;}var focus=[],hover=[],sup=[],rm=false;',
 		'var sheets=document.styleSheets||[];',
 		'for(var i=0;i<sheets.length;i++){var rules;',
 		// Cross-origin таблица бросает SecurityError. Это «не посмотрели», а не «правила нет»:
@@ -106,8 +112,13 @@ export function buildReloadClientScript(wsPath: string): string {
 		'for(var k=0;k<parts.length;k++){var p=parts[k].trim();',
 		// Псевдокласс срезается, чтобы остаток можно было сопоставить с элементом через matches().
 		'if(/:focus(-visible|-within)?\\b/.test(p)){focus.push(p.replace(/:focus(-visible|-within)?/g,""));}',
-		'else if(/:hover\\b/.test(p)){hover.push(p.replace(/:hover/g,""));}}}}',
-		'dsStateSel={focus:focus,hover:hover,reducedMotion:rm};return dsStateSel;}',
+		'else if(/:hover\\b/.test(p)){hover.push(p.replace(/:hover/g,""));}',
+		// Снятая обводка — это ОБЪЯВЛЕНИЕ в таблице, а не состояние элемента в покое: у любой
+		// кнопки без фокуса вычисленный `outline-style` и так `none`, и правило по нему ловило всех подряд.
+		'var dsSt=rules[j].style;',
+		'if((dsSt&&(dsSt.outlineStyle==="none"||(dsSt.outlineWidth&&parseFloat(dsSt.outlineWidth)===0)))||/outline\\s*:\\s*(none|0)/i.test(rules[j].cssText||"")){sup.push(p.replace(/:(focus(-visible|-within)?|hover|active)/g,""));}',
+		'}}}',
+		'dsStateSel={focus:focus,hover:hover,outlineSuppressed:sup,reducedMotion:rm};return dsStateSel;}',
 		'function dsMatchesAny(el,list){for(var i=0;i<list.length;i++){var s=(list[i]||"").trim();if(!s){continue;}',
 		'try{if(el.matches(s)){return true;}}catch(e){}}return false;}',
 		'function dsDisabled(el){return el.disabled===true||el.getAttribute("aria-disabled")==="true";}',
@@ -199,6 +210,7 @@ export function buildReloadClientScript(wsPath: string): string {
 		'interactive:dsInteractive(el),',
 		'outlineStyle:s.outlineStyle||"none",outlineWidthPx:dsNum(s.outlineWidth),',
 		'hasFocusRule:dsMatchesAny(el,dsStateRules().focus),hasHoverRule:dsMatchesAny(el,dsStateRules().hover),',
+		'outlineSuppressed:dsMatchesAny(el,dsStateRules().outlineSuppressed),',
 		'disabled:dsDisabled(el),styleRulesUnreadable:dsStateBad,',
 		'accessibleName:dsAccName(el),isFormField:dsFormField(el),inputType:String(el.getAttribute("type")||"").toLowerCase(),',
 		'hasPlaceholder:!!(el.getAttribute("placeholder")||"").trim(),hasAltAttribute:el.hasAttribute("alt"),',

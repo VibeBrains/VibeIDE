@@ -22,9 +22,6 @@
 import { ElementSnapshot, Rule } from '../designSnapshot.js';
 import { RULE } from '../ruleIds.js';
 
-/** Ниже этой ширины обводка перестаёт читаться как индикатор фокуса. */
-const MIN_FOCUS_OUTLINE_PX = 1;
-
 /**
  * Насколько выключенный элемент обязан отличаться от обычного. Порог по разнице прозрачности
  * или яркости: точное значение не важно, важно, что отличие видно.
@@ -48,7 +45,8 @@ const luminance = (rgb: readonly [number, number, number]): number =>
 const ruleFocusNotVisible: Rule = doc => doc.elements
 	.filter(isMeasurable)
 	.filter(el => el.interactive && !el.disabled)
-	.filter(el => el.outlineStyle === 'none' || el.outlineWidthPx < MIN_FOCUS_OUTLINE_PX)
+	// Именно объявление в таблице, а не вычисленный стиль: в покое `outline-style` равен `none` у всех.
+	.filter(el => el.outlineSuppressed === true)
 	.filter(el => !el.hasFocusRule)
 	.map(el => ({
 		rule: RULE.focusNotVisible,
