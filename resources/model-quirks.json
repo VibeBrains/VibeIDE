@@ -5,6 +5,14 @@
 	"docs": "https://github.com/VibeBrains/VibeIDE#model-behaviour-quirks",
 	"rules": [
 		{
+			"match": "mimo-v2.6",
+			"temperature": 1.0,
+			"topP": 0.95,
+			"note": "Xiaomi MiMo v2.6 (Pro / Flash / Pro Ultraspeed) через Anthropic-совместимый endpoint. Вендор пишет прямо: в режиме размышления модели \"do not support customizing the temperature and top_p parameters. Even if these parameters are passed in, the actual effective values will be forcibly set by the model to its recommended default values of 1.0 and 0.95\". Значения здесь — декларация вендорского принуждения, а не наш подбор: без правила ползунок температуры обещает пользователю влияние, которого нет, а вендор молча игнорирует переданное (не ошибка, а тишина — хуже отказа). ЧЕГО ЭТИМ ПРАВИЛОМ НЕ ЛЕЧИТСЯ: tool_choice принимается только со значением auto, всё остальное бэкенд выбрасывает из запроса (\"When a value other than auto is passed to type, the backend will remove this field by default\") — принуждение к конкретному инструменту молча не срабатывает; это поведение серверное, причудой не правится. В режиме размышления модель возвращает блок thinking рядом с tool_use и требует возвращать прошлые блоки обратно; есть нестандартная причина остановки repetition_truncation (обрыв по зацикливанию, а не по длине). Матчится по \"mimo-v2.6\", а не по \"mimo\": линейка v2.5 живёт по своим правилам и не проверена. Точки в id обязательны — вендор отвечает 400 \"Not supported model\" на написание через дефис (прецедент чужой нормализации: NousResearch/hermes-agent#19239); у нас нормализации id нет, правило про это ничего не делает. Живьём не проверено — ключа Xiaomi нет.",
+			"source": "mimo.mi.com/docs/en-US/api/chat/anthropic-api",
+			"observedAt": "2026-09-22"
+		},
+		{
 			"match": "glimmer",
 			"temperature": 1.0,
 			"topP": 0.95,
