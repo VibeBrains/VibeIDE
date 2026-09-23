@@ -192,10 +192,7 @@ export class VibeProjectRulesService extends Disposable implements IVibeProjectR
 	private readonly _onRulesChanged = this._register(new Emitter<void>());
 	readonly onRulesChanged: Event<void> = this._onRulesChanged.event;
 
-	private readonly _debouncer = this._register(new RunOnceScheduler(() => {
-		this._onRulesChanged.fire();
-		this._log.info('[VibeProjectRules] Rules changed, cache invalidated');
-	}, WATCHER_DEBOUNCE_MS));
+	private readonly _debouncer = this._register(new RunOnceScheduler(() => void this._reloadAfterChange(), WATCHER_DEBOUNCE_MS));
 
 	constructor(
 		@ILogService private readonly _log: ILogService,
@@ -332,6 +329,21 @@ export class VibeProjectRulesService extends Disposable implements IVibeProjectR
 		// Persist to the registered workspace setting; the onDidChangeConfiguration listener
 		// recomputes the cache + fires onRulesChanged.
 		await this._config.updateValue(DISABLED_SOURCES_KEY, next, ConfigurationTarget.WORKSPACE);
+	}
+
+	/**
+	 * A rule file changed on disk: re-read everything, then tell listeners. Firing the event alone left the
+	 * cache as it was — nothing listens for it — and an edited rule reached the agent only after a restart.
+	 */
+	private async _reloadAfterChange(): Promise<void> {
+		try {
+			await this.reloadRules();
+		} catch (err) {
+			this._log.error('[VibeProjectRules] Reload after a rule file change failed', err);
+			return;
+		}
+		this._onRulesChanged.fire();
+		this._log.info('[VibeProjectRules] Rules changed on disk, reloaded');
 	}
 
 	async reloadRules(): Promise<void> {

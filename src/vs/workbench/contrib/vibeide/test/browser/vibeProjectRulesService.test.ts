@@ -5,6 +5,7 @@
 
 import assert from 'assert';
 import { VSBuffer } from '../../../../../base/common/buffer.js';
+import { Event } from '../../../../../base/common/event.js';
 import { Schemas } from '../../../../../base/common/network.js';
 import { URI } from '../../../../../base/common/uri.js';
 import { mock } from '../../../../../base/test/common/mock.js';
@@ -61,6 +62,39 @@ suite('VibeProjectRulesService — правило пакета доходит д
 			текст: true,
 			условноеНеВставлено: false,
 			условноеВСписке: true,
+		});
+	});
+
+	// The watcher used to fire an event nobody listened to: the log said «cache invalidated», and the
+	// agent kept the old rules until a restart. The change has to reach the next turn by itself.
+	test('правило пакета, созданное после загрузки, попадает в правила следующего хода', async () => {
+		const fileService = disposables.add(new FileService(new NullLogService()));
+		disposables.add(fileService.registerProvider(Schemas.file, disposables.add(new InMemoryFileSystemProvider())));
+		const write = (path: string, text: string) => fileService.writeFile(URI.file(`/ws/${path}`), VSBuffer.fromString(text));
+		await write('src/AGENTS.md', '# Правила пакета src\n\nКаждая новая функция начинается с комментария `// ЛИМОН`.\n');
+
+		const service = disposables.add(new VibeProjectRulesService(
+			new NullLogService(),
+			fileService,
+			new TestContextService(testWorkspace(URI.file('/ws'))),
+			new PassThroughPromptGuard(),
+			new TestConfigurationService(),
+		));
+		await service.reloadRules();
+
+		const reloaded = Event.toPromise(service.onRulesChanged);
+		await write('packages/web/AGENTS.md', '# Правила пакета web\n\nКаждый новый компонент начинается с комментария `// ГРУША`.\n');
+		await reloaded;
+		const combined = service.getCombinedRules({ userText: 'Добавь компонент' });
+
+		assert.deepStrictEqual({
+			источники: service.getLoadedSources().map(source => source.relativePath).sort(),
+			метка: combined.includes('[Source: packages/web/AGENTS.md]'),
+			текст: combined.includes('// ГРУША'),
+		}, {
+			источники: ['packages/web/AGENTS.md', 'src/AGENTS.md'],
+			метка: true,
+			текст: true,
 		});
 	});
 });
