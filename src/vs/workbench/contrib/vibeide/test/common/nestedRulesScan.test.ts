@@ -11,7 +11,7 @@ import { ensureNoDisposablesAreLeakedInTestSuite } from '../../../../../base/tes
 import { FileService } from '../../../../../platform/files/common/fileService.js';
 import { InMemoryFileSystemProvider } from '../../../../../platform/files/common/inMemoryFilesystemProvider.js';
 import { NullLogService } from '../../../../../platform/log/common/log.js';
-import { DEFAULT_NESTED_RULE_DEPTH, NESTED_RULE_FILE_NAME, collectNestedAgentsUris, isSkippedRuleDir } from '../../common/nestedRulesScan.js';
+import { DEFAULT_NESTED_RULE_DEPTH, NESTED_RULE_FILE_NAME, collectNestedAgentsUris, isNestedRuleFile, isSkippedRuleDir } from '../../common/nestedRulesScan.js';
 
 suite('nestedRulesScan — вложенные AGENTS.md подпроектов', () => {
 
@@ -65,6 +65,30 @@ suite('nestedRulesScan — вложенные AGENTS.md подпроектов',
 			поУмолчанию: ['/ws/packages/a/AGENTS.md', '/ws/src/AGENTS.md'],
 			первыйУровень: ['/ws/src/AGENTS.md'],
 			выключено: [],
+		});
+	});
+
+	test('изменение вложенного AGENTS.md узнаётся по пути, корневой и спрятанные — нет', () => {
+		const root = URI.file('/ws');
+		const nested = (path: string) => isNestedRuleFile(root, URI.file(`/ws/${path}`), DEFAULT_NESTED_RULE_DEPTH);
+		assert.deepStrictEqual({
+			пакет: nested('src/AGENTS.md'),
+			глубже: nested('packages/a/AGENTS.md'),
+			запределом: nested('a/b/c/d/AGENTS.md'),
+			корневой: nested('AGENTS.md'),
+			модули: nested('node_modules/x/AGENTS.md'),
+			скрытый: nested('.vibe-worktrees/t/src/AGENTS.md'),
+			другойФайл: nested('src/README.md'),
+			чужойКорень: isNestedRuleFile(root, URI.file('/other/src/AGENTS.md'), DEFAULT_NESTED_RULE_DEPTH),
+		}, {
+			пакет: true,
+			глубже: true,
+			запределом: false,
+			корневой: false,
+			модули: false,
+			скрытый: false,
+			другойФайл: false,
+			чужойКорень: false,
 		});
 	});
 });

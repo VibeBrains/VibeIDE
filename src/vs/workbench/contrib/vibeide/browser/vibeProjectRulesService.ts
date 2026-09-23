@@ -25,7 +25,7 @@ import { createDecorator, ServicesAccessor } from '../../../../platform/instanti
 import { registerSingleton, InstantiationType } from '../../../../platform/instantiation/common/extensions.js';
 import { ILogService } from '../../../../platform/log/common/log.js';
 import { IFileService } from '../../../../platform/files/common/files.js';
-import { DEFAULT_NESTED_RULE_DEPTH, NESTED_RULE_FILE_NAME, collectNestedAgentsUris } from '../common/nestedRulesScan.js';
+import { DEFAULT_NESTED_RULE_DEPTH, NESTED_RULE_FILE_NAME, collectNestedAgentsUris, isNestedRuleFile } from '../common/nestedRulesScan.js';
 import { IWorkspaceContextService } from '../../../../platform/workspace/common/workspace.js';
 import { URI } from '../../../../base/common/uri.js';
 import { joinPath, relativePath } from '../../../../base/common/resources.js';
@@ -180,7 +180,7 @@ const PROJECT_RULES_TEMPLATE = `# Project rules
 
 // ── Implementation ─────────────────────────────────────────────────────────────
 
-class VibeProjectRulesService extends Disposable implements IVibeProjectRulesService {
+export class VibeProjectRulesService extends Disposable implements IVibeProjectRulesService {
 	declare readonly _serviceBrand: undefined;
 
 	private _cachedSources: LoadedRuleSource[] = [];
@@ -210,7 +210,7 @@ class VibeProjectRulesService extends Disposable implements IVibeProjectRulesSer
 		// combine when either changes (toggle from the panel / command / settings.json edit).
 		this._register(this._config.onDidChangeConfiguration(e => {
 			// Scan-limit changes (R.11) need a full re-scan; disabled/max-chars only need a recombine.
-			if (e.affectsConfiguration(MAX_FILES_KEY) || e.affectsConfiguration(MAX_FOLDER_DEPTH_KEY) || e.affectsConfiguration(MAX_FILE_BYTES_KEY)) {
+			if (e.affectsConfiguration(MAX_FILES_KEY) || e.affectsConfiguration(MAX_FOLDER_DEPTH_KEY) || e.affectsConfiguration(MAX_FILE_BYTES_KEY) || e.affectsConfiguration(NESTED_DEPTH_KEY)) {
 				void this.reloadRules().then(() => this._onRulesChanged.fire());
 			} else if (e.affectsConfiguration(DISABLED_SOURCES_KEY) || e.affectsConfiguration(MAX_COMBINED_CHARS_KEY)) {
 				this._cachedCombined = this._combineSources(this._cachedSources, undefined);
@@ -237,7 +237,13 @@ class VibeProjectRulesService extends Disposable implements IVibeProjectRulesSer
 			// R.x — a change to any resolved linked file (e.g. docs/knowledge/README.md) must also invalidate.
 			const linkedChange = !relevantChange && this._linkedPaths.size > 0
 				&& [...this._linkedPaths].some(p => e.contains(URI.file(p)));
-			if (relevantChange || linkedChange) {
+			// A package's AGENTS.md has no fixed path to test with `contains`: it can appear anywhere below a
+			// root. The change lists are scanned for it by name — the way VS Code's own agent host finds events
+			// that match a pattern — and only when nothing above has already scheduled a reload.
+			const nestedDepth = this._config.getValue<number>(NESTED_DEPTH_KEY) ?? DEFAULT_NESTED_RULE_DEPTH;
+			const nestedChange = !relevantChange && !linkedChange && nestedDepth > 0
+				&& [...e.rawAdded, ...e.rawUpdated, ...e.rawDeleted].some(file => rootUris.some(root => isNestedRuleFile(root, file, nestedDepth)));
+			if (relevantChange || linkedChange || nestedChange) {
 				this._debouncer.schedule();
 			}
 		}));

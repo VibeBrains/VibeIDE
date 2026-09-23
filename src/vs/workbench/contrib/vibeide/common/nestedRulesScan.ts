@@ -89,3 +89,19 @@ async function walkNestedAgents(fileService: IFileService, dir: URI, depth: numb
 	}
 	return found;
 }
+
+/**
+ * Is this changed file a nested `AGENTS.md` the walk would read — below the root, within the depth,
+ * and in no folder the walk skips? The root's own file is read separately and is not «nested».
+ */
+export function isNestedRuleFile(root: URI, file: URI, maxDepth: number): boolean {
+	const rootPath = root.path.endsWith('/') ? root.path : `${root.path}/`;
+	if (file.scheme !== root.scheme || !file.path.startsWith(rootPath)) {
+		return false;
+	}
+	const segments = file.path.slice(rootPath.length).split('/');
+	const folders = segments.slice(0, -1);
+	return segments[segments.length - 1] === NESTED_RULE_FILE_NAME
+		&& folders.length >= 1 && folders.length <= maxDepth
+		&& !folders.some(isSkippedRuleDir);
+}
