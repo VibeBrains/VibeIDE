@@ -89,6 +89,7 @@ import { IVibeSubagentRegistryService } from '../../../../common/vibeSubagentReg
 import { IVibeSubagentHandoffStore } from '../../../../common/vibeSubagentHandoffStore.js';
 import { IVibeAcpRegistryService } from '../../../acp/vibeAcpRegistryService.js';
 import { IVibeAcpSessionsService } from '../../../acp/vibeAcpSessionsService.js';
+import { IVibeAcpRegistryImportService } from '../../../../common/acp/vibeAcpRegistryImport.js';
 
 
 // normally to do this you'd use a useEffect that calls .onDidChangeState(), but useEffect mounts too late and misses initial state changes
@@ -351,6 +352,8 @@ const getReactAccessor = (accessor: ServicesAccessor) => {
 			// sessions service for the live log and the permission queue.
 			IVibeAcpRegistryService: accessor.get(IVibeAcpRegistryService),
 			IVibeAcpSessionsService: accessor.get(IVibeAcpSessionsService),
+			// Adding and updating agents from the ACP Registry: the pane shows which ones have a newer version.
+			IVibeAcpRegistryImportService: accessor.get(IVibeAcpRegistryImportService),
 			// Durable record of agent runs behind the «Диспетчерская агентов» panel.
 			IVibeAgentRunLedgerService: accessor.get(IVibeAgentRunLedgerService),
 			// Used by the `@recent` / `@sym:` reference resolution in SidebarChat.

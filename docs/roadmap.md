@@ -5759,7 +5759,15 @@ prompts, tools, and preceding messages») действует на API-аккау
 - [x] **`cacheTtl` — паритет с VibeIDEA** — ✅ (2026-09-23, next) образец набора обещал часовой кэш Anthropic,
       VibeIDEA его отправляла, а VibeIDE поле не разбирала вовсе. Теперь `cacheTtl: "5m" | "1h"` модели уходит
       в `cacheControl.ttl`. Заодно в примере Fable 5.1 цена записи исправлена на часовую (20 вместо 12.5).
-- [ ] **Импорт агентов из ACP Registry** — реестр (Apache-2.0) отдаёт готовый JSON с CDN
+- [x] **Импорт агентов из ACP Registry** — ✅ (2026-09-23, next) кнопка и команда «Добавить из реестра ACP»,
+      обновление «Обновить X: A → B» у записей из реестра (поле `registry` в `agents.json`). Пакет — точной версией и
+      без `--yes`, бинарь — только со сверкой `sha256` (`electron-main/acp/vibeAcpInstallerMainService.ts`, запись в
+      профиль через папку-заготовку); отказы — кодом, словами в списке. Машинный слой `~/.vibe/agents.json`, правка
+      файла без потери комментариев (`common/acp/vibeAgentsFileEdit.ts`), настройка `vibeide.acp.registryUrl`
+      (APPLICATION), аудит `acp_agent_installed`. Попутно: Config Guard проверяет `agents.json` теми же правилами, что
+      команды MCP (общая `scanLaunchCommand`); агенты стартуют через `cross-spawn` (на Windows `npx` — `.cmd`) и с
+      окружением оболочки (из Dock `npx` иначе не находится). Живьём на Windows не проверено. Исходная запись: реестр
+      (Apache-2.0) отдаёт готовый JSON с CDN
       `https://cdn.agentclientprotocol.com/registry/v1/latest/registry.json`; версии агентов обновляются ежечасным
       cron по релизам npm, PyPI и GitHub. Запись: `id`, `name`, `version` (строго X.Y.Z), `description`, `repository`,
       `website`, `authors`, `license` + обязательный `license_url`, `icon`, `distribution`, необязательный `preview`.

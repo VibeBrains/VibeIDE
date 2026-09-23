@@ -11,6 +11,7 @@ import { ProxyChannel } from '../../../../base/parts/ipc/common/ipc.js';
 import { Server as ElectronIPCServer } from '../../../../base/parts/ipc/electron-main/ipc.electron.js';
 import { ServicesAccessor } from '../../../../platform/instantiation/common/instantiation.js';
 import { IConfigurationService } from '../../../../platform/configuration/common/configuration.js';
+import { getResolvedShellEnv } from '../../../../platform/shell/node/shellEnv.js';
 import { IEnvironmentMainService } from '../../../../platform/environment/electron-main/environmentMainService.js';
 import { IProductService } from '../../../../platform/product/common/productService.js';
 import { IRequestService } from '../../../../platform/request/common/request.js';
@@ -39,6 +40,8 @@ import { VibeClaudeCodeMainService } from './claudeCode/vibeClaudeCodeMainServic
 import { CLAUDE_SDK_DIR } from '../common/claudeCode/claudeCodeProvision.js';
 import { VIBE_CLAUDE_CODE_CHANNEL } from '../common/claudeCode/vibeClaudeCodeTypes.js';
 import { VibeAcpMainService } from './acp/vibeAcpMainService.js';
+import { VibeAcpInstallerMainService } from './acp/vibeAcpInstallerMainService.js';
+import { VIBE_ACP_INSTALLER_CHANNEL } from '../common/acp/acpInstallerTypes.js';
 import { VIBE_ACP_CHANNEL } from '../common/acp/acpTypes.js';
 import { VibeHttpApiMainService } from './httpApi/vibeHttpApiMainService.js';
 import { VIBE_HTTP_API_CHANNEL } from '../common/httpApi/vibeHttpApiTypes.js';
@@ -229,10 +232,29 @@ export function registerVibeideMainProcessChannels(
 
 	// ACP host: external agents run as processes and ask US for files and permissions, so the
 	// editor sees their work — unlike an agent that edits the folder on its own.
-	const acpService = disposables.add(new VibeAcpMainService());
+	// The login shell's environment for the agents' processes: without it `npx` and `uvx` do not
+	// resolve in an app opened from the Dock. Resolved once and cached, like for VS Code's terminals.
+	const shellEnvConfiguration = accessor.get(IConfigurationService);
+	const shellEnvLog = accessor.get(ILogService);
+	const shellEnvArgs = accessor.get(IEnvironmentMainService).args;
+	const acpService = disposables.add(new VibeAcpMainService(async () => {
+		try {
+			return await getResolvedShellEnv(shellEnvConfiguration, shellEnvLog, shellEnvArgs, process.env);
+		} catch (error) {
+			shellEnvLog.warn(`[ACP] окружение оболочки не получено — агенты стартуют с окружением IDE: ${error instanceof Error ? error.message : String(error)}`);
+			return {};
+		}
+	}));
 	mainProcessElectronServer.registerChannel(
 		VIBE_ACP_CHANNEL,
 		ProxyChannel.fromService(acpService, disposables),
+	);
+
+	// Agents added from the ACP Registry: the download and the unpacking need the network and the disk,
+	// so they happen here; binaries land in the profile, never in a folder the repository could bring.
+	mainProcessElectronServer.registerChannel(
+		VIBE_ACP_INSTALLER_CHANNEL,
+		ProxyChannel.fromService(new VibeAcpInstallerMainService(join(accessor.get(IEnvironmentMainService).userDataPath, 'acp-agents')), disposables),
 	);
 
 	// Incoming HTTP API: the listener belongs to the main process for the same reason as the

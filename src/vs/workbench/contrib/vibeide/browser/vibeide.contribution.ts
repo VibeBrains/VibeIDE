@@ -721,6 +721,8 @@ import '../common/vibeBrowserAutomationService.js';
 import '../common/mcpTokenRotationConfiguration.js';
 // VibeIDE: MCP tool pins — a tool changed after approval is withheld until reviewed (vibeide.mcp.requireToolReapproval)
 import '../common/mcpToolPinsConfiguration.js';
+// VibeIDE: ACP Registry — where external agents are imported from (vibeide.acp.registryUrl)
+import '../common/acp/acpRegistryConfiguration.js';
 
 // VibeIDE: Binary diff policy — limits/placeholder for binary/large files in diff preview
 import '../common/vibeBinaryDiffPolicyService.js';

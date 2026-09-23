@@ -45,7 +45,23 @@ export interface VibeAgentEntry {
 	 * `mcp.json`, однажды увёз бы гостю то, чего человек не имел в виду.
 	 */
 	readonly mcpServers?: readonly string[];
+
+	/**
+	 * Where the entry came from when it was added from the ACP Registry: the agent's id there and the
+	 * version written into this entry. The pane compares it with the registry to offer an update; a
+	 * hand-written entry has no such field and is never touched by an update.
+	 */
+	readonly registry?: VibeAgentRegistryOrigin;
 }
+
+/** The ACP Registry entry an agent was added from, and the version this entry runs. */
+export interface VibeAgentRegistryOrigin {
+	readonly id: string;
+	readonly version: string;
+}
+
+/** Which file an agent comes from. The project file travels with the repository; the machine file stays here. */
+export type VibeAgentLayer = 'project' | 'machine';
 
 export interface VibeAgentsFile {
 	readonly version: number;
@@ -122,6 +138,12 @@ function validateEntry(item: unknown, index: number, seen: ReadonlySet<string>):
 	if (mcpServers !== undefined && (!Array.isArray(mcpServers) || mcpServers.some(name => typeof name !== 'string'))) {
 		return `запись "${id}": "mcpServers" — список имён серверов из mcp.json, строками`;
 	}
+	const registry = record['registry'];
+	const registryId = registry && typeof registry === 'object' ? stringOf((registry as Record<string, unknown>)['id']) : undefined;
+	const registryVersion = registry && typeof registry === 'object' ? stringOf((registry as Record<string, unknown>)['version']) : undefined;
+	if (registry !== undefined && (!registryId || !registryVersion)) {
+		return `запись "${id}": "registry" — объект { "id", "version" } из реестра ACP`;
+	}
 
 	return {
 		id,
@@ -132,7 +154,22 @@ function validateEntry(item: unknown, index: number, seen: ReadonlySet<string>):
 		...(env ? { env: { ...(env as Record<string, string>) } } : {}),
 		...(stringOf(record['dir']) ? { dir: stringOf(record['dir'])! } : {}),
 		...(mcpServers ? { mcpServers: [...(mcpServers as string[])] } : {}),
+		...(registryId && registryVersion ? { registry: { id: registryId, version: registryVersion } } : {}),
 	};
+}
+
+/**
+ * Agents of the machine file and of the project file, as one list. The project entry wins over a
+ * machine entry with the same id — the team's choice is stronger than one machine's — and comes first;
+ * machine-only agents follow in their own order. Each agent is returned with the layer it came from,
+ * because adding and updating write back to that same file.
+ */
+export function mergeAgentLayers(machine: readonly VibeAgentEntry[], project: readonly VibeAgentEntry[]): readonly { readonly agent: VibeAgentEntry; readonly layer: VibeAgentLayer }[] {
+	const projectIds = new Set(project.map(agent => agent.id));
+	return [
+		...project.map(agent => ({ agent, layer: 'project' as const })),
+		...machine.filter(agent => !projectIds.has(agent.id)).map(agent => ({ agent, layer: 'machine' as const })),
+	];
 }
 
 const stringOf = (value: unknown): string | undefined =>

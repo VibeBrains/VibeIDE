@@ -22,6 +22,7 @@
 
 import { VibeProviderEntry } from './vibeProvidersFile.js';
 import { MCPConfigFileEntryJSON } from './mcpServiceTypes.js';
+import { VibeAgentEntry } from './acp/vibeAgentsFile.js';
 import { fetchesAndRuns, findFetchAndRunInText, splitShellSegments } from './nlShellSafetyAnalyzer.js';
 import { SkillOrigin } from './vibeSkillProvenance.js';
 
@@ -237,7 +238,7 @@ function uvxPackage(args: readonly string[]): string | undefined {
 }
 
 /** `name@1.2.3` or `@scope/name@1.2.3`; a range or a tag is not a pin. */
-function npmPinned(spec: string): boolean {
+export function npmPinned(spec: string): boolean {
 	if (isLocalSpec(spec)) {
 		return true;
 	}
@@ -246,7 +247,7 @@ function npmPinned(spec: string): boolean {
 }
 
 /** `name==1.2`, `name@1.2` or `name@<commit>`; `@latest` is not a pin. */
-function pythonPinned(spec: string): boolean {
+export function pythonPinned(spec: string): boolean {
 	if (isLocalSpec(spec)) {
 		return true;
 	}
@@ -292,6 +293,102 @@ function npxConcern(args: readonly string[]): string | undefined {
 	if (hasYes) { return `auto-установка пакета без подтверждения (-y)`; }
 	if (unpinned) { return `пакет без фиксации версии (${pkg}) — может подтянуть вредоносное обновление`; }
 	return undefined;
+}
+
+/** Whose launch is checked: the rule-id prefix and how a finding names it. */
+interface LaunchSubject {
+	readonly rulePrefix: 'mcp' | 'acp-agent';
+	readonly name: string;
+	readonly label: string;
+}
+
+/**
+ * Checks a process the IDE starts on its own — command, arguments, environment.
+ *
+ * An MCP stdio server and an ACP agent are the same thing from here: a command line taken from a file
+ * that may have come with a repository. One set of rules serves both, so a rule added for one cannot
+ * silently miss the other.
+ */
+function scanLaunchCommand(subject: LaunchSubject, cmd: string, args: readonly string[], env: unknown): ConfigGuardFinding[] {
+	const findings: ConfigGuardFinding[] = [];
+	// The same composition rule as the terminal gate: a download handed to an interpreter that takes
+	// its program from it. A regex over the joined line flagged `curl … | python3 -m json.tool`,
+	// which only reads an answer, and missed `bash <(curl …)`.
+	const remote = fetchesAndRuns([cmd, ...args].map(shellQuote).join(' '));
+	if (remote) {
+		findings.push({
+			ruleId: `${subject.rulePrefix}-remote-command`, severity: 'critical', subject: subject.name,
+			message: `${subject.label}: команда скачивает и исполняет удалённый скрипт (curl|sh) — произвольное выполнение кода при старте.`,
+		});
+	}
+	if (SHELL_BASENAMES.test(cmd) && args.includes('-c')) {
+		findings.push({
+			ruleId: `${subject.rulePrefix}-shell-wrapper`, severity: 'high', subject: subject.name,
+			message: `${subject.label}: запуск через «${basename(cmd)} -c …» — обёртка обходит разделение аргументов и упрощает инъекцию команд.`,
+		});
+	}
+	if (args.some(a => DISABLED_SECURITY_FLAGS.some(f => a.includes(f)))) {
+		findings.push({
+			ruleId: `${subject.rulePrefix}-disabled-security`, severity: 'critical', subject: subject.name,
+			message: `${subject.label}: аргументы отключают защиту (--no-sandbox / --disable-web-security и т.п.).`,
+		});
+	}
+
+	// npx / uvx supply-chain — applies whether the runner is the command or wrapped in args.
+	const npxArgs = runnerArgs('npx', cmd, args);
+	if (npxArgs) {
+		const concern = npxConcern(npxArgs);
+		if (concern) {
+			findings.push({ ruleId: `${subject.rulePrefix}-npx-no-pin`, severity: 'medium', subject: subject.name, message: `${subject.label}: ${concern}.` });
+		}
+	}
+
+	// uvx carries the same risk and has no `-y` to ask about: only the pin matters.
+	const uvxArgs = runnerArgs('uvx', cmd, args);
+	const uvxPkg = uvxArgs ? uvxPackage(uvxArgs) : undefined;
+	if (uvxPkg !== undefined && !pythonPinned(uvxPkg)) {
+		findings.push({
+			ruleId: `${subject.rulePrefix}-uvx-no-pin`, severity: 'medium', subject: subject.name,
+			message: `${subject.label}: пакет без фиксации версии (${uvxPkg}) — может подтянуть вредоносное обновление.`,
+		});
+	}
+
+	// Shell metacharacters — skip when the remote-pipe rule already covers this line.
+	if (!remote && args.some(a => SHELL_METACHARS.test(a))) {
+		findings.push({
+			ruleId: `${subject.rulePrefix}-shell-metacharacters`, severity: 'medium', subject: subject.name,
+			message: `${subject.label}: аргументы содержат shell-метасимволы (\`$ ; | & < >\`) — риск инъекции команд.`,
+		});
+	}
+
+	for (const [k, v] of stringEntries(env)) {
+		if (CRITICAL_ENV_OVERRIDES.has(k.toUpperCase())) {
+			findings.push({
+				ruleId: `${subject.rulePrefix}-env-override-critical`, severity: 'critical', subject: subject.name,
+				message: `${subject.label}: env переопределяет критичную переменную «${k}» — вектор подмены загружаемого кода.`,
+			});
+		} else if (isEmbeddedSecret(k, v)) {
+			findings.push({
+				ruleId: `${subject.rulePrefix}-hardcoded-env-secret`, severity: 'critical', subject: subject.name,
+				message: `${subject.label}: env «${k}» содержит секрет в открытом виде — используйте ссылку на переменную окружения, а не литерал.`,
+			});
+		}
+	}
+	return findings;
+}
+
+/**
+ * Scan `.vibe/agents.json` entries — the machine and the project layer alike.
+ *
+ * The file travels with the repository, and every entry is a command the IDE starts when a person
+ * opens a session with that agent: the same exposure as an MCP stdio server, checked by the same rules.
+ */
+export function scanAgentsConfig(agents: readonly VibeAgentEntry[]): ConfigGuardFinding[] {
+	const findings: ConfigGuardFinding[] = [];
+	for (const agent of agents) {
+		findings.push(...scanLaunchCommand({ rulePrefix: 'acp-agent', name: agent.id, label: `Внешний агент «${agent.id}»` }, agent.command, agent.args ?? [], agent.env));
+	}
+	return findings;
 }
 
 /**
@@ -352,69 +449,7 @@ export function scanMcpConfig(servers: Record<string, MCPConfigFileEntryJSON> | 
 		if (!raw || typeof raw !== 'object') { continue; }
 		const cmd = typeof raw.command === 'string' ? raw.command : '';
 		const args = Array.isArray(raw.args) ? raw.args.filter((a): a is string => typeof a === 'string') : [];
-		// The same composition rule as the terminal gate: a download handed to an interpreter that takes
-		// its program from it. A regex over the joined line flagged `curl … | python3 -m json.tool`,
-		// which only reads an answer, and missed `bash <(curl …)`.
-		const remote = fetchesAndRuns([cmd, ...args].map(shellQuote).join(' '));
-		if (remote) {
-			findings.push({
-				ruleId: 'mcp-remote-command', severity: 'critical', subject: name,
-				message: `MCP-сервер «${name}»: команда скачивает и исполняет удалённый скрипт (curl|sh) — произвольное выполнение кода при старте.`,
-			});
-		}
-		if (SHELL_BASENAMES.test(cmd) && args.includes('-c')) {
-			findings.push({
-				ruleId: 'mcp-shell-wrapper', severity: 'high', subject: name,
-				message: `MCP-сервер «${name}»: запуск через «${basename(cmd)} -c …» — обёртка обходит разделение аргументов и упрощает инъекцию команд.`,
-			});
-		}
-		if (args.some(a => DISABLED_SECURITY_FLAGS.some(f => a.includes(f)))) {
-			findings.push({
-				ruleId: 'mcp-disabled-security', severity: 'critical', subject: name,
-				message: `MCP-сервер «${name}»: аргументы отключают защиту (--no-sandbox / --disable-web-security и т.п.).`,
-			});
-		}
-
-		// npx / uvx supply-chain — applies whether the runner is the command or wrapped in args.
-		const npxArgs = runnerArgs('npx', cmd, args);
-		if (npxArgs) {
-			const concern = npxConcern(npxArgs);
-			if (concern) {
-				findings.push({ ruleId: 'mcp-npx-no-pin', severity: 'medium', subject: name, message: `MCP-сервер «${name}»: ${concern}.` });
-			}
-		}
-
-		// uvx carries the same risk and has no `-y` to ask about: only the pin matters.
-		const uvxArgs = runnerArgs('uvx', cmd, args);
-		const uvxPkg = uvxArgs ? uvxPackage(uvxArgs) : undefined;
-		if (uvxPkg !== undefined && !pythonPinned(uvxPkg)) {
-			findings.push({
-				ruleId: 'mcp-uvx-no-pin', severity: 'medium', subject: name,
-				message: `MCP-сервер «${name}»: пакет без фиксации версии (${uvxPkg}) — может подтянуть вредоносное обновление.`,
-			});
-		}
-
-		// Shell metacharacters — skip when the remote-pipe rule already covers this line.
-		if (!remote && args.some(a => SHELL_METACHARS.test(a))) {
-			findings.push({
-				ruleId: 'mcp-shell-metacharacters', severity: 'medium', subject: name,
-				message: `MCP-сервер «${name}»: аргументы содержат shell-метасимволы (\`$ ; | & < >\`) — риск инъекции команд.`,
-			});
-		}
-
-		for (const [k, v] of stringEntries(raw.env)) {
-			if (CRITICAL_ENV_OVERRIDES.has(k.toUpperCase())) {
-				findings.push({
-					ruleId: 'mcp-env-override-critical', severity: 'critical', subject: name,
-					message: `MCP-сервер «${name}»: env переопределяет критичную переменную «${k}» — вектор подмены загружаемого кода.`,
-				});
-			} else if (isEmbeddedSecret(k, v)) {
-				findings.push({
-					ruleId: 'mcp-hardcoded-env-secret', severity: 'critical', subject: name,
-					message: `MCP-сервер «${name}»: env «${k}» содержит секрет в открытом виде — используйте ссылку на переменную окружения, а не литерал.`,
-				});
-			}
-		}
+		findings.push(...scanLaunchCommand({ rulePrefix: 'mcp', name, label: `MCP-сервер «${name}»` }, cmd, args, raw.env));
 
 		const url = typeof raw.url === 'string' ? raw.url : (raw.url ? String(raw.url) : '');
 		if (url) {

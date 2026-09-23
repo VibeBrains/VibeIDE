@@ -1549,6 +1549,8 @@ export default defineConfig(
 						'child_process',
 						'console',
 						'cookie',
+						// VibeIDE: starts ACP agents — `npx`/`uvx` are `.cmd` shims on Windows (electron-main/acp).
+						'cross-spawn',
 						'crypto',
 						'detect-libc',
 						'dns',

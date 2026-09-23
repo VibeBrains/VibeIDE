@@ -6,7 +6,8 @@
 
 import { isHttpAcpMcpServer } from '../../common/acp/acpMcpExport.js';
 import { promises as fsPromises } from 'fs';
-import { ChildProcessWithoutNullStreams, spawn } from 'child_process';
+import { ChildProcessWithoutNullStreams } from 'child_process';
+import crossSpawn from 'cross-spawn';
 import { Emitter, Event } from '../../../../../base/common/event.js';
 import { Disposable } from '../../../../../base/common/lifecycle.js';
 import { generateUuid } from '../../../../../base/common/uuid.js';
@@ -61,8 +62,15 @@ function isAuthRequired(err: unknown): boolean {
 }
 
 /** Окружение дочернего процесса: своё поверх нашего, за вычетом чужих меток сессии. */
-function childEnv(extra: Readonly<Record<string, string>> | undefined): NodeJS.ProcessEnv {
-	const env: NodeJS.ProcessEnv = { ...process.env, ...(extra ?? {}) };
+/**
+ * The agent's environment: the IDE's own, then the login shell's on top, then the entry's.
+ *
+ * The shell layer is what makes `npx`, `uvx` and version-managed `node` resolve: an app opened from the
+ * Dock does not inherit `PATH` from `~/.zshrc`, so for the agent those commands do not exist. VS Code
+ * resolves the login shell's environment once for its terminals and extension host; agents get the same.
+ */
+function childEnv(extra: Readonly<Record<string, string>> | undefined, shellEnv: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
+	const env: NodeJS.ProcessEnv = { ...process.env, ...shellEnv, ...(extra ?? {}) };
 	for (const marker of NESTED_SESSION_MARKERS) {
 		if (extra && marker in extra) { continue; }
 		delete env[marker];
@@ -132,6 +140,11 @@ const NESTED_SESSION_MARKERS = [
  */
 export class VibeAcpMainService extends Disposable implements IVibeAcpMain {
 
+	/** @param _shellEnv the login shell's environment, resolved (and cached) the way VS Code does for its terminals. */
+	constructor(private readonly _shellEnv: () => Promise<NodeJS.ProcessEnv>) {
+		super();
+	}
+
 	private readonly _onEvent = this._register(new Emitter<AcpEvent>());
 	readonly onEvent: Event<AcpEvent> = this._onEvent.event;
 
@@ -187,9 +200,13 @@ export class VibeAcpMainService extends Disposable implements IVibeAcpMain {
 
 	/** Spawn the agent and introduce ourselves; a process that fails the introduction is killed, not left behind. */
 	private async _spawnAndGreet(launch: IAcpAgentLaunch): Promise<{ readonly agent: IAgentProcess; readonly greeting: JsonValue; readonly mcpServers: readonly JsonValue[] }> {
-		const child = spawn(launch.command, [...launch.args], {
+		// Through cross-spawn, not `child_process.spawn`: without a shell Windows cannot start `npx` or
+		// `uvx` at all — they are `.cmd` shims — and a shell would split arguments with spaces. The MCP
+		// SDK starts stdio servers the same way, which is why `npx` servers work there.
+		const shellEnv = await this._shellEnv();
+		const child = crossSpawn(launch.command, [...launch.args], {
 			cwd: launch.cwd,
-			env: childEnv(launch.env),
+			env: childEnv(launch.env, shellEnv),
 			stdio: ['pipe', 'pipe', 'pipe'],
 			shell: false,
 		}) as ChildProcessWithoutNullStreams;

@@ -112,6 +112,8 @@ export interface AuditEvent {
 	// A guest agent over ACP: its session boundaries, the person's answers to it, its settled tool calls.
 	// What is and is not recorded about a guest — see `acp/acpAudit.ts`.
 	| 'acp_session' | 'acp_permission' | 'acp_tool_call'
+	// An agent added from, or updated to a newer version of, the ACP Registry — a command that will run here.
+	| 'acp_agent_installed'
 	| 'job_pr_creation'
 	| 'run_tests:start' | 'run_tests:complete'
 	| 'verify_gate:result'

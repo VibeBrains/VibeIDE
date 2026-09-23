@@ -9,6 +9,7 @@ import { IVibeAcpSessionView } from '../../../acp/vibeAcpSessionsService.js';
 import { AcpLogEntry, IAcpSessionSpend } from '../../../../common/acp/acpSessionLog.js';
 import { AcpStopReason, IAcpDiff } from '../../../../common/acp/acpProtocol.js';
 import { VibeAgentEntry } from '../../../../common/acp/vibeAgentsFile.js';
+import { IAcpAgentUpdate, VIBE_ACP_ADD_FROM_REGISTRY_COMMAND_ID, VIBE_ACP_UPDATE_FROM_REGISTRY_COMMAND_ID } from '../../../../common/acp/vibeAcpRegistryImport.js';
 
 // ── Словарь ───────────────────────────────────────────────────────────────────
 
@@ -236,6 +237,8 @@ export const ExternalAgents = () => {
 	const accessor = useAccessor();
 	const registry = accessor.get('IVibeAcpRegistryService');
 	const sessions = accessor.get('IVibeAcpSessionsService');
+	const importer = accessor.get('IVibeAcpRegistryImportService');
+	const commands = accessor.get('ICommandService');
 	const isDark = useIsDark();
 
 	const [agents, setAgents] = useState<readonly VibeAgentEntry[]>(registry.agents);
@@ -243,6 +246,14 @@ export const ExternalAgents = () => {
 	const [views, setViews] = useState<readonly IVibeAcpSessionView[]>(sessions.sessions);
 	const [starting, setStarting] = useState<string | undefined>(undefined);
 	const [startError, setStartError] = useState<string | undefined>(undefined);
+	const [updates, setUpdates] = useState<ReadonlyMap<string, IAcpAgentUpdate>>(importer.updates);
+
+	useEffect(() => {
+		const listener = importer.onDidChangeUpdates(() => setUpdates(importer.updates));
+		// Asked quietly on opening: a registry that cannot be read only means no update badges.
+		void importer.checkUpdates().catch(() => { });
+		return () => listener.dispose();
+	}, [importer]);
 
 	useEffect(() => {
 		const listener = registry.onDidChange(() => {
@@ -294,8 +305,13 @@ export const ExternalAgents = () => {
 				</div>
 			</div>
 
+			<div className='flex flex-wrap items-center gap-2'>
+				<PaneButton onClick={() => void commands.executeCommand(VIBE_ACP_ADD_FROM_REGISTRY_COMMAND_ID)}>Добавить из реестра ACP</PaneButton>
+				<div className='text-root text-vibe-fg-2'>Пакет ставится ровно той версии, что в реестре; бинарь — только со сверкой sha256.</div>
+			</div>
+
 			{problems.length > 0 && <div className='rounded-md border border-vibe-border-3 bg-vibe-bg-2 px-3 py-2 text-root text-vibe-warning'>
-				<div className='font-semibold'>Реестр прочитан частично:</div>
+				<div className='font-semibold'>Есть замечания:</div>
 				{problems.map((problem, index) => <div key={index}>{problem}</div>)}
 			</div>}
 
@@ -305,12 +321,21 @@ export const ExternalAgents = () => {
 
 			{agents.length === 0
 				? <div className='rounded-lg border border-dashed border-vibe-border-3 px-4 py-10 text-center text-root text-vibe-fg-2'>
-					Реестра <span className='font-mono text-root'>.vibe/agents.json</span> в этой папке нет — звать некого.
-					Формат описан в <span className='font-mono text-root'>docs/manuals/agentsSpec.md</span>: его можно отдать модели и попросить собрать файл.
+					Агентов нет ни в <span className='font-mono text-root'>.vibe/agents.json</span> проекта, ни в <span className='font-mono text-root'>~/.vibe/agents.json</span> этой машины — звать некого.
+					Добавьте агента из реестра ACP кнопкой выше или опишите его сами: формат — в <span className='font-mono text-root'>docs/manuals/agentsSpec.md</span>, его можно отдать модели.
 				</div>
 				: <div className='flex flex-wrap items-center gap-2'>
 					{idle.map(agent => <PaneButton key={agent.id} disabled={starting !== undefined} onClick={() => void start(agent)}>
 						{starting === agent.id ? `${agent.name ?? agent.id}: запускаю…` : `Позвать ${agent.name ?? agent.id}`}
+					</PaneButton>)}
+					{/* Only entries that came from the registry get an update; a hand-written one is never touched. */}
+					{agents.filter(agent => updates.has(agent.id)).map(agent => <PaneButton
+						key={`update-${agent.id}`}
+						quiet
+						title='Новая версия в реестре ACP: подтвердите, что именно будет запускаться или скачиваться'
+						onClick={() => void commands.executeCommand(VIBE_ACP_UPDATE_FROM_REGISTRY_COMMAND_ID, agent.id)}
+					>
+						{`Обновить ${agent.name ?? agent.id}: ${updates.get(agent.id)!.from} → ${updates.get(agent.id)!.to}`}
 					</PaneButton>)}
 					{idle.length === 0 && <div className='text-root text-vibe-fg-2'>Все агенты реестра уже работают.</div>}
 				</div>}
