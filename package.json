@@ -180,6 +180,8 @@
     "@microsoft/dev-tunnels-ssh-tcp": "^3.12.22",
     "@mistralai/mistralai": "^2.2.1",
     "@parcel/watcher": "^2.5.6",
+    "@tesseract.js-data/eng": "1.0.0",
+    "@tesseract.js-data/rus": "1.0.0",
     "@types/semver": "^7.5.8",
     "@vscode/codicons": "^0.0.46-30",
     "@vscode/deviceid": "^0.1.1",

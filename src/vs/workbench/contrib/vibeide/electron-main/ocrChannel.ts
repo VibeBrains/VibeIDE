@@ -6,7 +6,11 @@
 import { IServerChannel } from '../../../../base/parts/ipc/common/ipc.js';
 import { Event } from '../../../../base/common/event.js';
 import { ILogService } from '../../../../platform/log/common/log.js';
+import { promises as fs } from 'fs';
+import { join } from '../../../../base/common/path.js';
+import { FileAccess } from '../../../../base/common/network.js';
 import { OcrRecognizeRequest, OcrRecognizeResponse, OcrWord } from '../common/imageQA/ocrTransport.js';
+import { bundledTrainedDataPath, ocrLanguagesOf } from '../common/imageQA/ocrBundledLanguages.js';
 
 /** Минимальная часть API tesseract.js, которой мы пользуемся. */
 interface TesseractWorkerLike {
@@ -86,6 +90,7 @@ export class VibeOcrChannel implements IServerChannel {
 		}
 		await this._disposeWorker();
 
+		await this._seedBundledLanguages(languages);
 		const { createWorker } = await import('tesseract.js') as unknown as TesseractModuleLike;
 		this._logService.info(`[VibeOcr] поднимаю распознаватель (${languages}), данные в ${this._langDataDir}`);
 		// `cachePath` — куда лечь скачанным языковым данным, чтобы второй раз не качать; `langPath`
@@ -95,6 +100,29 @@ export class VibeOcrChannel implements IServerChannel {
 		return this._worker;
 	}
 
+	/**
+	 * Copy the languages the app ships into the recognizer's cache, so a scan is read without a network.
+	 * A language already in the cache is left alone; one the app does not ship still downloads as before.
+	 */
+	private async _seedBundledLanguages(languages: string): Promise<void> {
+		for (const language of ocrLanguagesOf(languages)) {
+			const bundled = bundledTrainedDataPath(language);
+			const cached = join(this._langDataDir, `${language}.traineddata`);
+			if (!bundled || await exists(cached)) {
+				continue;
+			}
+			const source = FileAccess.asFileUri(bundled).fsPath;
+			if (!await exists(source)) {
+				this._logService.warn(`[VibeOcr] данные языка ${language} не найдены в приложении (${source}) — будут скачаны`);
+				continue;
+			}
+			await fs.mkdir(this._langDataDir, { recursive: true });
+			// tesseract.js checks the gzip signature of what it reads from the cache, so the file is copied as is.
+			await fs.copyFile(source, cached);
+			this._logService.info(`[VibeOcr] данные языка ${language} взяты из приложения, без сети`);
+		}
+	}
+
 	private async _disposeWorker(): Promise<void> {
 		const worker = this._worker;
 		this._worker = undefined;
@@ -102,5 +130,14 @@ export class VibeOcrChannel implements IServerChannel {
 		if (worker) {
 			try { await worker.terminate(); } catch { /* уже мёртв — нечего закрывать */ }
 		}
+	}
+}
+
+async function exists(path: string): Promise<boolean> {
+	try {
+		await fs.access(path);
+		return true;
+	} catch {
+		return false;
 	}
 }
