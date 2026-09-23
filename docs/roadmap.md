@@ -5778,7 +5778,13 @@ prompts, tools, and preceding messages») действует на API-аккау
       файла без потери комментариев (`common/acp/vibeAgentsFileEdit.ts`), настройка `vibeide.acp.registryUrl`
       (APPLICATION), аудит `acp_agent_installed`. Попутно: Config Guard проверяет `agents.json` теми же правилами, что
       команды MCP (общая `scanLaunchCommand`); агенты стартуют через `cross-spawn` (на Windows `npx` — `.cmd`) и с
-      окружением оболочки (из Dock `npx` иначе не находится). Живьём на Windows не проверено. Исходная запись: реестр
+      окружением оболочки (из Dock `npx` иначе не находится). Живьём на Windows не проверено. Стенд 23.09 нашёл гонку:
+      на macOS под `/Volumes` коррелированный наблюдатель проектного `agents.json` получал отказ, если просил раньше
+      рекурсивного наблюдателя рабочей папки, и ручная правка файла не подхватывалась до перезапуска. Проектный файл
+      теперь слушается через общее событие рабочей папки, свой наблюдатель остался у машинного; тест
+      `test/browser/vibeAcpRegistryService.test.ts`, разбор — `knowledge/runtimeQuirks/volumesFileWatcher.md`. Живьём:
+      агент, дописанный руками в `agents.json` стенда под `/Volumes`, появился во вкладке без перезапуска. Импорт и
+      обновление перечитывают файл сами и от наблюдателя не зависели. Исходная запись: реестр
       (Apache-2.0) отдаёт готовый JSON с CDN
       `https://cdn.agentclientprotocol.com/registry/v1/latest/registry.json`; версии агентов обновляются ежечасным
       cron по релизам npm, PyPI и GitHub. Запись: `id`, `name`, `version` (строго X.Y.Z), `description`, `repository`,

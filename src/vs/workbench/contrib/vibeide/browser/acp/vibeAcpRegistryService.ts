@@ -67,7 +67,7 @@ export interface IVibeAcpRegistryService {
 const CONFIG_GUARD_ENABLED_KEY = 'vibeide.configGuard.enabled';
 const CONFIG_GUARD_MODE_KEY = 'vibeide.configGuard.mode';
 
-class VibeAcpRegistryService extends Disposable implements IVibeAcpRegistryService {
+export class VibeAcpRegistryService extends Disposable implements IVibeAcpRegistryService {
 	declare readonly _serviceBrand: undefined;
 
 	private readonly _onDidChange = this._register(new Emitter<void>());
@@ -150,14 +150,26 @@ class VibeAcpRegistryService extends Disposable implements IVibeAcpRegistryServi
 		};
 	}
 
-	/** Отдельный наблюдатель на каждый файл: общий следил бы за целыми папками без нужды. */
+	/**
+	 * The machine file lies outside the workspace and gets a watcher of its own. The project file is inside
+	 * the workspace, which is already watched recursively, so its changes arrive on the shared event. A
+	 * correlated watcher there is refused on macOS under `/Volumes` whenever it is requested before the
+	 * recursive one is up — the node watcher does not watch `/Volumes` at all — and then stays silent.
+	 */
 	private async _watchFiles(): Promise<void> {
 		const store = new DisposableStore();
-		for (const layer of ['project', 'machine'] as const) {
-			const fileUri = await this.fileOf(layer);
-			if (!fileUri) { continue; }
-			const watcher = store.add(this._fileService.createWatcher(fileUri, { recursive: false, excludes: [] }));
+		const machineFile = await this.fileOf('machine');
+		if (machineFile) {
+			const watcher = store.add(this._fileService.createWatcher(machineFile, { recursive: false, excludes: [] }));
 			store.add(watcher.onDidChange(() => void this._readAndApply()));
+		}
+		const projectFile = await this.fileOf('project');
+		if (projectFile) {
+			store.add(this._fileService.onDidFilesChange(e => {
+				if (e.contains(projectFile)) {
+					void this._readAndApply();
+				}
+			}));
 		}
 		this._watch.value = store;
 	}
