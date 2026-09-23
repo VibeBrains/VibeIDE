@@ -5794,7 +5794,11 @@ prompts, tools, and preceding messages») действует на API-аккау
       `list_changed`, дрейф → запись в аудит и требование переодобрить. IoC для справки:
       `productivity-suite-mcp.onrender.com/mcp`, `~/.config/.cache/.sys/.deadbug-mcp.py`, аккаунт `zellkernel`
       (23 PR в чужие репозитории за 74 минуты 10.08.2026).
-- [ ] **Переподключение оборвавшегося внешнего ACP-агента** — Zed: «Added the ability to reload a broken external agent
+- [x] **Переподключение оборвавшегося внешнего ACP-агента** — ✅ (2026-09-23, next) кнопка «Переподключить» во вкладке и в
+      уведомлении; новый процесс возвращает сессию через `session/resume` → `session/load` → `session/new` по объявлению
+      агента, повтор истории при `load` глотается. Попутно: `_fail` срабатывал на каждое штатное закрытие и дважды на
+      `error` + `exit`, процесс с упавшим `initialize` оставался жить. Разбор — `knowledge/agentCollaboration/acpHost.md`.
+      Исходная запись: Zed: «Added the ability to reload a broken external agent
       connection from the Agent Panel without restarting Zed». **Поправка к дайджесту:** это 1.18.0 от 02.09.2026, а не
       1.20.1 — в 1.19.2–1.20.2 по агентам только утечка файловых дескрипторов, память сессий и старт MCP-серверов.
       Номер PR в источниках расходится (#62669 против #63234), не сверено. У нас переподключения нет: событие `failed`

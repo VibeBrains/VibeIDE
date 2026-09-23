@@ -5,7 +5,7 @@
 
 import { AcpMcpServer } from './acpMcpExport.js';
 import { Event } from '../../../../../base/common/event.js';
-import { AcpStopReason, AcpToolStatus, IAcpAuthMethod, IAcpDiff } from './acpProtocol.js';
+import { AcpReconnectMode, AcpStopReason, AcpToolStatus, IAcpAuthMethod, IAcpDiff } from './acpProtocol.js';
 
 /**
  * Контракт хоста ACP: VibeIDE как клиент, внешний агент как процесс.
@@ -85,6 +85,11 @@ export interface IAcpSession {
 	readonly agentName: string;
 }
 
+/** A session brought back after its agent process died, and how — which says what the agent remembers. */
+export interface IAcpReconnection extends IAcpSession {
+	readonly mode: AcpReconnectMode;
+}
+
 export interface IVibeAcpMain {
 	/** Запустить агента и открыть сессию. */
 	startSession(launch: IAcpAgentLaunch): Promise<IAcpSession>;
@@ -96,5 +101,10 @@ export interface IVibeAcpMain {
 	cancel(sessionId: string): Promise<void>;
 	/** Закрыть сессию и погасить процесс. */
 	endSession(sessionId: string): Promise<void>;
+	/**
+	 * Bring back a session whose agent process died: a new process, then the strongest way back the
+	 * agent declared — `session/resume`, `session/load` or a new session. With `new` the id changes.
+	 */
+	reconnectSession(previousSessionId: string, launch: IAcpAgentLaunch): Promise<IAcpReconnection>;
 	readonly onEvent: Event<AcpEvent>;
 }

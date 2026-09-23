@@ -103,6 +103,10 @@ const TOOL_STATUS_NAMES: Record<string, string> = {
 };
 
 const LogEntry = ({ entry }: { entry: AcpLogEntry }) => {
+	if (entry.kind === 'notice') {
+		// The editor's own note about the session, set apart from what the agent said.
+		return <div className='border-y border-vibe-border-3 py-1 text-center text-root text-vibe-fg-2'>{entry.text}</div>;
+	}
 	if (entry.kind === 'message') {
 		return <div className={`whitespace-pre-wrap text-root ${entry.thought ? 'italic text-vibe-fg-2' : 'text-vibe-fg-1'}`}>
 			{entry.text}
@@ -185,8 +189,12 @@ const SessionCard = ({ session }: { session: IVibeAcpSessionView }) => {
 			</div>
 		</div>
 
-		{session.error && <div className='rounded-md border border-vibe-border-3 bg-vibe-bg-2 px-3 py-2 text-root text-vibe-warning'>
-			{session.error}
+		{session.error && <div className='flex items-center justify-between gap-3 rounded-md border border-vibe-border-3 bg-vibe-bg-2 px-3 py-2 text-root text-vibe-warning'>
+			<span>{session.error}</span>
+			{/* The IDE does not have to restart: a new agent process takes over this session. */}
+			{session.disconnected && <PaneButton disabled={session.reconnecting} onClick={() => void sessions.reconnect(session.sessionId)}>
+				{session.reconnecting ? 'Переподключаю…' : 'Переподключить'}
+			</PaneButton>}
 		</div>}
 
 		{session.log.entries.length > 0 && <div className='flex max-h-[50vh] flex-col gap-2 overflow-y-auto'>
@@ -203,15 +211,17 @@ const SessionCard = ({ session }: { session: IVibeAcpSessionView }) => {
 				<textarea
 					id={inputId}
 					className='min-h-[72px] flex-1 rounded-md border border-vibe-border-3 bg-vibe-bg-1 px-3 py-2 text-root text-vibe-fg-1 placeholder:text-vibe-fg-2 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-vibe-border-1'
-					placeholder={session.busy ? 'Агент работает — дождитесь конца хода или прервите его' : 'Что сделать в этой рабочей папке?'}
+					placeholder={session.disconnected
+						? 'Связь с агентом оборвалась — переподключите его'
+						: session.busy ? 'Агент работает — дождитесь конца хода или прервите его' : 'Что сделать в этой рабочей папке?'}
 					value={draft}
-					disabled={session.busy}
+					disabled={session.busy || session.disconnected}
 					onChange={event => setDraft(event.target.value)}
 					onKeyDown={event => {
 						if (event.key === 'Enter' && (event.metaKey || event.ctrlKey)) { send(); }
 					}}
 				/>
-				<PaneButton disabled={session.busy || !draft.trim()} onClick={send}>Отправить</PaneButton>
+				<PaneButton disabled={session.busy || session.disconnected || !draft.trim()} onClick={send}>Отправить</PaneButton>
 			</div>
 			<div className='text-root text-vibe-fg-2'>
 				{!session.busy && session.lastStopReason ? STOP_NAMES[session.lastStopReason] : 'Отправить — ⌘/Ctrl + Enter'}

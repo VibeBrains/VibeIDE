@@ -22,7 +22,7 @@ import { InstantiationType, registerSingleton } from '../../../../../platform/in
 import { ICommandService } from '../../../../../platform/commands/common/commands.js';
 import { INotificationService, Severity } from '../../../../../platform/notification/common/notification.js';
 import { AcpEvent, IAcpPermissionRequest, IAcpSession } from '../../common/acp/acpTypes.js';
-import { AcpStopReason, IAcpDiff } from '../../common/acp/acpProtocol.js';
+import { AcpReconnectMode, AcpStopReason, IAcpDiff } from '../../common/acp/acpProtocol.js';
 import { AcpLogEntry, AcpSessionLog, IAcpSessionSnapshot } from '../../common/acp/acpSessionLog.js';
 import { buildAcpPermissionAudit, buildAcpSessionAudit, buildAcpToolCallAudit } from '../../common/acp/acpAudit.js';
 import { AuditEvent, IAuditLogService } from '../../common/auditLogService.js';
@@ -45,6 +45,10 @@ export interface IVibeAcpSessionView {
 	readonly lastStopReason?: AcpStopReason;
 	/** Ошибка последнего действия, если оно не удалось. */
 	readonly error?: string;
+	/** The agent process died: the session cannot take a task until it is reconnected. */
+	readonly disconnected: boolean;
+	/** A reconnection is under way: a second click must not start a second agent. */
+	readonly reconnecting: boolean;
 	readonly log: IAcpSessionSnapshot;
 	/** Вопрос, ждущий человека. Пока он есть, ход стоит. */
 	readonly pendingPermission?: IAcpPermissionRequest;
@@ -66,6 +70,12 @@ export interface IVibeAcpSessionsService {
 	answerPermission(sessionId: string, optionId: string | undefined): Promise<void>;
 	cancel(sessionId: string): Promise<void>;
 	endSession(sessionId: string): Promise<void>;
+	/**
+	 * Bring back a session whose agent process died, without restarting the IDE. The transcript stays;
+	 * a note in it says whether the agent still remembers the conversation. With a new session the id
+	 * changes — the card stays in its place under the new id.
+	 */
+	reconnect(sessionId: string): Promise<void>;
 }
 
 interface ISessionState {
@@ -76,6 +86,8 @@ interface ISessionState {
 	busy: boolean;
 	lastStopReason?: AcpStopReason;
 	error?: string;
+	disconnected: boolean;
+	reconnecting: boolean;
 	pending?: { readonly request: IAcpPermissionRequest; readonly snapshotId?: string };
 }
 
@@ -109,6 +121,8 @@ class VibeAcpSessionsService extends Disposable implements IVibeAcpSessionsServi
 			busy: state.busy,
 			lastStopReason: state.lastStopReason,
 			error: state.error,
+			disconnected: state.disconnected,
+			reconnecting: state.reconnecting,
 			log: state.log.snapshot,
 			pendingPermission: state.pending?.request,
 		}));
@@ -130,6 +144,8 @@ class VibeAcpSessionsService extends Disposable implements IVibeAcpSessionsServi
 			agentName: session.agentName,
 			log: new AcpSessionLog(),
 			busy: false,
+			disconnected: false,
+			reconnecting: false,
 		});
 		this._activityLog.logStarted(localize('vibeide.acp.log.session', "Внешний агент «{0}» открыл сессию", session.agentName));
 		this._audit(buildAcpSessionAudit({ agentId: agent.id, sessionId: session.sessionId, phase: 'started' }, Date.now()));
@@ -140,6 +156,12 @@ class VibeAcpSessionsService extends Disposable implements IVibeAcpSessionsServi
 	async prompt(sessionId: string, text: string): Promise<void> {
 		const state = this._sessions.get(sessionId);
 		if (!state || state.busy) { return; }
+		if (state.disconnected) {
+			// The dead process cannot take the task; saying so beats a bare «session not found».
+			state.error = localize('vibeide.acp.disconnected.prompt', "Связь с агентом оборвалась — переподключите его, чтобы отправить задачу.");
+			this._onDidChange.fire();
+			return;
+		}
 		state.busy = true;
 		state.error = undefined;
 		state.lastStopReason = undefined;
@@ -185,6 +207,51 @@ class VibeAcpSessionsService extends Disposable implements IVibeAcpSessionsServi
 
 	cancel(sessionId: string): Promise<void> {
 		return this._acpService.cancel(sessionId);
+	}
+
+	async reconnect(sessionId: string): Promise<void> {
+		const state = this._sessions.get(sessionId);
+		if (!state || !state.disconnected || state.reconnecting) { return; }
+		// The launch is read again, not remembered: the entry in agents.json may have changed since.
+		const agent = this._registry.agents.find(entry => entry.id === state.agentId);
+		const launch = agent ? this._registry.launchOf(agent) : undefined;
+		if (!agent || !launch) {
+			state.error = agent
+				? localize('vibeide.acp.noWorkspace', "Открытой рабочей папки нет — агенту негде работать.")
+				: localize('vibeide.acp.reconnect.gone', "Агента «{0}» больше нет в .vibe/agents.json — переподключать некого.", state.agentName);
+			this._onDidChange.fire();
+			return;
+		}
+		state.reconnecting = true;
+		state.error = undefined;
+		this._onDidChange.fire();
+		let current = state;
+		try {
+			const back = await this._acpService.reconnectSession(sessionId, launch);
+			if (back.sessionId !== sessionId) {
+				current = { ...state, sessionId: back.sessionId };
+				this._rekey(sessionId, current);
+			}
+			current.disconnected = false;
+			current.busy = false;
+			current.log.appendNotice(reconnectNotice(back.mode));
+			this._activityLog.logStarted(localize('vibeide.acp.log.reconnected', "Внешний агент «{0}» переподключён", current.agentName));
+			this._audit(buildAcpSessionAudit({ agentId: current.agentId, sessionId: current.sessionId, phase: 'reconnected', reconnectMode: back.mode }, Date.now()));
+		} catch (err) {
+			current.error = localize('vibeide.acp.reconnect.failed', "Переподключить не удалось: {0}", err instanceof Error ? err.message : String(err));
+		} finally {
+			current.reconnecting = false;
+			this._onDidChange.fire();
+		}
+	}
+
+	/** A new id for the same card: the cards keep the order in which the sessions were opened. */
+	private _rekey(previousId: string, next: ISessionState): void {
+		const entries = [...this._sessions].map(([id, state]) => id === previousId ? [next.sessionId, next] as const : [id, state] as const);
+		this._sessions.clear();
+		for (const [id, state] of entries) {
+			this._sessions.set(id, state);
+		}
 	}
 
 	async endSession(sessionId: string): Promise<void> {
@@ -239,7 +306,11 @@ class VibeAcpSessionsService extends Disposable implements IVibeAcpSessionsServi
 					state.busy = false;
 					state.error = event.error;
 					state.pending = undefined;
+					state.disconnected = true;
 					this._audit(buildAcpSessionAudit({ agentId: state.agentId, sessionId: state.sessionId, phase: 'failed', error: event.error }, Date.now()));
+					if (!this._surfaceVisible) {
+						this._notifyDisconnected(state);
+					}
 				}
 				this._activityLog.logError(localize('vibeide.acp.log.failed', "Связь с внешним агентом оборвалась: {0}", event.error));
 				this._onDidChange.fire();
@@ -333,6 +404,28 @@ class VibeAcpSessionsService extends Disposable implements IVibeAcpSessionsServi
 	}
 
 	/**
+	 * A broken session while the tab is closed. Reconnecting right from the notification is safe:
+	 * unlike a permission, nothing is decided on the person's behalf — the agent only comes back.
+	 */
+	private _notifyDisconnected(state: ISessionState): void {
+		const sessionId = state.sessionId;
+		this._notificationService.prompt(
+			Severity.Warning,
+			localize('vibeide.acp.disconnected.notify', "Связь с внешним агентом «{0}» оборвалась.", state.agentName),
+			[
+				{
+					label: localize('vibeide.acp.reconnect', "Переподключить"),
+					run: () => void this.reconnect(sessionId),
+				},
+				{
+					label: localize('vibeide.acp.permission.show', "Показать"),
+					run: () => void this._commandService.executeCommand(VIBE_ACP_SHOW_COMMAND_ID),
+				},
+			],
+		);
+	}
+
+	/**
 	 * Вопрос, когда вкладка закрыта.
 	 *
 	 * Кнопка ведёт на поверхность, а не отвечает за человека: в уведомление не помещается дифф,
@@ -367,6 +460,18 @@ export function describeEdits(title: string, diffs: readonly IAcpDiff[]): string
 
 /** Пустой текст — это ноль строк: так выглядит создание файла и удаление содержимого. */
 const countLines = (text: string): number => (text ? text.split('\n').length : 0);
+
+/** What the person is told after a reconnection: above all, whether the agent remembers the conversation. */
+export function reconnectNotice(mode: AcpReconnectMode): string {
+	switch (mode) {
+		case 'resume':
+			return localize('vibeide.acp.reconnect.resumed', "Связь восстановлена: агент продолжил ту же сессию.");
+		case 'load':
+			return localize('vibeide.acp.reconnect.loaded', "Связь восстановлена: агент заново загрузил эту сессию и помнит разговор.");
+		case 'new':
+			return localize('vibeide.acp.reconnect.fresh', "Связь восстановлена, но агент не умеет продолжать сессию: начата новая, разговор выше он не помнит.");
+	}
+}
 
 type AcpToolLogEntry = Extract<AcpLogEntry, { readonly kind: 'tool' }>;
 

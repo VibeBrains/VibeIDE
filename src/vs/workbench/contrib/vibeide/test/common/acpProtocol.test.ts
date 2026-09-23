@@ -14,6 +14,8 @@ import {
 	newSessionParams,
 	parseMessage,
 	promptParams,
+	reconnectModesOf,
+	returnToSessionParams,
 	authMethodsOf,
 	parseSessionUpdate,
 	stopReasonOf,
@@ -230,6 +232,31 @@ suite('acpProtocol', () => {
 
 		test('пустое описание не роняет показ', () => {
 			assert.strictEqual(typeof describeToolCall(undefined), 'string');
+		});
+	});
+
+	test('способы вернуть сессию — только объявленные агентом, от сильного к слабому, новая сессия всегда последней', () => {
+		const greet = (agentCapabilities: JsonValue): JsonValue => ({ protocolVersion: 1, agentCapabilities });
+		assert.deepStrictEqual({
+			ничего: reconnectModesOf(greet({})),
+			загрузка: reconnectModesOf(greet({ loadSession: true })),
+			продолжение: reconnectModesOf(greet({ sessionCapabilities: { resume: {} } })),
+			оба: reconnectModesOf(greet({ loadSession: true, sessionCapabilities: { resume: {} } })),
+			// The schema says object; `true` declares it just the same.
+			булево: reconnectModesOf(greet({ sessionCapabilities: { resume: true } })),
+			// Calling what was not declared is forbidden by the spec.
+			необъявлено: reconnectModesOf(greet({ loadSession: 'yes', sessionCapabilities: { resume: false } })),
+			безЗнакомства: reconnectModesOf(undefined),
+			параметры: returnToSessionParams('s-1', '/ws', []),
+		}, {
+			ничего: ['new'],
+			загрузка: ['load', 'new'],
+			продолжение: ['resume', 'new'],
+			оба: ['resume', 'load', 'new'],
+			булево: ['resume', 'new'],
+			необъявлено: ['new'],
+			безЗнакомства: ['new'],
+			параметры: { sessionId: 's-1', cwd: '/ws', mcpServers: [] },
 		});
 	});
 });

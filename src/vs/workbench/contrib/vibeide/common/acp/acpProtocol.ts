@@ -29,6 +29,8 @@ export const ACP_AGENT_METHOD = {
 	initialize: 'initialize',
 	authenticate: 'authenticate',
 	newSession: 'session/new',
+	loadSession: 'session/load',
+	resumeSession: 'session/resume',
 	prompt: 'session/prompt',
 	cancel: 'session/cancel',
 } as const;
@@ -214,6 +216,45 @@ export function authMethodsOf(initializeResult: JsonValue | undefined): readonly
  * которым гость подключается сам (правила отбора — `acpMcpExport.ts`).
  */
 export const newSessionParams = (cwd: string, mcpServers: readonly JsonValue[] = []): JsonValue => ({
+	cwd,
+	mcpServers: [...mcpServers],
+});
+
+/**
+ * How a session whose agent process died can come back, strongest first.
+ *
+ * - `resume` — the same session, and the agent does not replay the history: the transcript the person
+ *   sees is already ours, so nothing is duplicated.
+ * - `load` — the same session, but the agent replays the whole conversation before answering; the
+ *   host has to swallow the replay, or the feed and the journal would show everything twice.
+ * - `new` — a fresh session: the agent does not remember what was said, and the person must be told.
+ */
+export type AcpReconnectMode = 'resume' | 'load' | 'new';
+
+/**
+ * The ways back this agent declared in its `initialize` answer, strongest first; `new` always ends
+ * the list. `session/resume` is declared by the presence of `agentCapabilities.sessionCapabilities.resume`
+ * (an object), `session/load` by `agentCapabilities.loadSession === true`. Calling either without the
+ * declaration is forbidden by the spec.
+ */
+export function reconnectModesOf(greeting: JsonValue | undefined): readonly AcpReconnectMode[] {
+	const caps = asObject(asObject(greeting)?.['agentCapabilities']);
+	const modes: AcpReconnectMode[] = [];
+	// The schema makes `resume` an object; an agent sending `true` has declared it just the same.
+	const resume = asObject(caps?.['sessionCapabilities'])?.['resume'];
+	if (resume === true || asObject(resume)) {
+		modes.push('resume');
+	}
+	if (caps?.['loadSession'] === true) {
+		modes.push('load');
+	}
+	modes.push('new');
+	return modes;
+}
+
+/** Params of `session/resume` and `session/load`: the same shape, the session to come back to. */
+export const returnToSessionParams = (sessionId: string, cwd: string, mcpServers: readonly JsonValue[] = []): JsonValue => ({
+	sessionId,
 	cwd,
 	mcpServers: [...mcpServers],
 });

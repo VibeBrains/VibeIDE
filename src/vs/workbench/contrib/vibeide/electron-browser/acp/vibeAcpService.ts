@@ -16,7 +16,7 @@ import { ProxyChannel } from '../../../../../base/parts/ipc/common/ipc.js';
 import { Event } from '../../../../../base/common/event.js';
 import { InstantiationType, registerSingleton } from '../../../../../platform/instantiation/common/extensions.js';
 import { IMainProcessService } from '../../../../../platform/ipc/common/mainProcessService.js';
-import { AcpEvent, IAcpAgentLaunch, IAcpSession, IVibeAcpMain, VIBE_ACP_CHANNEL } from '../../common/acp/acpTypes.js';
+import { AcpEvent, IAcpAgentLaunch, IAcpReconnection, IAcpSession, IVibeAcpMain, VIBE_ACP_CHANNEL } from '../../common/acp/acpTypes.js';
 import { AcpStopReason } from '../../common/acp/acpProtocol.js';
 import { IVibeAcpService } from '../../common/acp/vibeAcpService.js';
 
@@ -51,6 +51,10 @@ export class VibeAcpService implements IVibeAcpService {
 
 	endSession(sessionId: string): Promise<void> {
 		return this._proxy.endSession(sessionId);
+	}
+
+	reconnectSession(previousSessionId: string, launch: IAcpAgentLaunch): Promise<IAcpReconnection> {
+		return this._proxy.reconnectSession(previousSessionId, launch);
 	}
 }
 

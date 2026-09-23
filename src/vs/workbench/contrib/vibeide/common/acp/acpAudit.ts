@@ -20,7 +20,7 @@
 
 import { AuditEvent } from '../auditLogService.js';
 import { redactStreamForAudit } from '../commandsAuditPrivacy.js';
-import { AcpToolStatus, IAcpDiff } from './acpProtocol.js';
+import { AcpReconnectMode, AcpToolStatus, IAcpDiff } from './acpProtocol.js';
 
 /** Longest guest-written text kept. Beyond this a title is a payload, not a label. */
 const MAX_TEXT_LEN = 200;
@@ -66,9 +66,6 @@ export interface IAcpPermissionAuditInput extends IAcpAuditScope {
 }
 
 export type AcpSessionPhase = 'started' | 'ended' | 'failed' | 'reconnected';
-
-/** How a broken session came back — the three ways ACP offers, strongest first. */
-export type AcpReconnectMode = 'resume' | 'load' | 'new';
 
 export interface IAcpSessionAuditInput extends IAcpAuditScope {
 	readonly phase: AcpSessionPhase;

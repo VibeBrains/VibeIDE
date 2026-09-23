@@ -96,4 +96,16 @@ suite('acpSessionLog', () => {
 		log.applySpend(100, 200, undefined);
 		assert.deepStrictEqual(log.snapshot.spend, { used: 100, size: 200 });
 	});
+
+	test('пометка редактора стоит отдельно и разрывает склейку реплик агента', () => {
+		const log = new AcpSessionLog();
+		log.appendText('до обрыва', false);
+		log.appendNotice('Связь восстановлена');
+		log.appendText('после', false);
+		assert.deepStrictEqual(log.snapshot.entries.map(entry => entry.kind === 'tool' ? entry.title : `${entry.kind}:${entry.text}`), [
+			'message:до обрыва',
+			'notice:Связь восстановлена',
+			'message:после',
+		]);
+	});
 });

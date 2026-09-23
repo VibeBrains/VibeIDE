@@ -14,6 +14,7 @@ import { vibeLog } from '../../common/vibeLog.js';
 import {
 	ACP_AGENT_METHOD,
 	ACP_CLIENT_METHOD,
+	AcpReconnectMode,
 	AcpStreamDecoder,
 	AcpStopReason,
 	IAcpAuthMethod,
@@ -30,12 +31,14 @@ import {
 	agentSupportsHttpMcp,
 	parseSessionUpdate,
 	promptParams,
+	reconnectModesOf,
 	requestFrame,
 	resultFrame,
+	returnToSessionParams,
 	stopReasonOf,
 	toolCallFacts,
 } from '../../common/acp/acpProtocol.js';
-import { AcpEvent, IAcpAgentLaunch, IAcpSession, IVibeAcpMain } from '../../common/acp/acpTypes.js';
+import { AcpEvent, IAcpAgentLaunch, IAcpReconnection, IAcpSession, IVibeAcpMain } from '../../common/acp/acpTypes.js';
 
 /** Отказ агента на вызов: код нужен, чтобы отличать «не авторизован» от прочих бед. */
 class AcpCallError extends Error {
@@ -81,6 +84,19 @@ interface IAgentProcess {
 	nextId: number;
 	/** Способы входа, объявленные агентом: понадобятся, когда он откажет по авторизации. */
 	authMethods: readonly IAcpAuthMethod[];
+	/**
+	 * Set when we end the process ourselves. Its exit is then the expected outcome, not a broken
+	 * connection: reporting it would log an error on every ordinary close and offer to reconnect a
+	 * session the person has just closed.
+	 */
+	closing?: boolean;
+	/** Set once the death is handled: `error` and `exit` both arrive for one death. */
+	failed?: boolean;
+	/**
+	 * Set while `session/load` replays the conversation. The replay is history the person already sees
+	 * in the feed; passing it on would show every message and every edit twice, and journal them twice.
+	 */
+	replaying?: boolean;
 }
 
 /**
@@ -125,6 +141,52 @@ export class VibeAcpMainService extends Disposable implements IVibeAcpMain {
 	private readonly _permissions = new Map<string, { readonly agent: IAgentProcess; readonly rpcId: number | string }>();
 
 	async startSession(launch: IAcpAgentLaunch): Promise<IAcpSession> {
+		const { agent, mcpServers } = await this._spawnAndGreet(launch);
+		let sessionId: string;
+		try {
+			sessionId = await this._openSession(agent, 'new', undefined, mcpServers);
+		} catch (err) {
+			this._close(agent);
+			throw err;
+		}
+		this._adopt(agent, sessionId);
+		vibeLog.info('ACP', `${launch.name}: сессия ${sessionId} в ${launch.cwd}`);
+		return { sessionId, agentName: launch.name };
+	}
+
+	/**
+	 * A new process for a session whose agent died, then the strongest way back the agent declared.
+	 *
+	 * `resume` and `load` may still fail — an agent that crashed may never have saved the session it
+	 * declares it can load — so each failure falls through to the next way, and `new` ends the chain.
+	 * The mode returned tells the caller what the agent remembers, which the person has to be told.
+	 */
+	async reconnectSession(previousSessionId: string, launch: IAcpAgentLaunch): Promise<IAcpReconnection> {
+		// Two processes on one session would answer each other's prompts; a live one is ended first.
+		if (this._agents.has(previousSessionId)) {
+			await this.endSession(previousSessionId);
+		}
+		const { agent, greeting, mcpServers } = await this._spawnAndGreet(launch);
+		for (const mode of reconnectModesOf(greeting)) {
+			try {
+				const sessionId = await this._openSession(agent, mode, previousSessionId, mcpServers);
+				this._adopt(agent, sessionId);
+				vibeLog.info('ACP', `${launch.name}: сессия ${sessionId} восстановлена способом ${mode}`);
+				return { sessionId, agentName: launch.name, mode };
+			} catch (err) {
+				// A dead process fails every next way too; the last way has nothing to fall back to.
+				if (agent.failed || mode === 'new') {
+					this._close(agent);
+					throw err;
+				}
+				vibeLog.warn('ACP', `${launch.name}: ${mode} не удался (${err instanceof Error ? err.message : String(err)}) — пробую следующий способ`);
+			}
+		}
+		throw new Error(`${launch.name}: способа вернуть сессию не нашлось`);
+	}
+
+	/** Spawn the agent and introduce ourselves; a process that fails the introduction is killed, not left behind. */
+	private async _spawnAndGreet(launch: IAcpAgentLaunch): Promise<{ readonly agent: IAgentProcess; readonly greeting: JsonValue; readonly mcpServers: readonly JsonValue[] }> {
 		const child = spawn(launch.command, [...launch.args], {
 			cwd: launch.cwd,
 			env: childEnv(launch.env),
@@ -142,7 +204,13 @@ export class VibeAcpMainService extends Disposable implements IVibeAcpMain {
 		child.on('error', err => this._fail(agent, `процесс не запустился: ${err.message}`));
 		child.on('exit', code => this._fail(agent, `процесс агента завершился с кодом ${code}`));
 
-		const greeting = await this._call(agent, ACP_AGENT_METHOD.initialize, initializeParams());
+		let greeting: JsonValue;
+		try {
+			greeting = await this._call(agent, ACP_AGENT_METHOD.initialize, initializeParams());
+		} catch (err) {
+			this._close(agent);
+			throw err;
+		}
 		agent.authMethods = authMethodsOf(greeting);
 		// HTTP-серверы отсеиваются здесь, а не в окне: поддержку такого транспорта агент объявляет
 		// в рукопожатии, и раньше этого момента узнать её неоткуда. Отсеянное называется в журнале —
@@ -157,16 +225,43 @@ export class VibeAcpMainService extends Disposable implements IVibeAcpMain {
 		if (mcpServers.length > 0) {
 			vibeLog.info('ACP', `${launch.name}: гостю переданы MCP-серверы ${mcpServers.map(server => server.name).join(', ')}`);
 		}
-		const created = await this._call(agent, ACP_AGENT_METHOD.newSession, newSessionParams(launch.cwd, mcpServers as unknown as JsonValue[]));
-		const sessionId = readString(created, 'sessionId');
-		if (!sessionId) {
-			child.kill();
-			throw new Error(`${launch.name} не вернул идентификатор сессии`);
+		return { agent, greeting, mcpServers: mcpServers as unknown as JsonValue[] };
+	}
+
+	/** Open a session the given way; resolves to its id. `resume` and `load` come back to `previousSessionId`. */
+	private async _openSession(agent: IAgentProcess, mode: AcpReconnectMode, previousSessionId: string | undefined, mcpServers: readonly JsonValue[]): Promise<string> {
+		const cwd = agent.launch.cwd;
+		if (mode === 'new' || !previousSessionId) {
+			const created = await this._call(agent, ACP_AGENT_METHOD.newSession, newSessionParams(cwd, mcpServers));
+			const sessionId = readString(created, 'sessionId');
+			if (!sessionId) {
+				throw new Error(`${agent.launch.name} не вернул идентификатор сессии`);
+			}
+			return sessionId;
 		}
+		if (mode === 'resume') {
+			await this._call(agent, ACP_AGENT_METHOD.resumeSession, returnToSessionParams(previousSessionId, cwd, mcpServers));
+			return previousSessionId;
+		}
+		// The agent streams the whole conversation before it answers `session/load`.
+		agent.replaying = true;
+		try {
+			await this._call(agent, ACP_AGENT_METHOD.loadSession, returnToSessionParams(previousSessionId, cwd, mcpServers));
+		} finally {
+			agent.replaying = false;
+		}
+		return previousSessionId;
+	}
+
+	private _adopt(agent: IAgentProcess, sessionId: string): void {
 		agent.sessionId = sessionId;
 		this._agents.set(sessionId, agent);
-		vibeLog.info('ACP', `${launch.name}: сессия ${sessionId} в ${launch.cwd}`);
-		return { sessionId, agentName: launch.name };
+	}
+
+	/** End a process on purpose: its exit must not read as a broken connection. */
+	private _close(agent: IAgentProcess): void {
+		agent.closing = true;
+		agent.child.kill();
 	}
 
 	async prompt(sessionId: string, text: string): Promise<AcpStopReason> {
@@ -212,7 +307,7 @@ export class VibeAcpMainService extends Disposable implements IVibeAcpMain {
 		if (!agent) { return; }
 		this._agents.delete(sessionId);
 		this._releasePermissionsOf(agent);
-		agent.child.kill();
+		this._close(agent);
 	}
 
 	// ── Приём ────────────────────────────────────────────────────────────────
@@ -252,7 +347,7 @@ export class VibeAcpMainService extends Disposable implements IVibeAcpMain {
 	 */
 	private _onUpdate(agent: IAgentProcess, params: JsonValue | undefined): void {
 		const sessionId = agent.sessionId;
-		if (!sessionId) { return; }
+		if (!sessionId || agent.replaying) { return; }
 		const update = parseSessionUpdate(params);
 		if (!update) { return; }
 		switch (update.kind) {
@@ -381,14 +476,24 @@ export class VibeAcpMainService extends Disposable implements IVibeAcpMain {
 		return agent;
 	}
 
-	/** Оборвалась связь: незавершённые вызовы отклоняются, иначе они висят вечно. */
+	/**
+	 * Оборвалась связь: незавершённые вызовы отклоняются, иначе они висят вечно.
+	 *
+	 * Only this process is taken off the map: after `resume` or `load` a new process serves the same
+	 * session id, and the late `exit` of the dead one must not unregister it.
+	 */
 	private _fail(agent: IAgentProcess, reason: string): void {
+		if (agent.failed) { return; }
+		agent.failed = true;
 		for (const [, pending] of agent.pending) {
 			pending.reject(new Error(reason));
 		}
 		agent.pending.clear();
 		this._releasePermissionsOf(agent);
-		if (agent.sessionId) { this._agents.delete(agent.sessionId); }
+		if (agent.closing) { return; }
+		if (agent.sessionId && this._agents.get(agent.sessionId) === agent) {
+			this._agents.delete(agent.sessionId);
+		}
 		this._onEvent.fire({ kind: 'failed', sessionId: agent.sessionId, error: reason });
 	}
 

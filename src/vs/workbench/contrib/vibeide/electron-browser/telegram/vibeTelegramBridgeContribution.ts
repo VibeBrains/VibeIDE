@@ -510,7 +510,9 @@ export class VibeTelegramBridgeContribution extends Disposable implements IWorkb
 		const text = session.log.entries
 			.map(entry => entry.kind === 'message'
 				? (entry.thought ? '' : entry.text)
-				: `▸ ${entry.title || 'действие'}`)
+				: entry.kind === 'notice'
+					? `— ${entry.text}`
+					: `▸ ${entry.title || 'действие'}`)
 			.filter(Boolean)
 			.join('\n')
 			.trim();

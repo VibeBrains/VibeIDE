@@ -20,7 +20,12 @@ export type AcpLogEntry =
 	/** Реплика агента: склеенные куски текста. Размышление отделено от ответа признаком. */
 	| { readonly kind: 'message'; readonly id: string; readonly text: string; readonly thought: boolean }
 	/** Карточка вызова инструмента: одна на вызов, обновляется по мере кадров. */
-	| { readonly kind: 'tool'; readonly id: string; readonly title: string; readonly name: string; readonly toolKind: string; readonly status: AcpToolStatus; readonly paths: readonly string[]; readonly diffs: readonly IAcpDiff[] };
+	| { readonly kind: 'tool'; readonly id: string; readonly title: string; readonly name: string; readonly toolKind: string; readonly status: AcpToolStatus; readonly paths: readonly string[]; readonly diffs: readonly IAcpDiff[] }
+	/**
+	 * A note from the editor, not from the agent: what happened to the session itself, e.g. that the
+	 * connection came back and whether the agent still remembers the conversation above.
+	 */
+	| { readonly kind: 'notice'; readonly id: string; readonly text: string };
 
 /**
  * Кадр вызова инструмента для карточки.
@@ -60,6 +65,11 @@ export class AcpSessionLog {
 
 	get snapshot(): IAcpSessionSnapshot {
 		return { entries: this._entries, spend: this._spend };
+	}
+
+	/** A note about the session itself; like a tool call, it breaks the gluing of the agent's text. */
+	appendNotice(text: string): void {
+		this._entries = [...this._entries, { kind: 'notice', id: `n${this._nextMessageId++}`, text }];
 	}
 
 	/**
