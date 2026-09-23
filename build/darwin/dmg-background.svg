@@ -20,6 +20,8 @@
 	<rect width="480" height="352" fill="url(#vignette)"/>
 	
 	<text x="22" y="34" font-family="Avenir Next, Helvetica Neue, Arial" font-size="15" font-weight="600" fill="#e9f3f8" letter-spacing="0.4">Vibe<tspan fill="#00E5F0">Brains</tspan> <tspan fill="#F000D8">IDEs</tspan></text>
+	<!-- The build version: scripts/build-dmg-macos.sh substitutes the placeholder with the packed app's version. -->
+	<text x="458" y="34" text-anchor="end" font-family="Avenir Next, Helvetica Neue, Arial" font-size="11" letter-spacing="0.3"><tspan fill="#6f7b8c">версия</tspan><tspan dx="4" fill="#c3cdd8" font-weight="600">__VERSION__</tspan></text>
 	<path d="M174.0,160 L193.7,160 L197.7,156 L201.7,163 L205.7,142 L209.7,172.6 L213.7,157 L217.7,160 L216.0,160 M264.0,160 L259.7,160 L263.7,156 L267.7,163 L271.7,142 L275.7,172.6 L279.7,157 L283.7,160 L306.0,160" fill="none" stroke="url(#rail)" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" filter="url(#glow)"/>
 	<circle cx="174.0" cy="160" r="3.2" fill="#00E5F0" filter="url(#glow)"/>
 	<path d="M297.0,153 L306.0,160 L297.0,167" fill="none" stroke="#F000D8" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" filter="url(#glow)"/>

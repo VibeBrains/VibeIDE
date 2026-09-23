@@ -509,7 +509,7 @@ SDK не входит в дистрибутив: он везёт с собой �
 ## 📦 Установка и сборка
 
 - **Установщик `VibeIDESetup.exe`** (издатель VibeBrains) + portable `.zip`.
-- **macOS (Apple Silicon, arm64)** — `.dmg` (перетаскиванием в Applications) + портативный `.zip`. Сборка пока не нотаризована Apple: при первом запуске Gatekeeper требует «Open Anyway» (System Settings → Privacy & Security) либо `xattr -cr /Applications/VibeIDE.app`; SHA-256 артефактов публикуются в release notes. Intel-маки не поддерживаются.
+- **macOS (Apple Silicon, arm64)** — `.dmg` (перетаскиванием в Applications) + портативный `.zip`. Окно установки само показывает, что куда перетащить, как открыть неподписанную сборку в первый раз и номер версии сборки внутри образа. Сборка пока не нотаризована Apple: при первом запуске Gatekeeper требует «Open Anyway» (System Settings → Privacy & Security) либо `xattr -cr /Applications/VibeIDE.app`; SHA-256 артефактов публикуются в release notes. Intel-маки не поддерживаются.
 - **Доступен в winget** — `winget install VibeBrains.VibeIDE` (Windows).
 - **Портативный режим** — папка `data/` рядом с исполняемым файлом.
 - **Двухфазный релиз-поток** (сборка → ручная проверка → публикация) — для самого проекта, на обеих платформах (`release-windows.ps1` / `release-macos.sh`).

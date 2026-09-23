@@ -27,7 +27,8 @@
 # Signing: ad-hoc by default (Gatekeeper will require «Open Anyway» on first launch). When
 # VIBE_MAC_SIGNING_IDENTITY is set, signs Developer ID + hardened runtime instead; notarization
 # stays manual via scripts/notarize-macos.sh until Apple Developer credentials exist.
-# Requires: fnm (Node version from .nvmrc — 24.18.0 since 1.15.1), gh CLI (brew install gh), Xcode CLT.
+# Requires: fnm (Node version from .nvmrc — 24.18.0 since 1.15.1), gh CLI (brew install gh), Xcode CLT,
+# rsvg-convert (brew install librsvg) to draw the installer background with the version.
 
 set -euo pipefail
 
@@ -81,6 +82,11 @@ export PATH="$NODE_DIR:$PATH"
 ok "pinned Node $NODE_VER"
 
 command -v gh > /dev/null 2>&1 || { [[ "$SKIP_PUBLISH" == '1' ]] || die 'gh CLI not found (brew install gh) — required to publish'; }
+# The installer background is drawn at packaging time with the app's version (scripts/build-dmg-macos.sh):
+# a missing renderer is reported now, not after the compile.
+if [[ "$SKIP_COMPILE" != '1' || "$PACKAGE_ONLY" == '1' ]]; then
+	command -v rsvg-convert > /dev/null 2>&1 || die 'rsvg-convert not found (brew install librsvg) — draws the installer background with the version'
+fi
 
 BUILD_STARTED_AT="$(date +%s)"
 
