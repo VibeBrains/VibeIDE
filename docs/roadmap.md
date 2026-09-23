@@ -5801,7 +5801,7 @@ VibeIDE получил порт детектора VibeIDEA и читает то
       `acceptedDriftFor`/`unknownAcceptedDrift` сделан обязательным. Попутно: повтор id в разделе «Детектор» с другим
       регистром больше не даёт второй записи.
 - [x] **Общие векторы детектора в наборе** — ✅ (2026-09-23, VibeBrains `e9a91d0`, `e6a6178`) `testVectors/textSlop.json`,
-      29 кейсов: все случаи `TextSlopTest.kt` VibeIDEA, плюс CRLF, `\b`/`\w` по кириллице и ничья по весу своего правила
+      29 кейсов: все поведенческие случаи `TextSlopTest.kt` VibeIDEA (16 тестов из 18), плюс CRLF, `\b`/`\w` по кириллице и ничья по весу своего правила
       с каталожным. VibeIDE гоняет их в `test/node/textSlopVectors.test.ts`; VibeIDEA их пока не подключила. `slop.json`
       набора адресован и `vibeide`, навык `anti-slop` 1.0.1 называет оба продукта.
 - [x] **Спека `.vibe/slop.json`** — ✅ (2026-09-23, next) `docs/manuals/slopSpec.md`: формат, запись регулярок, общая для
