@@ -5529,6 +5529,18 @@ prompts, tools, and preceding messages») действует на API-аккау
       `node_modules`, каталоги сборки и всё скрытое. Список намеренно не настраиваемый — это не вкус,
       а места, где правил не бывает, зато бывают десятки тысяч файлов. Чистые правила в
       `common/nestedRulesScan.ts`, тест.
+- [x] **Вложенные `AGENTS.md` заработали впервые** — ✅ (2026-09-23, next) живой смоук: агент добавил
+      функцию в `src/`, правило из `src/AGENTS.md` не соблюдено. Сервис загрузил 18 источников из 19 —
+      правила пакета среди них не было. Обход искал файл среди «внуков», а `IFileService.resolve` без
+      `resolveTo` раскрывает один уровень; файлы самой папки пропускались. На настоящей файловой
+      системе обход возвращал пустой список на любой глубине — возможность вышла в 1.22.0 нерабочей.
+      Обход перенесён в `collectNestedAgentsUris` (`common/nestedRulesScan.ts`) и проверен тестом на
+      `FileService` + `InMemoryFileSystemProvider`; на старой логике тот же тест падает. Разбор —
+      `docs/knowledge/testing/resolveOneLevel.md`, ловушки стенда — `testing/liveSmokeStand.md`.
+- [x] **Скилл запуска: окно больше не закрывается само** — ✅ (2026-09-23, next) путь IPC-сокета в
+      одноразовом профиле выходил за предел macOS в 103 символа из-за длинного `$TMPDIR`; теперь скрипт
+      берёт короткий корень, если путь не влезает. Скилл пришёл с базой VS Code 1.133
+      (`.agents/skills/launch/scripts/launch.sh`, на него ссылается `.claude/skills`).
 - [x] **Переменная автокомпакта у MiniMax за ACP-гостем** — ✅ (2026-09-20, набор `58b5cfd`) вендор
       предписывает `CLAUDE_CODE_AUTO_COMPACT_WINDOW=1000000` рядом с `ANTHROPIC_MODEL="MiniMax-M3[1m]"`
       ([platform.minimax.io](https://platform.minimax.io/docs/token-plan/claude-code), сверено

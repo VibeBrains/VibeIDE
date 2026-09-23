@@ -4,12 +4,18 @@
  *--------------------------------------------------------------------------------------------*/
 
 import * as assert from 'assert';
+import { VSBuffer } from '../../../../../base/common/buffer.js';
+import { Schemas } from '../../../../../base/common/network.js';
+import { URI } from '../../../../../base/common/uri.js';
 import { ensureNoDisposablesAreLeakedInTestSuite } from '../../../../../base/test/common/utils.js';
-import { DEFAULT_NESTED_RULE_DEPTH, NESTED_RULE_FILE_NAME, isSkippedRuleDir } from '../../common/nestedRulesScan.js';
+import { FileService } from '../../../../../platform/files/common/fileService.js';
+import { InMemoryFileSystemProvider } from '../../../../../platform/files/common/inMemoryFilesystemProvider.js';
+import { NullLogService } from '../../../../../platform/log/common/log.js';
+import { DEFAULT_NESTED_RULE_DEPTH, NESTED_RULE_FILE_NAME, collectNestedAgentsUris, isSkippedRuleDir } from '../../common/nestedRulesScan.js';
 
 suite('nestedRulesScan — вложенные AGENTS.md подпроектов', () => {
 
-	ensureNoDisposablesAreLeakedInTestSuite();
+	const disposables = ensureNoDisposablesAreLeakedInTestSuite();
 
 	test('обход не заходит туда, где правил не бывает, а файлов сотни тысяч', () => {
 		assert.deepStrictEqual({
@@ -28,6 +34,37 @@ suite('nestedRulesScan — вложенные AGENTS.md подпроектов',
 			пустое: true,
 			имяФайла: 'AGENTS.md',
 			глубина: 3,
+		});
+	});
+
+	// On a real file service, not a hand-made tree: a stub that fills in grandchildren hides exactly
+	// the defect this walk once had — `resolve` without `resolveTo` expands one level only.
+	test('находит правила пакетов на настоящей файловой системе, корневой и спрятанные — нет', async () => {
+		const fileService = disposables.add(new FileService(new NullLogService()));
+		disposables.add(fileService.registerProvider(Schemas.file, disposables.add(new InMemoryFileSystemProvider())));
+		const files = [
+			'AGENTS.md',
+			'src/AGENTS.md',
+			'src/math.js',
+			'packages/a/AGENTS.md',
+			'packages/b/sub/deep/AGENTS.md',
+			'.hidden/AGENTS.md',
+			'node_modules/x/AGENTS.md',
+		];
+		for (const path of files) {
+			await fileService.writeFile(URI.file(`/ws/${path}`), VSBuffer.fromString('# rules'));
+		}
+		const found = async (depth: number) => (await collectNestedAgentsUris(fileService, URI.file('/ws'), depth)).map(uri => uri.path);
+
+		assert.deepStrictEqual({
+			поУмолчанию: await found(DEFAULT_NESTED_RULE_DEPTH),
+			первыйУровень: await found(1),
+			выключено: await found(0),
+		}, {
+			// Children are walked by name: `packages` before `src`. Level 4 is beyond the default depth.
+			поУмолчанию: ['/ws/packages/a/AGENTS.md', '/ws/src/AGENTS.md'],
+			первыйУровень: ['/ws/src/AGENTS.md'],
+			выключено: [],
 		});
 	});
 });

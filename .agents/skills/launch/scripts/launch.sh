@@ -77,7 +77,20 @@ MAIN_PORT=$(pick_port)
 AGENTHOST_PORT=$(pick_port)
 
 STAMP=$(date +%Y%m%d-%H%M%S)-$$
-RUN_DIR="${TMPDIR:-/tmp}/code-oss-dev/$STAMP"
+RUN_ROOT="${TMPDIR:-/tmp}"
+RUN_ROOT="${RUN_ROOT%/}"
+# The main process listens on a Unix socket inside the user-data dir (`<version>-main.sock`), and a
+# socket path may not exceed 103 chars on macOS. `$TMPDIR` there is `/var/folders/…/T/`, long enough to
+# push the path over the limit: the main process then fails to claim its instance (`listen EINVAL`)
+# and exits right after CDP comes up, which looks like the window closing by itself. Fall back to a
+# short root when the path would not fit; 20 chars are reserved for the socket file name.
+SOCKET_PATH_LIMIT=103
+SOCKET_NAME_RESERVE=20
+SOCKET_DIR_CANDIDATE="$RUN_ROOT/code-oss-dev/$STAMP/user-data/"
+if [ $(( ${#SOCKET_DIR_CANDIDATE} + SOCKET_NAME_RESERVE )) -gt $SOCKET_PATH_LIMIT ]; then
+	RUN_ROOT=/tmp
+fi
+RUN_DIR="$RUN_ROOT/code-oss-dev/$STAMP"
 DEST_UDD="$RUN_DIR/user-data"
 SHARED_DATA_DIR="$RUN_DIR/shared-data"
 mkdir -p "$DEST_UDD" "$SHARED_DATA_DIR"
