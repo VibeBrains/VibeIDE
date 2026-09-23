@@ -5789,7 +5789,7 @@ prompts, tools, and preceding messages») действует на API-аккау
       (`vibeAcpSessionsService.ts:214`) только пишет строку в журнал активности, дальше человеку остаётся перезапуск
       IDE. Нужна кнопка «Переподключить» в карточке сессии: поднять процесс заново по `.vibe/agents.json`, завести
       новую сессию, переписку оставить на экране.
-- [ ] **Пресет StepFun в общий набор** — Step 5 Preview (20.09.2026): MoE 600B total / 27B active, окно 1M, вход текст
+- [x] **Пресет StepFun в общий набор** — ✅ (2026-09-22, VibeBrains `1f64224` засеяла VibeIDEA, поправка `vision` — `d439886`, см. DIGEST-0922) — Step 5 Preview (20.09.2026): MoE 600B total / 27B active, окно 1M, вход текст
       и картинки. Маршрут OpenAI — `https://api.stepfun.ai/step_plan/v1`, id `step-5-preview`; есть и Anthropic-маршрут
       `https://api.stepfun.ai/step_plan`. Цена $1.00 за 1M входа, $0.05 кеш-чтение, $2.70 за 1M выхода, **и выход
       считает токены рассуждения**. Интеллект 44 по Artificial Analysis против медианы 24 в своей ценовой группе.
