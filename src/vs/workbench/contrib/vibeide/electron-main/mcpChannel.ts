@@ -9,15 +9,18 @@
 // to be connected to the main process and node dependencies
 
 import { vibeLog } from '../common/vibeLog.js';
-import { IServerChannel } from '../../../../base/parts/ipc/common/ipc.js';
+import { IConnectionHub, IServerChannel } from '../../../../base/parts/ipc/common/ipc.js';
 import { Emitter, Event } from '../../../../base/common/event.js';
+import { Disposable } from '../../../../base/common/lifecycle.js';
+import { raceTimeout } from '../../../../base/common/async.js';
+import { ILifecycleMainService } from '../../../../platform/lifecycle/electron-main/lifecycleMainService.js';
 // MCP SDK client/transport modules are heavy and electron-main start-up sensitive; they are
 // loaded lazily via `await import(...)` inside `_createClientUnsafe`. Type-only positions use
 // inline `import('...')` type expressions so no value import reaches module scope.
-import { MCPConfigFileJSON, MCPConfigFileEntryJSON, MCPServer, MCPTool, RawMCPToolCall, MCPToolErrorResponse, MCPServerEventResponse, MCPToolCallParams, MCPReadResourceParams, MCPAppRequestOutcome } from '../common/mcpServiceTypes.js';
+import { MCPConfigFileEntryJSON, MCPServer, MCPTool, RawMCPToolCall, MCPToolErrorResponse, MCPServerEventResponse, MCPToolCallParams, MCPReadResourceParams, MCPAppRequestOutcome, MCPSyncParams } from '../common/mcpServiceTypes.js';
 import { MCP } from '../../mcp/common/modelContextProtocol.js';
 import { mcpAppsClientCapabilities } from '../common/mcpApps.js';
-import { MCPUserStateOfName } from '../common/vibeideSettingsTypes.js';
+import { KnownMCPServer, MCPServerAction, mcpServerFingerprint, reconcileMCPServers, WantedMCPServer } from '../common/mcpReconcile.js';
 import { mergeServerEnv, transportRequestInit } from '../common/mcpServerEnv.js';
 import { McpCacheableMeta, parseCacheableMeta, refreshDelayMs } from '../common/mcpCacheableResult.js';
 import { describeUnansweredInput, parseInputRequired, withInputResponses } from '../common/mcpMultiRoundTrip.js';
@@ -26,6 +29,8 @@ import { filterToolsWithValidHeaders } from '../common/mcpHeaderAnnotation.js';
 
 /** Сколько ждать человека, прежде чем снять вопрос и отпустить вызов инструмента. */
 const INPUT_REQUEST_TIMEOUT_MS = 5 * 60 * 1000;
+/** How long quitting the app waits for MCP clients to close before it goes on without them. */
+const CLOSE_ON_SHUTDOWN_TIMEOUT_MS = 3000;
 
 const getClientConfig = (serverName: string) => {
 	return {
@@ -38,30 +43,51 @@ const getClientConfig = (serverName: string) => {
 type MCPServerNonError = MCPServer & { status: Omit<MCPServer['status'], 'error'> };
 type MCPServerError = MCPServer & { status: 'error' };
 
-
-
+/**
+ * A server the main process has set up for every window — running or not. We call MCP clients «servers»
+ * everywhere except in `client`, which is the SDK client connected to that server.
+ */
 type ClientInfo = {
-	_client: import('@modelcontextprotocol/sdk/client/index.js').Client; // _client is the client that connects with an mcp client. We're calling mcp clients "server" everywhere except here for naming consistency.
-	mcpServerEntryJSON: MCPConfigFileEntryJSON;
-	mcpServer: MCPServerNonError;
-} | {
-	_client?: undefined;
-	mcpServerEntryJSON: MCPConfigFileEntryJSON;
-	mcpServer: MCPServerError;
+	/** The entry it was last set up from; a toggle relaunches from it. */
+	entry: MCPConfigFileEntryJSON;
+	/** `mcpServerFingerprint` of the launch it runs, or last tried — what the next sync compares with. */
+	fingerprint: string;
+	/** The live client; absent while the server does not run — switched off, or failed to start. */
+	client?: import('@modelcontextprotocol/sdk/client/index.js').Client;
+	mcpServer: MCPServer;
 };
 
 type InfoOfClientId = {
 	[clientId: string]: ClientInfo;
 };
 
-export class MCPChannel implements IServerChannel {
+/** What the server list shows as a server's command: the command line, or the address. */
+function displayCommandOf(entry: MCPConfigFileEntryJSON): string {
+	if (entry.command) {
+		return `${entry.command} ${entry.args?.join(' ') || ''}`;
+	}
+	return entry.url === undefined ? '' : String(entry.url);
+}
+
+/**
+ * MCP clients of the whole app. They live here, in the main process, and every window shares them, so
+ * what runs here is the only truth about what runs: a window states the servers it wants
+ * (`syncMCPServers`) and this channel brings the running set in line (common/mcpReconcile.ts).
+ */
+export class MCPChannel extends Disposable implements IServerChannel {
 
 	private readonly infoOfClientId: InfoOfClientId = {};
-	private readonly _refreshingServerNames: Set<string> = new Set();
 	/** Таймеры перечитывания списка инструментов: по одному на сервер, объявивший срок годности. */
 	private readonly _toolListTimers = new Map<string, ReturnType<typeof setTimeout>>();
-	/** Whether clients announce MCP Apps; set by every refresh, so a toggle reuses the last answer. */
-	private _appsEnabled = false;
+	/**
+	 * On/off as switched in this session, from any window. It wins over a window's view in a sync: each
+	 * window reads its settings once, so another window may still hold the state from before the switch.
+	 */
+	private readonly _isOnOfName = new Map<string, boolean>();
+	/** Each window's MCP Apps setting by IPC context; clients announce MCP Apps while any window has it on. */
+	private readonly _appsEnabledOfWindow = new Map<string, boolean>();
+	/** Syncs and toggles run one at a time: two windows syncing at once would each start the same server. */
+	private _queue: Promise<void> = Promise.resolve();
 
 	// mcp emitters
 	private readonly mcpEmitters = {
@@ -79,7 +105,17 @@ export class MCPChannel implements IServerChannel {
 	};
 
 	constructor(
-	) { }
+		connections: IConnectionHub<string>,
+		lifecycleMainService: ILifecycleMainService,
+	) {
+		super();
+		// A closed window has no more say in what the clients announce; a reloaded one says it again in its sync.
+		this._register(connections.onDidRemoveConnection(connection => this._appsEnabledOfWindow.delete(connection.ctx)));
+		// The clients end with the app instead of outliving it as orphaned server processes. Deliberately not
+		// registered with this channel: the app disposes its channels in an earlier listener of this same event,
+		// and a disposed listener is skipped — the clients would never be closed.
+		Event.once(lifecycleMainService.onWillShutdown)(e => e.join('vibeide.mcp.closeClients', this._closeAllClients()));
+	}
 
 	/**
 	 * Просьбы сервера о вводе, ждущие ответа из окна.
@@ -134,15 +170,11 @@ export class MCPChannel implements IServerChannel {
 		else { throw new Error(`Event not found: ${event}`); }
 	}
 
-	// browser uses this to call (see this.channel.call() in mcpConfigService.ts for all usages)
-	async call<T>(_: unknown, command: string, params: unknown): Promise<T> {
+	// browser uses this to call (see this.channel.call() in electron-browser/mcpService.ts for all usages)
+	async call<T>(ctx: string, command: string, params: unknown): Promise<T> {
 		try {
-			if (command === 'refreshMCPServers') {
-				await this._refreshMCPServers(params as Parameters<MCPChannel['_refreshMCPServers']>[0]);
-				return undefined as T;
-			}
-			else if (command === 'closeAllMCPServers') {
-				await this._closeAllMCPServers();
+			if (command === 'syncMCPServers') {
+				await this._syncMCPServers(ctx, params as MCPSyncParams);
 				return undefined as T;
 			}
 			else if (command === 'toggleMCPServer') {
@@ -181,58 +213,89 @@ export class MCPChannel implements IServerChannel {
 	// server functions
 
 
-	private async _refreshMCPServers(params: { mcpConfigFileJSON: MCPConfigFileJSON; userStateOfName: MCPUserStateOfName; addedServerNames: string[]; removedServerNames: string[]; updatedServerNames: string[]; appsEnabled: boolean }) {
+	/** Run one sync or toggle after the ones before it. The queue itself never rejects, so one failure does not block the rest. */
+	private _enqueue(operation: () => Promise<void>): Promise<void> {
+		const run = this._queue.then(operation);
+		this._queue = run.catch(() => { });
+		return run;
+	}
 
-		const {
-			mcpConfigFileJSON,
-			userStateOfName,
-			addedServerNames,
-			removedServerNames,
-			updatedServerNames,
-		} = params;
-		this._appsEnabled = params.appsEnabled;
+	private _effectiveAppsEnabled(): boolean {
+		for (const enabled of this._appsEnabledOfWindow.values()) {
+			if (enabled) {
+				return true;
+			}
+		}
+		return false;
+	}
 
-		const { mcpServers: mcpServersJSON } = mcpConfigFileJSON;
+	private _knownOf(info: ClientInfo): KnownMCPServer {
+		return { fingerprint: info.fingerprint, running: info.client !== undefined };
+	}
 
-		const allChanges: { type: 'added' | 'removed' | 'updated'; serverName: string }[] = [
-			...addedServerNames.map(n => ({ serverName: n, type: 'added' }) as const),
-			...removedServerNames.map(n => ({ serverName: n, type: 'removed' }) as const),
-			...updatedServerNames.map(n => ({ serverName: n, type: 'updated' }) as const),
-		];
+	/**
+	 * A window's whole picture of the servers it wants, brought about against what actually runs. The
+	 * window does not say what changed — after a reload it has no idea — only what it wants.
+	 */
+	private _syncMCPServers(ctx: string, params: MCPSyncParams): Promise<void> {
+		this._appsEnabledOfWindow.set(ctx, params.appsEnabled);
+		return this._enqueue(async () => {
+			const appsEnabled = this._effectiveAppsEnabled();
+			const known: Record<string, KnownMCPServer> = {};
+			for (const [name, info] of Object.entries(this.infoOfClientId)) {
+				known[name] = this._knownOf(info);
+			}
+			const wanted: Record<string, WantedMCPServer> = {};
+			for (const [name, entry] of Object.entries(params.entries)) {
+				const isOn = this._isOnOfName.get(name) ?? params.enabledOfName[name] !== false;
+				wanted[name] = { fingerprint: mcpServerFingerprint(entry, appsEnabled), isOn };
+			}
+			const actions = reconcileMCPServers(known, wanted);
+			await Promise.allSettled(Object.entries(actions).map(([name, action]) =>
+				this._applyAction(name, action, Object.hasOwn(params.entries, name) ? params.entries[name] : undefined, appsEnabled)));
+		});
+	}
 
-		// Per-server try/finally ensures `_refreshingServerNames` is cleaned even if any
-		// _createClient / _closeClient rejects (Promise.all otherwise short-circuits and
-		// the outer cleanup never runs, leaking the Set forever on a single failed server).
-		// Also use Promise.allSettled so one bad server doesn't kill refresh of the others.
-		await Promise.allSettled(
-			allChanges.map(async ({ serverName, type }) => {
+	/** Tell every window a server's state; a server new to them arrives as added. */
+	private _fireState(name: string, prevServer: MCPServer | undefined, newServer: MCPServer): void {
+		const emitter = prevServer ? this.mcpEmitters.serverEvent.onUpdate : this.mcpEmitters.serverEvent.onAdd;
+		emitter.fire({ response: { name, prevServer, newServer } });
+	}
 
-				// check if already refreshing
-				if (this._refreshingServerNames.has(serverName)) { return; }
-				this._refreshingServerNames.add(serverName);
-
-				try {
-					const prevServer = this.infoOfClientId[serverName]?.mcpServer;
-
-					// close and delete the old client
-					if (type === 'removed' || type === 'updated') {
-						await this._closeClient(serverName);
-						delete this.infoOfClientId[serverName];
-						this.mcpEmitters.serverEvent.onDelete.fire({ response: { prevServer, name: serverName, } });
-					}
-
-					// create a new client
-					if (type === 'added' || type === 'updated') {
-						const clientInfo = await this._createClient(mcpServersJSON[serverName], serverName, userStateOfName[serverName]?.isOn);
-						this.infoOfClientId[serverName] = clientInfo;
-						this.mcpEmitters.serverEvent.onAdd.fire({ response: { newServer: clientInfo.mcpServer, name: serverName, } });
-					}
-				} finally {
-					this._refreshingServerNames.delete(serverName);
-				}
-			})
-		);
-
+	private async _applyAction(name: string, action: MCPServerAction, entry: MCPConfigFileEntryJSON | undefined, appsEnabled: boolean): Promise<void> {
+		const info = this.infoOfClientId[name];
+		const prevServer = info?.mcpServer;
+		if (action === 'remove') {
+			await this._closeClient(name);
+			delete this.infoOfClientId[name];
+			this._isOnOfName.delete(name);
+			this.mcpEmitters.serverEvent.onDelete.fire({ response: { name, prevServer } });
+			return;
+		}
+		if (!entry) {
+			return;
+		}
+		if (action === 'keep') {
+			// Nothing to launch, but the window that asked — a reloaded one — has not heard the state yet.
+			// The entry is taken as sent: what differs is not part of the launch (the tools list, say).
+			if (info) {
+				info.entry = entry;
+				this._fireState(name, prevServer, info.mcpServer);
+			}
+			return;
+		}
+		await this._closeClient(name);
+		if (action === 'off') {
+			const offline: MCPServer = { status: 'offline', tools: [], command: displayCommandOf(entry) };
+			this.infoOfClientId[name] = { entry, fingerprint: mcpServerFingerprint(entry, appsEnabled), mcpServer: offline };
+			this._fireState(name, prevServer, offline);
+			return;
+		}
+		const loading: MCPServer = { status: 'loading', tools: [] };
+		this._fireState(name, prevServer, loading);
+		const launched = await this._launch(entry, name, appsEnabled);
+		this.infoOfClientId[name] = launched;
+		this._fireState(name, loading, launched.mcpServer);
 	}
 
 	/** VibeIDE: Track URLs used by active MCP servers to detect port conflicts */
@@ -300,7 +363,7 @@ export class MCPChannel implements IServerChannel {
 		}
 	}
 
-	private async _createClientUnsafe(server: MCPConfigFileEntryJSON, serverName: string, isOn: boolean): Promise<ClientInfo> {
+	private async _createClientUnsafe(server: MCPConfigFileEntryJSON, serverName: string, appsEnabled: boolean): Promise<{ client: import('@modelcontextprotocol/sdk/client/index.js').Client; mcpServer: MCPServerNonError }> {
 
 		// VibeIDE: Validate server config before connecting
 		this._validateMCPServer(server, serverName);
@@ -312,118 +375,124 @@ export class MCPChannel implements IServerChannel {
 		const { SSEClientTransport } = await import('@modelcontextprotocol/sdk/client/sse.js');
 
 		const clientConfig = getClientConfig(serverName);
-		const client = new Client(clientConfig, { capabilities: mcpAppsClientCapabilities(this._appsEnabled) });
+		const client = new Client(clientConfig, { capabilities: mcpAppsClientCapabilities(appsEnabled) });
 		let transport: import('@modelcontextprotocol/sdk/shared/transport.js').Transport;
 		let info: MCPServerNonError;
 
-		if (server.url) {
-			// Normalize URL to URL object (MCP SDK transports accept URL objects)
-			let url: URL;
-			try {
-				url = typeof server.url === 'string' ? new URL(server.url) : server.url;
-			} catch (urlErr) {
-				throw new Error(`Invalid URL for server ${serverName}: ${server.url}. ${urlErr instanceof Error ? urlErr.message : String(urlErr)}`);
-			}
-			const urlString = url.toString();
-			// Determine transport type: explicit type, or infer from URL path
-			let transportType = server.type;
-			// If no explicit type, check if URL path suggests SSE (e.g., contains '/sse')
-			if (!transportType && urlString.toLowerCase().includes('/sse')) {
-				transportType = 'sse';
-			}
-
-			// If type is explicitly 'sse' or inferred as SSE, use SSE directly
-			if (transportType === 'sse') {
+		try {
+			if (server.url) {
+				// Normalize URL to URL object (MCP SDK transports accept URL objects)
+				let url: URL;
 				try {
-					transport = new SSEClientTransport(url, transportRequestInit(server.headers));
-					await client.connect(transport);
-					vibeLog.info('mcpChannel', `Connected via SSE to ${serverName}`);
-					const { tools } = await this._listTools(client, serverName);
-					info = {
-						status: isOn ? 'success' : 'offline',
-						tools: tools,
-						command: urlString,
-					};
-				} catch (sseErr) {
-					throw new Error(`Failed to connect to SSE server at ${urlString}: ${sseErr instanceof Error ? sseErr.message : String(sseErr)}`);
+					url = typeof server.url === 'string' ? new URL(server.url) : server.url;
+				} catch (urlErr) {
+					throw new Error(`Invalid URL for server ${serverName}: ${server.url}. ${urlErr instanceof Error ? urlErr.message : String(urlErr)}`);
 				}
-			}
-			// If type is explicitly 'http', only try HTTP
-			else if (transportType === 'http') {
-				try {
-					transport = new StreamableHTTPClientTransport(url, transportRequestInit(server.headers));
-					await client.connect(transport);
-					vibeLog.info('mcpChannel', `Connected via HTTP to ${serverName}`);
-					const { tools } = await this._listTools(client, serverName);
-					info = {
-						status: isOn ? 'success' : 'offline',
-						tools: tools,
-						command: urlString,
-					};
-				} catch (httpErr) {
-					throw new Error(`Failed to connect to HTTP server at ${urlString}: ${httpErr instanceof Error ? httpErr.message : String(httpErr)}`);
+				const urlString = url.toString();
+				// Determine transport type: explicit type, or infer from URL path
+				let transportType = server.type;
+				// If no explicit type, check if URL path suggests SSE (e.g., contains '/sse')
+				if (!transportType && urlString.toLowerCase().includes('/sse')) {
+					transportType = 'sse';
 				}
-			}
-			// If type is not specified, try HTTP first, fall back to SSE
-			else {
-				try {
-					transport = new StreamableHTTPClientTransport(url, transportRequestInit(server.headers));
-					await client.connect(transport);
-					vibeLog.info('mcpChannel', `Connected via HTTP to ${serverName}`);
-					const { tools } = await this._listTools(client, serverName);
-					info = {
-						status: isOn ? 'success' : 'offline',
-						tools: tools,
-						command: urlString,
-					};
-				} catch (httpErr) {
-					vibeLog.warn('mcpChannel', `HTTP failed for ${serverName}, trying SSE…`, httpErr);
-					transport = new SSEClientTransport(url, transportRequestInit(server.headers));
-					await client.connect(transport);
-					const { tools } = await this._listTools(client, serverName);
-					vibeLog.info('mcpChannel', `Connected via SSE to ${serverName}`);
-					info = {
-						status: isOn ? 'success' : 'offline',
-						tools: tools,
-						command: urlString,
-					};
+
+				// If type is explicitly 'sse' or inferred as SSE, use SSE directly
+				if (transportType === 'sse') {
+					try {
+						transport = new SSEClientTransport(url, transportRequestInit(server.headers));
+						await client.connect(transport);
+						vibeLog.info('mcpChannel', `Connected via SSE to ${serverName}`);
+						const { tools } = await this._listTools(client, serverName);
+						info = {
+							status: 'success',
+							tools: tools,
+							command: urlString,
+						};
+					} catch (sseErr) {
+						throw new Error(`Failed to connect to SSE server at ${urlString}: ${sseErr instanceof Error ? sseErr.message : String(sseErr)}`);
+					}
 				}
+				// If type is explicitly 'http', only try HTTP
+				else if (transportType === 'http') {
+					try {
+						transport = new StreamableHTTPClientTransport(url, transportRequestInit(server.headers));
+						await client.connect(transport);
+						vibeLog.info('mcpChannel', `Connected via HTTP to ${serverName}`);
+						const { tools } = await this._listTools(client, serverName);
+						info = {
+							status: 'success',
+							tools: tools,
+							command: urlString,
+						};
+					} catch (httpErr) {
+						throw new Error(`Failed to connect to HTTP server at ${urlString}: ${httpErr instanceof Error ? httpErr.message : String(httpErr)}`);
+					}
+				}
+				// If type is not specified, try HTTP first, fall back to SSE
+				else {
+					try {
+						transport = new StreamableHTTPClientTransport(url, transportRequestInit(server.headers));
+						await client.connect(transport);
+						vibeLog.info('mcpChannel', `Connected via HTTP to ${serverName}`);
+						const { tools } = await this._listTools(client, serverName);
+						info = {
+							status: 'success',
+							tools: tools,
+							command: urlString,
+						};
+					} catch (httpErr) {
+						vibeLog.warn('mcpChannel', `HTTP failed for ${serverName}, trying SSE…`, httpErr);
+						transport = new SSEClientTransport(url, transportRequestInit(server.headers));
+						await client.connect(transport);
+						const { tools } = await this._listTools(client, serverName);
+						vibeLog.info('mcpChannel', `Connected via SSE to ${serverName}`);
+						info = {
+							status: 'success',
+							tools: tools,
+							command: urlString,
+						};
+					}
+				}
+			} else if (server.command) {
+				// The entry wins over the IDE environment; critical names from the entry never apply.
+				// See common/mcpServerEnv.ts for why both halves of that sentence matter.
+				const { env: mergedEnv, ignored } = mergeServerEnv(process.env, server.env);
+				if (ignored.length > 0) {
+					vibeLog.warn('MCP', `MCP server "${serverName}": variables not applied from mcp.json (critical, would override the IDE environment): ${ignored.join(', ')}`);
+				}
+				transport = new StdioClientTransport({
+					command: server.command,
+					args: server.args,
+					env: mergedEnv,
+					...(server.cwd ? { cwd: server.cwd } : {}),
+				});
+
+				await client.connect(transport);
+
+				// Get the tools from the server
+				const { tools } = await this._listTools(client, serverName);
+
+				// Create a full command string for display
+				const fullCommand = `${server.command} ${server.args?.join(' ') || ''}`;
+
+				// Format server object
+				info = {
+					status: 'success',
+					tools: tools,
+					command: fullCommand,
+				};
+
+			} else {
+				throw new Error(`No url or command for server ${serverName}`);
 			}
-		} else if (server.command) {
-			// The entry wins over the IDE environment; critical names from the entry never apply.
-			// See common/mcpServerEnv.ts for why both halves of that sentence matter.
-			const { env: mergedEnv, ignored } = mergeServerEnv(process.env, server.env);
-			if (ignored.length > 0) {
-				vibeLog.warn('MCP', `MCP server "${serverName}": variables not applied from mcp.json (critical, would override the IDE environment): ${ignored.join(', ')}`);
-			}
-			transport = new StdioClientTransport({
-				command: server.command,
-				args: server.args,
-				env: mergedEnv,
-				...(server.cwd ? { cwd: server.cwd } : {}),
-			});
-
-			await client.connect(transport);
-
-			// Get the tools from the server
-			const { tools } = await this._listTools(client, serverName);
-
-			// Create a full command string for display
-			const fullCommand = `${server.command} ${server.args?.join(' ') || ''}`;
-
-			// Format server object
-			info = {
-				status: isOn ? 'success' : 'offline',
-				tools: tools,
-				command: fullCommand,
-			};
-
-		} else {
-			throw new Error(`No url or command for server ${serverName}`);
+		} catch (err) {
+			// The process may be up although connecting or listing tools failed. Closing the client ends it;
+			// without that every failed start left one behind.
+			await client.close().catch(() => { });
+			throw err;
 		}
 
-
-		return { _client: client, mcpServerEntryJSON: server, mcpServer: info };
+		return { client, mcpServer: info };
 	}
 
 	/**
@@ -485,16 +554,17 @@ export class MCPChannel implements IServerChannel {
 
 	private async _rereadToolList(serverName: string): Promise<void> {
 		const info = this.infoOfClientId[serverName];
-		const client = info?._client;
+		const client = info?.client;
 		if (!client || info.mcpServer.status !== 'success') {
 			return;
 		}
 		try {
 			const prevServer = info.mcpServer;
-			if (prevServer.status === 'error') {
+			const { tools } = await this._listTools(client, serverName);
+			// A restart during the read replaced the client: its answer describes a client that no longer runs.
+			if (this.infoOfClientId[serverName] !== info || info.client !== client) {
 				return;
 			}
-			const { tools } = await this._listTools(client, serverName);
 			// Собирается полем к полю, а не спредом: `MCPServerNonError` — пересечение с `Omit<…>`, и
 			// спред по нему теряет сужение статуса.
 			const newServer: MCPServer = {
@@ -503,39 +573,39 @@ export class MCPChannel implements IServerChannel {
 				...(prevServer.command !== undefined ? { command: prevServer.command } : {}),
 				...(prevServer.error !== undefined ? { error: prevServer.error } : {}),
 			};
-			info.mcpServer = newServer as typeof info.mcpServer;
-			this.mcpEmitters.serverEvent.onUpdate.fire({ response: { name: serverName, newServer, prevServer: prevServer as MCPServer } });
+			info.mcpServer = newServer;
+			this.mcpEmitters.serverEvent.onUpdate.fire({ response: { name: serverName, newServer, prevServer } });
 		} catch (err) {
 			// Протухший список лучше молчаливой ошибки: оставляем прежний и говорим об этом в журнал.
 			vibeLog.warn('mcpChannel', `MCP server "${serverName}": не удалось перечитать список инструментов по истечении срока`, err);
 		}
 	}
 
-	private async _createClient(serverConfig: MCPConfigFileEntryJSON, serverName: string, isOn = true): Promise<ClientInfo> {
+	/** Start a server; a failure becomes the server's error state rather than a thrown error. */
+	private async _launch(entry: MCPConfigFileEntryJSON, serverName: string, appsEnabled: boolean): Promise<ClientInfo> {
+		const fingerprint = mcpServerFingerprint(entry, appsEnabled);
 		try {
-			const c: ClientInfo = await this._createClientUnsafe(serverConfig, serverName, isOn);
+			const { client, mcpServer } = await this._createClientUnsafe(entry, serverName, appsEnabled);
 			// VibeIDE: Register URL after successful connection for port conflict tracking
-			this._registerActiveUrl(serverConfig);
-			return c;
+			this._registerActiveUrl(entry);
+			return { entry, fingerprint, client, mcpServer };
 		} catch (err) {
 			vibeLog.error('mcpChannel', `❌ Failed to connect to server "${serverName}":`, err);
-			const fullCommand = !serverConfig.command ? '' : `${serverConfig.command} ${serverConfig.args?.join(' ') || ''}`;
 			// Отказ из-за ревизии протокола приходит из недр SDK английской строкой, по которой не понять
 			// ни причины, ни что делать. Случай настоящий: сервер ревизии 2026-07-28 отвергается на рукопожатии.
 			const mismatch = describeProtocolMismatch(err);
-			const c: MCPServerError = { status: 'error', error: mismatch ?? (err + ''), command: fullCommand, };
-			return { mcpServerEntryJSON: serverConfig, mcpServer: c, };
+			const failed: MCPServerError = { status: 'error', error: mismatch ?? (err + ''), command: displayCommandOf(entry) };
+			return { entry, fingerprint, mcpServer: failed };
 		}
 	}
 
-	private async _closeAllMCPServers() {
-		for (const serverName in this.infoOfClientId) {
-			await this._closeClient(serverName);
-			delete this.infoOfClientId[serverName];
-		}
-		vibeLog.info('mcpChannel', 'Closed all MCP servers');
+	/** Close every client, bounded in time: quitting must not hang on a server that does not answer. */
+	private async _closeAllClients(): Promise<void> {
+		const closing = Promise.allSettled(Object.keys(this.infoOfClientId).map(serverName => this._closeClient(serverName)));
+		await raceTimeout(closing, CLOSE_ON_SHUTDOWN_TIMEOUT_MS);
 	}
 
+	/** Stop the server's client, if it runs; the server stays listed — the caller decides what it becomes. */
 	private async _closeClient(serverName: string) {
 		const timer = this._toolListTimers.get(serverName);
 		if (timer) {
@@ -543,60 +613,39 @@ export class MCPChannel implements IServerChannel {
 			this._toolListTimers.delete(serverName);
 		}
 		const info = this.infoOfClientId[serverName];
-		if (!info) {
+		const client = info?.client;
+		if (!client) {
 			return;
 		}
-		const { _client: client } = info;
-		if (client) {
+		info.client = undefined;
+		try {
 			await client.close();
+		} catch (err) {
+			vibeLog.warn('mcpChannel', `MCP server "${serverName}": closing the client failed`, err);
 		}
 		// VibeIDE: Unregister URL on close for port conflict tracking
-		this._unregisterActiveUrl(info.mcpServerEntryJSON);
+		this._unregisterActiveUrl(info.entry);
 		vibeLog.info('mcpChannel', `Closed MCP server ${serverName}`);
 	}
 
-
-	private async _toggleMCPServer(serverName: string, isOn: boolean) {
-		const prevServer = this.infoOfClientId[serverName]?.mcpServer;
-		// Handle turning on the server
-		if (isOn) {
-			// this.mcpEmitters.serverEvent.onChangeLoading.fire(getLoadingServerObject(serverName, isOn))
-			const clientInfo = await this._createClientUnsafe(this.infoOfClientId[serverName].mcpServerEntryJSON, serverName, isOn);
-			this.mcpEmitters.serverEvent.onUpdate.fire({
-				response: {
-					name: serverName,
-					newServer: clientInfo.mcpServer,
-					prevServer: prevServer,
-				}
-			});
-		}
-		// Handle turning off the server
-		else {
-			// this.mcpEmitters.serverEvent.onChangeLoading.fire(getLoadingServerObject(serverName, isOn))
-			this._closeClient(serverName);
-			// Guard: infoOfClientId[serverName] may be undefined if a toggle race fired
-			// while the server entry was being torn down by _refreshMCPServers. Without
-			// this guard the property access on undefined throws TypeError and crashes
-			// the channel.
+	/**
+	 * Switch one server on or off: the same reconciliation as a sync, for this server only. Switching on a
+	 * running server changes nothing; switching on one that failed tries it again.
+	 */
+	private _toggleMCPServer(serverName: string, isOn: boolean): Promise<void> {
+		this._isOnOfName.set(serverName, isOn);
+		return this._enqueue(async () => {
 			const info = this.infoOfClientId[serverName];
-			if (info) {
-				delete (info as { _client?: unknown })._client;
+			if (!info) {
+				return;
 			}
-
-			this.mcpEmitters.serverEvent.onUpdate.fire({
-				response: {
-					name: serverName,
-					newServer: {
-						status: 'offline',
-						tools: [],
-						command: '',
-						// Explicitly set error to undefined to reset the error state
-						error: undefined,
-					},
-					prevServer: prevServer,
-				}
-			});
-		}
+			const appsEnabled = this._effectiveAppsEnabled();
+			const actions = reconcileMCPServers(
+				{ [serverName]: this._knownOf(info) },
+				{ [serverName]: { fingerprint: mcpServerFingerprint(info.entry, appsEnabled), isOn } },
+			);
+			await this._applyAction(serverName, actions[serverName], info.entry, appsEnabled);
+		});
 	}
 
 	// tool call functions
@@ -606,9 +655,9 @@ export class MCPChannel implements IServerChannel {
 		if (!server) {
 			throw new Error(`Server ${serverName} not found`);
 		}
-		const { _client: client } = server;
+		const client = server.client;
 		if (!client) {
-			throw new Error(`Client for server ${serverName} not found`);
+			throw new Error(`MCP server ${serverName} is not running — switched off or failed to start`);
 		}
 
 		// Call the tool with the provided parameters. `toolName` arrives here as the
@@ -702,7 +751,7 @@ export class MCPChannel implements IServerChannel {
 
 	/** A request an MCP App makes through the host; failures come back as data, never as a dropped `undefined`. */
 	private async _appRequest<T>(serverName: string, run: (client: import('@modelcontextprotocol/sdk/client/index.js').Client) => Promise<T>): Promise<MCPAppRequestOutcome<T>> {
-		const client = this.infoOfClientId[serverName]?._client;
+		const client = this.infoOfClientId[serverName]?.client;
 		if (!client) {
 			return { ok: false, error: `Server ${serverName} is not connected` };
 		}

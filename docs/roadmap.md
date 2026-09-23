@@ -2971,6 +2971,23 @@ vibeide.subagent.*, vibeide.mcp.*, vibeide.commands.audit*, …
 
 - [x] **`mcpChannel.ts:401-405`** — `delete this.infoOfClientId[serverName]._client` без guard. Если `infoOfClientId[serverName]` === undefined (race с `_refreshMCPServers` tear-down или toggle нерегистрированного сервера) — `TypeError: Cannot read property '_client' of undefined` крашит channel. — ✅ this session: добавлен `if (info) { delete (info as { _client?: unknown })._client }` guard.
 
+### V.2.1 Жизненный цикл MCP-клиентов: окно заявляет, главный процесс сверяет
+
+- [x] **Перезагрузка окна запускала каждый MCP-сервер второй раз** — ✅ (2026-09-23, next) Окно считало дифф по своему
+      состоянию, а перезагруженное начинает с пустого: главный процесс создавал второго клиента поверх живого. В проде
+      под одним главным процессом висело пять `vibememory-mcp`. Теперь окно шлёт `syncMCPServers` с полной картиной, а
+      главный процесс сверяет её с работающими клиентами (`common/mcpReconcile.ts`: оставить / запустить / перезапустить /
+      выключить / убрать по отпечатку запуска), очередью, по одной. Заодно исправлено: включение не запоминало клиента,
+      выключенные серверы включались после перезагрузки окна, выключенный сервер запускался и отдавал инструменты
+      модели, клиент не закрывался при сбое после старта процесса, правка `mcp.json` перезапускала все серверы. Клиенты
+      закрываются при выходе из приложения; прежний `_refreshingServerNames` (V.1) заменён очередью. Проверено живьём на
+      стенде: перезагрузка, второе окно и его закрытие, выключение и включение, правка и удаление записи, выход.
+      Knowledge: `toolSystem/mcpClientLifecycle.md`.
+- [ ] **Настройки VibeIDE пишутся окном целиком** — каждое окно читает настройки один раз при старте и, сохраняя любую
+      из них, записывает своё состояние полностью. Окно с устаревшим видом перепишет чужие правки: вкл/выкл MCP-сервера,
+      модель, провайдера. Нужна подписка на изменения хранилища от других окон или запись по полям. Найдено чтением
+      кода, живьём не воспроизводилось.
+
 ### V.3 PerformanceHarness unbounded Map
 
 - [x] **`performanceHarness.ts:139-146`** — `chatRequests: Map<string, {...}>` рос без ограничения через всю сессию, очищался только в `clear()` (dispose). На длинных agentic flows (1000+ chat requests) — измеримый memory hold (~100KB) + линейный рост `keys()` iteration. — ✅ this session: введён static const `MAX_TRACKED_CHAT_REQUESTS = 500` + LRU-eviction в `recordChatCheckpoint`: если `size > MAX`, удаляется oldest key через `keys().next().value`. Map preserves insertion order; update существующего ключа не двигает позицию (active request stays put).

@@ -20,7 +20,7 @@ import { IWorkspaceContextService } from '../../../../platform/workspace/common/
 import { coerceFieldValue, ElicitationAnswer, ElicitationForm, McpInputAsk, rootsAnswer } from '../common/mcpElicitation.js';
 import { AcpMcpExportResult, buildAcpMcpServers } from '../common/acp/acpMcpExport.js';
 import { localize } from '../../../../nls.js';
-import { builtinTools } from '../common/prompt/prompts.js';
+import { builtinTools, InternalToolInfo } from '../common/prompt/prompts.js';
 import { vibeLog } from '../common/vibeLog.js';
 import { URI } from '../../../../base/common/uri.js';
 import { Disposable } from '../../../../base/common/lifecycle.js';
@@ -32,7 +32,7 @@ import { IProductService } from '../../../../platform/product/common/productServ
 import { VSBuffer } from '../../../../base/common/buffer.js';
 import { IChannel } from '../../../../base/parts/ipc/common/ipc.js';
 import { IMainProcessService } from '../../../../platform/ipc/common/mainProcessService.js';
-import { MCPConfigFileJSON, MCPConfigFileEntryJSON, MCPServer, MCPToolCallParams, RawMCPToolCall, MCPServerEventResponse, MCPAppRequestOutcome, MCPReadResourceParams, MCPTool } from '../common/mcpServiceTypes.js';
+import { MCPConfigFileJSON, MCPConfigFileEntryJSON, MCPServer, MCPToolCallParams, RawMCPToolCall, MCPServerEventResponse, MCPAppRequestOutcome, MCPReadResourceParams, MCPTool, MCPSyncParams } from '../common/mcpServiceTypes.js';
 import { MCP } from '../../mcp/common/modelContextProtocol.js';
 import { mcpAppsEnabledConfig } from '../../../../platform/mcp/common/mcpManagement.js';
 import { isMcpToolCallableByApp, isMcpToolVisibleToModel, mcpAppUiOfTool } from '../common/mcpApps.js';
@@ -40,7 +40,6 @@ import { isMcpToolAllowedByEntry } from '../common/mcpToolAllowlist.js';
 import { IAuditLogService } from '../common/auditLogService.js';
 import { Event, Emitter } from '../../../../base/common/event.js';
 import { RunOnceScheduler, raceTimeout } from '../../../../base/common/async.js';
-import { InternalToolInfo } from '../common/prompt/prompts.js';
 import { IVibeideSettingsService } from '../common/vibeideSettingsService.js';
 import { MCPUserStateOfName } from '../common/vibeideSettingsTypes.js';
 import { IVibeOutboundRingBuffer } from '../common/vibeOutboundRingBuffer.js';
@@ -663,6 +662,9 @@ class MCPService extends Disposable implements IMCPService {
 		// same name wins. Added before Config Guard, so the discovered entry is scanned like any other.
 		newConfigFileJSON.mcpServers = withDiscoveredMemoryServer(newConfigFileJSON.mcpServers, await this._findMemoryServer());
 
+		// On/off is kept for every configured server, a blocked one included: unblocked, it comes back as it was.
+		const configuredNames = Object.keys(newConfigFileJSON.mcpServers);
+
 		// Config Guard: static-scan server entries; in block mode, drop critical-flagged servers before
 		// they start (filtering the parsed config so the rest of the refresh logic is untouched).
 		const blockedNames = this._runConfigGuard(newConfigFileJSON.mcpServers);
@@ -675,34 +677,33 @@ class MCPService extends Disposable implements IMCPService {
 		}
 
 
-		const oldConfigFileNames = Object.keys(this.state.mcpServerOfName);
-		const newConfigFileNames = Object.keys(newConfigFileJSON.mcpServers);
-
-		const addedServerNames = newConfigFileNames.filter(serverName => !oldConfigFileNames.includes(serverName)); // in new and not in old
-		const removedServerNames = oldConfigFileNames.filter(serverName => !newConfigFileNames.includes(serverName)); // in old and not in new
-
-		// set isOn to any new servers in the config
-		const addedUserStateOfName: MCPUserStateOfName = {};
-		for (const name of addedServerNames) { addedUserStateOfName[name] = { isOn: true }; }
-		await this.vibeideSettingsService.addMCPUserStateOfNames(addedUserStateOfName);
-
-		// delete isOn for any servers that no longer show up in the config
-		await this.vibeideSettingsService.removeMCPUserStateOfNames(removedServerNames);
-
-		// set all servers to loading
-		for (const serverName in newConfigFileJSON.mcpServers) {
-			this._setMCPServerState(serverName, { status: 'loading', tools: [] });
+		// New and gone are judged against the SAVED on/off, not this window's list: a reloaded window starts with
+		// an empty list, and judging by it switched back on every server the user had switched off.
+		const savedStateOfName = this.vibeideSettingsService.state.mcpUserStateOfName;
+		const newStateOfName: MCPUserStateOfName = {};
+		for (const name of configuredNames) {
+			if (!Object.hasOwn(savedStateOfName, name)) { newStateOfName[name] = { isOn: true }; }
 		}
-		const updatedServerNames = Object.keys(newConfigFileJSON.mcpServers).filter(serverName => !addedServerNames.includes(serverName) && !removedServerNames.includes(serverName));
+		await this.vibeideSettingsService.addMCPUserStateOfNames(newStateOfName);
+		await this.vibeideSettingsService.removeMCPUserStateOfNames(Object.keys(savedStateOfName).filter(name => !configuredNames.includes(name)));
 
-		this.channel.call('refreshMCPServers', {
-			mcpConfigFileJSON: newConfigFileJSON,
-			addedServerNames,
-			removedServerNames,
-			updatedServerNames,
-			userStateOfName: this.vibeideSettingsService.state.mcpUserStateOfName,
-			appsEnabled: this._appsEnabled(),
-		});
+		// This window's list follows the config at once; what runs is the main process's to say.
+		const wantedNames = Object.keys(newConfigFileJSON.mcpServers);
+		for (const name of Object.keys(this.state.mcpServerOfName)) {
+			if (!wantedNames.includes(name)) { this._setMCPServerState(name, undefined); }
+		}
+		for (const name of wantedNames) {
+			if (!this.state.mcpServerOfName[name]) { this._setMCPServerState(name, { status: 'loading', tools: [] }); }
+		}
+
+		// The whole picture, not a diff: the main process compares it with the clients that actually run,
+		// which every window shares (common/mcpReconcile.ts).
+		const enabledOfName: Record<string, boolean> = {};
+		for (const name of wantedNames) {
+			enabledOfName[name] = this.vibeideSettingsService.state.mcpUserStateOfName[name]?.isOn !== false;
+		}
+		const params: MCPSyncParams = { entries: newConfigFileJSON.mcpServers, enabledOfName, appsEnabled: this._appsEnabled() };
+		this.channel.call('syncMCPServers', params);
 	}
 
 	private _appsEnabled(): boolean {

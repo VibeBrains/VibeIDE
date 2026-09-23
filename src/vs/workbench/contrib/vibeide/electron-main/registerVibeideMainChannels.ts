@@ -106,7 +106,8 @@ export function registerVibeideMainProcessChannels(
 	// proxy + system-trusted CAs), not raw undici, so it works on corporate networks.
 	initModelsDevCatalogRequestService(requestServiceMain);
 
-	const mcpChannel = new MCPChannel();
+	// Every window shares these MCP clients: the channel hears windows come and go, and closes the clients with the app.
+	const mcpChannel = disposables.add(new MCPChannel(mainProcessElectronServer, accessor.get(ILifecycleMainService)));
 	mainProcessElectronServer.registerChannel('vibe-channel-mcp', mcpChannel);
 
 	// Распознавание текста живёт здесь, а не в окне: там `new Worker(<строка>)` запрещён

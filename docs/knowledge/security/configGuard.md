@@ -32,7 +32,7 @@
 - Конфиг: `vibeide.configGuard.enabled` (bool, default `true`), `vibeide.configGuard.mode` (`warn`/`block`, default `warn`) — [common/vibeConfigGuardConfiguration.ts](../../../src/vs/workbench/contrib/vibeide/common/vibeConfigGuardConfiguration.ts). Дефолт `warn` ничего не отключает — это анти-DoS на легитимные proxy-конфиги.
 - Точки врезки (скан при загрузке, существующий парсинг не тронут):
   - провайдеры — `reload()` в [browser/vibeDynamicProvidersService.ts](../../../src/vs/workbench/contrib/vibeide/browser/vibeDynamicProvidersService.ts) (`_runConfigGuard`): находки → `state.warnings` + лог; в `block` критичные провайдеры выпадают из transport.
-  - MCP — `_refreshMCPServers()` в [common/mcpService.ts](../../../src/vs/workbench/contrib/vibeide/common/mcpService.ts) (`_runConfigGuard`): в `block` критичные серверы вырезаются из конфига до старта.
+  - MCP — `_refreshMCPServers()` в [electron-browser/mcpService.ts](../../../src/vs/workbench/contrib/vibeide/electron-browser/mcpService.ts) (`_runConfigGuard`): в `block` критичные серверы вырезаются из картины, которую окно шлёт главному процессу, и не запускаются.
   - Уведомление — одно консолидированное `INotificationService.warn` на сет находок, дедуп по сигнатуре (`_lastGuardSig`), чтобы правки файла не спамили.
 - Диагностика: команда `vibeide.configGuard.showFindings` («VibeIDE: Config Guard — показать находки») — [browser/vibeConfigGuardDiagnosticContribution.ts](../../../src/vs/workbench/contrib/vibeide/browser/vibeConfigGuardDiagnosticContribution.ts). Оба сервиса отдают `getLastGuardFindings()`; команда reload'ит провайдеры и рендерит таблицу по severity в untitled-md.
 

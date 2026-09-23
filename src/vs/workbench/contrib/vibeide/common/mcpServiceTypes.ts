@@ -172,6 +172,20 @@ export interface MCPConfigFileJSON {
 	mcpServers: Record<string, MCPConfigFileEntryJSON>;
 }
 
+/**
+ * A window's whole picture of the MCP servers it wants, sent to the main process. The window does not
+ * say what changed — a reloaded window cannot know — and the main process compares the picture with
+ * what actually runs (common/mcpReconcile.ts).
+ */
+export interface MCPSyncParams {
+	/** Entries after Config Guard, the discovered memory server included. */
+	readonly entries: Record<string, MCPConfigFileEntryJSON>;
+	/** Whether each server should run, as this window's settings say. */
+	readonly enabledOfName: Record<string, boolean>;
+	/** This window's MCP Apps setting; clients announce MCP Apps while any window has it on. */
+	readonly appsEnabled: boolean;
+}
+
 
 // SERVER EVENT TYPES ------------------------------------------
 
