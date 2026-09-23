@@ -13,7 +13,7 @@
 #
 # Usage:
 #   launch.sh [--agents] [--source-user-data-dir <path>] [--repo <vscode-repo-root>]
-#             [--clone-extensions] [--full] [-- <extra code.sh args>]
+#             [--clone-extensions] [--full] [--max-memory-mb <n>] [-- <extra code.sh args>]
 #
 # Flags:
 #   --clone-extensions  Copy the source extensions/ into the new profile (~10s).
@@ -21,6 +21,11 @@
 #                       and conflict-free, but no third-party extensions.
 #   --full              Copy the entire profile (incl. extensions). Use if the
 #                       slim copy is missing something you need.
+#   --max-memory-mb <n> Quit the instance once its processes together use more
+#                       than <n> MB (default 4096; 0 turns the guard off). A dev
+#                       build left running can grow to many gigabytes; the guard
+#                       (memory-guard.sh) logs the largest processes before it
+#                       quits the copy, so the culprit is on record.
 #
 # Defaults:
 #   --source-user-data-dir  $CODE_OSS_DEV_AUTHED_USER_DATA_DIR  (else ~/.vscode-oss-dev)
@@ -35,6 +40,8 @@ REPO=""
 EXTRA_ARGS=()
 CLONE_EXTENSIONS=0
 FULL=0
+MAX_MEMORY_MB=4096
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 while [[ $# -gt 0 ]]; do
 	case "$1" in
@@ -43,6 +50,7 @@ while [[ $# -gt 0 ]]; do
 		--repo) REPO="$2"; shift 2 ;;
 		--clone-extensions|--copy-extensions) CLONE_EXTENSIONS=1; shift ;;
 		--full) FULL=1; shift ;;
+		--max-memory-mb) MAX_MEMORY_MB="$2"; shift 2 ;;
 		--) shift; EXTRA_ARGS=("$@"); break ;;
 		*) echo "Unknown arg: $1" >&2; exit 2 ;;
 	esac
@@ -278,6 +286,15 @@ if [[ "$READY" != "1" ]]; then
 	exit 1
 fi
 
+GUARD_PID=0
+GUARD_LOG="$RUN_DIR/memory-guard.log"
+if [[ "$MAX_MEMORY_MB" != "0" ]]; then
+	nohup "$SCRIPT_DIR/memory-guard.sh" "$DEST_UDD" "$MAX_MEMORY_MB" "$GUARD_LOG" </dev/null >/dev/null 2>&1 &
+	GUARD_PID=$!
+	disown $GUARD_PID 2>/dev/null || true
+	echo "[launch.sh] memory guard: quits the instance above ${MAX_MEMORY_MB} MB, log $GUARD_LOG" >&2
+fi
+
 node -e '
 	console.log(JSON.stringify({
 		pid: '"$PID"',
@@ -292,5 +309,6 @@ node -e '
 		logFile: process.argv[5],
 		repo: process.argv[6],
 		agents: '"$AGENTS"' === 1,
+		memoryGuard: '"$GUARD_PID"' ? { pid: '"$GUARD_PID"', limitMb: '"$MAX_MEMORY_MB"', log: process.argv[7] } : null,
 	}));
-' "$DEST_UDD" "$EXT_DIR" "$SHARED_DATA_DIR" "$RUN_DIR" "$LOG_FILE" "$REPO"
+' "$DEST_UDD" "$EXT_DIR" "$SHARED_DATA_DIR" "$RUN_DIR" "$LOG_FILE" "$REPO" "$GUARD_LOG"

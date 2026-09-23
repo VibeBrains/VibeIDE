@@ -50,7 +50,14 @@ The launcher script lives next to this SKILL.md at `scripts/launch.sh` (macOS/Li
 "$LAUNCH" --repo <vscode-repo-root>          # if not run from the repo
 "$LAUNCH" --clone-extensions                 # start with a copy of the source extensions/ (~few seconds)
 "$LAUNCH" --full                             # skip slim excludes; copy everything
+"$LAUNCH" --max-memory-mb 6144               # memory guard limit (default 4096; 0 = off)
 ```
+
+### Memory guard (macOS / Linux)
+
+A dev build left running can grow to many gigabytes. The bash launcher therefore starts `scripts/memory-guard.sh` next to the instance: every 15 s it adds up the memory of all processes of this copy — every Electron process carrying its throwaway `--user-data-dir`, plus whatever they started (MCP servers, ACP agents) — and once the total passes `--max-memory-mb` it logs the largest processes and quits the copy (SIGTERM, then SIGKILL after 10 s). On macOS it counts the footprint `top` reports, the figure Activity Monitor shows; RSS misses compressed and swapped memory. The guard follows a copy that relaunched itself and exits once the copy is gone. Its PID, limit and log path come back in the JSON as `memoryGuard`. The PowerShell launcher has no guard yet.
+
+Close the instance as soon as the check is done — an idle copy is still a copy in memory.
 
 On Windows, invoke the PowerShell launcher with the same flags:
 
@@ -158,7 +165,7 @@ npx @playwright/cli -s=$PW_SESSION tab-select 2
 npx @playwright/cli -s=$PW_SESSION snapshot
 ```
 
-If a target looks stale after relaunching, run `npx @playwright/cli -s=$PW_SESSION close`, attach again with `$CDP`, and re-check `tab-list`.
+If a target looks stale after relaunching, run `npx @playwright/cli -s=$PW_SESSION detach`, attach again with `$CDP`, and re-check `tab-list`. Do not use `close` on an attached session: it closes the browser — that is, the Code OSS window.
 
 ### Focusing the chat input (works on Code OSS, including the Agents window)
 
@@ -245,7 +252,7 @@ npx @playwright/cli -s=$PW_SESSION attach --cdp=http://127.0.0.1:$CDP
 
 Each agent gets its own `cliDaemon` bound to its own CDP, so the pastes / clicks / snapshots don't cross-contaminate. Verified live with two concurrent instances. **macOS Mach-ports caveat:** on macOS, beyond ~2–3 concurrent Code OSS instances Crashpad's exception handler tends to die with `mach_port_request_notification: invalid capability`. That's a separate, OS-level limit; it's not affected by the session name.
 
-> **Cleanup for `cliDaemon` processes:** stop your session's daemon with `npx @playwright/cli -s=$PW_SESSION close`, or nuke all stale daemons (after killing all the Code OSS windows) with `npx @playwright/cli kill-all`. Session daemons live under `~/Library/Caches/ms-playwright/daemon/<hash>/`.
+> **Cleanup for `cliDaemon` processes:** stop your session's daemon with `npx @playwright/cli -s=$PW_SESSION detach` (for an attached session `close` closes the Code OSS window too), or nuke all stale daemons (after killing all the Code OSS windows) with `npx @playwright/cli kill-all`. Session daemons live under `~/Library/Caches/ms-playwright/daemon/<hash>/`.
 
 ### Agents window selector differences
 
