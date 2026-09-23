@@ -219,7 +219,10 @@ export class VibeAcpMainService extends Disposable implements IVibeAcpMain {
 		child.stderr.setEncoding('utf8');
 		child.stderr.on('data', chunk => vibeLog.debug('ACP', `${launch.name}: ${String(chunk).trim()}`));
 		child.on('error', err => this._fail(agent, `процесс не запустился: ${err.message}`));
-		child.on('exit', code => this._fail(agent, `процесс агента завершился с кодом ${code}`));
+		// A process killed by a signal has no exit code: «с кодом null» tells the person nothing.
+		child.on('exit', (code, signal) => this._fail(agent, code !== null
+			? `процесс агента завершился с кодом ${code}`
+			: `процесс агента остановлен сигналом ${signal}`));
 
 		let greeting: JsonValue;
 		try {
