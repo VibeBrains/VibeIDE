@@ -5759,8 +5759,10 @@ prompts, tools, and preceding messages») действует на API-аккау
 
 Исследование по первоисточникам (Anthropic, OpenAI, Xiaomi, Kimi, Zed), сверено с кодом VibeIDE. Разбор соседа
 (VibeIDEA, `docs/vibe/references/research20260923.md`) прочитан, его выводы о вендорах перепроверены по тем же страницам.
-Живьём не проверено ничего: ключей Anthropic, OpenAI, Xiaomi и Kimi нет. Черновики файлов набора для темы 3 подготовлены
-и в набор не внесены — ждут решения владельца.
+Живьём не проверено ничего: ключей Anthropic, OpenAI, Xiaomi и Kimi нет. Свою часть набора сосед сделал: MiMo на
+OpenAI-маршруте и регионы Kimi Code (VibeBrains `96aafa6`), наш черновик `providers/openai.jsonc` влит целиком
+(`84f9f0e`). Указатель сидов стоит на `92b2bdb`, на три коммита позади; с ним приедет и образец `review-wave` (`3e79506`)
+с полем шага `wave`, о котором `pipelinesSpec.md` молчит. Сдвигать указатель — одним выпуском с правилом MiMo (пункт ниже).
 
 - [ ] **Opus 5.5 и Fable 5.1: рассуждение при меняющемся системном промпте** — у аккаунтов, созданных с 31.08.2026, повтор
       блока рассуждения после правки `system`, `tools` или прошлых сообщений отвечает 400
@@ -5795,25 +5797,38 @@ prompts, tools, and preceding messages») действует на API-аккау
 - [ ] **Каталог: GPT-6 Sol, Luna, Astra** — окно 1 050 000, вход до 922 000, выход 128 000, усилие none…max (умолчание
       medium); Sol $2/$10 (кэш $0,20), Luna $0,10/$0,50 (кэш $0,01); сверх 272K входа весь запрос вдвое дороже по входу и
       кэшу, в полтора раза по выходу. PR в каталог.
+- [ ] **Расход встроенных провайдеров не учитывается** — устаревшие пути в `electron-main/llmMessage/sendLLMMessage.impl.ts`
+      (`sendAnthropicChat`, `_sendOpenAICompatibleChat`, `sendGeminiChat`) `usage` не отдают вовсе, а учёт пишет запись
+      только при нём (`chatThreadService.ts`, `vibeSubagentRunnerService.ts`). Встроенные `anthropic`, `openAI`, `gemini`,
+      `ollama`, `vLLM`, `lmStudio` в отчёт о расходе не попадают, как и файлы набора `anthropic.jsonc` и `openai.jsonc`:
+      они патчат встроенных. Мельче, у провайдеров, которых адаптер ведёт через `@ai-sdk/openai-compatible` (его
+      умолчание): версия 2.0.68 не читает `prompt_tokens_details.cache_write_tokens`, и запись в кэш считается по цене
+      свежего входа, а у GPT-6 она дороже входа на четверть. `@ai-sdk/openai` 3.0.97 это поле читает и в Chat Completions,
+      и в Responses. Правильный путь — довести перевод встроенных на AI SDK (`knowledge/architecture/aiSdkMigrationWip.md`),
+      а не дописывать `usage` в функции, которые по плану удаляются; пересекается с пунктами про Opus 5.5 и GPT-6 через
+      Responses. Проверено чтением кода, не живьём. Фича (крупная).
 - [ ] **Роль «дешёвый исполнитель» на GPT-6 Luna** — в пайплайнах и ролях зависит от пункта «GPT-6 через Responses»: шаг с
       моделью у нас — подагент с инструментами. Совет моделей работает уже сейчас: советники идут без инструментов
-      (`chatMode: 'normal'`), Luna добавляется строкой в `vibeide.council.advisers`. Для набора подготовлены черновики
-      `providers/openai.jsonc` (Sol и Luna с `openai-responses`, поправка ловушки тарифа для GPT-6, пример имени `cheap`) и
-      `pipelines.json` (закомментированный образец `cheap-executor` в форме VibeIDE).
+      (`chatMode: 'normal'`), Luna добавляется строкой в `vibeide.council.advisers`. Черновик `providers/openai.jsonc`
+      (Sol и Luna с `openai-responses`, поправка ловушки тарифа для GPT-6, пример имени `cheap`) уже в наборе (`84f9f0e`).
+      Закомментированный образец `cheap-executor` для `pipelines.json` в форме VibeIDE — наш, в набор не внесён.
 - [ ] **Логические имена моделей из файлов провайдеров** — VibeIDEA читает блок `routes` в корне любого файла
       `.vibe/providers/` (слоями, `null` — запрет), мы — только настройку `vibeide.model.routes`. Имя, объявленное в общем
-      наборе, у нас не разрешится. Фича (малая).
+      наборе, у нас не разрешится. Фича (малая). Вместе с ней убрать из `providers/openai.jsonc` набора строку «в VibeIDE
+      логическое имя пока задаётся только настройкой».
 - [ ] **MiMo v2.6: возврат рассуждения** — «must completely pass back the reasoning_content field, otherwise the API will
       return a 400 error» (mimo.mi.com, раздел deep-thinking), мышление включено по умолчанию. Наш сид ходит по протоколу
       Anthropic через AI SDK, а блоки рассуждения мы возвращаем только провайдеру `anthropic`; на этом пути и нагрузка
-      рассуждения (`thinking`, усилие) не уходит вовсе. Путь: сид — на OpenAI-маршрут `https://api.xiaomimimo.com/v1`
-      (предложение VibeIDEA, их пункт 1), у нас — `mirrorReasoningContent: true` в правиле `mimo-v2.6`; выключатель —
-      `thinking: {type: "disabled"}`. Сид + PR в quirks, выкатывать вместе.
+      рассуждения (`thinking`, усилие) не уходит вовсе. В наборе сид уже на OpenAI-маршруте `https://api.xiaomimimo.com/v1`
+      (VibeBrains `96aafa6`); у нас осталось `mirrorReasoningContent: true` в правиле `mimo-v2.6`, выключатель —
+      `thinking: {type: "disabled"}`. PR в quirks, одним выпуском с бампом указателя сидов.
 - [ ] **Kimi Code: правило квирков для `k3`** — на подписке модели зовутся `k3` и `k3-256k`
       (kimi.com/code/docs/en/kimi-code/models.html), матчер по подстроке правило `kimi-k3` к ним не применяет, и возврата
-      рассуждения нет. PR в quirks: правило `k3` с привязкой к провайдеру. Сид (у VibeIDEA, их пункт 4): оба региона —
-      Китай `api.kimi.com/coding/`, остальной мир `api.kimi.ai/coding/`; подписка только для интерактивной работы,
-      неинтерактивная автоматизация запрещена (community guidelines); `none` отдаёт запрос K2.8 Preview без мышления.
+      рассуждения нет. PR в quirks: правило `k3` с привязкой к провайдеру. У VibeIDEA это закрыто выражением
+      `^(kimi-k3|kimi-k2\.[67]|kimi-for-coding|k3(-|$))`: ловит `k3` и `k3-256k`, но не `k30`. Сид сосед поправил
+      (VibeBrains `96aafa6`): оба региона — Китай `api.kimi.com/coding/`, остальной мир `api.kimi.ai/coding/`; подписка
+      только для интерактивной работы, неинтерактивная автоматизация запрещена (community guidelines); `none` отдаёт
+      запрос K2.8 Preview без мышления.
 - [ ] **Лицензия агента из реестра — кликабельной** — показывать уже показываем: список реестра — версию и лицензию,
       диалог добавления — лицензию со ссылкой. Zed (PR #64178, 14.09) добавил кнопку-значок, открывающую `license_url`.
       У нас — кнопка в элементе списка реестра. Фича (малая), польза низкая.

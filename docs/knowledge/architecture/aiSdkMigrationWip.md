@@ -56,6 +56,13 @@ Azure: `baseURL = .../openai/deployments/{modelName}` + `queryParams = { 'api-ve
 | Mistral FIM | `sendMistralFIM` (нативный `@mistralai/mistralai`) | FIM не покрывается AI SDK. Удалить `@mistralai/mistralai` не получится без альтернативы. |
 | `_sendOpenAICompatibleFIM` | свой путь | Используется liteLLM/openRouter/lmRoute/openAICompatible/awsBedrock для FIM. Не трогаем. |
 
+**Расход у немигрированных не считается.** Ни `sendAnthropicChat`, ни `_sendOpenAICompatibleChat`, ни `sendGeminiChat`
+не отдают `usage` в `onFinalMessage`: в `sendLLMMessage.impl.ts` к нему нет ни одного обращения. Учёт расхода пишет запись
+только при `usage` (`chatThreadService.ts`, `vibeSubagentRunnerService.ts`), поэтому встроенные `anthropic`, `openAI`,
+`gemini`, `ollama`, `vLLM`, `lmStudio` в отчёт не попадают — вместе с файлами набора, которые патчат встроенных. Токены
+отдаёт только `sendViaAISdk`. Это ещё один довод довести миграцию, а не дописывать `usage` в код под снос. Найдено
+23.09.2026 чтением кода, живьём не проверено; пункт в `roadmap.md`, раздел DIGEST-0923.
+
 ### Аспекты, сохранённые внутри `sendViaAISdk`
 
 - `extractReasoningWrapper` (open-source `<think>`-теги) и `extractXMLToolsWrapper` (XML-fallback при `specialToolFormat=undefined`) — применяются 1-в-1, как в legacy.
