@@ -352,6 +352,8 @@ export interface DynProviderTransportConfig {
 	 * choose by model, so a single per-provider value cannot describe the whole catalogue.
 	 */
 	readonly modelProtocols?: Readonly<Record<string, string>>;
+	/** The file declared that this endpoint accepts `prompt_cache_key` — see `VibeProviderEntry.promptCacheKey`. */
+	readonly promptCacheKey?: boolean;
 }
 
 export interface VibeProviderActiveOverrides {

@@ -214,6 +214,9 @@ export type VibeideStaticModelInfo = { // not stateful
 	defaultTopP?: number;
 	defaultTopK?: number;
 
+	/** Anthropic prompt cache lifetime declared in the provider file (`cacheTtl`); absent — the vendor's five minutes. */
+	promptCacheTtl?: '5m' | '1h';
+
 	// Per-model budgets. Undefined = no limit / global default, which is how every model behaved
 	// before these existed — a frontier model must not change behaviour because the field appeared.
 	// The quirks catalog governs the PROTOCOL; these two govern the VOLUME, and nothing else did.

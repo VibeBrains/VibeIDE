@@ -81,6 +81,7 @@ const modelSchema: IJSONSchema = {
 		vision: { type: 'boolean', description: 'Поддержка изображений.' },
 		systemMessage: { enum: ['system', 'developer', 'separated', false], description: 'Как доставляется system-сообщение.' },
 		fim: { type: 'boolean', description: 'Поддержка fill-in-the-middle (автодополнение).' },
+		cacheTtl: { type: 'string', enum: ['5m', '1h'], description: 'Срок жизни кэша промпта Anthropic: `5m` (по умолчанию у вендора) или `1h`. Час дороже при записи и избавляет от полного перечитывания после паузы длиннее пяти минут. Только протокол anthropic; `cost.cacheWrite` объявляйте по ставке выбранного срока, иначе отчёт о расходе занизит счёт.' },
 		maxTools: { type: 'number', minimum: 1, description: 'Сколько инструментов давать модели за раз. Не указано — без ограничения. Для слабых и локальных моделей: они мажут по вызовам не потому, что не знают протокол, а потому что тонут в четырёх десятках инструментов. Базовые инструменты (чтение, правка, поиск, запуск команды, завершение) не урезаются никогда.' },
 		maxPromptDirectoryChars: { type: 'number', minimum: 1, description: 'Сколько символов обзора файлов проекта вставлять в системный промпт. Не указано — глобальная настройка `vibeide.prompt.directoryOverviewChars`. Обзор — единственная часть промпта, растущая с размером репозитория, а не с задачей.' },
 		reasoning: {
@@ -135,6 +136,7 @@ const providerSchema: IJSONSchema = {
 		headers: { type: 'object', additionalProperties: { type: 'string' }, description: 'Статические HTTP-заголовки.' },
 		query: { type: 'object', additionalProperties: { type: 'string' }, description: 'Статические query-параметры.' },
 		timeoutMs: { type: 'number', description: 'Таймаут запроса (мс). Агрегаторам нужно больше.' },
+		promptCacheKey: { type: 'boolean', description: 'Endpoint принимает `prompt_cache_key` (OpenAI, xAI): IDE шлёт ключ, постоянный в пределах разговора, и запросы попадают на сервер с их кэшем — иначе вход может быть оплачен по полной цене. Без объявления поле не отправляется: строгие OpenAI-совместимые вендоры отвечают 400 на незнакомое.' },
 		docsUrl: { type: 'string' },
 		apiKeyUrl: { type: 'string' },
 		quota: {

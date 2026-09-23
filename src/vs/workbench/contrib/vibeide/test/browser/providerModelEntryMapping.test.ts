@@ -55,6 +55,11 @@ suite('providers.json → model capabilities', () => {
 		assert.deepStrictEqual(input.map(m => m.id), ['a', 'z']);
 	});
 
+	test('cacheTtl reaches the request only with a lifetime the vendor offers', () => {
+		const ttl = (cacheTtl: unknown) => modelEntryToCaps({ id: 'claude', cacheTtl } as Parameters<typeof modelEntryToCaps>[0]).promptCacheTtl;
+		assert.deepStrictEqual([ttl('1h'), ttl('5m'), ttl('forever'), ttl(undefined)], ['1h', '5m', undefined, undefined]);
+	});
+
 	test('a fully populated entry maps every documented field', () => {
 		const caps = modelEntryToCaps({
 			id: 'some-model',

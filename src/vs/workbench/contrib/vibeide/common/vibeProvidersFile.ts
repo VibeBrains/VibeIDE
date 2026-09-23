@@ -145,6 +145,12 @@ export interface VibeProviderModelEntry {
 	readonly contextWindow?: number;
 	readonly maxOutputTokens?: number;
 	readonly toolFormat?: VibeModelToolFormat;
+	/**
+	 * How long the Anthropic prompt cache lives: `5m` (vendor default) or `1h`. The hour costs more to write
+	 * and saves a full re-read after a pause longer than five minutes — a review, a CI wait. Anthropic protocol
+	 * only; declare `cost.cacheWrite` at the rate of the chosen lifetime, or the spend report under-counts.
+	 */
+	readonly cacheTtl?: VibePromptCacheTtl;
 	readonly vision?: boolean;
 	readonly systemMessage?: VibeModelSystemMessage;
 	readonly fim?: boolean;
@@ -200,6 +206,14 @@ export interface VibeProviderModelEntry {
 	readonly note?: string;
 }
 
+/** Lifetime of the Anthropic prompt cache that the vendor offers. */
+export type VibePromptCacheTtl = '5m' | '1h';
+
+/** A declared cache lifetime, or nothing for anything the vendor does not offer. */
+export function promptCacheTtlOf(value: unknown): VibePromptCacheTtl | undefined {
+	return value === '5m' || value === '1h' ? value : undefined;
+}
+
 export interface VibeProviderModelsSpec {
 	/** `true` (or omitted — default) = auto-list from `<baseURL>/models`; a string = fetch that URL;
 	 *  `false` = static only (no catalog). Auto-listed models merge with `static` (same id → static
@@ -236,6 +250,12 @@ export interface VibeProviderEntry {
 	readonly headers?: Readonly<Record<string, string>>;
 	readonly query?: Readonly<Record<string, string>>;
 	readonly timeoutMs?: number;
+	/**
+	 * The endpoint accepts `prompt_cache_key` (OpenAI, xAI): IDE sends a key stable for the conversation so
+	 * that its requests reach the server holding their cache. Off unless declared — a strict OpenAI-compatible
+	 * vendor answers 400 to a field it does not know. See `common/promptCacheKey.ts`.
+	 */
+	readonly promptCacheKey?: boolean;
 	readonly docsUrl?: string;
 	readonly apiKeyUrl?: string;
 	/**

@@ -39,6 +39,7 @@ import { approvalTypeOfBuiltinToolName } from '../common/prompt/tools/index.js';
 import { BranchMessageShape, resolveBranchCutoff } from '../common/threadBranching.js';
 import { IVibeHooksService } from '../common/hooks/vibeHookTypes.js';
 import { toolMatchesPlanHints, resolveToolClass } from '../common/planToolDrift.js';
+import { promptCacheKeyOf } from '../common/promptCacheKey.js';
 import { IVibeSpecsService } from './vibeSpecsService.js';
 import { IVibeTokenSavingsService } from './vibeTokenSavingsService.js';
 import { IBackgroundCommandExit, IToolsService } from './toolsService.js';
@@ -3623,6 +3624,7 @@ Output ONLY the JSON, no other text. Start with { and end with }.`;
 					modelSelection,
 					modelSelectionOptions,
 					overridesOfModel: this._settingsService.state.overridesOfModel,
+					promptCacheKey: promptCacheKeyOf(threadId, 'plan'),
 					logging: { loggingName: 'Plan Generation', loggingExtras: { threadId } },
 					separateSystemMessage: undefined,
 					onText: ({ fullText }) => {
@@ -6517,6 +6519,7 @@ Output ONLY the JSON, no other text. Start with { and end with }.`;
 					modelSelectionOptions,
 					overridesOfModel: effectiveOverridesForCall,
 					forceToolUse: forceThisTurn,
+					promptCacheKey: promptCacheKeyOf(threadId, 'agent'),
 					logging: { loggingName: `Chat - ${chatMode}`, loggingExtras: { threadId, nMessagesSent, chatMode, requestId: finalRequestId } },
 					separateSystemMessage: separateSystemMessage,
 					onText: ({ fullText, fullReasoning, toolCall }) => {

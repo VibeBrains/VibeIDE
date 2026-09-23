@@ -273,6 +273,8 @@ export type ServiceSendLLMMessageParams = {
 	onAbort: OnAbort;
 	/** Extra request-body fields for this one call — see `LLMRuntimeOptions.extraBody`. */
 	extraBody?: Record<string, unknown>;
+	/** Cache routing key of the conversation — see `LLMRuntimeOptions.promptCacheKey`. */
+	promptCacheKey?: string;
 	/** Per-turn: request `tool_choice: 'required'` for this send (agent-loop corrective nudge). */
 	forceToolUse?: boolean;
 	/**
@@ -297,6 +299,11 @@ export type LLMRuntimeOptions = {
 	 * JSON Schema. OpenAI-compatible transport only, like the provider file's `extraBody`.
 	 */
 	extraBody?: Record<string, unknown>;
+	/**
+	 * `prompt_cache_key` of the conversation (`common/promptCacheKey.ts`). Sent only to a provider whose file
+	 * declares `promptCacheKey: true`: a strict OpenAI-compatible vendor answers 400 to a field it does not know.
+	 */
+	promptCacheKey?: string;
 	timeoutMs?: {
 		local?: number;
 		cloud?: number;

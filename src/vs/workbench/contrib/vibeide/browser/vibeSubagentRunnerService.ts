@@ -36,6 +36,7 @@ import { URI } from '../../../../base/common/uri.js';
 import { IWorkspaceContextService } from '../../../../platform/workspace/common/workspace.js';
 import { stepMayWrite } from '../common/pipeline/vibePipelineFile.js';
 import { rebaseParamsIntoWorktree, relativeToRoot } from '../common/worktreeRebase.js';
+import { promptCacheKeyOf } from '../common/promptCacheKey.js';
 import { isLinux } from '../../../../base/common/platform.js';
 
 /** Under Autopilot, resource limits auto-extend rather than stop the role. This cooldown backstops a
@@ -464,6 +465,8 @@ class VibeSubagentRunnerService extends Disposable implements IVibeSubagentRunne
 				modelSelection: opts.modelSelection,
 				modelSelectionOptions: undefined,
 				overridesOfModel: this._settings.state.overridesOfModel,
+				// One subagent run is one conversation: every hop of it shares the cache key.
+				promptCacheKey: promptCacheKeyOf(opts.req.subagentId, opts.req.type),
 				onText: () => { },
 				onFinalMessage: p => finish({ kind: 'final', fullText: p.fullText, toolCall: p.toolCall, usage: p.usage }),
 				onError: e => finish({ kind: 'error', message: e.message || String(e) }),

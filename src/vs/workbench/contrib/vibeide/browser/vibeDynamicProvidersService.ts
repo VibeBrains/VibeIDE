@@ -41,7 +41,7 @@ import { builtinProviderIdOf, isBuiltinProviderId, VibeideStatefulModelInfo, api
 import { IVibeideSettingsService, VibeProviderActiveOverrides, ModelOption, DynProviderTransportConfig, DynamicProviderSeed } from '../common/vibeideSettingsService.js';
 import { setExternalProviders, ExternalProviderDescriptor, VibeideStaticModelInfo, ModelLongContext } from '../common/modelCapabilities.js';
 import { IRemoteCatalogService, DynamicKeyValidation } from '../common/remoteCatalogService.js';
-import { VibeProviderEntry, VibeProviderModelCost, VibeProviderModelEntry, isProviderCatalogueFile, mergeProviderEntry, mergeProviderLayers, parseProvidersFile, VibeProviderLongContext, VibeProviderTimeOfDay } from '../common/vibeProvidersFile.js';
+import { VibeProviderEntry, VibeProviderModelCost, VibeProviderModelEntry, isProviderCatalogueFile, mergeProviderEntry, mergeProviderLayers, parseProvidersFile, promptCacheTtlOf, VibeProviderLongContext, VibeProviderTimeOfDay } from '../common/vibeProvidersFile.js';
 import { parseEnvFile } from '../common/vibeEnvFile.js';
 import { DEFAULT_PRICE_CHANGE_SOON_DAYS, effectiveCost, nextPriceChangeMoment, parseTimeOfDay, PriceTimeOfDay, priceChangeStatus } from '../common/modelPriceSchedule.js';
 import { VIBE_CONFIG_PROVIDERS_CACHE_KEY } from '../common/storageKeys.js';
@@ -120,6 +120,8 @@ export function modelEntryToCaps(m: VibeProviderModelEntry): Partial<VibeideStat
 	// `fim: true` opts the model into Autocomplete (the FIM feature filter reads supportsFIM) —
 	// without this mapping the file field was silently dropped and the spec lied.
 	if (typeof m.fim === 'boolean') { c.supportsFIM = m.fim; }
+	const cacheTtl = promptCacheTtlOf(m.cacheTtl);
+	if (cacheTtl) { c.promptCacheTtl = cacheTtl; }
 	if (m.systemMessage === false) { c.supportsSystemMessage = false; }
 	else if (m.systemMessage) { c.supportsSystemMessage = SYS_MSG_MAP[m.systemMessage]; }
 	// The rate in effect right now, not the one that was true when the file was written: a promo
@@ -928,6 +930,7 @@ class VibeDynamicProvidersService extends Disposable implements IVibeDynamicProv
 					...(typeof fetchSpec === 'string' ? { modelsUrl: fetchSpec } : {}),
 					...(p.entry.protocol ? { protocol: p.entry.protocol } : {}),
 					...(modelProtocols ? { modelProtocols } : {}),
+					...(p.entry.promptCacheKey === true ? { promptCacheKey: true } : {}),
 				};
 			}
 

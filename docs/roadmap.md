@@ -5752,8 +5752,13 @@ prompts, tools, and preceding messages») действует на API-аккау
 - [x] **Поправка сида StepFun** — ✅ (2026-09-22, VibeBrains) — у пресета, засеянного соседом, стояло `"vision": false`,
       а вендор объявляет вход «Text, images, and video»: поле блокировало картинки в композере, то есть отнимало
       объявленную возможность. Снято, добавлены потолок ответа 64k и уровни рассуждения low/medium/high.
-- [ ] **`prompt_cache_key`, стабильный на разговор** — поле подставляет клиент, а не сид (см. выше). Без него у xAI
-      вход оплачивается по полной цене на холодном сервере.
+- [x] **`prompt_cache_key`, стабильный на разговор** — ✅ (2026-09-23, next) поле провайдера `promptCacheKey: true`
+      (набор `92b2bdb`: xAI и OpenAI, для OpenAI параметр сверен по официальному SDK); ключ — хеш от треда и роли
+      (`common/promptCacheKey.ts`), у плана и у субагента свой; совместимый путь шлёт `prompt_cache_key` в теле,
+      нативный SDK OpenAI — `providerOptions.openai.promptCacheKey`. Без объявления поле не отправляется.
+- [x] **`cacheTtl` — паритет с VibeIDEA** — ✅ (2026-09-23, next) образец набора обещал часовой кэш Anthropic,
+      VibeIDEA его отправляла, а VibeIDE поле не разбирала вовсе. Теперь `cacheTtl: "5m" | "1h"` модели уходит
+      в `cacheControl.ttl`. Заодно в примере Fable 5.1 цена записи исправлена на часовую (20 вместо 12.5).
 - [ ] **Импорт агентов из ACP Registry** — реестр (Apache-2.0) отдаёт готовый JSON с CDN
       `https://cdn.agentclientprotocol.com/registry/v1/latest/registry.json`; версии агентов обновляются ежечасным
       cron по релизам npm, PyPI и GitHub. Запись: `id`, `name`, `version` (строго X.Y.Z), `description`, `repository`,

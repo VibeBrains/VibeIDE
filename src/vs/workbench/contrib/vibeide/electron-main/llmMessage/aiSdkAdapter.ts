@@ -1069,7 +1069,17 @@ export const sendViaAISdk = async (params: SendChatParams_Internal): Promise<voi
 	const reasoningInputPayload = providerReasoningIOSettings?.input?.includeInPayload?.(reasoningInfo) ?? {};
 	// The per-request `extraBody` goes last: it is a contract for this one call (a JSON Schema for an
 	// extraction), and a provider-wide default must not overwrite it.
-	const openAICompatExtraBody: Record<string, unknown> = { ...(additionalOpenAIPayload as Record<string, unknown> | undefined ?? {}), ...reasoningInputPayload, ...(runtimeOptions?.extraBody ?? {}) };
+	// The conversation's cache key goes only where the provider file declared it: a strict OpenAI-compatible
+	// vendor answers 400 to a field it does not know (see common/promptCacheKey.ts).
+	const promptCacheKey = (settingsOfProvider[providerName] as { promptCacheKey?: boolean } | undefined)?.promptCacheKey === true
+		? runtimeOptions?.promptCacheKey
+		: undefined;
+	const openAICompatExtraBody: Record<string, unknown> = {
+		...(additionalOpenAIPayload as Record<string, unknown> | undefined ?? {}),
+		...reasoningInputPayload,
+		...(promptCacheKey ? { prompt_cache_key: promptCacheKey } : {}),
+		...(runtimeOptions?.extraBody ?? {}),
+	};
 
 	// Honor `vibeide.llm.toolFallbackMode` (with backward-compat from legacy
 	// `vibeide.llm.assumeNativeTools`) for aggregator-synthesized fallbacks.
@@ -1296,7 +1306,9 @@ export const sendViaAISdk = async (params: SendChatParams_Internal): Promise<voi
 		reasoningInfo?.type === 'effort_slider_value' ? reasoningInfo.reasoningEffort : undefined,
 	);
 	if (sdkNpm === '@ai-sdk/anthropic') {
-		const cacheCtl: MessageProviderOptions = { anthropic: { cacheControl: { type: 'ephemeral' } } };
+		// A declared hour of cache life (`cacheTtl: "1h"`) costs more to write and saves a full re-read
+		// after a pause longer than the vendor's five minutes; absent — the vendor default.
+		const cacheCtl: MessageProviderOptions = { anthropic: { cacheControl: { type: 'ephemeral', ...(caps.promptCacheTtl ? { ttl: caps.promptCacheTtl } : {}) } } };
 		if (systemForCall) {
 			const systemMsg: ModelMessageOfRole<'system'> = { role: 'system', content: systemForCall, providerOptions: cacheCtl };
 			modelMessages = [systemMsg, ...modelMessages];
@@ -1517,6 +1529,11 @@ export const sendViaAISdk = async (params: SendChatParams_Internal): Promise<voi
 			messages: modelMessages,
 			tools,
 			activeTools,
+			// The native OpenAI SDK takes the cache key as a provider option; the compatible path gets
+			// `prompt_cache_key` in the body above.
+			...(promptCacheKey && (sdkNpm === '@ai-sdk/openai' || sdkNpm === '@ai-sdk/openai#responses')
+				? { providerOptions: { openai: { promptCacheKey } } }
+				: {}),
 			toolChoice: runtimeOptions?.forceToolUse && tools && !quirks.forcedToolChoiceUnsupported ? 'required' : (tools ? 'auto' : undefined),
 			abortSignal: abortController.signal,
 			...modelParams,
