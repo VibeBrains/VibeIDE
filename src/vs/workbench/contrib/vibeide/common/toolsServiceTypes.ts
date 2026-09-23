@@ -9,6 +9,7 @@ import { RawMCPToolCall } from './mcpServiceTypes.js';
 import { SnakeCaseKeys } from './prompt/snakeCase.js';
 import { RawToolParamsObj } from './sendLLMMessageTypes.js';
 import { ReviewChecklist } from './chatThreadServiceTypes.js';
+import { SlopReport } from './textSlop/textSlop.js';
 
 
 
@@ -83,6 +84,8 @@ export type BuiltinToolCallParams = {
 	// No parameters: the context is whatever the project wrote, and there is nothing to narrow.
 	'design_context': Record<never, never>;
 	'design_doctor': Record<never, never>;
+	// One of the two: `text` when the text is in hand, `path` when it is in a file.
+	'vibe_text_slop_check': { path: URI | null; text: string | null };
 	'model_council': { question: string; context: string | null };
 	'design_document': {
 		target: 'product' | 'uikit' | 'system';
@@ -270,6 +273,8 @@ export type BuiltinToolResultType = {
 		acceptedDrift: { count: number; unknown: string[] };
 		hook: { mode: string; maxAttempts: number };
 	};
+	// `warnings` — what could not be applied from the catalogue or from `.vibe/slop.json`; each names its file.
+	'vibe_text_slop_check': { report: SlopReport; warnings: string[] };
 	// Several models answered the same question; one folded the answers.
 	// Shape mirrors `CouncilResult` exactly (including `summary: string | undefined`), so the
 	// pure formatter can take the tool result without a copy or a cast.

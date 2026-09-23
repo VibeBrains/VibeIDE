@@ -33,6 +33,7 @@ const GENERATED: ReadonlyArray<{ readonly script: string; readonly out: string }
 	{ script: 'scripts/gen-vibe-defaults.mjs', out: 'src/vs/workbench/contrib/vibeide/common/vibeDefaultsManifest.generated.ts' },
 	{ script: 'scripts/gen-specs-help.mjs', out: 'src/vs/workbench/contrib/vibeide/common/vibeSpecsHelp.generated.ts' },
 	{ script: 'scripts/gen-docs-bundle.mjs', out: 'src/vs/workbench/contrib/vibeide/common/vibeDocsBundle.generated.ts' },
+	{ script: 'scripts/gen-slop-catalog.ts', out: 'src/vs/workbench/contrib/vibeide/common/slopCatalog.generated.ts' },
 ];
 
 const before = new Map<string, string>();

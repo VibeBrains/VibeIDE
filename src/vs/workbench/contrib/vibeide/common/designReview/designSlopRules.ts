@@ -31,8 +31,8 @@
  */
 
 import { DesignContext, acceptedDriftFor } from '../designContext/designContextFile.js';
-import { DocumentSnapshot, Finding, Rule, Severity } from './designSnapshot.js';
-import { RULE_META, RuleId } from './ruleIds.js';
+import { DocumentSnapshot, Finding, Rule, RuleInputs, Severity } from './designSnapshot.js';
+import { canonicalRuleId, RULE_META, RuleId } from './ruleIds.js';
 import { COLOR_RULES } from './rules/color.js';
 import { COPY_RULES } from './rules/copy.js';
 import { IMAGERY_RULES } from './rules/imagery.js';
@@ -80,13 +80,14 @@ const SEVERITY_ORDER: Record<Severity, number> = { error: 0, warning: 1, info: 2
  *
  * `context` is the project's design system: findings it declared deliberate come back marked
  * `accepted` instead of being dropped. Silence about a decision is how an ignore list turns into
- * folklore — the reason travels with the finding.
+ * folklore — the reason travels with the finding. `inputs` is what some rules need beyond the page
+ * (the text-slop catalogue for the copy); without it those rules stay silent.
  *
  * Ordering is deterministic (severity, then rule, then selector) so two runs on the same page
  * produce byte-identical output — a report that reshuffles itself cannot be diffed.
  */
-export function reviewDesign(doc: DocumentSnapshot, context?: DesignContext): Finding[] {
-	const findings = RULES.flatMap(rule => rule(doc)).map((raw): Finding => {
+export function reviewDesign(doc: DocumentSnapshot, context?: DesignContext, inputs?: RuleInputs): Finding[] {
+	const findings = RULES.flatMap(rule => rule(doc, inputs)).map((raw): Finding => {
 		// The class is the catalogue's word, not the rule's: a project accepts drift by rule id, so
 		// the two must agree by construction. An id missing from the catalogue is a programming
 		// error the unit tests catch; treating it as drift here would silently make it acceptable,
@@ -98,7 +99,7 @@ export function reviewDesign(doc: DocumentSnapshot, context?: DesignContext): Fi
 		if (ruleClass === 'floor') {
 			return finding;
 		}
-		const accepted = acceptedDriftFor(context, finding.rule);
+		const accepted = acceptedDriftFor(context, finding.rule, canonicalRuleId);
 		return accepted ? { ...finding, accepted: { reason: accepted.reason } } : finding;
 	});
 	return findings.sort((a, b) =>

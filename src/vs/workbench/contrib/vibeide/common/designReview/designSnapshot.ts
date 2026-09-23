@@ -11,6 +11,8 @@
  * always be argued with by re-measuring rather than by taste.
  */
 
+import type { CompiledSlopCatalog } from '../textSlop/slopCatalog.js';
+
 /** Which viewport a snapshot was taken in — a finding is only true for the width it was measured at. */
 export type ViewportLabel = 'desktop' | 'mobile';
 
@@ -270,7 +272,16 @@ export type Finding = {
  */
 export type RuleFinding = Omit<Finding, 'ruleClass'>;
 
-export type Rule = (doc: DocumentSnapshot) => RuleFinding[];
+/** What some rules need beyond the page itself; the caller supplies it, the page cannot. */
+export type RuleInputs = {
+	/**
+	 * The text-slop catalogue for the page's copy: list and template rules only, the project's
+	 * `.vibe/slop.json` applied. Absent — the copy rule stays silent rather than guess.
+	 */
+	readonly pageSlop?: CompiledSlopCatalog;
+};
+
+export type Rule = (doc: DocumentSnapshot, inputs?: RuleInputs) => RuleFinding[];
 
 // ---------------------------------------------------------------------------------------------
 // colour maths

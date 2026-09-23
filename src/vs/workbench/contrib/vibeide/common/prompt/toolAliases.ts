@@ -170,6 +170,10 @@ export const PARAM_ALIASES_BY_TOOL: { readonly [canonicalToolName: string]: { re
 	open_file: {
 		path: 'uri', file_path: 'uri', filepath: 'uri', file: 'uri',
 	},
+	vibe_text_slop_check: {
+		// The one file tool whose field is `path` (VibeIDEA's name for it) — so here `uri`, our own name, is the stray.
+		uri: 'path', file_path: 'path', filepath: 'path', file: 'path', filename: 'path',
+	},
 	run_command: {
 		// most models use `command` already — just normalize a few stragglers
 		cmd: 'command',

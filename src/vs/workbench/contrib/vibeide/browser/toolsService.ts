@@ -12,7 +12,7 @@ import * as resources from '../../../../base/common/resources.js';
 import { resolveAgentPath } from '../common/agentPathResolution.js';
 import { toolParamUri } from '../common/toolParamUri.js';
 import { placePhysicalPath, PhysicalPathProbe, resolvePhysicalEntry, resolvePhysicalPath } from '../common/agentPhysicalPath.js';
-import { IFileService } from '../../../../platform/files/common/files.js';
+import { IFileService, TooLargeFileOperationError } from '../../../../platform/files/common/files.js';
 import { IVibeConstraintsService, ConstraintViolationError } from '../common/vibeConstraintsService.js';
 import { IVibeExternalAccessService, ExternalAccessRequiredError, SourceFolderReadOnlyError } from '../common/vibeExternalAccessService.js';
 import { IVibeGitReadService } from '../common/vibeideSCMTypes.js';
@@ -71,10 +71,12 @@ import { ILanguageFeaturesService } from '../../../../editor/common/services/lan
 import { IVibeCodeGraphService } from './codeGraph/vibeCodeGraphService.js';
 import { IVibeDesignScanService, unreachableReasonOf } from './designReview/vibeDesignScanService.js';
 import { IVibeDesignContextService } from './designContext/vibeDesignContextService.js';
+import { IVibeTextSlopService } from '../common/textSlop/vibeTextSlopService.js';
+import { renderSlopReport } from '../common/textSlop/slopRender.js';
 import { Finding, ViewportLabel, mergeViewportFindings, reviewDesign, summarize } from '../common/designReview/designSlopRules.js';
 import { formatCouncilResult } from '../common/modelCouncil.js';
 import { IVibeModelCouncilService } from './vibeModelCouncilService.js';
-import { ALL_RULE_IDS, RULE_META } from '../common/designReview/ruleIds.js';
+import { ALL_RULE_IDS, RULE_META, canonicalRuleId } from '../common/designReview/ruleIds.js';
 import { DESIGN_PLATFORMS, renderDesignSystem, renderProductContext, unknownAcceptedDrift } from '../common/designContext/designContextFile.js';
 import { digestSnapshot } from '../common/designContext/summariseSnapshot.js';
 import { CodeGraph, fileNodeId, symbolNodeId } from '../common/codeGraph/vibeCodeGraph.js';
@@ -258,6 +260,12 @@ const EXTRACT_MODEL_KEY = 'vibeide.extract.model';
 /** How long one extraction may take. A page of HTML is a long prompt, but not a minute-and-a-half one. */
 const EXTRACT_TIMEOUT_MS = 90_000;
 
+/**
+ * The most `vibe_text_slop_check` reads: bytes of a file, characters of a text. The detector runs in the window at
+ * about a millisecond per kilobyte, so a log named `.md` would hold the window for seconds; prose is far below this.
+ */
+const TEXT_SLOP_MAX_SIZE = 1024 * 1024;
+
 export class ToolsService extends Disposable implements IToolsService {
 
 	readonly _serviceBrand: undefined;
@@ -317,6 +325,7 @@ export class ToolsService extends Disposable implements IToolsService {
 		@IVibeCodeGraphService private readonly codeGraphService: IVibeCodeGraphService,
 		@IVibeDesignScanService private readonly designScanService: IVibeDesignScanService,
 		@IVibeDesignContextService private readonly designContextService: IVibeDesignContextService,
+		@IVibeTextSlopService private readonly textSlopService: IVibeTextSlopService,
 		@IVibeModelCouncilService private readonly modelCouncilService: IVibeModelCouncilService,
 		@IVibeConstraintsService private readonly vibeConstraintsService: IVibeConstraintsService,
 		@IVibePromptGuardService private readonly vibePromptGuardService: IVibePromptGuardService,
@@ -732,6 +741,19 @@ export class ToolsService extends Disposable implements IToolsService {
 			design_context: () => ({}),
 
 			design_doctor: () => ({}),
+
+			vibe_text_slop_check: (params: RawToolParamsObj) => {
+				const { path: pathUnknown, text: textUnknown } = params;
+				// The text in hand wins, as in VibeIDEA: a model passing both has just written it, and the file may
+				// not hold it yet.
+				if (typeof textUnknown === 'string' && textUnknown.trim()) {
+					return { path: null, text: textUnknown };
+				}
+				if (isFalsy(pathUnknown)) {
+					throw new Error(`Invalid LLM output: give 'path' (a file to check) or 'text' (the text itself), got neither`);
+				}
+				return { path: validateReadURI(pathUnknown), text: null };
+			},
 
 			model_council: (params: RawToolParamsObj) => {
 				const { question, context } = params;
@@ -1664,6 +1686,7 @@ export class ToolsService extends Disposable implements IToolsService {
 				// The project's own design system decides which style tells are its identity, so the
 				// context is read before judging rather than after arguing.
 				const { context } = await this.designContextService.read();
+				const inputs = { pageSlop: await this.textSlopService.pageCatalog() };
 				const passes: Finding[][] = [];
 				let url: string | undefined;
 				let truncated = false;
@@ -1676,7 +1699,7 @@ export class ToolsService extends Disposable implements IToolsService {
 					}
 					url = scan.snapshot.url;
 					truncated = truncated || scan.truncated;
-					passes.push(reviewDesign(scan.snapshot, context));
+					passes.push(reviewDesign(scan.snapshot, context, inputs));
 				}
 				const all = mergeViewportFindings(passes);
 				const findings = severity ? all.filter(f => f.severity === severity) : all;
@@ -1707,7 +1730,7 @@ export class ToolsService extends Disposable implements IToolsService {
 							colors: design.colors,
 							namedRules: design.namedRules,
 							acceptedDrift: design.acceptedDrift,
-							unknownDrift: unknownAcceptedDrift(read.context, ALL_RULE_IDS),
+							unknownDrift: unknownAcceptedDrift(read.context, ALL_RULE_IDS, canonicalRuleId),
 							text: design.raw,
 						},
 						components: read.context.components && {
@@ -1745,7 +1768,7 @@ export class ToolsService extends Disposable implements IToolsService {
 						rules: { total: ALL_RULE_IDS.length, floor, drift: ALL_RULE_IDS.length - floor },
 						acceptedDrift: {
 							count: read.context.design?.acceptedDrift.length ?? 0,
-							unknown: unknownAcceptedDrift(read.context, ALL_RULE_IDS),
+							unknown: unknownAcceptedDrift(read.context, ALL_RULE_IDS, canonicalRuleId),
 						},
 						hook: {
 							mode: this._configurationService.getValue<string>('vibeide.design.hook.mode') ?? 'notify',
@@ -1753,6 +1776,43 @@ export class ToolsService extends Disposable implements IToolsService {
 						},
 					},
 				};
+			},
+
+			vibe_text_slop_check: async ({ path, text }) => {
+				const tooLarge = () => new Error(localize('vibeide.textSlop.tooLarge', "Текст больше {0} КБ — проверка не выполнялась: детектор рассчитан на прозу и на таком объёме задержал бы окно. Проверьте его частями аргументом text.", TEXT_SLOP_MAX_SIZE / 1024));
+				let checked = text ?? '';
+				let folder: URI | undefined;
+				if (path) {
+					// The findings quote the file, so this is a read like any other: the same rules, `.vibe/ignore` included.
+					if ((await gateRead(path)).some(name => vibeIgnoreService.isIgnored(name))) {
+						throw new Error(localize('vibeide.textSlop.ignored', "Файл «{0}» закрыт правилом .vibe/ignore — проверка не выполнялась.", path.fsPath));
+					}
+					// An open editor holds what the user sees, unsaved edits included — that is the text to judge.
+					const openModel = vibeideModelService.getModel(path).model;
+					if (openModel) {
+						checked = openModel.getValue(EndOfLinePreference.LF);
+					} else {
+						try {
+							checked = (await fileService.readFile(path, { limits: { size: TEXT_SLOP_MAX_SIZE } })).value.toString();
+						} catch (error) {
+							if (error instanceof TooLargeFileOperationError) {
+								throw tooLarge();
+							}
+							throw new Error(localize('vibeide.textSlop.unreadable', "Не удалось прочитать {0}: {1}", path.fsPath, error instanceof Error ? error.message : String(error)));
+						}
+					}
+					// A project's own rules are those of the folder the file lives in.
+					folder = workspaceContextService.getWorkspaceFolder(path)?.uri;
+				}
+				if (checked.length > TEXT_SLOP_MAX_SIZE) {
+					throw tooLarge();
+				}
+				const check = await this.textSlopService.check(checked, folder);
+				if (!check) {
+					// "Not checked" must never read as "clean".
+					throw new Error(localize('vibeide.textSlop.noCatalog', "Каталог примет нейрослопа в этой сборке не читается — проверка не выполнялась."));
+				}
+				return { result: { report: check.report, warnings: [...check.warnings] } };
 			},
 
 			design_document: async ({ target, name, audience, positioning, platform, notes, apply }) => {
@@ -3607,6 +3667,8 @@ export class ToolsService extends Disposable implements IToolsService {
 				}
 				return lines.join('\n');
 			},
+
+			vibe_text_slop_check: (_params, result) => renderSlopReport(result.report, result.warnings),
 
 			design_document: (_params, result) => {
 				if (result.unreachableReason) {

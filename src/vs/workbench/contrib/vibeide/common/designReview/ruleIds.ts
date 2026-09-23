@@ -97,7 +97,7 @@ export const RULE = {
 	layoutPropertyAnimation: 'layout-property-animation',
 
 	// copy
-	marketingFiller: 'marketing-filler',
+	copySlop: 'copy-slop',
 	emDashOveruse: 'em-dash-overuse',
 	theatreFraming: 'theatre-framing',
 	repeatedText: 'repeated-text',
@@ -221,7 +221,7 @@ export const RULE_META: Record<RuleId, RuleMeta> = {
 	[RULE.elasticEasing]: { ruleClass: 'drift', category: 'motion' },
 	[RULE.layoutPropertyAnimation]: { ruleClass: 'drift', category: 'motion' },
 
-	[RULE.marketingFiller]: { ruleClass: 'drift', category: 'copy' },
+	[RULE.copySlop]: { ruleClass: 'drift', category: 'copy' },
 	[RULE.emDashOveruse]: { ruleClass: 'drift', category: 'copy' },
 	[RULE.theatreFraming]: { ruleClass: 'drift', category: 'copy' },
 	[RULE.repeatedText]: { ruleClass: 'drift', category: 'copy' },
@@ -255,6 +255,21 @@ export const RULE_META: Record<RuleId, RuleMeta> = {
 
 /** Every id the catalogue can report. */
 export const ALL_RULE_IDS: readonly RuleId[] = Object.keys(RULE_META) as RuleId[];
+
+/**
+ * Ids a project may still have written in its `design.md` for a rule that was renamed. `marketing-filler`
+ * was a list of 23 words; `copy-slop` reads the page with the shared text-slop catalogue. `marketing-promise`
+ * is VibeIDEA's old name for the same rule — the `.vibe` folder is shared between the products.
+ */
+const LEGACY_RULE_IDS: Readonly<Record<string, RuleId>> = {
+	'marketing-filler': RULE.copySlop,
+	'marketing-promise': RULE.copySlop,
+};
+
+/** The current id for an id read from a project's file. */
+export function canonicalRuleId(id: string): string {
+	return Object.hasOwn(LEGACY_RULE_IDS, id) ? LEGACY_RULE_IDS[id] : id;
+}
 
 /** Ids a project may declare deliberate; the floor is deliberately absent. */
 export const ACCEPTABLE_RULE_IDS: readonly RuleId[] =

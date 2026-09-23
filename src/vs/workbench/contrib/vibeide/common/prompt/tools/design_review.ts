@@ -13,7 +13,7 @@ export const DESIGN_REVIEW_TOOL: ToolDef<'design_review'> = {
 Reports three kinds of finding:
 - 'error': broken for the reader — for example text below the WCAG AA contrast floor.
 - 'warning': hurts readability or reach — text under 12px, cramped tap targets, lines over ~95 characters, tight leading.
-- 'info': tells that the interface was assembled by inertia rather than designed — gradient text, the default violet ramp, a radial halo behind the hero, coloured glow used as a shadow, marketing filler in the copy.
+- 'info': tells that the interface was assembled by inertia rather than designed — gradient text, the default violet ramp, a radial halo behind the hero, coloured glow used as a shadow, stock copy (rule 'copy-slop': the same catalogue of machine-writing tells as vibe_text_slop_check, with the project's '.vibe/slop.json').
 
 By default the findings are also drawn on the page itself — framed, labelled with the rule id, clickable. Each finding carries the element's CSS selector and the measured value, so a fix can be verified by running the tool again. Use it before claiming UI work is done, and after changing styles to show what moved.
 

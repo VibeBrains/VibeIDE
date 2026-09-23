@@ -2987,6 +2987,7 @@ const titleOfBuiltinToolName = {
 	'design_context': { done: 'Прочитал дизайн-контекст', proposed: 'Прочитать дизайн-контекст', running: loadingTitleWrapper('Читает дизайн-контекст') },
 	'design_document': { done: 'Записал дизайн-контекст', proposed: 'Записать дизайн-контекст', running: loadingTitleWrapper('Описывает дизайн-контекст') },
 	'design_doctor': { done: 'Проверил дизайн-обвязку', proposed: 'Проверить дизайн-обвязку', running: loadingTitleWrapper('Проверяет дизайн-обвязку') },
+	'vibe_text_slop_check': { done: 'Проверил текст на нейрослоп', proposed: 'Проверить текст на нейрослоп', running: loadingTitleWrapper('Проверяет текст на нейрослоп') },
 	'model_council': { done: 'Собрал совет моделей', proposed: 'Собрать совет моделей', running: loadingTitleWrapper('Опрашивает советников') },
 	'measure_metric': { done: 'Замерил метрику', proposed: 'Замерить метрику', running: loadingTitleWrapper('Меряет метрику') },
 	'review_checklist': { done: 'Отдал чек-лист на проверку', proposed: 'Отдать чек-лист на проверку', running: loadingTitleWrapper('Собирает чек-лист') },

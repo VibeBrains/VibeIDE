@@ -6,22 +6,16 @@
 /**
  * Copy rules: the interface text, judged as text.
  *
- * Only tells that survive as measurement: word lists, punctuation density, repetition. Rhythm and
- * voice ("aphoristic cadence") are real tells but not measurable — they live in the skill's
- * checklist, where a human or a model reads for them instead of a regex pretending to.
+ * Only tells that survive as measurement: word lists and templates, punctuation density, repetition.
+ * Rhythm and voice ("aphoristic cadence") are real tells but not measurable on one line of a page —
+ * they live in the `anti-slop` skill, where a human or a model reads for them instead of a regex
+ * pretending to.
  */
 
 import { DocumentSnapshot, RuleFinding, Rule } from '../designSnapshot.js';
 import { RULE } from '../ruleIds.js';
-
-/** Words that promise instead of saying. Matched whole-word, case-insensitive. */
-const MARKETING_FILLER = [
-	'revolutionary', 'seamless', 'unleash', 'game-changing', 'cutting-edge', 'next-level',
-	'elevate', 'supercharge', 'effortlessly', 'unlock the power', 'take it to the next level',
-	'streamline', 'empower', 'world-class', 'enterprise-grade',
-	'революционн', 'инновационн', 'непревзойдённ', 'уникальн в своём роде', 'на новый уровень',
-	'мирового уровня', 'корпоративного уровня', 'раскройте потенциал',
-];
+import { slopSeverityRank } from '../../textSlop/slopCatalog.js';
+import { analyzeTextSlop, SlopFinding } from '../../textSlop/textSlop.js';
 
 /** Pictographs; ©, ® and ™ are Extended_Pictographic too, but they are typography, not icons. */
 const EMOJI = /\p{Extended_Pictographic}/u;
@@ -37,20 +31,35 @@ const REPEAT_MIN = 2;
 /** Short strings repeat legitimately (units, "да"/"нет"); only real phrases count. */
 const REPEAT_MIN_TEXT_LENGTH = 12;
 
-const ruleMarketingFiller: Rule = doc => {
+/**
+ * Stock copy on the page: the text-slop catalogue over every text the page shows — the same lists the prose
+ * check and VibeIDEA use, so a headline and a README are held to one standard. One finding per element, for
+ * its heaviest tell: a headline with three tells is one headline to rewrite.
+ */
+const ruleCopySlop: Rule = (doc, inputs) => {
+	const catalog = inputs?.pageSlop;
+	if (!catalog) {
+		return [];
+	}
 	const findings: RuleFinding[] = [];
 	for (const el of doc.elements) {
-		if (el.text.length < 8) { continue; }
-		const lower = el.text.toLowerCase();
-		const hit = MARKETING_FILLER.find(word => lower.includes(word));
-		if (hit) {
+		if (el.text.trim().length === 0) {
+			continue;
+		}
+		let heaviest: SlopFinding | undefined;
+		for (const finding of analyzeTextSlop(el.text, catalog).findings) {
+			if (!heaviest || slopSeverityRank(finding.severity) > slopSeverityRank(heaviest.severity)) {
+				heaviest = finding;
+			}
+		}
+		if (heaviest) {
 			findings.push({
-				rule: RULE.marketingFiller,
+				rule: RULE.copySlop,
 				severity: 'info',
-				message: `Пустое обещание в тексте: «${hit}»`,
-				why: 'Такие слова описывают восторг автора, а не то, что продукт делает.',
+				message: `Шаблонный текст: ${heaviest.name}`,
+				why: 'Приметы машинного письма в тексте страницы ничего не сообщают о продукте и читаются как заглушка. Каталог тот же, что у проверки текста; правила проекта — в .vibe/slop.json.',
 				selector: el.selector,
-				evidence: el.text.slice(0, 80),
+				evidence: heaviest.fix ? `«${heaviest.match}» — ${heaviest.fix}` : `«${heaviest.match}»`,
 			});
 		}
 	}
@@ -125,7 +134,7 @@ const ruleEmojiAsIcon: Rule = doc => doc.elements
 	}));
 
 export const COPY_RULES: readonly Rule[] = [
-	ruleMarketingFiller,
+	ruleCopySlop,
 	ruleEmDashOveruse,
 	ruleTheatreFraming,
 	ruleRepeatedTextInContainer,

@@ -34,6 +34,7 @@ import { DESIGN_REVIEW_TOOL } from './design_review.js';
 import { DESIGN_CONTEXT_TOOL } from './design_context.js';
 import { DESIGN_DOCUMENT_TOOL } from './design_document.js';
 import { DESIGN_DOCTOR_TOOL } from './design_doctor.js';
+import { VIBE_TEXT_SLOP_CHECK_TOOL } from './vibe_text_slop_check.js';
 import { MODEL_COUNCIL_TOOL } from './model_council.js';
 import { AUTOMATED_CODE_REVIEW_TOOL } from './automated_code_review.js';
 import { GENERATE_TESTS_TOOL } from './generate_tests.js';
@@ -94,6 +95,8 @@ export const builtinToolDefs = {
 	design_review: DESIGN_REVIEW_TOOL,
 	design_document: DESIGN_DOCUMENT_TOOL,
 	design_doctor: DESIGN_DOCTOR_TOOL,
+	// prose for people against the catalogue of machine-writing tells — the one the copy-slop design rule reads
+	vibe_text_slop_check: VIBE_TEXT_SLOP_CHECK_TOOL,
 	model_council: MODEL_COUNCIL_TOOL,
 	// «стало ли лучше» числом: замер проекта плюс вердикт оставить/откатить
 	measure_metric: MEASURE_METRIC_TOOL,

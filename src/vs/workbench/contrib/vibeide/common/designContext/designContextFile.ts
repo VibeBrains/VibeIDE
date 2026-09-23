@@ -265,7 +265,7 @@ export function parseDesignSystem(raw: string | undefined | null): DesignSystemC
 	for (const body of sectionBodies(sections, 'detector')) {
 		for (const line of body.split('\n')) {
 			const match = DRIFT_LINE.exec(line.trim());
-			if (match?.groups && !acceptedDrift.some(drift => drift.rule === match.groups!.rule)) {
+			if (match?.groups && !acceptedDrift.some(drift => drift.rule === match.groups!.rule.toLowerCase())) {
 				acceptedDrift.push({
 					rule: match.groups.rule.toLowerCase(),
 					reason: match.groups.reason?.trim() ?? '',
@@ -338,9 +338,12 @@ export function parseUiKit(raw: string | undefined | null): UiKitContext | undef
 	return { entries, componentNames: [...names], raw };
 }
 
-/** The drift entry covering `rule`, if the project declared it deliberate. */
-export function acceptedDriftFor(context: DesignContext | undefined, rule: string): AcceptedDrift | undefined {
-	return context?.design?.acceptedDrift.find(drift => drift.rule === rule);
+/**
+ * The drift entry covering `rule`, if the project declared it deliberate. `canonical` maps an id the file may
+ * still carry for a renamed rule to its current one; it is required so that no caller forgets the renames.
+ */
+export function acceptedDriftFor(context: DesignContext | undefined, rule: string, canonical: (id: string) => string): AcceptedDrift | undefined {
+	return context?.design?.acceptedDrift.find(drift => canonical(drift.rule) === rule);
 }
 
 /**
@@ -352,10 +355,11 @@ export function acceptedDriftFor(context: DesignContext | undefined, rule: strin
 export function unknownAcceptedDrift(
 	context: DesignContext | undefined,
 	knownRuleIds: readonly string[],
+	canonical: (id: string) => string,
 ): string[] {
 	return (context?.design?.acceptedDrift ?? [])
 		.map(drift => drift.rule)
-		.filter(rule => !knownRuleIds.includes(rule));
+		.filter(rule => !knownRuleIds.includes(canonical(rule)));
 }
 
 /** True when there is enough context for a generator to stop guessing. */

@@ -17,7 +17,7 @@ import {
 } from '../../common/designContext/designContextFile.js';
 import { digestSnapshot } from '../../common/designContext/summariseSnapshot.js';
 import { DocumentSnapshot, ElementSnapshot } from '../../common/designReview/designSnapshot.js';
-import { ALL_RULE_IDS } from '../../common/designReview/ruleIds.js';
+import { ALL_RULE_IDS, canonicalRuleId } from '../../common/designReview/ruleIds.js';
 
 const PRODUCT_RU = `# Продукт: Eggent
 
@@ -191,11 +191,23 @@ suite('designContextFile', () => {
 		const context = { design: parseDesignSystem(DESIGN_MD) };
 		assert.deepStrictEqual(
 			[
-				acceptedDriftFor(context, 'single-font')?.reason,
-				acceptedDriftFor(context, 'low-contrast'),
-				unknownAcceptedDrift(context, ALL_RULE_IDS),
+				acceptedDriftFor(context, 'single-font', canonicalRuleId)?.reason,
+				acceptedDriftFor(context, 'low-contrast', canonicalRuleId),
+				unknownAcceptedDrift(context, ALL_RULE_IDS, canonicalRuleId),
 			],
 			['весь продукт намеренно в моногарнитуре', undefined, ['gradiant-text']],
+		);
+	});
+
+	test('a renamed rule keeps its old id working, and one id written twice counts once whatever its case', () => {
+		const context = { design: parseDesignSystem('## Детектор\n\n- marketing-filler — наш голос\n- Marketing-Filler — повтор\n') };
+		assert.deepStrictEqual(
+			[
+				context.design?.acceptedDrift.map(drift => drift.rule),
+				acceptedDriftFor(context, 'copy-slop', canonicalRuleId)?.reason,
+				unknownAcceptedDrift(context, ALL_RULE_IDS, canonicalRuleId),
+			],
+			[['marketing-filler'], 'наш голос', []],
 		);
 	});
 

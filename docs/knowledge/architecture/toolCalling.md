@@ -306,7 +306,7 @@ common/prompt/
    ├─ index.ts                    ← агрегатор: builtinToolDefs satisfies { [T]: ToolDef<T> }
    ├─ read_file.ts
    ├─ ls_dir.ts
-   ├─ … (30 файлов)
+   ├─ … (по файлу на инструмент)
    └─ browse_url.ts
 ```
 
@@ -326,9 +326,13 @@ prompts.ts       →  tools/index.ts, tools/_constants.ts
 1. Создать `tools/new_tool_name.ts` с одним экспортом `export const NEW_TOOL_NAME_TOOL: ToolDef<'new_tool_name'> = {...}`.
 2. Добавить запись в `tools/index.ts` (`builtinToolDefs.new_tool_name = NEW_TOOL_NAME_TOOL`).
 3. Дополнить `BuiltinToolCallParams` и `BuiltinToolResultType` в `toolsServiceTypes.ts`.
-4. Реализовать execute-логику в `toolsService.callTool[name]` (это пока остаётся в `toolsService.ts`, переезд в per-tool — отдельная задача).
+4. Реализовать в `toolsService.ts` все три карты: `validateParams`, `callTool`, `stringOfResult` (переезд в per-tool — отдельная задача).
+5. Заголовок в чате — `titleOfBuiltinToolName` в `react/src/sidebar-tsx/SidebarChat.tsx`.
+6. Роли: инструмент, который только читает и нужен судящим ролям, — в `READONLY_TOOLS` (`common/vibeSubagentService.ts`) и в зеркальный `ROLE_READONLY_TOOLS` (`common/vibeSubagentRegistryService.ts`).
+7. Параметры: если поле файла называется не `uri`, — алиасы в `PARAM_ALIASES_BY_TOOL` (`common/prompt/toolAliases.ts`); обязательное поле `query` — в `QUERY_OWNING_TOOLS`, иначе роутер формы уведёт вызов в `search_for_files`.
+8. Обязательность в схеме выводится из описания параметра: не начинается с «Optional» — попадает в `required` (`convertToolsToAiSdkToolSet`, `electron-main/llmMessage/aiSdkAdapter.ts`). Пара «или то, или другое» — оба описания с «Optional», правило «хотя бы один» проверяет `validateParams`. Иначе модель, послушная схеме, шлёт оба поля (так было у `vibe_text_slop_check` до живого смоука 24.09.2026).
 
-`satisfies { [T in BuiltinToolName]: ToolDef<T> }` в `tools/index.ts` гарантирует, что забытый тул вызовет compile error.
+Пункты 1–5 стережёт компилятор: `satisfies { [T in BuiltinToolName]: ToolDef<T> }` в `tools/index.ts`, типы трёх карт `toolsService` и `satisfies Record<BuiltinToolName, …>` у заголовков (последнее — только `npm run react-typecheck`). Пункты 6–8 не стережёт ничто: забытый инструмент молча недоступен ролям, а неверно названное поле возвращается модели ошибкой параметров.
 
 ---
 

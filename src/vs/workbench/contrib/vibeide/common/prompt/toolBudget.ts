@@ -6,7 +6,7 @@
 /**
  * How many tools a model is handed, and which ones go first when there are too many.
  *
- * We ship 44 built-in tools plus whatever MCP adds. A frontier model reads that list and picks;
+ * We ship dozens of built-in tools plus whatever MCP adds. A frontier model reads that list and picks;
  * a 7B model from Ollama drowns in it and starts inventing names. The quirks catalog cannot help —
  * it describes the PROTOCOL (reasoning format, effort, mirroring), not how much to hand over.
  *
