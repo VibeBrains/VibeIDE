@@ -45,7 +45,7 @@ import { IVibeideSettingsService } from '../common/vibeideSettingsService.js';
 import { MCPUserStateOfName } from '../common/vibeideSettingsTypes.js';
 import { IVibeOutboundRingBuffer } from '../common/vibeOutboundRingBuffer.js';
 import { IConfigurationService } from '../../../../platform/configuration/common/configuration.js';
-import { INotificationService, Severity } from '../../../../platform/notification/common/notification.js';
+import { INotificationHandle, INotificationService, Severity } from '../../../../platform/notification/common/notification.js';
 import { IStorageService } from '../../../../platform/storage/common/storage.js';
 import { InMemoryFileSystemProvider } from '../../../../platform/files/common/inMemoryFilesystemProvider.js';
 import { McpToolDefinitions, McpToolDrift, McpToolPinsStore, describeDefinitions, diffToolDefinitions, serverPinKey, toolDefinitionsOf, withheldToolsOf } from '../common/mcpToolPins.js';
@@ -90,6 +90,7 @@ class MCPService extends Disposable implements IMCPService {
 	state: MCPServiceState = {
 		mcpServerOfName: {},
 		error: undefined,
+		toolDriftOfName: {},
 	};
 
 	// Emitters for server events
@@ -254,6 +255,7 @@ class MCPService extends Disposable implements IMCPService {
 		}
 		this._warnAboutShadowedBuiltins(serverName, newServer);
 		this._checkToolPins(serverName, newServer);
+		this._publishToolDrift();
 		this._onDidChangeState.fire();
 	};
 
@@ -268,6 +270,8 @@ class MCPService extends Disposable implements IMCPService {
 	private readonly _announcedDrift = new Map<string, string>();
 	/** Read-only documents for the before/after comparison; registered on first use. */
 	private _driftDocuments: InMemoryFileSystemProvider | undefined;
+	/** The open announcement per server, closed once its change is settled some other way. */
+	private readonly _driftNotices = new Map<string, INotificationHandle>();
 
 	/**
 	 * Compare the server's tools with what was approved. The first listing is pinned silently; a later
@@ -310,25 +314,38 @@ class MCPService extends Disposable implements IMCPService {
 		if (this._auditLogService.isEnabled()) {
 			void this._auditLogService.append({ ts: Date.now(), actor: 'system', action: 'mcp_tool_drift', ok: false, meta: { serverName, changed: drift.changed, added: drift.added, removed: drift.removed } }).catch(() => { });
 		}
-		this._notificationService.prompt(
+		this._driftNotices.get(serverName)?.close();
+		this._driftNotices.set(serverName, this._notificationService.prompt(
 			Severity.Warning,
-			localize('vibeide.mcp.drift.notify', "MCP-сервер «{0}» изменил инструменты после одобрения: изменено {1}, добавлено {2}. Пока вы их не посмотрите, агент их не видит.", serverName, drift.changed.length, drift.added.length),
+			localize('vibeide.mcp.drift.notify', "MCP-сервер «{0}» изменил инструменты после одобрения: изменено {1}, добавлено {2}. Пока вы их не посмотрите, агент их не видит. Решить можно и позже: настройки VibeIDE, раздел MCP.", serverName, drift.changed.length, drift.added.length),
 			[
-				{ label: localize('vibeide.mcp.drift.show', "Показать изменения"), run: () => void this._showToolDrift(serverName) },
-				{ label: localize('vibeide.mcp.drift.accept', "Принять"), run: () => this._acceptToolDrift(serverName) },
+				// Looking comes before deciding: the announcement stays open, so «Принять» is still there after the diff.
+				{ label: localize('vibeide.mcp.drift.show', "Показать изменения"), keepOpen: true, run: () => void this.showToolDrift(serverName) },
+				{ label: localize('vibeide.mcp.drift.accept', "Принять"), run: () => this.acceptToolDrift(serverName) },
 			],
 			{ sticky: true },
-		);
+		));
 	}
 
 	private _forgetToolDrift(serverName: string): void {
 		this._withheldTools.delete(serverName);
 		this._pendingDrift.delete(serverName);
 		this._announcedDrift.delete(serverName);
+		this._driftNotices.get(serverName)?.close();
+		this._driftNotices.delete(serverName);
+	}
+
+	/** The waiting changes as the UI sees them, in a new state object — the same object would not re-render. */
+	private _publishToolDrift(): void {
+		const toolDriftOfName: Record<string, McpToolDrift> = {};
+		for (const [serverName, pending] of this._pendingDrift) {
+			toolDriftOfName[serverName] = pending.drift;
+		}
+		this.state = { ...this.state, toolDriftOfName };
 	}
 
 	/** Before and after, side by side, for the changed and added tools only. */
-	private async _showToolDrift(serverName: string): Promise<void> {
+	async showToolDrift(serverName: string): Promise<void> {
 		const pending = this._pendingDrift.get(serverName);
 		if (!pending) {
 			return;
@@ -352,13 +369,14 @@ class MCPService extends Disposable implements IMCPService {
 		});
 	}
 
-	private _acceptToolDrift(serverName: string): void {
+	acceptToolDrift(serverName: string): void {
 		const pending = this._pendingDrift.get(serverName);
 		if (!pending) {
 			return;
 		}
 		this._toolPins.set(pending.key, pending.current);
 		this._forgetToolDrift(serverName);
+		this._publishToolDrift();
 		if (this._auditLogService.isEnabled()) {
 			void this._auditLogService.append({ ts: Date.now(), actor: 'human', action: 'mcp_tool_drift_approved', ok: true, meta: { serverName, changed: pending.drift.changed, added: pending.drift.added, removed: pending.drift.removed } }).catch(() => { });
 		}

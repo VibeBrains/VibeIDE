@@ -12,6 +12,7 @@ import { MCP } from '../../mcp/common/modelContextProtocol.js';
 import { MemoryProjectAnswer } from './vibeMemoryProject.js';
 import { InternalToolInfo } from './prompt/prompts.js';
 import { ConfigGuardFinding } from './vibeConfigGuard.js';
+import { McpToolDrift } from './mcpToolPins.js';
 
 // Реализация — `electron-browser/mcpService.ts`: класс говорит с main-процессом по каналу
 // `vibe-channel-mcp` через `IMainProcessService`, запрещённый и в `common/**`, и в `browser/**`.
@@ -21,6 +22,11 @@ import { ConfigGuardFinding } from './vibeConfigGuard.js';
 export type MCPServiceState = {
 	mcpServerOfName: MCPServerOfName;
 	error: string | undefined; // global parsing error
+	/**
+	 * Per server, the tools that changed or appeared after approval and are hidden from the model until a
+	 * person looks at them. Part of the state, not a query: the UI re-renders when the state object changes.
+	 */
+	toolDriftOfName: { readonly [serverName: string]: McpToolDrift };
 };
 
 export interface IMCPService {
@@ -58,6 +64,11 @@ export interface IMCPService {
 
 	/** Config Guard findings from the last load of `mcp.json` (empty if disabled/clean). */
 	getLastGuardFindings(): readonly ConfigGuardFinding[];
+
+	/** Approved and current definitions of the waiting tools, side by side. */
+	showToolDrift(serverName: string): Promise<void>;
+	/** The current definitions become the approved ones, and the tools reach the model again. */
+	acceptToolDrift(serverName: string): void;
 }
 
 export const IMCPService = createDecorator<IMCPService>('mcpConfigService');

@@ -71,6 +71,7 @@ import Severity from '../../../../../../../base/common/severity.js';
 import { API_PROTOCOL_VALUES, ApiProtocolOverride, getModelCapabilities, isFreeModel, modelOverrideKeys, ModelOverrides } from '../../../../common/modelCapabilities.js';
 import { TransferEditorType, TransferFilesInfo } from '../../../extensionTransferTypes.js';
 import { MCPServer } from '../../../../common/mcpServiceTypes.js';
+import type { McpToolDrift } from '../../../../common/mcpToolPins.js';
 import { OPT_OUT_KEY } from '../../../../common/storageKeys.js';
 import { StorageScope, StorageTarget } from '../../../../../../../platform/storage/common/storage.js';
 import { generateUuid } from '../../../../../../../base/common/uuid.js';
@@ -2071,14 +2072,16 @@ export const OneClickSwitchButton = ({ fromEditor = 'VS Code', className = '' }:
 // full settings
 
 // MCP Server component
-const MCPServerComponent = ({ name, server }: { name: string; server: MCPServer }) => {
+const MCPServerComponent = ({ name, server, drift }: { name: string; server: MCPServer; drift: McpToolDrift | undefined }) => {
 	const accessor = useAccessor();
 	const mcpService = accessor.get('IMCPService');
 
 	const vibeSettings = useSettingsState();
 	const isOn = vibeSettings.mcpUserStateOfName[name]?.isOn;
 
-	const removeUniquePrefix = (name: string) => name.split('_').slice(1).join('_');
+	// The card is where the server lives, so a change waiting for a look is decided here too: the
+	// notification that announced it may already be gone.
+	const withheld = new Set([...(drift?.changed ?? []), ...(drift?.added ?? [])]);
 
 	return (
 		<div className="border border-vibe-border-2 bg-vibe-bg-1 py-3 px-4 rounded-sm my-2">
@@ -2107,6 +2110,20 @@ const MCPServerComponent = ({ name, server }: { name: string; server: MCPServer 
 				/>
 			</div>
 
+			{withheld.size > 0 && (
+				<div className="mt-3 flex flex-col gap-2">
+					<WarningBox text={miscS.mcpDriftPending([...withheld].join(', '))} />
+					<div className="flex flex-wrap gap-2">
+						<VibeButtonBgDarken className='px-3 py-1' onClick={() => { void mcpService.showToolDrift(name); }}>
+							{miscS.mcpDriftShow}
+						</VibeButtonBgDarken>
+						<VibeButtonBgDarken className='px-3 py-1' onClick={() => mcpService.acceptToolDrift(name)}>
+							{miscS.mcpDriftAccept}
+						</VibeButtonBgDarken>
+					</div>
+				</div>
+			)}
+
 			{/* Tools section */}
 			{isOn && (
 				<div className="mt-3">
@@ -2115,13 +2132,13 @@ const MCPServerComponent = ({ name, server }: { name: string; server: MCPServer 
 							(server.tools ?? []).map((tool: { name: string; description?: string }) => (
 								<span
 									key={tool.name}
-									className="px-2 py-0.5 bg-vibe-bg-2 text-vibe-fg-3 rounded-sm text-xs"
+									className={`px-2 py-0.5 bg-vibe-bg-2 text-vibe-fg-3 rounded-sm text-xs ${withheld.has(tool.name) ? 'line-through opacity-60' : ''}`}
 
 									data-tooltip-id='vibe-tooltip'
-									data-tooltip-content={tool.description || ''}
+									data-tooltip-content={withheld.has(tool.name) ? miscS.mcpToolWithheld : (tool.description || '')}
 									data-tooltip-class-name='vibe-max-w-[300px]'
 								>
-									{removeUniquePrefix(tool.name)}
+									{tool.name}
 								</span>
 							))
 						) : (
@@ -2135,7 +2152,8 @@ const MCPServerComponent = ({ name, server }: { name: string; server: MCPServer 
 			{isOn && server.command && (
 				<div className="mt-3">
 					<div className="text-xs text-vibe-fg-3 mb-1">{miscS.mcpCommand}</div>
-					<div className="px-2 py-1 bg-vibe-bg-2 text-xs font-mono overflow-x-auto whitespace-nowrap text-vibe-fg-2 rounded-sm">
+					{/* Wrapped, not scrolled: an unbreakable line widened the whole settings page and pushed the toggle off-screen. */}
+					<div className="px-2 py-1 bg-vibe-bg-2 text-xs font-mono break-all text-vibe-fg-2 rounded-sm">
 						{server.command}
 					</div>
 				</div>
@@ -2170,7 +2188,7 @@ const MCPServersList = () => {
 		}
 		else {
 			content = entries.map(([name, server]) => (
-				<MCPServerComponent key={name} name={name} server={server} />
+				<MCPServerComponent key={name} name={name} server={server} drift={mcpServiceState.toolDriftOfName[name]} />
 			));
 		}
 	}
