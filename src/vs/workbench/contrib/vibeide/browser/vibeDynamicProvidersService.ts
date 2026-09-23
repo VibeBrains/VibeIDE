@@ -39,6 +39,7 @@ import { IPathService } from '../../../services/path/common/pathService.js';
 import { scanProviderConfig, scanEnvFileSecrets, ConfigGuardFinding } from '../common/vibeConfigGuard.js';
 import { builtinProviderIdOf, isBuiltinProviderId, VibeideStatefulModelInfo, apiKeyEnvVarOfProvider, ProviderName } from '../common/vibeideSettingsTypes.js';
 import { IVibeideSettingsService, VibeProviderActiveOverrides, ModelOption, DynProviderTransportConfig, DynamicProviderSeed } from '../common/vibeideSettingsService.js';
+import type { BuiltinWireHints } from '../common/builtinWireHints.js';
 import { setExternalProviders, ExternalProviderDescriptor, VibeideStaticModelInfo, ModelLongContext } from '../common/modelCapabilities.js';
 import { IRemoteCatalogService, DynamicKeyValidation } from '../common/remoteCatalogService.js';
 import { VibeProviderEntry, VibeProviderModelCost, VibeProviderModelEntry, isProviderCatalogueFile, mergeProviderEntry, mergeProviderLayers, parseProvidersFile, promptCacheTtlOf, VibeProviderLongContext, VibeProviderTimeOfDay } from '../common/vibeProvidersFile.js';
@@ -168,6 +169,8 @@ export function modelEntryToCaps(m: VibeProviderModelEntry): Partial<VibeideStat
 			rc.reasoningSlider = { type: 'effort_slider', values: [...r.effort], default: def };
 		}
 		if (r.thinkTags) { rc.openSourceThinkTags = [r.thinkTags[0], r.thinkTags[1]]; }
+		// The «off» request of its own (MiMo: `thinking: {type: disabled}`), sent only in the off position.
+		if (r.off && typeof r.off === 'object' && !Array.isArray(r.off)) { rc.reasoningOffPayload = { ...r.off }; }
 		c.reasoningCapabilities = rc;
 	}
 	return c as Partial<VibeideStaticModelInfo>;
@@ -893,6 +896,7 @@ class VibeDynamicProvidersService extends Disposable implements IVibeDynamicProv
 		// models resolve caps through the SAME name-recognition as built-ins (no per-model caps here).
 		const descriptors: ExternalProviderDescriptor[] = [];
 		const transportConfigs: Record<string, DynProviderTransportConfig> = {};
+		const builtinWireHints: Record<string, BuiltinWireHints> = {};
 		const dynamicProviderSettings: Record<string, DynamicProviderSeed> = {};
 
 		// First pass: built-in patches (disable toggles) are order-independent; collect the active
@@ -904,6 +908,15 @@ class VibeDynamicProvidersService extends Disposable implements IVibeDynamicProv
 				if (p.entry.active === false) { disabledProviders.add(p.id); continue; }
 				const off = (p.entry.models?.static ?? []).filter(m => m.active === false).map(m => m.id);
 				if (off.length > 0) { disabledModels.set(p.id, new Set(off)); }
+				// The file's wire declarations reach the built-in too — a declaration is a contract, not a hint
+				// (the set's openai.jsonc puts GPT-6 on Responses; before, only a provider DEFINED in a file read it).
+				const modelProtocols = modelProtocolsOf(p.entry.models?.static);
+				if (modelProtocols || p.entry.promptCacheKey === true) {
+					builtinWireHints[p.id] = {
+						...(modelProtocols ? { modelProtocols } : {}),
+						...(p.entry.promptCacheKey === true ? { promptCacheKey: true } : {}),
+					};
+				}
 				continue;
 			}
 			// definition / extends-builtin: a NEW selectable provider.
@@ -1020,10 +1033,11 @@ class VibeDynamicProvidersService extends Disposable implements IVibeDynamicProv
 		// Register all active dynamic providers in the unified caps registry (replace-all each apply).
 		setExternalProviders(descriptors);
 		const hasTransport = Object.keys(transportConfigs).length > 0;
+		const hasWireHints = Object.keys(builtinWireHints).length > 0;
 		const hasSeed = Object.keys(dynamicProviderSettings).length > 0;
 		const overrides: VibeProviderActiveOverrides | undefined =
-			(disabledProviders.size > 0 || disabledModels.size > 0 || dynamicModelOptions.length > 0 || hasTransport || hasSeed)
-				? { disabledProviders, disabledModels, dynamicModelOptions, ...(hasTransport ? { transportConfigs } : {}), ...(hasSeed ? { dynamicProviderSettings } : {}) }
+			(disabledProviders.size > 0 || disabledModels.size > 0 || dynamicModelOptions.length > 0 || hasTransport || hasWireHints || hasSeed)
+				? { disabledProviders, disabledModels, dynamicModelOptions, ...(hasTransport ? { transportConfigs } : {}), ...(hasWireHints ? { builtinWireHints } : {}), ...(hasSeed ? { dynamicProviderSettings } : {}) }
 				: undefined;
 		this._settingsService.applyProviderActiveOverrides(overrides);
 	}

@@ -16,6 +16,7 @@ import { IMetricsService } from './metricsService.js';
 import { vibeLog } from './vibeLog.js';
 import { defaultProviderSettings, getModelCapabilities, isFloatingModel, ModelOverrides, VibeideStaticModelInfo } from './modelCapabilities.js';
 import { VOID_SETTINGS_STORAGE_KEY } from './storageKeys.js';
+import type { BuiltinWireHints } from './builtinWireHints.js';
 import { autoFallbackProviderIds, defaultSettingsOfProvider, FeatureName, isBuiltinProviderId, ProviderId, ProviderName, ModelSelectionOfFeature, SettingsOfProvider, SettingName, providerNames, ModelSelection, modelSelectionsEqual, featureNames, VibeideStatefulModelInfo, GlobalSettings, GlobalSettingName, defaultGlobalSettings, ModelSelectionOptions, OptionsOfModelSelection, ChatMode, OverridesOfModel, defaultOverridesOfModel, MCPUserStateOfName as MCPUserStateOfName, MCPUserState, MinimalismMode } from './vibeideSettingsTypes.js';
 
 
@@ -185,6 +186,8 @@ export interface IVibeideSettingsService {
 	/** Transport configs of active dynamic providers (`.vibe/providers.json`), keyed by file id.
 	 *  Merged transiently into `settingsOfProvider` on the send-site — never persisted. */
 	getDynamicTransportConfigs(): Record<string, DynProviderTransportConfig>;
+	/** Wire declarations of provider files patching built-ins, merged into those built-ins at send time. */
+	getBuiltinWireHints(): Record<string, BuiltinWireHints>;
 
 	addMCPUserStateOfNames(userStateOfName: MCPUserStateOfName): Promise<void>;
 	removeMCPUserStateOfNames(serverNames: string[]): Promise<void>;
@@ -367,6 +370,8 @@ export interface VibeProviderActiveOverrides {
 	readonly dynamicModelOptions?: readonly ModelOption[];
 	/** Transport config per dynamic provider id — merged into `settingsOfProvider` at send time. */
 	readonly transportConfigs?: Record<string, DynProviderTransportConfig>;
+	/** Wire declarations of files that patch a BUILT-IN provider — see `BuiltinWireHints`. */
+	readonly builtinWireHints?: Record<string, BuiltinWireHints>;
 	/** First-class settings entries seeded for active dynamic providers so the Settings UI renders them
 	 *  like built-ins (provider card + «Модели» tab). Merged into `settingsOfProvider` in
 	 *  `_validatedModelState`. Derived (reapplied each load), never persisted in the settings blob. */
@@ -626,6 +631,10 @@ class VoidSettingsService extends Disposable implements IVibeideSettingsService 
 
 	getDynamicTransportConfigs = (): Record<string, DynProviderTransportConfig> => {
 		return _providerActiveOverrides?.transportConfigs ?? {};
+	};
+
+	getBuiltinWireHints = (): Record<string, BuiltinWireHints> => {
+		return _providerActiveOverrides?.builtinWireHints ?? {};
 	};
 	async resetState() {
 		await this.dangerousSetState(defaultState());

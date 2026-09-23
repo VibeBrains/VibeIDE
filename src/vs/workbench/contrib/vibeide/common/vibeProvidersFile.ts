@@ -102,6 +102,12 @@ export interface VibeProviderModelReasoning {
 	readonly effort?: readonly string[];
 	/** Inline think-tag pair stripped from content, e.g. `["<think>","</think>"]`. */
 	readonly thinkTags?: readonly [string, string];
+	/**
+	 * Body fields sent when reasoning is switched OFF, e.g. `{"thinking": {"type": "disabled"}}` for MiMo.
+	 * Needed where «off» is a request of its own: without it no effort is sent and the vendor's default —
+	 * reasoning on — applies.
+	 */
+	readonly off?: Readonly<Record<string, unknown>>;
 }
 
 export interface VibeProviderModelEntry {

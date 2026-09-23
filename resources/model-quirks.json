@@ -1,6 +1,6 @@
 {
 	"version": 1,
-	"date": "2026-09-19",
+	"date": "2026-09-23",
 	"description": "VibeIDE model behaviour quirks. Source of truth — see README.md section 'Model behaviour quirks'. PRs welcome. Каждое правило — утверждение о чужом сервере: указывайте `source` (ссылка/коммит/лог) и `observedAt`; правило без источника считается черновиком и называется проверкой `npm run quirks-provenance-check`. Schema: ./src/vs/workbench/contrib/vibeide/common/modelQuirks/modelQuirksTypes.ts.",
 	"docs": "https://github.com/VibeBrains/VibeIDE#model-behaviour-quirks",
 	"rules": [
@@ -8,9 +8,10 @@
 			"match": "mimo-v2.6",
 			"temperature": 1.0,
 			"topP": 0.95,
-			"note": "Xiaomi MiMo v2.6 (Pro / Flash / Pro Ultraspeed) через Anthropic-совместимый endpoint. Вендор пишет прямо: в режиме размышления модели \"do not support customizing the temperature and top_p parameters. Even if these parameters are passed in, the actual effective values will be forcibly set by the model to its recommended default values of 1.0 and 0.95\". Значения здесь — декларация вендорского принуждения, а не наш подбор: без правила ползунок температуры обещает пользователю влияние, которого нет, а вендор молча игнорирует переданное (не ошибка, а тишина — хуже отказа). ЧЕГО ЭТИМ ПРАВИЛОМ НЕ ЛЕЧИТСЯ: tool_choice принимается только со значением auto, всё остальное бэкенд выбрасывает из запроса (\"When a value other than auto is passed to type, the backend will remove this field by default\") — принуждение к конкретному инструменту молча не срабатывает; это поведение серверное, причудой не правится. В режиме размышления модель возвращает блок thinking рядом с tool_use и требует возвращать прошлые блоки обратно; есть нестандартная причина остановки repetition_truncation (обрыв по зацикливанию, а не по длине). Матчится по \"mimo-v2.6\", а не по \"mimo\": линейка v2.5 живёт по своим правилам и не проверена. Точки в id обязательны — вендор отвечает 400 \"Not supported model\" на написание через дефис (прецедент чужой нормализации: NousResearch/hermes-agent#19239); у нас нормализации id нет, правило про это ничего не делает. Живьём не проверено — ключа Xiaomi нет.",
-			"source": "mimo.mi.com/docs/en-US/api/chat/anthropic-api",
-			"observedAt": "2026-09-22"
+			"mirrorReasoningContent": true,
+			"note": "Xiaomi MiMo v2.6 (Pro / Flash / Pro Ultraspeed). ВОЗВРАТ РАССУЖДЕНИЯ (23.09.2026): при включённом мышлении каждый ответ ассистента с вызовами инструментов в истории обязан нести своё рассуждение, иначе 400 на втором раунде инструментов — вендор называет это обязательным на обоих протоколах (mimo.mi.com/docs, deep-thinking, раздел о многоходовой передаче: \"must completely pass back the reasoning_content field, otherwise the API will return a 400 error\"). Мышление включено, если поле thinking не прислать, у Flash тоже. Сид набора с 23.09 ходит по OpenAI-маршруту (https://api.xiaomimimo.com/v1), где рассуждение возвращается полем reasoning_content — это и делает mirrorReasoningContent. Выключатель мышления — {\"thinking\": {\"type\": \"disabled\"}}, объявлен в сиде полем модели reasoning.off. Прежний текст правила, писанный для Anthropic-маршрута: Вендор пишет прямо: в режиме размышления модели \"do not support customizing the temperature and top_p parameters. Even if these parameters are passed in, the actual effective values will be forcibly set by the model to its recommended default values of 1.0 and 0.95\". Значения здесь — декларация вендорского принуждения, а не наш подбор: без правила ползунок температуры обещает пользователю влияние, которого нет, а вендор молча игнорирует переданное (не ошибка, а тишина — хуже отказа). ЧЕГО ЭТИМ ПРАВИЛОМ НЕ ЛЕЧИТСЯ: tool_choice принимается только со значением auto, всё остальное бэкенд выбрасывает из запроса (\"When a value other than auto is passed to type, the backend will remove this field by default\") — принуждение к конкретному инструменту молча не срабатывает; это поведение серверное, причудой не правится. В режиме размышления модель возвращает блок thinking рядом с tool_use и требует возвращать прошлые блоки обратно; есть нестандартная причина остановки repetition_truncation (обрыв по зацикливанию, а не по длине). Матчится по \"mimo-v2.6\", а не по \"mimo\": линейка v2.5 живёт по своим правилам и не проверена. Точки в id обязательны — вендор отвечает 400 \"Not supported model\" на написание через дефис (прецедент чужой нормализации: NousResearch/hermes-agent#19239); у нас нормализации id нет, правило про это ничего не делает. Живьём не проверено — ключа Xiaomi нет.",
+			"source": "mimo.mi.com/docs/en-US/quick-start/usage-guide/text-generation/deep-thinking + mimo.mi.com/docs/en-US/api/chat/anthropic-api",
+			"observedAt": "2026-09-23"
 		},
 		{
 			"match": "glimmer",
@@ -30,6 +31,17 @@
 			"source": "kimi.com/blog/kimi-k3",
 			"observedAt": "2026-09-19",
 			"reasoningAlwaysBilled": true
+		},
+		{
+			"match": "k3",
+			"provider": "kimi-code",
+			"temperature": 1.0,
+			"topP": 0.95,
+			"mirrorReasoningContent": true,
+			"reasoningAlwaysBilled": true,
+			"source": "kimi.com/code/docs/en/kimi-code/models.html",
+			"observedAt": "2026-09-23",
+			"note": "Kimi K3 на подписке Kimi Code. Там модель зовётся k3 и k3-256k, а не kimi-k3, и правило kimi-k3 к ней по подстроке не применяется — без этого правила рассуждение не возвращалось, а вендор требует его обратно (см. kimi-k3). Короткий шаблон k3 годится только с привязкой к провайдеру: без неё он поймал бы любой id с этими двумя буквами. provider — подстрока id провайдера, поэтому подходят kimi-code и производные вроде kimi-code-cn (сид набора с 23.09 описывает оба региона одним блоком для kimi.ai, запись для второго пользователь заводит сам). У VibeIDEA то же закрыто выражением ^(kimi-k3|kimi-k2\\.[67]|kimi-for-coding|k3(-|$)) — ловит k3 и k3-256k, но не k30; наш матчер подстрочный, и k30 на этом провайдере правило поймало бы — такой модели у вендора нет. Живьём не проверено — подписки Kimi Code нет."
 		},
 		{
 			"match": "kimi-k2.6",
@@ -226,6 +238,14 @@
 			"observedAt": "2026-09-02",
 			"note": "Claude Fable 5/5.1 и Mythos: принудительный вызов инструмента снят на уровне API — tool_choice any/tool отвечает 400, в том числе на count_tokens и Batches. Мы понижаем forceToolUse до auto (единственная точка — aiSdkAdapter). tool_choice:none не затронут, disable_parallel_tool_use с auto продолжает работать. НЕ ПРОВЕРЕНО ЖИВЬЁМ: ключа Anthropic нет, правило поставлено превентивно по документации вендора. Плюс: reasoning-блоки привязаны к модели — «Fable 5.1 reads earlier models' thinking, but no earlier model reads its own», поэтому при переключении вниз рассуждения теряются молча (блоки отбрасываются и не биллятся).",
 			"reasoningBoundToModel": true
+		},
+		{
+			"match": "opus-5-5",
+			"forcedToolChoiceUnsupported": true,
+			"reasoningBoundToModel": true,
+			"source": "platform.claude.com/docs/en/models/opus-5-5/migration-guide (breaking changes 2 и 3)",
+			"observedAt": "2026-09-23",
+			"note": "Claude Opus 5.5: те же два механизма, что у Fable 5.1. 1) Принудительный вызов инструмента снят — tool_choice any/tool отвечает 400 на Messages, Batches и подсчёте токенов; auto и none не затронуты. 2) Рассуждение привязано и к модели, и к разговору: блоки Opus 5.5 читают только Fable 5.1 и Mythos 5.1, а у аккаунтов, созданных с 31.08.2026, блок, повторённый после правки system, tools или прошлых сообщений, отвечает 400. Наш системный промпт меняется между ходами (активный файл, открытые файлы, дерево, дата), поэтому для моделей с этой пометкой запрос несёт thinking.block_binding.prefix_mismatch_behavior: drop_block (бета thinking-binding-controls-2026-08-01): недействительный блок отбрасывается вместо отказа. Правильное лечение — стабильный префикс, пункт roadmap DIGEST-0923. Матчится и по датированным id (claude-opus-5-5-…); opus-5 сюда не попадает — у него дефис не на том месте. Живьём не проверено — ключа Anthropic нет."
 		}
 	]
 }

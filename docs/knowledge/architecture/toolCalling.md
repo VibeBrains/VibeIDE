@@ -265,7 +265,7 @@ MCP-тулы видятся модели под именем `<sanitize(server)>
 1. **Никогда не вставлять нумерацию в перечисление тулов** (`toolCallDefinitionsXMLString`). Модели интерпретируют `1. read_file` как «у тула есть числовой индекс» и галлюцинируют `MCP tool 1`.
 1.1. **Это правило шире — не только для tool definitions.** ЛЮБОЙ нумерованный список в system prompt, который рядом с цифрой упоминает имена тулов, провоцирует тот же квирк у training-broken моделей (minimax-m2.x, qwen-coder). Конкретный кейс из 2026-05-16: блок `importantDetails` в `chat_systemMessage` имел нумерацию `${i + 1}. ${d}` где `d` содержал «Use read_file, edit_file, search_for_files, run_command» — минимакс трактовал это как numbered tool list и кидал `tool name "1"`, `"4"`, `"5"`. Исправлено на bullets (`- ${d}`). Это объясняло почему у Kilo с тем же минимакс через тот же aggregator всё работало: у них bullets, у нас были numbers.
 2. **Не возвращать дублирование** `includeXMLToolDefinitions = !specialToolFormat || chatMode === 'agent' || …`. Если для какой-то модели native-канал действительно сломан — добавить её в branch внутри `aiSdkAdapter.ts` (отдельный фолбэк), а не открывать оба канала.
-3. **При добавлении нового direct-провайдера в Stage 2b/3 миграции (см. [[aiSdkMigrationWip]])** — расширить `detectModelFamily` switch-кейсом по providerName.
+3. **При добавлении нового провайдера (см. [[aiSdkMigration]] — чат у всех идёт через AI SDK)** — расширить `detectModelFamily` switch-кейсом по providerName.
 4. **При добавлении нового tool-alias** — править `TOOL_NAME_ALIASES` (только active при наличии canonical таргета в chatMode).
 5. **При новых MCP-проверках по имени** — учитывать, что `tool.name` уже префиксированный. Bare-имя — в `originalName`.
 
@@ -358,4 +358,4 @@ prompts.ts       →  tools/index.ts, tools/_constants.ts
 - [modelFamily.ts](../../../src/vs/workbench/contrib/vibeide/common/prompt/modelFamily.ts) — `detectModelFamily()` утилита.
 - [mcpService.ts](../../../src/vs/workbench/contrib/vibeide/common/mcpService.ts) — `getMCPTools()` с префиксацией.
 - [chatThreadService.ts](../../../src/vs/workbench/contrib/vibeide/browser/chatThreadService.ts) — диспетчер тулов (built-in vs MCP), `_mcpCallMatchesPlanAllowlist`, информативная ошибка при неизвестном tool name.
-- [aiSdkMigrationWip.md](aiSdkMigrationWip.md) — параллельная незавершённая миграция провайдеров.
+- [aiSdkMigration.md](aiSdkMigration.md) — завершённая миграция провайдеров.

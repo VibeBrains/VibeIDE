@@ -126,6 +126,25 @@ suite('providers.json → model capabilities', () => {
 	});
 
 	/**
+	 * «Off» as a request of its own. MiMo reasons unless told `thinking: {type: disabled}`: with nothing sent
+	 * in the off position the vendor default — reasoning on — applies, and the switch in the UI does nothing.
+	 */
+	test('reasoning.off becomes the payload of the off position; a value that is not an object is dropped', () => {
+		const reasoningOf = (reasoning: object) => modelEntryToCaps({ id: 'm', reasoning } as Parameters<typeof modelEntryToCaps>[0]).reasoningCapabilities;
+		assert.deepStrictEqual({
+			mimo: reasoningOf({ effort: ['low', 'high'], off: { thinking: { type: 'disabled' } } }),
+			list: reasoningOf({ off: ['thinking'] }),
+		}, {
+			mimo: {
+				supportsReasoning: true, canTurnOffReasoning: true, canIOReasoning: true,
+				reasoningSlider: { type: 'effort_slider', values: ['low', 'high'], default: 'high' },
+				reasoningOffPayload: { thinking: { type: 'disabled' } },
+			},
+			list: { supportsReasoning: true, canTurnOffReasoning: true, canIOReasoning: true },
+		});
+	});
+
+	/**
 	 * Per-model `protocol`. An aggregator can serve one key over several wire formats and choose by
 	 * model — OpenCode Go routes GLM/Kimi to chat-completions, MiniMax/Qwen to Anthropic messages —
 	 * so the provider-level `protocol` describes at best part of such a catalogue.

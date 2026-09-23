@@ -20,20 +20,6 @@ function nonEmpty(value: unknown): string | undefined {
 	return typeof value === 'string' && value.length > 0 ? value : undefined;
 }
 
-/** The signature on the first part of a Gemini response that carries a function call. */
-export function signatureOfFunctionCallParts(parts: readonly unknown[] | undefined): string | undefined {
-	for (const part of parts ?? []) {
-		const record = part && typeof part === 'object' ? part as { functionCall?: unknown; thoughtSignature?: unknown } : undefined;
-		if (record?.functionCall !== undefined) {
-			const signature = nonEmpty(record.thoughtSignature);
-			if (signature) {
-				return signature;
-			}
-		}
-	}
-	return undefined;
-}
-
 /** The signature `@ai-sdk/google` reports on a tool-call part (`providerMetadata.google.thoughtSignature`). */
 export function googleThoughtSignatureOf(providerMetadata: unknown): string | undefined {
 	const google = providerMetadata && typeof providerMetadata === 'object' ? (providerMetadata as { google?: unknown }).google : undefined;
@@ -56,7 +42,6 @@ export function withoutThoughtSignatures<T extends LLMChatMessage[] | unknown>(m
 			return message;
 		}
 		const content = (message as { content?: unknown }).content;
-		const parts = (message as { parts?: unknown }).parts;
 		const signed = (block: unknown) => !!block && typeof block === 'object' && (block as { thoughtSignature?: unknown }).thoughtSignature !== undefined;
 		const strip = (blocks: unknown[]) => blocks.map(block => {
 			if (signed(block)) {
@@ -67,9 +52,6 @@ export function withoutThoughtSignatures<T extends LLMChatMessage[] | unknown>(m
 		});
 		if (Array.isArray(content) && content.some(signed)) {
 			return { ...message, content: strip(content) };
-		}
-		if (Array.isArray(parts) && parts.some(signed)) {
-			return { ...message, parts: strip(parts) };
 		}
 		return message;
 	}) as T;

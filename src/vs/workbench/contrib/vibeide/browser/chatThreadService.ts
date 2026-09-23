@@ -23,7 +23,7 @@ import { toolCallSignature, resolveAntiLoopThreshold, endsWithQuestion, looksLik
 import { IVibeImageCostService } from './vibeImageCostService.js';
 import { IVibeTokenBudgetService } from '../common/vibeTokenBudgetService.js';
 import { getModelCapabilities, isFloatingModel, type AutoDowngradeReason } from '../common/modelCapabilities.js';
-import { ProviderRefusalDiagnostics, AnthropicReasoning, getErrorMessage, GeminiLLMChatMessage, LLMChatMessage, LLMTokenUsage, parseContextOverflowError, parseEmptyResponseError, RawToolCallObj, RawToolParamsObj } from '../common/sendLLMMessageTypes.js';
+import { ProviderRefusalDiagnostics, AnthropicReasoning, getErrorMessage, LLMChatMessage, LLMTokenUsage, parseContextOverflowError, parseEmptyResponseError, RawToolCallObj, RawToolParamsObj } from '../common/sendLLMMessageTypes.js';
 import { isQuotaLow, pickRateLimitHeaders, ProviderQuotaSnapshot, tightestBucket } from '../common/providerQuota.js';
 import { IVibeSpendLedgerService } from './vibeSpendLedgerService.js';
 import { ModelHealthTracker, HEALTH_FAILURE_THRESHOLD, HEALTH_WINDOW_MS, classifyProviderError } from '../common/modelHealthTracker.js';
@@ -163,26 +163,7 @@ import { IVibeMentionService } from '../common/vibeMentionService.js';
 import { IVibeSearchContextService } from '../common/vibeSearchContextService.js';
 import { IVibeAIDebuggingService } from './vibeAIDebuggingContribution.js';
 import { IVibeContextGuardService } from './vibeContextGuardService.js';
-
-// Type predicates for the LLMChatMessage union. The `in` operator is permitted
-// inside type-predicate functions (see local/code-no-in-operator), and these give
-// the narrowing the structural `parts` vs `content` discriminator requires.
-type GeminiPart = GeminiLLMChatMessage['parts'][number];
-
-/** True when the prepared message is in Gemini shape (uses `parts`). */
-function isGeminiLLMChatMessage(m: LLMChatMessage): m is GeminiLLMChatMessage {
-	return 'parts' in m;
-}
-
-/** True when a Gemini part carries plain text. */
-function isGeminiTextPart(part: GeminiPart): part is { text: string } {
-	return 'text' in part;
-}
-
-/** True when a Gemini part carries inline (image) data. */
-function isGeminiInlineDataPart(part: GeminiPart): part is { inlineData: { mimeType: string; data: string } } {
-	return 'inlineData' in part;
-}
+import { describeFinishNotice } from '../common/llmStreamFinish.js';
 
 // related to retrying when LLM message has error
 // Optimized retry logic: faster initial retry, exponential backoff
@@ -2852,39 +2833,25 @@ class ChatThreadService extends Disposable implements IChatThreadService {
 		let contextSize = 0;
 
 		for (const m of messages) {
-			// Handle Gemini messages (use 'parts' instead of 'content')
-			if (isGeminiLLMChatMessage(m)) {
-				for (const part of m.parts) {
-					if (isGeminiTextPart(part)) {
+			if (typeof m.content === 'string') {
+				tokenCount += estimateTokens(m.content);
+				contextSize += m.content.length;
+			} else if (Array.isArray(m.content)) {
+				// Handle OpenAI format with image_url parts
+				for (const part of m.content) {
+					if (part.type === 'text') {
 						tokenCount += estimateTokens(part.text);
 						contextSize += part.text.length;
-					} else if (isGeminiInlineDataPart(part)) {
-						// Rough estimate: ~85 tokens per image + base64 overhead
+					} else if (part.type === 'image_url' || part.type === 'image') {
+						// Rough estimate: ~85 tokens per image + base64 overhead. Both shapes: OpenAI's
+						// `image_url` and Anthropic's `image` block, which Gemini's history now uses too.
 						tokenCount += 100;
 					}
 				}
-			}
-			// Handle Anthropic/OpenAI messages (use 'content')
-			else {
-				if (typeof m.content === 'string') {
-					tokenCount += estimateTokens(m.content);
-					contextSize += m.content.length;
-				} else if (Array.isArray(m.content)) {
-					// Handle OpenAI format with image_url parts
-					for (const part of m.content) {
-						if (part.type === 'text') {
-							tokenCount += estimateTokens(part.text);
-							contextSize += part.text.length;
-						} else if (part.type === 'image_url') {
-							// Rough estimate: ~85 tokens per image + base64 overhead
-							tokenCount += 100;
-						}
-					}
-				} else {
-					const jsonStr = JSON.stringify(m.content);
-					tokenCount += estimateTokens(jsonStr);
-					contextSize += jsonStr.length;
-				}
+			} else {
+				const jsonStr = JSON.stringify(m.content);
+				tokenCount += estimateTokens(jsonStr);
+				contextSize += jsonStr.length;
 			}
 		}
 
@@ -6199,17 +6166,6 @@ Output ONLY the JSON, no other text. Start with { and end with }.`;
 								// price is now what this model was observed to charge.
 								const imageTokens = this._imageCostService.costFor(modelSelection.providerName, modelSelection.modelName);
 								const promptTokens = messages.reduce((acc, m) => {
-									// Handle Gemini messages (use 'parts' instead of 'content')
-									if (isGeminiLLMChatMessage(m)) {
-										return acc + m.parts.reduce((sum, part) => {
-											if (isGeminiTextPart(part)) {
-												return sum + Math.ceil(part.text.length / 4);
-											} else if (isGeminiInlineDataPart(part)) {
-												return sum + imageTokens;
-											}
-											return sum;
-										}, 0);
-									}
 									// Handle Anthropic/OpenAI messages (use 'content')
 									if (typeof m.content === 'string') {
 										return acc + Math.ceil(m.content.length / 4);
@@ -6217,7 +6173,7 @@ Output ONLY the JSON, no other text. Start with { and end with }.`;
 										return acc + m.content.reduce((sum, part) => {
 											if (part.type === 'text') {
 												return sum + Math.ceil(part.text.length / 4);
-											} else if (part.type === 'image_url') {
+											} else if (part.type === 'image_url' || part.type === 'image') {
 												return sum + imageTokens;
 											}
 											return sum;
@@ -6594,7 +6550,7 @@ Output ONLY the JSON, no other text. Start with { and end with }.`;
 							this._setStreamState(threadId, { isRunning: 'LLM', llmInfo: { displayContentSoFar: fullText, reasoningSoFar: fullReasoning, toolCallSoFar: toolCall ?? null }, interrupt: Promise.resolve(() => { if (llmCancelToken) { this._llmMessageService.abort(llmCancelToken); } }) });
 						});
 					},
-					onFinalMessage: async ({ fullText, fullReasoning, toolCall, anthropicReasoning, usage, providerQuota, answeredModel, systemFingerprint }) => {
+					onFinalMessage: async ({ fullText, fullReasoning, toolCall, anthropicReasoning, usage, providerQuota, answeredModel, systemFingerprint, finishNotice }) => {
 						vibeLog.debug('llmTurn', 'done', { afterMs: Date.now() - _turnStartMs, toolCall: toolCall?.name ?? null, textLen: fullText?.length ?? 0, reasoningLen: fullReasoning?.length ?? 0 }); recordChatTrace('llmTurn:done', { turn: traceTurn, afterMs: Date.now() - _turnStartMs, toolCall: toolCall?.name ?? null });
 						// Mark message as done to prevent late onText updates
 						messageIsDone = true;
@@ -6626,6 +6582,13 @@ Output ONLY the JSON, no other text. Start with { and end with }.`;
 								const bucket = tightestBucket(providerQuota);
 								vibeLog.warn('chatThread', `provider quota low: ${modelSelection?.providerName ?? 'provider'} ${bucket?.kind ?? 'quota'} ${bucket?.remaining}${bucket?.limit ? `/${bucket.limit}` : ''}`);
 							}
+						}
+
+						// The answer stopped for a reason of its own — a vendor refusal, a cut by the output limit, a stalled
+						// stream — and a half-written tool call was dropped rather than run. Said here, next to the answer,
+						// because otherwise the turn simply looks finished.
+						if (finishNotice) {
+							this.addAssistantNotice(threadId, describeFinishNotice(finishNotice));
 						}
 
 						// Кто ответил на самом деле. Прокси, агрегатор и запасная цель подменяют модель молча, а счёт

@@ -719,15 +719,15 @@ export class VibeideGlobalSettingsConfigurationContribution extends Disposable i
 					minimum: 1000,
 					maximum: 600_000,
 					default: 30_000,
-					description: localize('vibeide.llm.timeoutMs.local', 'Таймаут запроса к локальному LLM-провайдеру (Ollama, vLLM, LM Studio, любой openAICompatible с эндпоинтом на localhost). Миллисекунды. По умолчанию 30000 — локальные модели должны отвечать быстро; долгое ожидание обычно означает, что сервис не запущен или перегружен.'),
+					description: localize('vibeide.llm.timeoutMs.local', 'Сколько локальная модель (Ollama, vLLM, LM Studio, любой провайдер с адресом на localhost) может молчать до первого фрагмента ответа. Миллисекунды. По умолчанию 30000 — локальные модели должны начинать быстро; долгое молчание обычно значит, что сервис не запущен или перегружен. Идущий ответ этот таймаут не обрывает: после первого фрагмента действует таймаут простоя `vibeide.llm.timeoutMs.streamIdle`.'),
 					scope: ConfigurationScope.APPLICATION,
 				},
 				'vibeide.llm.timeoutMs.cloud': {
 					type: 'integer',
 					minimum: 1000,
 					maximum: 600_000,
-					default: 90_000,
-					description: localize('vibeide.llm.timeoutMs.cloud', 'Таймаут запроса к прямому облачному провайдеру (OpenAI, Anthropic, Gemini, Mistral, xAI, Groq, DeepSeek, Qwen, Azure, Vertex). Миллисекунды. По умолчанию 90000 — покрывает reasoning-модели (Claude Opus thinking, GPT-5 high reasoning, etc.) при умеренном контексте.'),
+					default: 180_000,
+					description: localize('vibeide.llm.timeoutMs.cloud', 'Сколько модель прямого облачного провайдера (OpenAI, Anthropic, Gemini, Mistral, xAI, Groq, DeepSeek, Azure, Vertex, Bedrock, MiniMax) может молчать до первого фрагмента ответа — это фаза размышления, которую таймаут простоя не покрывает. Миллисекунды. По умолчанию 180000: рассуждающая модель на высоком усилии думает минутами. Идущий ответ этот таймаут не обрывает — длинный ход идёт, пока текут токены.'),
 					scope: ConfigurationScope.APPLICATION,
 				},
 				'vibeide.llm.timeoutMs.aggregator': {
@@ -735,7 +735,7 @@ export class VibeideGlobalSettingsConfigurationContribution extends Disposable i
 					minimum: 1000,
 					maximum: 600_000,
 					default: 180_000,
-					description: localize('vibeide.llm.timeoutMs.aggregator', 'Таймаут запроса к провайдеру-агрегатору (OpenRouter, OpenCode Zen, OpenCode Go, LM Router, LiteLLM). Миллисекунды. По умолчанию 180000 — у агрегаторов двойной hop (клиент → агрегатор → upstream), что добавляет латентности; на больших контекстах + reasoning-моделях первый байт может приходить через 2–3 минуты.'),
+					description: localize('vibeide.llm.timeoutMs.aggregator', 'Сколько модель агрегатора (OpenRouter, OpenCode Zen, OpenCode Go, LM Router, LiteLLM, Pollinations) или провайдера из файла `.vibe/providers` может молчать до первого фрагмента ответа. Миллисекунды. По умолчанию 180000 — у агрегаторов двойной переход (клиент → агрегатор → вендор), и на больших контекстах рассуждающая модель начинает через 2–3 минуты. Идущий ответ этот таймаут не обрывает.'),
 					scope: ConfigurationScope.APPLICATION,
 				},
 				'vibeide.llm.timeoutMs.streamIdle': {
@@ -743,7 +743,19 @@ export class VibeideGlobalSettingsConfigurationContribution extends Disposable i
 					minimum: 1000,
 					maximum: 600_000,
 					default: 45_000,
-					description: localize('vibeide.llm.timeoutMs.streamIdle', 'Idle-таймаут потока (миллисекунды): прервать стрим, если после НАЧАЛА выдачи контента не пришло ни одного нового токена дольше этого времени. По умолчанию 45000. НЕ покрывает молчаливую фазу размышления ДО первого токена (её ограничивает только общий таймаут) — поэтому reasoning-модели не обрываются на «думании». Поднимите, если модель делает длинные паузы между токенами на медленном upstream.'),
+					description: localize('vibeide.llm.timeoutMs.streamIdle', 'Таймаут простоя потока (миллисекунды): прервать ответ, если после его НАЧАЛА не пришло ни одного нового фрагмента дольше этого времени — текста, рассуждения или аргументов вызова инструмента. По умолчанию 45000. НЕ покрывает молчаливую фазу размышления ДО первого фрагмента (её ограничивают `vibeide.llm.timeoutMs.cloud`, `.aggregator` и `.local`) — поэтому рассуждающие модели не обрываются на «думании». Вызов инструмента, оборванный этим таймаутом, не выполняется. Поднимите, если модель делает длинные паузы между токенами на медленном канале.'),
+					scope: ConfigurationScope.APPLICATION,
+				},
+				'vibeide.llm.claudeThinkingDisplay': {
+					type: 'string',
+					enum: ['summarized', 'updates', 'omitted'],
+					enumDescriptions: [
+						localize('vibeide.llm.claudeThinkingDisplay.summarized', 'Краткое изложение рассуждения и заметки модели между вызовами инструментов — в сворачиваемом блоке «Размышление».'),
+						localize('vibeide.llm.claudeThinkingDisplay.updates', 'Только заметки между вызовами инструментов: что модель нашла и что делает дальше, само рассуждение скрыто. Поддерживают Claude Opus 5.5, Fable 5 и Fable 5.1; другие модели могут отказать.'),
+						localize('vibeide.llm.claudeThinkingDisplay.omitted', 'Ничего: блоки рассуждения приходят пустыми (умолчание вендора). У Opus 5.5 туда же уходят заметки между вызовами — агент будет молчать весь длинный ход.'),
+					],
+					default: 'summarized',
+					description: localize('vibeide.llm.claudeThinkingDisplay', 'Что показывать из адаптивного мышления Claude при работе через API Anthropic (встроенный провайдер «Anthropic»). Думает модель одинаково при любом значении и счёт за мышление тот же — настройка решает только, что вы видите.'),
 					scope: ConfigurationScope.APPLICATION,
 				},
 				'vibeide.llm.timeoutMs.connection': {

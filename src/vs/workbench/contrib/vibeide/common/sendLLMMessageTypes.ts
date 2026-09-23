@@ -7,6 +7,7 @@
 import { InternalToolInfo } from './prompt/prompts.js';
 import { ToolName, ToolParamName } from './toolsServiceTypes.js';
 import { ChatMode, ModelSelection, ModelSelectionOptions, OverridesOfModel, ProviderName, RefreshableProviderName, SettingsOfProvider } from './vibeideSettingsTypes.js';
+import type { ClaudeThinkingDisplay } from './wireReasoning.js';
 
 
 export const errorDetails = (fullError: Error | null): string | null => {
@@ -30,8 +31,8 @@ export const getErrorMessage: (error: unknown) => string = (error) => {
 
 /**
  * Canonical "Empty response from provider/model" error message. Used by every
- * site that surfaces an empty-stream condition (`_sendOpenAICompatibleChat`,
- * `sendViaAISdk`, non-streaming paths) so the consumer in `chatThreadService`
+ * site that surfaces an empty-stream condition (`sendViaAISdk`, streamed and
+ * not) so the consumer in `chatThreadService`
  * (empty-response circuit breaker, Stage K) can parse provider/model out of
  * the string without inline regexes drifting per call-site.
  *
@@ -152,22 +153,7 @@ export type OpenAILLMChatMessage = {
 	tool_call_id: string;
 };
 
-export type GeminiLLMChatMessage = {
-	role: 'model';
-	parts: (
-		| { text: string }
-		| { functionCall: { id: string; name: ToolName; args: Record<string, unknown> }; thoughtSignature?: string }
-	)[];
-} | {
-	role: 'user';
-	parts: (
-		| { text: string }
-		| { inlineData: { mimeType: string; data: string } }
-		| { functionResponse: { id: string; name: ToolName; response: { output: string } } }
-	)[];
-};
-
-export type LLMChatMessage = AnthropicLLMChatMessage | OpenAILLMChatMessage | GeminiLLMChatMessage;
+export type LLMChatMessage = AnthropicLLMChatMessage | OpenAILLMChatMessage;
 
 
 
@@ -215,7 +201,28 @@ export type OnText = (p: { fullText: string; fullReasoning: string; toolCall?: R
 // still counted by the one we asked for, and the substitution is otherwise silent.
 // `systemFingerprint` — the backend configuration where the wire names one (OpenAI-compatible); it
 // tells two backends apart when they answer under the same model name.
-export type OnFinalMessage = (p: { fullText: string; fullReasoning: string; toolCall?: RawToolCallObj; anthropicReasoning: AnthropicReasoning[] | null; answeredModel?: string; systemFingerprint?: string; usage?: LLMTokenUsage; providerQuota?: ProviderQuotaSnapshot }) => void; // id is tool_use_id
+// `finishNotice` — the answer stopped for a reason the reader must know about (see LLMFinishNotice).
+export type OnFinalMessage = (p: { fullText: string; fullReasoning: string; toolCall?: RawToolCallObj; anthropicReasoning: AnthropicReasoning[] | null; answeredModel?: string; systemFingerprint?: string; usage?: LLMTokenUsage; providerQuota?: ProviderQuotaSnapshot; finishNotice?: LLMFinishNotice }) => void; // id is tool_use_id
+
+/**
+ * An answer that ended for a reason other than «done», delivered next to the text it cut.
+ *
+ * The SDK folds both cases into values that read as success: a safety classifier's refusal arrives as
+ * `content-filter` over an HTTP 200, and a reply cut by the output limit as `length`. Unread, the first
+ * looks like an empty answer and the second like a finished one. A structured field, not a phrase in
+ * the text: the chat decides what to show by the kind, never by parsing words.
+ */
+export type LLMFinishNotice =
+	| {
+		readonly kind: 'truncated';
+		/** What ran out: the reply's own token limit, or the model's context window. */
+		readonly by: 'output-limit' | 'context-window';
+		/** A tool call the cut left unfinished — dropped, never run. */
+		readonly cutToolName?: string;
+	}
+	/** The stream went silent and was ended by our timer; what arrived is delivered, a half-written call is not. */
+	| { readonly kind: 'stalled'; readonly cutToolName?: string }
+	| { readonly kind: 'refusal'; readonly category?: string; readonly explanation?: string };
 /**
  * What the provider actually said at the moment it refused, captured verbatim.
  *
@@ -334,6 +341,8 @@ export type LLMRuntimeOptions = {
 	 * calling `vibe_complete`). No effect in XML-fallback mode (no native `tools` are sent).
 	 * Default off. See `vibeide.agent.forceToolUseOnNudge`. */
 	forceToolUse?: boolean;
+	/** How Claude's adaptive thinking comes back on Anthropic's own API. See `vibeide.llm.claudeThinkingDisplay`. */
+	claudeThinkingDisplay?: ClaudeThinkingDisplay;
 	/** Outbound proxy URL for ALL LLM traffic (reach geo-blocked provider APIs through a foreign exit).
 	 * Schemes: `http`/`https`/`socks5`/`socks5h`/`socks4`; auth may be embedded (`socks5://user:pass@host:port`).
 	 * Empty/undefined = direct connection. Applied process-wide in electron-main to the shared undici

@@ -77,7 +77,7 @@ import { localize } from '../../../../nls.js';
 
 /** APPLICATION-scope storage key for persisted per-(provider×model) token-calibration factors. */
 const TOKEN_CALIBRATION_STORAGE_KEY = 'vibeide.chat.tokenCalibrationFactors';
-import { AnthropicLLMChatMessage, AnthropicReasoning, GeminiLLMChatMessage, LLMChatMessage, LLMFIMMessage, OpenAILLMChatMessage, RawToolParamsObj } from '../common/sendLLMMessageTypes.js';
+import { AnthropicLLMChatMessage, AnthropicReasoning, LLMChatMessage, LLMFIMMessage, OpenAILLMChatMessage, RawToolParamsObj } from '../common/sendLLMMessageTypes.js';
 import { IVibeideSettingsService } from '../common/vibeideSettingsService.js';
 import { autoFallbackProviderIds, ChatMode, FeatureName, ModelSelection, ProviderId } from '../common/vibeideSettingsTypes.js';
 import { ILLMMessageService } from '../common/sendLLMMessageService.js';
@@ -1314,75 +1314,6 @@ const prepareOpenAIOrAnthropicMessages = ({
 
 
 
-type GeminiUserPart = (GeminiLLMChatMessage & { role: 'user' })['parts'][0];
-type GeminiModelPart = (GeminiLLMChatMessage & { role: 'model' })['parts'][0];
-const prepareGeminiMessages = (messages: AnthropicLLMChatMessage[]) => {
-	let latestToolName: ToolName | undefined = undefined;
-	const messages2: GeminiLLMChatMessage[] = messages.map((m): GeminiLLMChatMessage | null => {
-		if (m.role === 'assistant') {
-			if (typeof m.content === 'string') {
-				return { role: 'model', parts: [{ text: m.content }] };
-			}
-			else {
-				const parts: GeminiModelPart[] = m.content.map((c): GeminiModelPart | null => {
-					if (c.type === 'text') {
-						return { text: c.text };
-					}
-					else if (c.type === 'tool_use') {
-						latestToolName = c.name;
-						return { functionCall: { id: c.id, name: c.name, args: c.input }, ...(c.thoughtSignature ? { thoughtSignature: c.thoughtSignature } : {}) };
-					}
-					else { return null; }
-				}).filter(m => !!m);
-				return { role: 'model', parts, };
-			}
-		}
-		else if (m.role === 'user') {
-			if (typeof m.content === 'string') {
-				return { role: 'user', parts: [{ text: m.content }] } satisfies GeminiLLMChatMessage;
-			}
-			else {
-				const parts: GeminiUserPart[] = m.content.map((c): GeminiUserPart | null => {
-					if (c.type === 'text') {
-						return { text: c.text };
-					}
-					else if (c.type === 'image') {
-						// Convert Anthropic image format to Gemini inlineData format
-						return {
-							inlineData: {
-								mimeType: c.source.media_type,
-								data: c.source.data,
-							},
-						};
-					}
-					else if (c.type === 'tool_result') {
-						if (!latestToolName) { return null; }
-						return { functionResponse: { id: c.tool_use_id, name: latestToolName, response: { output: c.content } } };
-					}
-					else { return null; }
-				}).filter(m => !!m);
-
-				// Ensure we have at least one part, and if we have images, ensure we have text.
-				// Parts are local literals, so own-property checks match the previous `in` semantics.
-				const hasImages = parts.some(p => Object.hasOwn(p, 'inlineData'));
-				const hasText = parts.some(p => Object.hasOwn(p, 'text'));
-
-				if (parts.length === 0) {
-					parts.push({ text: '(empty message)' });
-				} else if (hasImages && !hasText) {
-					// If we have images but no text, prepend a text part (required by Gemini)
-					parts.unshift({ text: '(empty message)' });
-				}
-
-				return { role: 'user', parts, };
-			}
-
-		}
-		else { return null; }
-	}).filter(m => !!m);
-
-	return messages2;
-};
 
 
 const prepareMessages = (params: {
@@ -1400,15 +1331,9 @@ const prepareMessages = (params: {
 
 	const specialFormat = params.specialToolFormat; // this is just for ts stupidness
 
-	// if need to convert to gemini style of messaes, do that (treat as anthropic style, then convert to gemini style)
-	if (params.providerName === 'gemini' || specialFormat === 'gemini-style') {
-		const res = prepareOpenAIOrAnthropicMessages({ ...params, specialToolFormat: specialFormat === 'gemini-style' ? 'anthropic-style' : undefined });
-		const messages = res.messages as AnthropicLLMChatMessage[];
-		const messages2 = prepareGeminiMessages(messages);
-		return { messages: messages2, separateSystemMessage: res.separateSystemMessage };
-	}
-
-	return prepareOpenAIOrAnthropicMessages({ ...params, specialToolFormat: specialFormat });
+	// Gemini's native tools travel as Anthropic-shaped blocks: the AI SDK's Google adapter turns tool_use and
+	// tool_result into functionCall and functionResponse parts, thought signatures included.
+	return prepareOpenAIOrAnthropicMessages({ ...params, specialToolFormat: specialFormat === 'gemini-style' ? 'anthropic-style' : specialFormat });
 };
 
 

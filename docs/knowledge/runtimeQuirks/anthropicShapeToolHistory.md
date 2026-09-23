@@ -39,6 +39,6 @@ tool_use и tool_result **молча выбрасывались**. Провай�
 При добавлении нового протокольного маршрута проверять оба конца: какую форму собирает
 renderer и какую парсит адаптер.
 
-**Связано:** [../architecture/aiSdkMigrationWip.md](../architecture/aiSdkMigrationWip.md),
+**Связано:** [../architecture/aiSdkMigration.md](../architecture/aiSdkMigration.md),
 [../architecture/apiProtocolRouting.md](../architecture/apiProtocolRouting.md),
 isSyntheticNudge-фикс (Step A.5) — смежный, лечил усиление этого же симптома компакцией.

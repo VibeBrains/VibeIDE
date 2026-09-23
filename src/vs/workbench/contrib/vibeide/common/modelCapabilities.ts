@@ -240,6 +240,17 @@ export type VibeideStaticModelInfo = { // not stateful
 		| undefined
 		| { type: 'budget_slider'; min: number; max: number; default: number } // anthropic supports this (reasoning budget)
 		| { type: 'effort_slider'; values: string[]; default: string }; // openai-compatible supports this (reasoning effort)
+		/**
+		 * The effort value that switches reasoning OFF, when the model has one (GPT-6 Sol and Luna: `none`).
+		 * Without it «off» sends no effort at all, and the server applies its own default — which on those
+		 * models is `medium`, so the switch would read off and run on.
+		 */
+		readonly reasoningOffEffort?: string;
+		/**
+		 * Body fields that switch reasoning OFF on an OpenAI-compatible wire, from the provider file's
+		 * `reasoning.off` (MiMo: `{"thinking": {"type": "disabled"}}`). Sent only in the «off» position.
+		 */
+		readonly reasoningOffPayload?: Readonly<Record<string, unknown>>;
 
 		// if it's open source and specifically outputs think tags, put the think tags here and we'll parse them out (e.g. ollama)
 		readonly openSourceThinkTags?: [string, string];
@@ -333,10 +344,8 @@ export const AUTO_DOWNGRADE_TTL_MS = 7 * 24 * 60 * 60 * 1000; // 7 days
  *                        endpoint, not a dialect of chat-completions; OpenCode Go serves Grok,
  *                        GPT and Muse Spark only there)
  *
- * NOTE: setting `apiProtocol: 'google'` only takes effect for models that flow
- * through `sendViaAISdk` (e.g. Gemini-through-aggregator). The standalone
- * `gemini` provider still uses its own `sendGeminiChat` path and ignores this
- * override — separate migration.
+ * Every chat flows through `sendViaAISdk`, the built-ins included, so the override applies to any
+ * provider: it beats the built-in's own wire and the provider file's declaration alike.
  */
 export const API_PROTOCOL_VALUES = ['openai-compat', 'openai', 'openai-responses', 'anthropic', 'google'] as const;
 export type ApiProtocolOverride = typeof API_PROTOCOL_VALUES[number];
@@ -371,6 +380,33 @@ export const sdkNpmOfFileProtocol = (fileProtocol: string | undefined): string |
 	if (fileProtocol === 'gemini') { return API_PROTOCOL_TO_SDK_NPM['google']; }
 	return undefined;
 };
+
+/**
+ * The SDK a BUILT-IN provider speaks, when it has a wire of its own.
+ *
+ * Built-ins are not left to the models.dev guess: Anthropic's API speaks Messages, Google's speaks Gemini,
+ * local servers speak chat completions. OpenAI's own API is the one built-in with two endpoints — chat
+ * completions by default, Responses where the model needs it, as declared by the provider file patching the
+ * built-in (`protocol: "openai-responses"` on the model) or known to the catalogue (GPT-6). A file's plain
+ * `openai` is not a downgrade here: for a file provider it means «OpenAI-compatible», for OpenAI itself it
+ * would throw away the native serializer. `undefined` for every other provider — they keep the chain
+ * file → models.dev → fallback. The user's own `apiProtocol` override is applied before this and wins.
+ */
+export function builtinWireSdkNpm(providerName: ProviderId, fileProtocol: string | undefined, catalogProtocol: ApiProtocolOverride | undefined): string | undefined {
+	switch (providerName) {
+		case 'anthropic': return API_PROTOCOL_TO_SDK_NPM['anthropic'];
+		case 'gemini': return API_PROTOCOL_TO_SDK_NPM['google'];
+		case 'openAI':
+			return fileProtocol === 'openai-responses' || catalogProtocol === 'openai-responses'
+				? API_PROTOCOL_TO_SDK_NPM['openai-responses']
+				: API_PROTOCOL_TO_SDK_NPM['openai'];
+		case 'ollama':
+		case 'vLLM':
+		case 'lmStudio':
+			return API_PROTOCOL_TO_SDK_NPM['openai-compat'];
+		default: return undefined;
+	}
+}
 
 export type ModelOverrides = Omit<Pick<
 	VibeideStaticModelInfo,
@@ -416,6 +452,14 @@ type VoidStaticProviderInfo = { // doesn't change (not stateful)
 	providerReasoningIOSettings?: ProviderReasoningIOSettings; // input/output settings around thinking (allowed to be empty) - only applied if the model supports reasoning output
 	modelOptions: { [key: string]: VibeideStaticModelInfo };
 	modelOptionsFallback: (modelName: string, fallbackKnownValues?: Partial<VibeideStaticModelInfo>) => (VibeideStaticModelInfo & { modelName: string; recognizedModelName: string }) | null;
+	/**
+	 * The endpoint a model needs on THIS provider when it is not the provider's usual one.
+	 *
+	 * A property of the provider, not of the model entry: aggregator fallbacks borrow OpenAI's entries for
+	 * prices and capabilities, and GPT-6 needs Responses only on OpenAI's own API — an aggregator serves it
+	 * over chat completions, where a borrowed "responses" would be a 404.
+	 */
+	wireProtocolOfModel?: (recognizedModelName: string) => ApiProtocolOverride | undefined;
 };
 
 
@@ -778,9 +822,30 @@ const anthropicModelOptions = {
 	// с бюджетом отвечает 400, сила задаётся уровнем в `output_config.effort`
 	// (platform.claude.com/docs/en/build-with-claude/extended-thinking, сверено 18.09.2026).
 	// Цены и окно — со страницы цен вендора того же дня; окно 1M действует с поколения 4.6.
+	// 64K of output: thinking cannot be switched off on these models and spends the same `max_tokens` as the
+	// answer, so the former 8K cut long agentic turns short. 64K is what the vendor suggests for such turns.
+	'claude-opus-5-5': {
+		contextWindow: 1_000_000,
+		reservedOutputTokenSpace: 64_000,
+		// Five-minute cache writes cost 1.25x input; the one-hour rate ($8) has no field in ModelCost.
+		cost: { input: 4.00, cache_read: 0.20, cache_write: 5.00, output: 20.00 },
+		downloadable: false,
+		supportsFIM: false,
+		specialToolFormat: 'anthropic-style',
+		supportsSystemMessage: 'separated',
+		reasoningCapabilities: {
+			supportsReasoning: true,
+			// Not at any level: both `disabled` and a budget answer 400.
+			canTurnOffReasoning: false,
+			canIOReasoning: true,
+			reasoningReservedOutputTokenSpace: 64_000,
+			// The vendor default is medium, one level below Opus 5.
+			reasoningSlider: { type: 'effort_slider', values: ['low', 'medium', 'high', 'xhigh', 'max'], default: 'medium' },
+		},
+	},
 	'claude-opus-5': {
 		contextWindow: 1_000_000,
-		reservedOutputTokenSpace: 8_192,
+		reservedOutputTokenSpace: 64_000,
 		cost: { input: 5.00, cache_read: 0.50, cache_write: 6.25, output: 25.00 },
 		downloadable: false,
 		supportsFIM: false,
@@ -791,13 +856,13 @@ const anthropicModelOptions = {
 			// Выключить мышление нельзя: режим адаптивный, модель сама решает, думать ли на этом запросе.
 			canTurnOffReasoning: false,
 			canIOReasoning: true,
-			reasoningReservedOutputTokenSpace: 8192,
-			reasoningSlider: { type: 'effort_slider', values: ['low', 'medium', 'high'], default: 'high' },
+			reasoningReservedOutputTokenSpace: 64_000,
+			reasoningSlider: { type: 'effort_slider', values: ['low', 'medium', 'high', 'xhigh', 'max'], default: 'high' },
 		},
 	},
 	'claude-sonnet-5': {
 		contextWindow: 1_000_000,
-		reservedOutputTokenSpace: 8_192,
+		reservedOutputTokenSpace: 64_000,
 		cost: { input: 2.00, cache_read: 0.20, cache_write: 2.50, output: 10.00 },
 		downloadable: false,
 		supportsFIM: false,
@@ -807,8 +872,8 @@ const anthropicModelOptions = {
 			supportsReasoning: true,
 			canTurnOffReasoning: false,
 			canIOReasoning: true,
-			reasoningReservedOutputTokenSpace: 8192,
-			reasoningSlider: { type: 'effort_slider', values: ['low', 'medium', 'high'], default: 'high' },
+			reasoningReservedOutputTokenSpace: 64_000,
+			reasoningSlider: { type: 'effort_slider', values: ['low', 'medium', 'high', 'xhigh', 'max'], default: 'high' },
 		},
 	},
 	// Latest Claude 4.5 series:
@@ -964,6 +1029,41 @@ const anthropicModelOptions = {
 	}
 } as const satisfies { [s: string]: VibeideStaticModelInfo };
 
+/**
+ * A catalogue profile for an id the table does not list, chosen by the FIRST matching pattern.
+ *
+ * The chains this replaced assigned in sequence, so the last match won and a broad pattern placed below a
+ * narrow one took over silently: `claude-sonnet-4-5` got the Sonnet 4.0 profile, `grok-4` the Grok 3 one.
+ * Read top to bottom, the list is its own documentation — narrow patterns first.
+ */
+function firstMatchingProfile<K extends string>(modelName: string, profiles: ReadonlyArray<readonly [RegExp, K]>): K | undefined {
+	const lower = modelName.toLowerCase();
+	return profiles.find(([pattern]) => pattern.test(lower))?.[1];
+}
+
+/**
+ * Anthropic ids outside the table, narrow patterns first (see `firstMatchingProfile`). The id itself goes
+ * on the wire unchanged: the profile lends capabilities and price, never the model the vendor serves.
+ */
+const anthropicFallbackProfiles: ReadonlyArray<readonly [RegExp, keyof typeof anthropicModelOptions]> = [
+	// Claude 5 and Opus 4.7+ think adaptively: a level instead of a budget.
+	[/opus-?5[-.]5/, 'claude-opus-5-5'],
+	[/opus-?5|opus.*4[-.][78]/, 'claude-opus-5'],
+	[/sonnet-?5/, 'claude-sonnet-5'],
+	[/claude-opus-4-5|claude-4-5-opus|claude-opus.*4\.5/, 'claude-opus-4-5-20251101'],
+	[/claude-sonnet-4-5|claude-4-5-sonnet|claude-sonnet.*4\.5/, 'claude-sonnet-4-5-20250929'],
+	[/claude-haiku-4-5|claude-4-5-haiku|claude-haiku.*4\.5/, 'claude-haiku-4-5-20251001'],
+	[/claude-opus-4-1|claude-4-1-opus|claude-opus.*4\.1/, 'claude-opus-4-1-20250805'],
+	// Claude 4.0, and every later 4.x the lines above do not name.
+	[/claude-4-opus|claude-opus-4/, 'claude-opus-4-20250514'],
+	[/claude-4-sonnet|claude-sonnet-4/, 'claude-sonnet-4-20250514'],
+	[/claude-3-7-sonnet/, 'claude-3-7-sonnet-20250219'],
+	[/claude-3-5-sonnet/, 'claude-3-5-sonnet-20241022'],
+	[/claude-3-5-haiku/, 'claude-3-5-haiku-20241022'],
+	[/claude-3-opus/, 'claude-3-opus-20240229'],
+	[/claude-3-sonnet/, 'claude-3-sonnet-20240229'],
+];
+
 const anthropicSettings: VoidStaticProviderInfo = {
 	providerReasoningIOSettings: {
 		input: {
@@ -984,32 +1084,9 @@ const anthropicSettings: VoidStaticProviderInfo = {
 		},
 	},
 	modelOptions: anthropicModelOptions,
-	modelOptionsFallback: (modelName) => {
-		const lower = modelName.toLowerCase();
-		let fallbackName: keyof typeof anthropicModelOptions | null = null;
-		// Claude 4.5 models (latest):
-		if (lower.includes('claude-opus-4-5') || lower.includes('claude-4-5-opus') || (lower.includes('claude-opus') && lower.includes('4.5'))) { fallbackName = 'claude-opus-4-5-20251101'; }
-		if (lower.includes('claude-sonnet-4-5') || lower.includes('claude-4-5-sonnet') || (lower.includes('claude-sonnet') && lower.includes('4.5'))) { fallbackName = 'claude-sonnet-4-5-20250929'; }
-		if (lower.includes('claude-haiku-4-5') || lower.includes('claude-4-5-haiku') || (lower.includes('claude-haiku') && lower.includes('4.5'))) { fallbackName = 'claude-haiku-4-5-20251001'; }
-		// Claude 4.1 models:
-		if (lower.includes('claude-opus-4-1') || lower.includes('claude-4-1-opus') || (lower.includes('claude-opus') && lower.includes('4.1'))) { fallbackName = 'claude-opus-4-1-20250805'; }
-		// Claude 4.0 models (legacy):
-		if (lower.includes('claude-4-opus') || lower.includes('claude-opus-4') || lower.includes('claude-opus-4-0')) { fallbackName = 'claude-opus-4-20250514'; }
-		if (lower.includes('claude-4-sonnet') || lower.includes('claude-sonnet-4') || lower.includes('claude-sonnet-4-0')) { fallbackName = 'claude-sonnet-4-20250514'; }
-		// Claude 3.7 models
-		if (lower.includes('claude-3-7-sonnet') || lower.includes('claude-3-7-sonnet-latest')) { fallbackName = 'claude-3-7-sonnet-20250219'; }
-		// Claude 3.5 models
-		if (lower.includes('claude-3-5-sonnet') || lower.includes('claude-3-5-sonnet-latest')) { fallbackName = 'claude-3-5-sonnet-20241022'; }
-		if (lower.includes('claude-3-5-haiku') || lower.includes('claude-3-5-haiku-latest')) { fallbackName = 'claude-3-5-haiku-20241022'; }
-		// Claude 3 models (legacy)
-		if (lower.includes('claude-3-opus') || lower.includes('claude-3-opus-latest')) { fallbackName = 'claude-3-opus-20240229'; }
-		if (lower.includes('claude-3-sonnet') || lower.includes('claude-3-sonnet-latest')) { fallbackName = 'claude-3-sonnet-20240229'; }
-		// Claude 5 и Opus 4.7+ — адаптивное мышление, уровнем вместо бюджета. СТОИТ ПОСЛЕДНИМ намеренно:
-		// ветка `claude-opus-4` выше совпадает и с `claude-opus-4-7`, а побеждает последнее присваивание.
-		if (lower.includes('opus-5') || lower.includes('opus5') || (lower.includes('opus') && (lower.includes('4-7') || lower.includes('4.7') || lower.includes('4-8') || lower.includes('4.8')))) { fallbackName = 'claude-opus-5'; }
-		if (lower.includes('sonnet-5') || lower.includes('sonnet5')) { fallbackName = 'claude-sonnet-5'; }
-		if (fallbackName) { return { modelName: fallbackName, recognizedModelName: fallbackName, ...anthropicModelOptions[fallbackName] }; }
-		return null;
+	modelOptionsFallback: modelName => {
+		const recognized = firstMatchingProfile(modelName, anthropicFallbackProfiles);
+		return recognized ? { modelName, recognizedModelName: recognized, ...anthropicModelOptions[recognized] } : null;
 	},
 };
 
@@ -1018,7 +1095,48 @@ const anthropicSettings: VoidStaticProviderInfo = {
 // NOTE: Keep this list in sync with OpenAI's current "production" models.
 // When adding a new model, make sure routing/risk policies are updated.
 // Reference: https://platform.openai.com/docs/models (checked 2025-11-30)
+// Above 272K input tokens OpenAI prices the WHOLE request at 2x input and cache and 1.5x output
+// (developers.openai.com/api/docs/models/gpt-6-sol, checked 2026-09-23) — a surcharge on everything, not on the excess.
+const gpt6LongContext = { over_input_tokens: 272_000, input: 2, cache: 2, output: 1.5 } as const;
+
 const openAIModelOptions = { // https://platform.openai.com/docs/pricing
+	// GPT-6 (Astra 2026-09-03, Sol and Luna 2026-09-22; developers.openai.com/api/docs/models, checked 2026-09-23).
+	// 1,050,000 tokens in total with up to 128,000 of output, so the input budget is 922,000. Function
+	// calling with reasoning works only on Responses — see `wireProtocolOfModel` in openAISettings.
+	'gpt-6-astra': {
+		contextWindow: 1_050_000,
+		reservedOutputTokenSpace: 128_000,
+		cost: { input: 10.00, cache_read: 1.00, cache_write: 12.50, output: 50.00, long_context: gpt6LongContext },
+		downloadable: false,
+		supportsFIM: false,
+		supportsVision: true,
+		specialToolFormat: 'openai-style',
+		supportsSystemMessage: 'developer-role',
+		// Astra rejects `none` with a 400: reasoning stays on.
+		reasoningCapabilities: { supportsReasoning: true, canTurnOffReasoning: false, canIOReasoning: false, reasoningSlider: { type: 'effort_slider', values: ['low', 'medium', 'high', 'xhigh', 'max'], default: 'medium' } },
+	},
+	'gpt-6-sol': {
+		contextWindow: 1_050_000,
+		reservedOutputTokenSpace: 128_000,
+		cost: { input: 2.00, cache_read: 0.20, cache_write: 2.50, output: 10.00, long_context: gpt6LongContext },
+		downloadable: false,
+		supportsFIM: false,
+		supportsVision: true,
+		specialToolFormat: 'openai-style',
+		supportsSystemMessage: 'developer-role',
+		reasoningCapabilities: { supportsReasoning: true, canTurnOffReasoning: true, canIOReasoning: false, reasoningOffEffort: 'none', reasoningSlider: { type: 'effort_slider', values: ['low', 'medium', 'high', 'xhigh', 'max'], default: 'medium' } },
+	},
+	'gpt-6-luna': {
+		contextWindow: 1_050_000,
+		reservedOutputTokenSpace: 128_000,
+		cost: { input: 0.10, cache_read: 0.01, cache_write: 0.125, output: 0.50, long_context: gpt6LongContext },
+		downloadable: false,
+		supportsFIM: false,
+		supportsVision: true,
+		specialToolFormat: 'openai-style',
+		supportsSystemMessage: 'developer-role',
+		reasoningCapabilities: { supportsReasoning: true, canTurnOffReasoning: true, canIOReasoning: false, reasoningOffEffort: 'none', reasoningSlider: { type: 'effort_slider', values: ['low', 'medium', 'high', 'xhigh', 'max'], default: 'medium' } },
+	},
 	// Latest GPT-5 series (best for coding and agentic tasks):
 	'gpt-5.1': {
 		contextWindow: 1_047_576, // TODO: Verify actual context window
@@ -1214,42 +1332,43 @@ const openAICompatIncludeInPayloadReasoning = (reasoningInfo: SendableReasoningI
 
 };
 
+/** OpenAI ids outside the table, narrow patterns first (see `firstMatchingProfile`). */
+const openAIFallbackProfiles: ReadonlyArray<readonly [RegExp, keyof typeof openAIModelOptions]> = [
+	// GPT-6 has no bare alias; an unnamed tier borrows the middle one rather than guessing high or low.
+	[/gpt-6.*astra/, 'gpt-6-astra'],
+	[/gpt-6.*luna/, 'gpt-6-luna'],
+	[/gpt-6/, 'gpt-6-sol'],
+	[/gpt-5\.1/, 'gpt-5.1'],
+	[/gpt-5.*pro/, 'gpt-5-pro'],
+	[/gpt-5.*nano/, 'gpt-5-nano'],
+	[/gpt-5.*mini/, 'gpt-5-mini'],
+	[/gpt-5/, 'gpt-5'],
+	[/gpt-4\.1.*nano/, 'gpt-4.1-nano'],
+	[/gpt-4\.1.*mini/, 'gpt-4.1-mini'],
+	[/gpt-4\.1/, 'gpt-4.1'],
+	[/\bo3.*deep.*search/, 'o3-deep-search'],
+	[/\bo3.*pro/, 'o3-pro'],
+	[/\bo3.*mini/, 'o3-mini'],
+	[/\bo3/, 'o3'],
+	[/\bo4.*mini/, 'o4-mini'],
+	[/\bo1.*pro/, 'o1-pro'],
+	[/\bo1.*mini/, 'o1-mini'],
+	[/\bo1/, 'o1'],
+	[/4o.*mini/, 'gpt-4o-mini'],
+	[/4o/, 'gpt-4o'],
+	// Legacy 3.5-turbo borrows the cheapest current profile.
+	[/gpt-3\.5|3\.5-turbo/, 'gpt-4o-mini'],
+];
+
 const openAISettings: VoidStaticProviderInfo = {
 	modelOptions: openAIModelOptions,
-	modelOptionsFallback: (modelName) => {
-		const lower = modelName.toLowerCase();
-		let fallbackName: keyof typeof openAIModelOptions | null = null;
-		// GPT-5.1 series (latest, check first):
-		if (lower.includes('gpt-5.1') || (lower.includes('gpt') && lower.includes('5.1'))) { fallbackName = 'gpt-5.1'; }
-		// GPT-5 series:
-		if (lower.includes('gpt-5') && lower.includes('pro')) { fallbackName = 'gpt-5-pro'; }
-		if (lower.includes('gpt-5') && lower.includes('nano')) { fallbackName = 'gpt-5-nano'; }
-		if (lower.includes('gpt-5') && lower.includes('mini')) { fallbackName = 'gpt-5-mini'; }
-		if (lower.includes('gpt-5') || (lower.includes('gpt') && lower.includes('5'))) { fallbackName = 'gpt-5'; }
-		// GPT-4.1 series:
-		if (lower.includes('gpt-4.1') && lower.includes('nano')) { fallbackName = 'gpt-4.1-nano'; }
-		if (lower.includes('gpt-4.1') && lower.includes('mini')) { fallbackName = 'gpt-4.1-mini'; }
-		if (lower.includes('gpt-4.1') || (lower.includes('gpt') && lower.includes('4.1'))) { fallbackName = 'gpt-4.1'; }
-		// Reasoning models (o-series, check before GPT-4o):
-		if (lower.includes('o3') && lower.includes('deep') && lower.includes('search')) { fallbackName = 'o3-deep-search'; }
-		if (lower.includes('o3') && lower.includes('pro')) { fallbackName = 'o3-pro'; }
-		if (lower.includes('o3') && lower.includes('mini')) { fallbackName = 'o3-mini'; }
-		if (lower.includes('o3')) { fallbackName = 'o3'; }
-		if (lower.includes('o4') && lower.includes('mini')) { fallbackName = 'o4-mini'; }
-		if (lower.includes('o1') && lower.includes('pro')) { fallbackName = 'o1-pro'; }
-		if (lower.includes('o1') && lower.includes('mini')) { fallbackName = 'o1-mini'; }
-		if (lower.includes('o1')) { fallbackName = 'o1'; }
-		// GPT-4o series:
-		if (lower.includes('gpt-4o') && lower.includes('mini')) { fallbackName = 'gpt-4o-mini'; }
-		if (lower.includes('gpt-4o') || lower.includes('4o')) { fallbackName = 'gpt-4o'; }
-		// Legacy models:
-		if (lower.includes('gpt-3.5') || lower.includes('3.5-turbo')) {
-			// Fallback to gpt-4o-mini for legacy 3.5-turbo requests
-			fallbackName = 'gpt-4o-mini';
-		}
-		if (fallbackName) { return { modelName: fallbackName, recognizedModelName: fallbackName, ...openAIModelOptions[fallbackName] }; }
-		return null;
+	modelOptionsFallback: modelName => {
+		const recognized = firstMatchingProfile(modelName, openAIFallbackProfiles);
+		return recognized ? { modelName, recognizedModelName: recognized, ...openAIModelOptions[recognized] } : null;
 	},
+	// GPT-6 calls functions with reasoning only on /v1/responses: on chat completions tools work only at
+	// effort `none`, and Astra refuses even that.
+	wireProtocolOfModel: recognizedModelName => recognizedModelName.startsWith('gpt-6') ? 'openai-responses' : undefined,
 	providerReasoningIOSettings: {
 		input: { includeInPayload: openAICompatIncludeInPayloadReasoning },
 	},
@@ -1323,18 +1442,22 @@ const xAIModelOptions = {
 	},
 } as const satisfies { [s: string]: VibeideStaticModelInfo };
 
+/** xAI ids outside the table, narrow patterns first (see `firstMatchingProfile`). */
+const xAIFallbackProfiles: ReadonlyArray<readonly [RegExp, keyof typeof xAIModelOptions]> = [
+	[/grok-4/, 'grok-4'],
+	[/grok-3.*mini.*fast/, 'grok-3-mini-fast'],
+	[/grok-3.*mini/, 'grok-3-mini'],
+	[/grok-3.*fast/, 'grok-3-fast'],
+	[/grok-3/, 'grok-3'],
+	[/grok-2/, 'grok-2'],
+	[/grok/, 'grok-3'],
+];
+
 const xAISettings: VoidStaticProviderInfo = {
 	modelOptions: xAIModelOptions,
-	modelOptionsFallback: (modelName) => {
-		const lower = modelName.toLowerCase();
-		let fallbackName: keyof typeof xAIModelOptions | null = null;
-		// Check latest first:
-		if (lower.includes('grok-4')) { fallbackName = 'grok-4'; }
-		if (lower.includes('grok-2')) { fallbackName = 'grok-2'; }
-		if (lower.includes('grok-3')) { fallbackName = 'grok-3'; }
-		if (lower.includes('grok')) { fallbackName = 'grok-3'; }
-		if (fallbackName) { return { modelName: fallbackName, recognizedModelName: fallbackName, ...xAIModelOptions[fallbackName] }; }
-		return null;
+	modelOptionsFallback: modelName => {
+		const recognized = firstMatchingProfile(modelName, xAIFallbackProfiles);
+		return recognized ? { modelName, recognizedModelName: recognized, ...xAIModelOptions[recognized] } : null;
 	},
 	// same implementation as openai
 	providerReasoningIOSettings: {
@@ -2632,8 +2755,8 @@ export const getProviderCapabilities = (providerName: ProviderId) => {
 	// registered as openai-compatible, so it carries the same reasoning IO settings; an unknown id
 	// still falls back to openAICompatible rather than destructuring undefined.
 	const info = resolveProvider(providerName)?.info ?? modelSettingsOfProvider['openAICompatible'];
-	const { providerReasoningIOSettings } = info;
-	return { providerReasoningIOSettings };
+	const { providerReasoningIOSettings, wireProtocolOfModel } = info;
+	return { providerReasoningIOSettings, wireProtocolOfModel };
 };
 
 

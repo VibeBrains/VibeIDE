@@ -21,7 +21,7 @@
 
 import { vibeLog } from '../common/vibeLog.js';
 import { sanitizeLlmErrorForLog } from '../common/llmErrorSanitize.js';
-import { EventLLMMessageOnTextParams, EventLLMMessageOnErrorParams, EventLLMMessageOnFinalMessageParams, ServiceSendLLMMessageParams, MainSendLLMMessageParams, MainLLMMessageAbortParams, ServiceModelListParams, EventModelListOnSuccessParams, EventModelListOnErrorParams, MainModelListParams, OllamaModelResponse, OpenaiCompatibleModelResponse, LLMChatMessage, AnthropicLLMChatMessage, OpenAILLMChatMessage, GeminiLLMChatMessage, } from '../common/sendLLMMessageTypes.js';
+import { EventLLMMessageOnTextParams, EventLLMMessageOnErrorParams, EventLLMMessageOnFinalMessageParams, ServiceSendLLMMessageParams, MainSendLLMMessageParams, MainLLMMessageAbortParams, ServiceModelListParams, EventModelListOnSuccessParams, EventModelListOnErrorParams, MainModelListParams, OllamaModelResponse, OpenaiCompatibleModelResponse, LLMChatMessage, AnthropicLLMChatMessage, OpenAILLMChatMessage, } from '../common/sendLLMMessageTypes.js';
 import { IVibeTokenBudgetService } from '../common/vibeTokenBudgetService.js';
 import { registerSingleton, InstantiationType } from '../../../../platform/instantiation/common/extensions.js';
 import { IChannel } from '../../../../base/parts/ipc/common/ipc.js';
@@ -42,15 +42,12 @@ import { IConfigurationService } from '../../../../platform/configuration/common
 import { NormalizeCounterKey } from '../common/xmlToolNormalize.js';
 import type { LlmSendTraceEvent } from '../common/llmSendTrace.js';
 import { ILLMMessageService, TransportDiagnostics } from '../common/sendLLMMessageService.js';
+import { withBuiltinWireHints } from '../common/builtinWireHints.js';
+import { CLAUDE_THINKING_DISPLAY_SETTING, claudeThinkingDisplayOf } from '../common/wireReasoning.js';
 
-/** Anthropic/OpenAI chat messages carry `content`; Gemini carries `parts`. */
+/** Chat messages carry `content` (Anthropic and OpenAI shapes; Gemini's history uses the Anthropic one). */
 function isContentMessage(msg: LLMChatMessage): msg is AnthropicLLMChatMessage | OpenAILLMChatMessage {
 	return Object.hasOwn(msg, 'content');
-}
-
-/** Gemini chat messages carry `parts` instead of `content`. */
-function isPartsMessage(msg: LLMChatMessage): msg is GeminiLLMChatMessage {
-	return Object.hasOwn(msg, 'parts');
 }
 
 // open this file side by side with llmMessageChannel
@@ -238,21 +235,6 @@ export class LLMMessageService extends Disposable implements ILLMMessageService 
 							}
 						}
 					}
-				} else if (isPartsMessage(msg)) {
-					// GeminiLLMChatMessage - uses 'parts' instead of 'content'
-					for (const part of msg.parts) {
-						if (Object.hasOwn(part, 'text')) {
-							const textPart = part as { text: string };
-							if (typeof textPart.text === 'string') {
-								const detection = this.secretDetectionService.detectSecrets(textPart.text);
-								if (detection.hasSecrets) {
-									hasAnySecrets = true;
-									totalMatches.push(...detection.matches);
-									textPart.text = detection.redactedText;
-								}
-							}
-						}
-					}
 				}
 			}
 
@@ -411,6 +393,7 @@ export class LLMMessageService extends Disposable implements ILLMMessageService 
 			toolFallbackMode,
 			forceToolUse, // per-turn: agent loop forces tool_choice on the corrective nudge
 			proxyUrl: this.configurationService.getValue<string>('vibeide.llm.proxy.url'), // route provider traffic through a proxy (geo-block bypass)
+			claudeThinkingDisplay: claudeThinkingDisplayOf(this.configurationService.getValue<unknown>(CLAUDE_THINKING_DISPLAY_SETTING)), // how Claude's thinking comes back
 			...(extraBody ? { extraBody } : {}), // per-call body fields, e.g. a JSON Schema for an extraction
 			...(promptCacheKey ? { promptCacheKey } : {}), // conversation cache key; the adapter sends it only where declared
 		};
@@ -419,9 +402,12 @@ export class LLMMessageService extends Disposable implements ILLMMessageService 
 		// providerName resolves to a baseURL/apiKey/headers in electron-main. Not persisted — a local
 		// copy made only for this send; persisted `settingsOfProvider` stays free of dynamic ids.
 		const dynamicTransport = this.vibeideSettingsService.getDynamicTransportConfigs();
-		const settingsOfProviderForSend = (Object.keys(dynamicTransport).length > 0
+		const withTransport = (Object.keys(dynamicTransport).length > 0
 			? { ...settingsOfProvider, ...dynamicTransport }
 			: settingsOfProvider) as typeof settingsOfProvider;
+		// A file patching a built-in adds its wire declarations to the built-in's own settings — merged into
+		// them, not replacing them: the key and the endpoint stay the built-in's.
+		const settingsOfProviderForSend = withBuiltinWireHints(withTransport, this.vibeideSettingsService.getBuiltinWireHints());
 
 		// params will be stripped of all its functions over the IPC channel
 		this.channel.call('sendLLMMessage', {

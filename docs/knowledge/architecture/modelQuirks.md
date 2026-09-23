@@ -119,7 +119,7 @@ interface ModelQuirksRule {
 **Суть (эмпирически, по debug-логу 152 ходов + 3 прогона high/low/off):**
 1. **Дублирует chain-of-thought в ДВУХ каналах одновременно:** нативный `reasoning-delta` (= `reasoning_content` delta) И тот же текст inline в `content` как `<think>…</think>`. То есть мысль приходит дважды.
 2. Старая `extractReasoningWrapper` (для `openSourceThinkTags`) на этом интерливе **ломалась**: перезаписывала нативный reasoning своим разбором, а на финале (`getOnFinalMessageParams`), если `</think>` не попал в её аккумулятор, сваливала ВЕСЬ текст в reasoning → **тело ответа пустело, а reasoning терялся в пайплайне** (в экспорте не было ни `<think>`, ни `🧠 Размышления`).
-3. **Игнорирует управление reasoning:** ни `reasoning_effort: low|high`, ни `thinking:{type:disabled}` не действуют (off всё равно даёт reasoning-блоки; low даёт рассуждение не короче high — шум). Совпадает с их баг-трекером (issues #68/#121 «how to disable thinking», oh-my-pi #626). Это **вендорная сторона** — payload мы шлём корректно (см. [[aiSdkMigrationWip]]).
+3. **Игнорирует управление reasoning:** ни `reasoning_effort: low|high`, ни `thinking:{type:disabled}` не действуют (off всё равно даёт reasoning-блоки; low даёт рассуждение не короче high — шум). Совпадает с их баг-трекером (issues #68/#121 «how to disable thinking», oh-my-pi #626). Это **вендорная сторона** — payload мы шлём корректно (см. [[aiSdkMigration]]).
 
 **Решение (v0.19.x):** новое поле `reasoningCapabilities.stripThinkTagsFromContent: [open, close]` + `stripThinkTagsWrapper` (extractGrammar.ts) — STRIP-ONLY: вырезает дубль `<think>…</think>` из тела (и прячет незакрытый хвост при стриминге), **`fullReasoning` не трогает** → нативный `reasoning-delta` остаётся источником для фолда/экспорта. У MiniMax профиль использует `stripThinkTagsFromContent` (НЕ `openSourceThinkTags`) + `output.nameOfFieldInDelta: 'reasoning_content'`. `openSourceThinkTags` оставлен для моделей БЕЗ нативного канала (ollama/deepseek-R1 через aggregator).
 
@@ -377,6 +377,11 @@ workflow) — ни одно правило каталога не смеет фо
 уходит из системного промпта в ход пользователя. Второе заодно чинит кэш промпта: точка кэша стоит на системном
 промпте, и каждая смена активного файла сбрасывает его целиком.
 
+**Сделано 23.09 (вечер).** Первое: правило `opus-5-5` несёт `reasoningBoundToModel`, и для таких моделей запрос
+к API Anthropic идёт с `thinking.block_binding.prefix_mismatch_behavior: "drop_block"` (`common/wireReasoning.ts`,
+бета добавляет `@ai-sdk/anthropic` 3.0.121 сам). Встроенный Anthropic при этом переехал на AI SDK — см.
+[aiSdkMigration.md](aiSdkMigration.md). Стабильный префикс остаётся пунктом roadmap. Живьём не проверено.
+
 ## [грабли] GPT-6: инструменты только через Responses, а встроенный OpenAI протокол модели не читает (2026-09-23)
 
 **Факт вендора.** «Chat Completions supports function calling only with reasoning_effort set to none» — страницы
@@ -392,4 +397,11 @@ use /v1/responses or set reasoning_effort to 'none'».
 
 **Урок.** Объявление в файле провайдера — контракт, а не подсказка: встроенный провайдер, переопределённый файлом, обязан
 читать те же поля, что провайдер из файла.
+
+**Сделано 23.09 (вечер).** Встроенный OpenAI идёт через `@ai-sdk/openai`. Для моделей, которым нужен Responses, —
+`.responses()`: каталог знает GPT-6 (`wireProtocolOfModel`), и файл, правящий встроенного, передаёт протоколы своих
+моделей (`common/builtinWireHints.ts`). Уровень провайдера из файла встроенному не передаётся: у OpenCode Zen там
+`openai`, а Claude он отдаёт через `/messages`. Усилие уходит `reasoningEffort`, «выключено» — `none`
+(`reasoningOffEffort`), в Responses — `store: false`. Проверено интеграционным тестом против локального сервера,
+живьём — нет.
 

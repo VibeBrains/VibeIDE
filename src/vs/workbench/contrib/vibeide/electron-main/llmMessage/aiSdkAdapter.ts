@@ -9,12 +9,12 @@ import { googleThoughtSignatureOf, googleThoughtSignatureOptions } from '../../c
 import { vibeLog } from '../../common/vibeLog.js';
 import { ANSWERED_MODEL_PEEK_CHARS, readServedIdentity } from '../../common/modelEcho.js';
 import { OrchestrationTokens, orchestrationTokensOfTail, withOrchestration } from '../../common/orchestrationUsage.js';
-import { streamText, jsonSchema, tool, type ModelMessage, type ToolSet, type TextStreamPart, type LanguageModel } from 'ai';
-import { createOpenAICompatible } from '@ai-sdk/openai-compatible';
+import { streamText, generateText, jsonSchema, tool, type ModelMessage, type ToolSet, type TextStreamPart, type LanguageModel, type ToolCallRepairFunction } from 'ai';
+import { createOpenAICompatible, type MetadataExtractor } from '@ai-sdk/openai-compatible';
 import { createAnthropic } from '@ai-sdk/anthropic';
 import { createOpenAI } from '@ai-sdk/openai';
 import { createGoogleGenerativeAI } from '@ai-sdk/google';
-import { API_PROTOCOL_TO_SDK_NPM, ApiProtocolOverride, getModelCapabilities, getProviderCapabilities, getSendableReasoningInfo, sdkNpmOfFileProtocol } from '../../common/modelCapabilities.js';
+import { API_PROTOCOL_TO_SDK_NPM, ApiProtocolOverride, builtinWireSdkNpm, getIsReasoningEnabledState, getModelCapabilities, getProviderCapabilities, getReservedOutputTokenSpace, getSendableReasoningInfo, sdkNpmOfFileProtocol } from '../../common/modelCapabilities.js';
 
 // Module-level memo for SDK-selection diagnostic logs. Keys are
 // `${providerName}|${modelName}|${sdkNpm}|${source}` — log once per unique
@@ -22,7 +22,7 @@ import { API_PROTOCOL_TO_SDK_NPM, ApiProtocolOverride, getModelCapabilities, get
 // preserving the visibility we want on first use / on routing changes.
 const _loggedSdkSelections = new Set<string>();
 import { fetch as undiciFetch } from 'undici';
-import type { JSONSchema7 } from '@ai-sdk/provider';
+import type { JSONObject, JSONSchema7 } from '@ai-sdk/provider';
 /* eslint-enable */
 
 import { createHash } from 'crypto';
@@ -31,25 +31,44 @@ import { availableTools, InternalToolInfo } from '../../common/prompt/prompts.js
 import { TOOL_NAME_ALIASES, applyParamAliases } from '../../common/prompt/toolAliases.js';
 import { lenientJsonParseObject } from '../../common/lenientJson.js';
 import { getModelSdkNpm } from './modelsDevCatalog.js';
-import { buildContextOverflowError, buildEmptyResponseError, isContextOverflow, LLMChatMessage, LLMTokenUsage, ProviderRefusalDiagnostics, RawToolCallObj, RawToolParamsObj } from '../../common/sendLLMMessageTypes.js';
+import { buildContextOverflowError, buildEmptyResponseError, isContextOverflow, LLMChatMessage, LLMFinishNotice, LLMTokenUsage, ProviderRefusalDiagnostics, RawToolCallObj, RawToolParamsObj } from '../../common/sendLLMMessageTypes.js';
+import { claudeThinkingOptions, DEFAULT_CLAUDE_THINKING_DISPLAY, googleThinkingConfig, openAIReasoningEffort } from '../../common/wireReasoning.js';
+import { AnthropicReasoningCollector, finishNoticeOf } from '../../common/llmStreamFinish.js';
+import { googleRetryDelaySecondsOf } from '../../common/googleRetryInfo.js';
+import { stripUnknownContentBlocks } from '../../common/anthropicStrictBlocks.js';
+import { isLocalProvider } from '../../common/isLocalProvider.js';
+import { describeConnectionError } from '../../common/connectionErrorDiagnostics.js';
 import { parseProviderQuotaHeaders, ProviderQuotaSnapshot } from '../../common/providerQuota.js';
 import { ProviderRequestRateWindow } from '../../common/providerRequestRate.js';
 import { readMiniMaxRefusal } from '../../common/minimaxBaseResp.js';
 import { getModelQuirks } from '../modelQuirks/modelQuirksService.js';
 import { withReasoningEffortInSystemPrompt } from '../../common/modelQuirks/modelQuirksTypes.js';
-import { SettingsOfProvider } from '../../common/vibeideSettingsTypes.js';
+import { providerNames, SettingsOfProvider } from '../../common/vibeideSettingsTypes.js';
 import { ensureSystemCADispatcher } from './systemCAFetch.js';
 import { extractReasoningWrapper, extractXMLToolsWrapper, stripThinkTagsWrapper, stripStandaloneThinkDelimitersWrapper } from './extractGrammar.js';
 import type { SendChatParams_Internal } from './sendLLMMessage.internalTypes.js';
-import { assertHttpHeaderSafe, getGoogleApiKey } from './llmHelpers.js';
+import { assertHttpHeaderSafe, getGoogleApiKey, withProcessEnvApiKey } from './llmHelpers.js';
 import { detectNoFundsRefusal, noFundsStatusText } from '../../common/providerFundsRefusal.js';
 
-// Providers handled by this adapter. The remaining providers (openAI native,
-// anthropic, gemini, ollama, vLLM, lmStudio) stay on the legacy path until
-// later stages.
+// Every chat goes through this adapter: the built-ins by id, config providers (.vibe/providers) by
+// their transport overlay. FIM and model listing keep their own paths in sendLLMMessage.impl.ts.
 export type AiSdkProviderName =
+	| 'anthropic' | 'openAI' | 'gemini'
 	| 'openCodeGo' | 'openCodeZen' | 'openRouter' | 'minimax' | 'openAICompatible' | 'liteLLM' | 'lmRoute' | 'pollinations'
-	| 'deepseek' | 'mistral' | 'xAI' | 'groq' | 'awsBedrock' | 'googleVertex' | 'microsoftAzure';
+	| 'deepseek' | 'mistral' | 'xAI' | 'groq' | 'awsBedrock' | 'googleVertex' | 'microsoftAzure'
+	| 'ollama' | 'vLLM' | 'lmStudio';
+
+/**
+ * Providers whose silence before the first visible token is bounded by `timeoutMs.aggregator`: the
+ * extra hop client → aggregator → upstream adds latency. Config providers join them in `firstContentLimitMs`.
+ */
+const AGGREGATOR_PROVIDERS: ReadonlySet<string> = new Set(['openCodeGo', 'openCodeZen', 'openRouter', 'openAICompatible', 'liteLLM', 'lmRoute', 'pollinations']);
+
+const BUILTIN_PROVIDERS: ReadonlySet<string> = new Set<string>(providerNames);
+const isBuiltinProvider = (providerName: string): boolean => BUILTIN_PROVIDERS.has(providerName);
+
+/** An OpenAI refusal to stream for an organisation that has not passed verification (reasoning models). */
+const UNVERIFIED_ORG_STREAM_REFUSAL = /organization must be verified/i;
 
 const EMPTY_CONTENT_PLACEHOLDER = '(no content)';
 
@@ -71,6 +90,11 @@ interface ContentPartView {
 	id?: string;
 	name?: string;
 	input?: Record<string, unknown>;
+	/** Anthropic `thinking` block. */
+	thinking?: string;
+	signature?: string;
+	/** Anthropic `redacted_thinking` block. */
+	data?: string;
 }
 interface ToolCallView {
 	id?: string;
@@ -105,6 +129,7 @@ interface AiSdkErrorView {
 	message?: string;
 	statusCode?: number;
 	status?: number;
+	responseHeaders?: Record<string, string>;
 	responseBody?: string;
 	data?: { error?: { message?: unknown } };
 	lastError?: AiSdkErrorView;
@@ -156,6 +181,13 @@ const OPENCODE_PROCESS_SESSION_ID = `vibeide-${generateUuid()}`;
 // message and retry-after still reach the renderer. Only blip-throttles (retry-after
 // missing or < 10s) keep the SDK's quick in-place retries.
 const RATE_LIMIT_FAIL_FAST_RETRY_AFTER_SECONDS = 10;
+
+/**
+ * The status a response had before `makeCustomFetch` re-statused it. A 429 turned into 402 so the SDK stops
+ * retrying is still a rate limit for everyone after it, and this header says so as a field: the vendor's
+ * own words (Google: «Resource has been exhausted») need not mention a rate limit at all.
+ */
+const ORIGINAL_STATUS_HEADER = 'x-vibe-original-status';
 
 // fetch wrapper that pins the corporate-CA-aware undici dispatcher. We cannot
 // pass `dispatcher` directly to streamText() — AI SDK only accepts a standard
@@ -340,6 +372,10 @@ const makeCustomFetch = (opts: {
 		});
 	}
 
+	// The headers the rest of this function and the SDK see. Replaced only to carry a delay the vendor
+	// put in the body instead of in `retry-after` (Google, below).
+	let responseHeaders = response.headers;
+
 	// "Out of funds" must not be retried: the answer cannot change until money is added or the
 	// endpoint is corrected, yet vendors return it as 429 and the SDK dutifully waits out five
 	// backoffs (observed live: six attempts over a minute against Z.AI code 1113). Read the body
@@ -350,6 +386,16 @@ const makeCustomFetch = (opts: {
 			bodyText = (await refusalPeek.text()).slice(0, REFUSAL_BODY_PEEK_CHARS);
 		} catch {
 			// Unreadable body: fall through to the normal paths rather than guessing.
+		}
+		// Gemini and Vertex name the wait in a RetryInfo detail, never in the header. Lifted into the
+		// header so the fail-fast rule below and the chat's rate-limit pause wait the time the vendor asked
+		// for instead of a guessed default.
+		if (response.status === 429 && !response.headers.get('retry-after')) {
+			const delaySeconds = googleRetryDelaySecondsOf(bodyText);
+			if (delaySeconds !== undefined) {
+				responseHeaders = new Headers(response.headers);
+				responseHeaders.set('retry-after', String(Math.ceil(delaySeconds)));
+			}
 		}
 		const funds = detectNoFundsRefusal(response.status, bodyText);
 		if (funds.isNoFunds) {
@@ -365,18 +411,79 @@ const makeCustomFetch = (opts: {
 	}
 
 	if (response.status === 429) {
-		const retryAfterSec = Number(response.headers.get('retry-after'));
+		const retryAfterSec = Number(responseHeaders.get('retry-after'));
 		if (Number.isFinite(retryAfterSec) && retryAfterSec >= RATE_LIMIT_FAIL_FAST_RETRY_AFTER_SECONDS) {
+			const restatusedHeaders = new Headers(responseHeaders);
+			restatusedHeaders.set(ORIGINAL_STATUS_HEADER, '429');
 			// NOTE: statusText is a ByteString (Latin-1 only) — non-ASCII characters here
 			// make the Response constructor itself throw (observed with an em-dash).
 			return new Response(observed.body, {
 				status: 402,
 				statusText: 'Payment Required (quota exhausted, retry-after too distant to retry)',
-				headers: response.headers,
+				headers: restatusedHeaders,
 			});
+		}
+		if (responseHeaders !== response.headers) {
+			return new Response(observed.body, { status: response.status, statusText: response.statusText, headers: responseHeaders });
 		}
 	}
 	return observed;
+};
+
+/** A safety classifier's refusal, named with its category when the vendor gives one. */
+const refusalMessage = (modelName: string, category: string | undefined, explanation: string | undefined): string =>
+	`Модель ${modelName} отказалась отвечать: сработал фильтр безопасности вендора${category ? ` (${category})` : ''}.${explanation ? ` ${explanation}` : ''}`;
+
+/** Every piece of text an SDK error carries: the wrapper, the nested API error, the raw body. */
+const errorTextOf = (error: unknown): string => {
+	const view = (error ?? {}) as AiSdkErrorView;
+	const inner = view.lastError ?? (Array.isArray(view.errors) && view.errors.length > 0 ? view.errors[view.errors.length - 1] : undefined);
+	return [view.message, view.responseBody, inner?.message, inner?.responseBody].filter((part): part is string => typeof part === 'string').join('\n');
+};
+
+/** Token usage of a whole non-streamed answer, in the shape `onFinalMessage` carries. */
+const usageOfTotals = (usage: { inputTokens?: number; outputTokens?: number; totalTokens?: number; cachedInputTokens?: number; inputTokenDetails?: { cacheWriteTokens?: number } }): LLMTokenUsage => ({
+	promptTokens: usage.inputTokens,
+	completionTokens: usage.outputTokens,
+	totalTokens: usage.totalTokens,
+	cachedInputTokens: usage.cachedInputTokens,
+	cacheWriteTokens: usage.inputTokenDetails?.cacheWriteTokens,
+});
+
+/** Why a tool call was not run: the stream stopped before the model finished its arguments. */
+const cutToolCallMessage = (toolName: string, reason: string): string =>
+	`${reason} Вызов инструмента «${toolName}» оборван посреди аргументов и не выполнен.`;
+
+/** A reply cut by the output limit in the middle of a tool call. */
+const TRUNCATED_TOOL_CALL_REASON = 'Ответ упёрся в лимит вывода модели.';
+
+/** Where `cacheWriteTokensExtractor` leaves what it read, next to the SDK's own provider metadata. */
+const USAGE_METADATA_KEY = 'vibeUsage';
+
+const cacheWriteTokensOf = (usage: unknown): number | undefined => {
+	const writes = (usage as { prompt_tokens_details?: { cache_write_tokens?: unknown } } | undefined)?.prompt_tokens_details?.cache_write_tokens;
+	return typeof writes === 'number' && writes >= 0 ? writes : undefined;
+};
+
+/**
+ * Cache WRITES on the OpenAI-compatible wire. OpenAI reports them as
+ * `usage.prompt_tokens_details.cache_write_tokens` (a part of `prompt_tokens`), and
+ * @ai-sdk/openai-compatible 2.0.x does not read the field, so every write was billed at the fresh-input
+ * rate — on GPT-6 a write costs a quarter more than input. The native OpenAI SDK reads it; this reads it
+ * for everyone else.
+ */
+const cacheWriteTokensExtractor: MetadataExtractor = {
+	extractMetadata: async ({ parsedBody }) => {
+		const writes = cacheWriteTokensOf((parsedBody as { usage?: unknown } | undefined)?.usage);
+		return writes !== undefined ? { [USAGE_METADATA_KEY]: { cacheWriteTokens: writes } } : undefined;
+	},
+	createStreamExtractor: () => {
+		let writes: number | undefined;
+		return {
+			processChunk: chunk => { writes = cacheWriteTokensOf((chunk as { usage?: unknown } | undefined)?.usage) ?? writes; },
+			buildMetadata: () => writes !== undefined ? { [USAGE_METADATA_KEY]: { cacheWriteTokens: writes } } : undefined,
+		};
+	},
 };
 
 const parseHeadersJSON = (s: string | undefined): Record<string, string> | undefined => {
@@ -405,15 +512,50 @@ type ResolvedEndpoint = {
 	queryParams?: Record<string, string>;
 };
 
-// Resolve baseURL/apiKey/headers/queryParams per provider. Endpoints mirror the
-// legacy getOpenAICompatibleClient branches one-for-one — any change here would
-// silently re-route requests.
+const ANTHROPIC_DEFAULT_BASE_URL = 'https://api.anthropic.com/v1';
+const OPENAI_DEFAULT_BASE_URL = 'https://api.openai.com/v1';
+const GEMINI_DEFAULT_BASE_URL = 'https://generativelanguage.googleapis.com/v1beta';
+
+/**
+ * Anthropic's base URL from `ANTHROPIC_BASE_URL`. The official SDK read that variable WITHOUT the version
+ * segment and appended `/v1/messages`; @ai-sdk/anthropic appends only `/messages`. A value written for the
+ * old client gets its `/v1` back instead of silently becoming a 404.
+ */
+function anthropicBaseURLOf(fromEnv: string | undefined): string {
+	const trimmed = fromEnv?.trim().replace(/\/+$/, '');
+	if (!trimmed) {
+		return ANTHROPIC_DEFAULT_BASE_URL;
+	}
+	return /\/v\d+$/.test(trimmed) ? trimmed : `${trimmed}/v1`;
+}
+
+// Resolve baseURL/apiKey/headers/queryParams per provider. The one place chat
+// endpoints live — any change here re-routes every request to that provider.
 const resolveEndpoint = async (
 	providerName: AiSdkProviderName,
 	modelName: string,
 	settingsOfProvider: SettingsOfProvider,
 ): Promise<ResolvedEndpoint> => {
 	switch (providerName) {
+		// ---------- Vendors' own APIs ----------
+		// The base URLs honour the vendor SDKs' environment variables, as the official clients these routes
+		// replaced did: a corporate gateway configured that way keeps working.
+		case 'anthropic': {
+			return { baseURL: anthropicBaseURLOf(process.env.ANTHROPIC_BASE_URL), apiKey: settingsOfProvider.anthropic?.apiKey ?? '' };
+		}
+		case 'openAI': {
+			return { baseURL: (process.env.OPENAI_BASE_URL || OPENAI_DEFAULT_BASE_URL).replace(/\/+$/, ''), apiKey: settingsOfProvider.openAI?.apiKey ?? '' };
+		}
+		case 'gemini': {
+			return { baseURL: GEMINI_DEFAULT_BASE_URL, apiKey: settingsOfProvider.gemini?.apiKey ?? '' };
+		}
+		// ---------- Local servers ----------
+		case 'ollama':
+		case 'vLLM':
+		case 'lmStudio': {
+			const endpoint = (settingsOfProvider[providerName]?.endpoint ?? '').replace(/\/+$/, '');
+			return { baseURL: endpoint ? `${endpoint}/v1` : '', apiKey: 'noop' };
+		}
 		// ---------- Aggregators ----------
 		case 'openCodeGo': {
 			const c = settingsOfProvider.openCodeGo;
@@ -625,8 +767,10 @@ const flattenTextContent = (c: string | ContentPartView[] | undefined): string =
 	return '';
 };
 
-// LLMChatMessage[] -> AI SDK ModelMessage[]. Reasoning blocks (Anthropic-style)
-// are intentionally dropped here: aggregators do not accept them on input.
+// LLMChatMessage[] -> AI SDK ModelMessage[]. Anthropic's signed thinking blocks
+// go back only on the Anthropic wire (`anthropicWire`), as reasoning parts carrying
+// their signature — the vendor verifies each one. Everywhere else they are dropped:
+// other wires do not accept them on input.
 //
 // `modelName` is consulted for family-specific normalization:
 //   - DeepSeek: force an empty `{ type: 'reasoning', text: '' }` placeholder on
@@ -641,7 +785,7 @@ const flattenTextContent = (c: string | ContentPartView[] | undefined): string =
 //     into the request body; without this mirror, the upstream sees content[]
 //     reasoning parts but not the top-level `reasoning_content` field that
 //     these providers actually read. `transform.ts:303-336`.
-const convertMessagesToModelMessages = (messages: LLMChatMessage[], modelName: string, providerName: string): ModelMessage[] => {
+const convertMessagesToModelMessages = (messages: LLMChatMessage[], modelName: string, providerName: string, anthropicWire: boolean): ModelMessage[] => {
 	const toolNameLookup = buildToolNameLookup(messages);
 	const lastIdx = messages.length - 1;
 	const out: ModelMessage[] = [];
@@ -755,8 +899,11 @@ const convertMessagesToModelMessages = (messages: LLMChatMessage[], modelName: s
 						// Anthropic shape: tool calls live as content blocks, not `tool_calls`.
 						// Dropped before → the model's own prior calls vanished from history.
 						parts.push({ type: 'tool-call', toolCallId: p.id, toolName: p.name, input: p.input ?? {}, ...googleThoughtSignatureOptions((p as { thoughtSignature?: unknown }).thoughtSignature) });
+					} else if (anthropicWire && p?.type === 'thinking' && typeof p.signature === 'string') {
+						parts.push({ type: 'reasoning', text: p.thinking ?? '', providerOptions: { anthropic: { signature: p.signature } } });
+					} else if (anthropicWire && p?.type === 'redacted_thinking' && typeof p.data === 'string') {
+						parts.push({ type: 'reasoning', text: '', providerOptions: { anthropic: { redactedData: p.data } } });
 					}
-					// AnthropicReasoning parts intentionally skipped.
 				}
 			}
 			if (Array.isArray(msg.tool_calls)) {
@@ -1045,7 +1192,7 @@ export const sendViaAISdk = async (params: SendChatParams_Internal): Promise<voi
 		onText: onText_,
 		onFinalMessage: onFinalMessage_,
 		onError,
-		settingsOfProvider,
+		settingsOfProvider: settingsFromWindow,
 		modelName: modelName_,
 		_setAborter,
 		providerName,
@@ -1057,16 +1204,27 @@ export const sendViaAISdk = async (params: SendChatParams_Internal): Promise<voi
 		separateSystemMessage,
 	} = params;
 
+	// A key that lives only in an OS environment variable reaches the request here: the window knows the
+	// variable exists, only this process can read its value (see withEnvApiKey).
+	const settingsOfProvider = withProcessEnvApiKey(settingsFromWindow, providerName);
+
 	const caps = getModelCapabilities(providerName, modelName_, overridesOfModel);
 	const { modelName, additionalOpenAIPayload, reasoningCapabilities } = caps;
 
-	// Reasoning-control payload (e.g. `reasoning_effort`, `thinking:{type:disabled}`) — parity with
-	// the legacy `_sendOpenAICompatibleChat` path. Without this the reasoning slider / off-toggle
-	// were dead on the AI-SDK path: the user's choice never reached the request body. Merged into
-	// `transformRequestBody` (openai-compatible only) alongside `additionalOpenAIPayload`.
-	const { providerReasoningIOSettings } = getProviderCapabilities(providerName);
+	// Reasoning-control payload (e.g. `reasoning_effort`, `thinking:{type:disabled}`). Without this the
+	// reasoning slider / off-toggle were dead: the user's choice never reached the request body. Merged
+	// into `transformRequestBody` (openai-compatible only) alongside `additionalOpenAIPayload`; the other
+	// wires carry the same choice as provider options, see `providerOptions` below.
+	const { providerReasoningIOSettings, wireProtocolOfModel } = getProviderCapabilities(providerName);
 	const reasoningInfo = getSendableReasoningInfo('Chat', providerName, modelName_, modelSelectionOptions, overridesOfModel);
-	const reasoningInputPayload = providerReasoningIOSettings?.input?.includeInPayload?.(reasoningInfo) ?? {};
+	// «Off» is a choice of its own, not the absence of one: a model with a switch gets the value that turns
+	// it off, where the model or its file names one; without that the vendor default would decide.
+	const reasoningOff = !!reasoningCapabilities && reasoningCapabilities.canTurnOffReasoning
+		&& !getIsReasoningEnabledState('Chat', providerName, modelName_, modelSelectionOptions, overridesOfModel);
+	const reasoningInputPayload = {
+		...(providerReasoningIOSettings?.input?.includeInPayload?.(reasoningInfo) ?? {}),
+		...(reasoningOff && reasoningCapabilities ? reasoningCapabilities.reasoningOffPayload ?? {} : {}),
+	};
 	// The per-request `extraBody` goes last: it is a contract for this one call (a JSON Schema for an
 	// extraction), and a provider-wide default must not overwrite it.
 	// The conversation's cache key goes only where the provider file declared it: a strict OpenAI-compatible
@@ -1188,14 +1346,20 @@ export const sendViaAISdk = async (params: SendChatParams_Internal): Promise<voi
 		?? fileSettings?.modelProtocols?.[modelName_.toLowerCase()]
 		?? fileSettings?.protocol;
 	const sdkNpmFromFile = sdkNpmOfFileProtocol(fileProtocol);
-	const sdkNpm = sdkNpmFromOverride ?? sdkNpmFromFile ?? await getModelSdkNpm(baseURL, modelName);
+	// A built-in with a wire of its own is not guessed by the catalogue (see builtinWireSdkNpm); the
+	// catalogue still says which OpenAI models need Responses.
+	const sdkNpmOfBuiltin = builtinWireSdkNpm(providerName, fileProtocol, wireProtocolOfModel?.(caps.recognizedModelName ?? modelName));
+	const sdkNpm = sdkNpmFromOverride ?? sdkNpmOfBuiltin ?? sdkNpmFromFile ?? await getModelSdkNpm(baseURL, modelName);
 	// Diagnostic: log which SDK path was taken on the FIRST request per
 	// (provider × model × source). Cache key prevents per-request spam in
 	// long sessions. Downgraded to console.debug (hidden by default in
 	// devtools) — the routing decision was once-suspect, now stable.
 	// Bypass the dedup if it actually changes for the same combo (rare, but
 	// e.g. catalog refresh mid-session could switch sdkNpm).
-	const sdkSource = sdkNpmFromOverride ? 'override' : sdkNpmFromFile ? 'file' : (sdkNpm ? 'models.dev' : 'fallback');
+	const sdkSource = sdkNpmFromOverride ? 'override' : sdkNpmOfBuiltin ? 'builtin' : sdkNpmFromFile ? 'file' : (sdkNpm ? 'models.dev' : 'fallback');
+	const anthropicWire = sdkNpm === '@ai-sdk/anthropic';
+	const openAIWire = sdkNpm === '@ai-sdk/openai' || sdkNpm === '@ai-sdk/openai#responses';
+	const googleWire = sdkNpm === '@ai-sdk/google';
 	// Latest quota the provider reported during THIS call; attached to the final message so the
 	// renderer can show the key's real remaining allowance next to our own token estimate.
 	let lastQuota: ProviderQuotaSnapshot | undefined;
@@ -1221,7 +1385,10 @@ export const sendViaAISdk = async (params: SendChatParams_Internal): Promise<voi
 		? createAnthropic({
 			baseURL,
 			apiKey,
-			headers: {
+			// Anthropic's own API gets no legacy beta flags: the SDK streams tool input eagerly on its own
+			// (`eager_input_streaming`), adaptive thinking interleaves without a header, and the vendor asks
+			// not to send the old tool-streaming flag next to the new field. Compatible upstreams keep them.
+			headers: providerName === 'anthropic' ? headers : {
 				...headers,
 				// Anthropic-beta flags mirrored from opencode CLI (anomalyco/opencode
 				// provider/provider.ts:155-165 "anthropic" custom config). Without
@@ -1257,14 +1424,9 @@ export const sendViaAISdk = async (params: SendChatParams_Internal): Promise<voi
 					fetch: callFetch,
 				}).chat(modelName)
 			: sdkNpm === '@ai-sdk/google'
-				? // Native Google Generative AI (Gemini). Activated when models.dev
-				// catalog returns this SDK for the (baseURL, modelName) pair, or
-				// when user sets apiProtocol="google" override. NOTE: the standalone
-				// `gemini` VibeIDE provider still uses its own `sendGeminiChat` path
-				// — that's a separate codepath and is NOT touched here. This branch
-				// only kicks in for Gemini models served via aggregator
-				// (openCodeGo/zen with Gemini, openRouter with Gemini, etc.) where
-				// the request flows through sendViaAISdk. Tool-call format is
+				? // Native Google Generative AI (Gemini): the built-in `gemini` provider, a
+				// Gemini model the models.dev catalog maps here (openCodeGo/zen, openRouter
+				// with Gemini), or the user's apiProtocol="google" override. Tool-call format is
 				// functionDeclarations / functionCall — different from OpenAI shape
 				// — but @ai-sdk/google handles that conversion internally.
 				createGoogleGenerativeAI({
@@ -1281,12 +1443,23 @@ export const sendViaAISdk = async (params: SendChatParams_Internal): Promise<voi
 					queryParams,
 					fetch: callFetch,
 					includeUsage: true,
+					metadataExtractor: cacheWriteTokensExtractor,
 					transformRequestBody: Object.keys(openAICompatExtraBody).length
 						? (body) => ({ ...body, ...openAICompatExtraBody })
 						: undefined,
 				}).chatModel(modelName);
 
-	let modelMessages = convertMessagesToModelMessages(messages, modelName, providerName);
+	// A compatible upstream can reject a block type it does not know with the whole request; the quirk
+	// narrows what goes there and names what was dropped (common/anthropicStrictBlocks.ts).
+	let messagesForWire = messages;
+	if (anthropicWire && quirks.anthropicStrictBlocks === true) {
+		const strict = stripUnknownContentBlocks(messages as unknown as Array<{ content?: unknown }>);
+		if (strict.dropped.length > 0) {
+			vibeLog.warn('aiSdkAdapter', `anthropicStrictBlocks: отброшены типы блоков ${strict.dropped.join(', ')} для ${providerName}/${modelName}`);
+		}
+		messagesForWire = strict.messages as unknown as LLMChatMessage[];
+	}
+	let modelMessages = convertMessagesToModelMessages(messagesForWire, modelName, providerName, anthropicWire);
 	// Prompt caching for the Anthropic protocol (knowledge/roadmap/tokenEconomy.md, A phase 2).
 	// Anthropic caches NOTHING without explicit `cache_control` breakpoints — every agentic
 	// turn re-bills the full prompt (observed: 23k input/turn → org TPM limit in 11 turns).
@@ -1369,8 +1542,14 @@ export const sendViaAISdk = async (params: SendChatParams_Internal): Promise<voi
 		? Object.keys(tools).filter(k => k !== INVALID_TOOL_NAME)
 		: undefined;
 
-	// Aggregators: extra hop adds latency. Default 180s.
-	const timeoutMs = runtimeOptions?.timeoutMs?.aggregator ?? 180_000;
+	// How long the model may stay silent before its first visible token — the phase the idle timer below
+	// does not cover (a reasoning model thinking). Not a cap on the answer: once content flows, only a
+	// stall ends the stream. Local servers answer fast or not at all; aggregators add a hop.
+	const firstContentLimitMs = isLocalProvider(providerName, settingsOfProvider)
+		? runtimeOptions?.timeoutMs?.local ?? 30_000
+		: AGGREGATOR_PROVIDERS.has(providerName) || !isBuiltinProvider(providerName)
+			? runtimeOptions?.timeoutMs?.aggregator ?? 180_000
+			: runtimeOptions?.timeoutMs?.cloud ?? 180_000;
 
 	const abortController = new AbortController();
 	let timeoutFired = false;
@@ -1384,21 +1563,31 @@ export const sendViaAISdk = async (params: SendChatParams_Internal): Promise<voi
 	let toolId = '';
 	let toolSignature: string | undefined;
 	let toolParamsStr = '';
+	// Set by the SDK's `tool-call` part: the arguments are whole. Until then they are a prefix of JSON,
+	// and a call cut there must never run — half of a file write is worse than no write.
+	let toolCallComplete = false;
+	// Claude's signed thinking, kept whole for the next turn (Anthropic wire only; empty elsewhere).
+	const reasoningCollector = new AnthropicReasoningCollector();
 	let firstTokenReceived = false;
+	let contentStarted = false;
 	let firstTokenTimeoutId: ReturnType<typeof setTimeout> | null = null;
-	let overallTimeoutId: ReturnType<typeof setTimeout> | null = null;
+	let firstContentTimeoutId: ReturnType<typeof setTimeout> | null = null;
 	// Idle (inter-token) timeout: abort if the stream goes silent for `idleMs`
-	// after it has started. The 180s `timeoutMs` is the overall wall-clock cap; a
-	// model that STALLS mid-stream (e.g. native FC on an openCodeGo aggregator that
-	// confuses tool args) used to make the user wait the full 180s. The idle timer
-	// recovers in ~45s instead, while NOT cutting off legitimately-long responses
-	// (those keep emitting tokens, which reset it). Reset at the top of the stream
-	// loop on every part.
+	// after content has started. A model that STALLS mid-stream (e.g. native FC on
+	// an openCodeGo aggregator that confuses tool args) is caught in ~45s, while a
+	// legitimately long response keeps emitting tokens and is never cut: there is
+	// no wall-clock cap once content flows. (There used to be one — 180s from the
+	// start — which cut long answers and, worse, handed their half-written tool
+	// call on as finished.)
 	let idleTimeoutId: ReturnType<typeof setTimeout> | null = null;
 	const idleMs = runtimeOptions?.timeoutMs?.streamIdle ?? 45_000;
 	// Connection liveness ceiling — see the firstTokenTimeoutId arm below. Config-driven default.
 	const connectionMs = runtimeOptions?.timeoutMs?.connection ?? 90_000;
 	let lastFinishReason: string | null = null;
+	// The vendor's own word for why it stopped (`max_tokens`, `refusal`, `model_context_window_exceeded`),
+	// and what came with it (Anthropic's refusal category). The unified reason above loses both.
+	let lastRawFinishReason: string | undefined;
+	let lastFinishMetadata: unknown;
 	// Last `usage` block emitted by the AI SDK on `finish-step` / `finish` parts.
 	// We surface this in onFinalMessage so the UI can display real prompt/completion
 	// token counts from the provider instead of relying on length/4 heuristics.
@@ -1408,7 +1597,7 @@ export const sendViaAISdk = async (params: SendChatParams_Internal): Promise<voi
 
 	const clearAllTimers = () => {
 		if (firstTokenTimeoutId) { clearTimeout(firstTokenTimeoutId); firstTokenTimeoutId = null; }
-		if (overallTimeoutId) { clearTimeout(overallTimeoutId); overallTimeoutId = null; }
+		if (firstContentTimeoutId) { clearTimeout(firstContentTimeoutId); firstContentTimeoutId = null; }
 		if (idleTimeoutId) { clearTimeout(idleTimeoutId); idleTimeoutId = null; }
 	};
 
@@ -1417,7 +1606,7 @@ export const sendViaAISdk = async (params: SendChatParams_Internal): Promise<voi
 	// is alive). The connection timeout below only fires if NOTHING arrives. We do
 	// NOT abort a connected-but-silent stream (a model thinking before it emits) —
 	// that's what falsely killed deepseek/minimax mid-reasoning and triggered the
-	// abort→retry churn. The overall cap + the content idle-timer cover real hangs.
+	// abort→retry churn. The first-content limit + the idle timer cover real hangs.
 	const markConnected = () => {
 		if (firstTokenReceived) { return; }
 		firstTokenReceived = true;
@@ -1457,196 +1646,335 @@ export const sendViaAISdk = async (params: SendChatParams_Internal): Promise<voi
 		if (!firstTokenReceived) { abortController.abort(new Error('Connection timeout (no stream parts received).')); }
 	}, connectionMs);
 
-	// Shared hard-timeout handler for BOTH the overall wall-clock cap and the idle
-	// timer. Delivers any partial content (so a stalled-but-started tool-call still
-	// surfaces) or an error, then aborts. Guarded so it runs at most once.
+	// Shared hard-timeout handler for BOTH the first-content limit and the idle
+	// timer. Delivers the text and reasoning that did arrive, or an error, then
+	// aborts. A tool call is delivered only if its arguments are whole: a stall
+	// in the middle of them leaves a JSON prefix, and running that would execute
+	// a different call than the model meant. Guarded so it runs at most once.
 	const handleHardTimeout = (errMessage: string) => {
 		if (timeoutFired) { return; }
 		timeoutFired = true;
-		if (fullTextSoFar || fullReasoningSoFar || toolName) {
+		const cutToolCall = !!toolName && !toolCallComplete;
+		if (fullTextSoFar || fullReasoningSoFar || (toolName && toolCallComplete)) {
 			timeoutDeliveredPartial = true;
-			const tc = finalizeToolCall();
+			const tc = toolCallComplete ? finalizeToolCall() : null;
 			onFinalMessage({
 				fullText: fullTextSoFar,
 				fullReasoning: fullReasoningSoFar,
-				anthropicReasoning: null,
+				anthropicReasoning: reasoningCollector.blocks(),
 				...(tc ? { toolCall: toolSignature ? { ...tc, thoughtSignature: toolSignature } : tc } : {}),
 				...usageField(withOrchestration(lastUsage, lastOrchestrationTokens)),
 				...(lastQuota ? { providerQuota: lastQuota } : {}),
 				...(lastAnsweredModel ? { answeredModel: lastAnsweredModel } : {}),
-			...(lastSystemFingerprint ? { systemFingerprint: lastSystemFingerprint } : {}),
+				...(lastSystemFingerprint ? { systemFingerprint: lastSystemFingerprint } : {}),
+				...(cutToolCall ? { finishNotice: { kind: 'stalled', cutToolName: toolName } satisfies LLMFinishNotice } : {}),
 			});
 		} else {
-			onError({ message: errMessage, fullError: null });
+			onError({ message: cutToolCall ? cutToolCallMessage(toolName, errMessage) : errMessage, fullError: null });
 		}
 		abortController.abort();
 	};
 
-	overallTimeoutId = setTimeout(() => handleHardTimeout('Превышено время ожидания ответа провайдера.'), timeoutMs);
+	firstContentTimeoutId = setTimeout(() => handleHardTimeout(`Модель молчит дольше ${Math.round(firstContentLimitMs / 1000)}с — ответ так и не начался.`), firstContentLimitMs);
 
 	// (Re)arm the idle timer — armed on the first CONTENT part and reset on each
 	// subsequent content part. Governs ONLY the post-content phase (inter-token
 	// gaps); the silent pre-content reasoning warmup is intentionally NOT covered
-	// (it's a thinking model, not a stall) — only the overall cap bounds that.
+	// (it's a thinking model, not a stall) — the first-content limit bounds that.
 	const resetIdle = () => {
 		if (timeoutFired) { return; }
 		if (idleTimeoutId) { clearTimeout(idleTimeoutId); }
 		idleTimeoutId = setTimeout(() => handleHardTimeout(`Стрим завис — нет токенов ${idleMs / 1000}с после начала ответа.`), idleMs);
 	};
+	// The end of an answer, streamed or not: an error when nothing usable arrived, the answer otherwise —
+	// with a notice when it stopped for a reason the reader must know (llmStreamFinish.ts).
+	const deliverAnswer = () => {
+		const notice = finishNoticeOf(lastFinishReason, lastRawFinishReason, lastFinishMetadata);
+		// Attach whatever the provider actually said. An empty stream is the ONE path where
+		// there is no Error object to carry status/headers/body, so without this the caller
+		// cannot tell "the model stopped" from "the provider refused inside an HTTP 200".
+		// Interpreting the verdict is deliberately left to `chatThreadService` — one place
+		// owns error classification.
+		const diagnostics = lastDiagnostics ? { diagnostics: lastDiagnostics } : {};
+		if (!fullTextSoFar && !fullReasoningSoFar && !toolName) {
+			if (notice?.kind === 'refusal') {
+				onError({ message: refusalMessage(modelName, notice.category, notice.explanation), fullError: null, ...diagnostics });
+				return;
+			}
+			// Context-overflow signals can surface in the vendor's own reason (z.ai emits
+			// `model_context_window_exceeded`) or stay invisible on the stream-empty path.
+			// Detect the former so the UI gets a targeted "compact history" hint instead of
+			// a generic "unknown" toast.
+			const reason = lastRawFinishReason ?? lastFinishReason ?? 'unknown';
+			if (isContextOverflow(reason)) {
+				onError({
+					message: buildContextOverflowError(providerName, modelName, `finishReason: ${reason}`),
+					fullError: null,
+					...diagnostics,
+				});
+			} else {
+				onError({
+					message: buildEmptyResponseError(providerName, modelName, reason),
+					fullError: null,
+					...diagnostics,
+				});
+			}
+			return;
+		}
+		// A call without its `tool-call` part stopped mid-arguments — a stream that ended early. So does any
+		// call of an answer cut by the output limit: the SDK still emits `tool-call` for the unfinished block,
+		// and the repair hook would «recover» the JSON prefix into arguments the model never wrote. Running
+		// either would execute a call the model did not finish.
+		const cutToolCall = !!toolName && (!toolCallComplete || notice?.kind === 'truncated');
+		if (cutToolCall && !fullTextSoFar && !fullReasoningSoFar) {
+			const reason = notice?.kind === 'truncated' ? TRUNCATED_TOOL_CALL_REASON : 'Поток ответа закончился раньше, чем модель дописала вызов.';
+			onError({ message: cutToolCallMessage(toolName, reason), fullError: null, ...diagnostics });
+			return;
+		}
+		const finishNotice: LLMFinishNotice | undefined = cutToolCall
+			? { kind: 'truncated', by: notice?.kind === 'truncated' ? notice.by : 'output-limit', cutToolName: toolName }
+			: notice;
+		const tc = cutToolCall ? null : finalizeToolCall();
+		onFinalMessage({
+			fullText: fullTextSoFar,
+			fullReasoning: fullReasoningSoFar,
+			anthropicReasoning: reasoningCollector.blocks(),
+			...(tc ? { toolCall: toolSignature ? { ...tc, thoughtSignature: toolSignature } : tc } : {}),
+			...usageField(withOrchestration(lastUsage, lastOrchestrationTokens)),
+			...(lastQuota ? { providerQuota: lastQuota } : {}),
+			...(lastAnsweredModel ? { answeredModel: lastAnsweredModel } : {}),
+			...(lastSystemFingerprint ? { systemFingerprint: lastSystemFingerprint } : {}),
+			...(finishNotice ? { finishNotice } : {}),
+		});
+	};
+
 	// NOTE: NOT armed here — armed on first content delta (see stream loop). Arming
 	// at stream start would re-introduce the false abort of a silent thinking phase.
+	// Content has begun: the first-content limit has done its job, stalls are the idle timer's now.
+	const markContent = () => {
+		if (!contentStarted) {
+			contentStarted = true;
+			if (firstContentTimeoutId) { clearTimeout(firstContentTimeoutId); firstContentTimeoutId = null; }
+		}
+		resetIdle();
+	};
+
+	// The reasoning choice and the per-vendor extras, spelled for the wire this request takes. The
+	// OpenAI-compatible wire got its share in the body above (`openAICompatExtraBody`).
+	const providerOptions: Record<string, JSONObject> = {};
+	if (anthropicWire && providerName === 'anthropic') {
+		// Anthropic's own API only: compatible upstreams (MiniMax, Kimi, MiMo) spell thinking their own way,
+		// and `adaptive` sent there could turn a working route into a 400.
+		providerOptions.anthropic = claudeThinkingOptions(reasoningInfo, runtimeOptions?.claudeThinkingDisplay ?? DEFAULT_CLAUDE_THINKING_DISPLAY, quirks.reasoningBoundToModel === true);
+	}
+	if (openAIWire) {
+		const reasoningEffort = openAIReasoningEffort(reasoningInfo, reasoningOff, reasoningCapabilities ? reasoningCapabilities.reasoningOffEffort : undefined);
+		providerOptions.openai = {
+			...(reasoningEffort ? { reasoningEffort } : {}),
+			// The native SDK takes the cache key as a provider option; the compatible path gets
+			// `prompt_cache_key` in the body above.
+			...(promptCacheKey ? { promptCacheKey } : {}),
+			// Responses keeps every response on OpenAI's servers for 30 days unless told otherwise; chat
+			// completions, which OpenAI's own route used until now, never did. Nothing here reads a stored
+			// response back, so nothing is stored.
+			...(providerName === 'openAI' && sdkNpm === '@ai-sdk/openai#responses' ? { store: false } : {}),
+		};
+	}
+	if (googleWire && providerName === 'gemini') {
+		const thinkingConfig = googleThinkingConfig(reasoningInfo);
+		if (thinkingConfig) {
+			providerOptions.google = { thinkingConfig: { ...thinkingConfig } };
+		}
+	}
+	// Anthropic requires `max_tokens`, and thinking spends it together with the answer: the catalogue's
+	// reserved output for this model and reasoning state. Other wires keep the vendor default, as before.
+	const maxOutputTokens = anthropicWire && providerName === 'anthropic'
+		? getReservedOutputTokenSpace(providerName, modelName_, { isReasoningEnabled: !!reasoningInfo?.isReasoningEnabled, overridesOfModel }) ?? 4_096
+		: undefined;
+	const toolChoice = runtimeOptions?.forceToolUse && tools && !quirks.forcedToolChoiceUnsupported ? 'required' as const : (tools ? 'auto' as const : undefined);
+	const hasProviderOptions = Object.values(providerOptions).some(options => Object.keys(options).length > 0);
+
+	// Model-family generation params (kimi/minimax/glm/gemini/qwen/...). Catalog-driven
+	// via getModelQuirks() — see resources/model-quirks.json. `ModelSelectionOptions`
+	// does not currently surface temperature/topP/topK, so catalog values apply
+	// unconditionally for matched models and are a no-op for everything else.
+	// User can override per-model via `vibeide.modelQuirks` setting.
+	// Order matters: the file's `default*` values come from `.vibe/providers.json` and act as
+	// the model's vendor-recommended defaults; the quirks catalog then overrides per field,
+	// because it is the curated fix-list for combinations known to misbehave. Previously the
+	// file's fields were dropped entirely — declared in the type and the spec, never read.
+	const modelParams: { temperature?: number; topP?: number; topK?: number } = {};
+	if (caps.defaultTemperature !== undefined) { modelParams.temperature = caps.defaultTemperature; }
+	if (caps.defaultTopP !== undefined) { modelParams.topP = caps.defaultTopP; }
+	if (caps.defaultTopK !== undefined) { modelParams.topK = caps.defaultTopK; }
+	if (quirks.temperature !== undefined) { modelParams.temperature = quirks.temperature; }
+	if (quirks.topP !== undefined) { modelParams.topP = quirks.topP; }
+	if (quirks.topK !== undefined) { modelParams.topK = quirks.topK; }
+
+	// Five-stage repair for tool-call mismatches (name AND args):
+	//   1. Lowercase normalisation (Read_File → read_file, BASH → bash).
+	//   2. Cross-ecosystem alias (read → read_file, edit → edit_file,
+	//      apply_patch → edit_file, fetch → browse_url) via shared
+	//      TOOL_NAME_ALIASES in common/prompt/toolAliases.
+	//   3. **Positional fallback for numeric tool names.** Some models
+	//      (minimax-m2.x, certain qwen variants) emit tool calls as
+	//      `"5"` meaning "the 5th tool in the array I was sent" — they
+	//      read our actual tool array correctly but format the call as
+	//      an index instead of the name. Map back: name[N] resolves to
+	//      the N-th registered tool. The model's mental model exactly
+	//      matches our array order because it reads our request body.
+	//   4. **Arg-name repair.** Once the NAME resolves, normalise PARAM
+	//      names via the same alias map (path/filePath/file → uri, cmd →
+	//      command). The SDK validates native-FC args against our schema
+	//      BEFORE the dispatcher's applyParamAliases runs, so `{path:…}`
+	//      for a `uri`-param tool fails here — recover it on the native
+	//      channel too (XML fallback already gets this). See
+	//      repairToolArgsViaAliases. Idea ported from crush/fantasy +
+	//      opencode (arg-level recovery, not just names).
+	//   5. Anything still unmatched routes to the `invalid` pseudo-tool.
+	// Without stages 1-4 the SDK would throw NoSuchTool/InvalidToolArguments
+	// for recoverable calls. Pattern from Kilo Code (extended 3 + 4).
+	const repairToolCall: ToolCallRepairFunction<ToolSet> = async ({ toolCall, tools: registeredTools, error }) => {
+		if (!registeredTools) { return null; }
+		const has = (n: string) => Object.prototype.hasOwnProperty.call(registeredTools, n);
+		const raw = toolCall.toolName ?? '';
+		const lowered = raw.toLowerCase();
+
+		// Stages 1-3: resolve the canonical tool NAME.
+		let resolved: string | null = null;
+		if (raw && has(raw)) {
+			resolved = raw; // name already valid → the failure is the ARGS (stage 4)
+		} else if (raw && lowered !== raw && has(lowered)) {
+			resolved = lowered; // stage 1: lowercase
+		} else if (TOOL_NAME_ALIASES[lowered] && has(TOOL_NAME_ALIASES[lowered])) {
+			resolved = TOOL_NAME_ALIASES[lowered]; // stage 2: cross-ecosystem alias
+		} else {
+			const numericMatch = /^(\d+)$/.exec(raw); // stage 3: positional
+			if (numericMatch) {
+				const idx = parseInt(numericMatch[1], 10);
+				const toolNames = Object.keys(registeredTools).filter(k => k !== INVALID_TOOL_NAME);
+				if (idx >= 0 && idx < toolNames.length) { resolved = toolNames[idx]; }
+			}
+		}
+
+		// Stage 4: with a resolved name, also repair ARG names. Return when
+		// the name changed (a fix worth retrying) OR an arg-alias applied. If
+		// the name was already valid and no alias helped (cross-tool arg
+		// confusion / fundamentally wrong args), fall through to `invalid` so
+		// the model gets a clean error rather than an identically-failing retry.
+		if (resolved && resolved !== INVALID_TOOL_NAME) {
+			const { input: repairedInput, changed } = repairToolArgsViaAliases(resolved, toolCall.input);
+			if (resolved !== raw || changed) {
+				// `repairToolArgsViaAliases` returns the original `input` string when no
+				// change applied, or a re-serialized JSON string when it did — both are
+				// strings here since `toolCall.input` is a string.
+				const repairedInputStr = typeof repairedInput === 'string' ? repairedInput : toolCall.input;
+				return { ...toolCall, toolName: resolved, input: repairedInputStr };
+			}
+		}
+
+		// Stage 5: route to `invalid` pseudo-tool.
+		const errMsg = error?.message ?? 'Unknown tool name';
+		return {
+			...toolCall,
+			toolName: INVALID_TOOL_NAME,
+			input: JSON.stringify({ tool: raw, error: errMsg }),
+		};
+	};
+
+	// One request for both transports: the stream below and, when OpenAI will not stream it, the same
+	// request whole (see the catch). Built once, so the repeat cannot ask the model anything different.
+	const callOptions = {
+		model: languageModel,
+		// Top-level `system` (Anthropic-style). AI SDK routes this to the
+		// request's top-level `system` field for @ai-sdk/anthropic and
+		// prepends as a system role for openai-compatible. Avoids the
+		// "System messages in the prompt or messages fields can be a
+		// security risk" warning AND ensures minimax/Anthropic-protocol
+		// models actually see the tool instructions (previously dropped
+		// when system was inside messages array on the Anthropic path).
+		// On the @ai-sdk/anthropic route the system rides INSIDE messages
+		// instead (with a cache_control breakpoint) — see systemForCall above.
+		system: systemForCall,
+		messages: modelMessages,
+		// The only system message in `messages` is our own prompt, moved there to carry a cache breakpoint
+		// (see above); history system turns are dropped in conversion. Declared so the SDK stops warning
+		// about injection on every cached request.
+		allowSystemInMessages: true,
+		tools,
+		activeTools,
+		...(hasProviderOptions ? { providerOptions } : {}),
+		...(maxOutputTokens ? { maxOutputTokens } : {}),
+		toolChoice,
+		abortSignal: abortController.signal,
+		...modelParams,
+		// AI SDK default maxRetries=2 (3 attempts total) is too aggressive for
+		// aggregator-proxied models (openCodeGo/zen → DeepSeek-thinking, BigPickle,
+		// minimax-m2.7) — those upstreams throttle on bursts of agentic steps and
+		// 3 attempts hit the same rate-limit window. 5 retries = 6 attempts with
+		// AI SDK's exp backoff (2^n: 0s / 2s / 4s / 8s / 16s / 32s ≈ ~60s spread),
+		// giving the upstream window time to reset. Doesn't affect non-throttled
+		// cases — successful first attempt skips backoff entirely.
+		maxRetries: 5,
+		experimental_repairToolCall: repairToolCall,
+	};
 
 	try {
-		// Model-family generation params (kimi/minimax/glm/gemini/qwen/...). Catalog-driven
-		// via getModelQuirks() — see resources/model-quirks.json. `ModelSelectionOptions`
-		// does not currently surface temperature/topP/topK, so catalog values apply
-		// unconditionally for matched models and are a no-op for everything else.
-		// User can override per-model via `vibeide.modelQuirks` setting.
-		// Order matters: the file's `default*` values come from `.vibe/providers.json` and act as
-		// the model's vendor-recommended defaults; the quirks catalog then overrides per field,
-		// because it is the curated fix-list for combinations known to misbehave. Previously the
-		// file's fields were dropped entirely — declared in the type and the spec, never read.
-		const modelParams: { temperature?: number; topP?: number; topK?: number } = {};
-		if (caps.defaultTemperature !== undefined) { modelParams.temperature = caps.defaultTemperature; }
-		if (caps.defaultTopP !== undefined) { modelParams.topP = caps.defaultTopP; }
-		if (caps.defaultTopK !== undefined) { modelParams.topK = caps.defaultTopK; }
-		if (quirks.temperature !== undefined) { modelParams.temperature = quirks.temperature; }
-		if (quirks.topP !== undefined) { modelParams.topP = quirks.topP; }
-		if (quirks.topK !== undefined) { modelParams.topK = quirks.topK; }
-
-		const result = streamText({
-			model: languageModel,
-			// Top-level `system` (Anthropic-style). AI SDK routes this to the
-			// request's top-level `system` field for @ai-sdk/anthropic and
-			// prepends as a system role for openai-compatible. Avoids the
-			// "System messages in the prompt or messages fields can be a
-			// security risk" warning AND ensures minimax/Anthropic-protocol
-			// models actually see the tool instructions (previously dropped
-			// when system was inside messages array on the Anthropic path).
-			// On the @ai-sdk/anthropic route the system rides INSIDE messages
-			// instead (with a cache_control breakpoint) — see systemForCall above.
-			system: systemForCall,
-			messages: modelMessages,
-			tools,
-			activeTools,
-			// The native OpenAI SDK takes the cache key as a provider option; the compatible path gets
-			// `prompt_cache_key` in the body above.
-			...(promptCacheKey && (sdkNpm === '@ai-sdk/openai' || sdkNpm === '@ai-sdk/openai#responses')
-				? { providerOptions: { openai: { promptCacheKey } } }
-				: {}),
-			toolChoice: runtimeOptions?.forceToolUse && tools && !quirks.forcedToolChoiceUnsupported ? 'required' : (tools ? 'auto' : undefined),
-			abortSignal: abortController.signal,
-			...modelParams,
-			// AI SDK default maxRetries=2 (3 attempts total) is too aggressive for
-			// aggregator-proxied models (openCodeGo/zen → DeepSeek-thinking, BigPickle,
-			// minimax-m2.7) — those upstreams throttle on bursts of agentic steps and
-			// 3 attempts hit the same rate-limit window. 5 retries = 6 attempts with
-			// AI SDK's exp backoff (2^n: 0s / 2s / 4s / 8s / 16s / 32s ≈ ~60s spread),
-			// giving the upstream window time to reset. Doesn't affect non-throttled
-			// cases — successful first attempt skips backoff entirely.
-			maxRetries: 5,
-			// Five-stage repair for tool-call mismatches (name AND args):
-			//   1. Lowercase normalisation (Read_File → read_file, BASH → bash).
-			//   2. Cross-ecosystem alias (read → read_file, edit → edit_file,
-			//      apply_patch → edit_file, fetch → browse_url) via shared
-			//      TOOL_NAME_ALIASES in common/prompt/toolAliases.
-			//   3. **Positional fallback for numeric tool names.** Some models
-			//      (minimax-m2.x, certain qwen variants) emit tool calls as
-			//      `"5"` meaning "the 5th tool in the array I was sent" — they
-			//      read our actual tool array correctly but format the call as
-			//      an index instead of the name. Map back: name[N] resolves to
-			//      the N-th registered tool. The model's mental model exactly
-			//      matches our array order because it reads our request body.
-			//   4. **Arg-name repair.** Once the NAME resolves, normalise PARAM
-			//      names via the same alias map (path/filePath/file → uri, cmd →
-			//      command). The SDK validates native-FC args against our schema
-			//      BEFORE the dispatcher's applyParamAliases runs, so `{path:…}`
-			//      for a `uri`-param tool fails here — recover it on the native
-			//      channel too (XML fallback already gets this). See
-			//      repairToolArgsViaAliases. Idea ported from crush/fantasy +
-			//      opencode (arg-level recovery, not just names).
-			//   5. Anything still unmatched routes to the `invalid` pseudo-tool.
-			// Without stages 1-4 the SDK would throw NoSuchTool/InvalidToolArguments
-			// for recoverable calls. Pattern from Kilo Code (extended 3 + 4).
-			experimental_repairToolCall: async ({ toolCall, tools: registeredTools, error }) => {
-				if (!registeredTools) { return null; }
-				const has = (n: string) => Object.prototype.hasOwnProperty.call(registeredTools, n);
-				const raw = toolCall.toolName ?? '';
-				const lowered = raw.toLowerCase();
-
-				// Stages 1-3: resolve the canonical tool NAME.
-				let resolved: string | null = null;
-				if (raw && has(raw)) {
-					resolved = raw; // name already valid → the failure is the ARGS (stage 4)
-				} else if (raw && lowered !== raw && has(lowered)) {
-					resolved = lowered; // stage 1: lowercase
-				} else if (TOOL_NAME_ALIASES[lowered] && has(TOOL_NAME_ALIASES[lowered])) {
-					resolved = TOOL_NAME_ALIASES[lowered]; // stage 2: cross-ecosystem alias
-				} else {
-					const numericMatch = /^(\d+)$/.exec(raw); // stage 3: positional
-					if (numericMatch) {
-						const idx = parseInt(numericMatch[1], 10);
-						const toolNames = Object.keys(registeredTools).filter(k => k !== INVALID_TOOL_NAME);
-						if (idx >= 0 && idx < toolNames.length) { resolved = toolNames[idx]; }
-					}
-				}
-
-				// Stage 4: with a resolved name, also repair ARG names. Return when
-				// the name changed (a fix worth retrying) OR an arg-alias applied. If
-				// the name was already valid and no alias helped (cross-tool arg
-				// confusion / fundamentally wrong args), fall through to `invalid` so
-				// the model gets a clean error rather than an identically-failing retry.
-				if (resolved && resolved !== INVALID_TOOL_NAME) {
-					const { input: repairedInput, changed } = repairToolArgsViaAliases(resolved, toolCall.input);
-					if (resolved !== raw || changed) {
-						// `repairToolArgsViaAliases` returns the original `input` string when no
-						// change applied, or a re-serialized JSON string when it did — both are
-						// strings here since `toolCall.input` is a string.
-						const repairedInputStr = typeof repairedInput === 'string' ? repairedInput : toolCall.input;
-						return { ...toolCall, toolName: resolved, input: repairedInputStr };
-					}
-				}
-
-				// Stage 5: route to `invalid` pseudo-tool.
-				const errMsg = error?.message ?? 'Unknown tool name';
-				return {
-					...toolCall,
-					toolName: INVALID_TOOL_NAME,
-					input: JSON.stringify({ tool: raw, error: errMsg }),
-				};
-			},
-		});
+		const result = streamText(callOptions);
 
 		for await (const part of result.fullStream as AsyncIterable<TextStreamPart<ToolSet>>) {
 			if (timeoutFired) { break; }
 			markConnected(); // ANY part means the upstream answered → clear connection timeout
 
 			switch (part.type) {
+				case 'text-start': {
+					// A second text block of one answer (Claude interleaves text with thinking): kept apart from
+					// the first, or two sentences would run into each other.
+					if (fullTextSoFar) { fullTextSoFar += '\n\n'; }
+					break;
+				}
 				case 'text-delta': {
-					resetIdle(); // content flowing → (re)arm the inter-token stall timer
+					markContent(); // content flowing → (re)arm the inter-token stall timer
 					fullTextSoFar += part.text ?? '';
 					onText({ fullText: fullTextSoFar, fullReasoning: fullReasoningSoFar, toolCall: buildPartialToolCallObj() });
 					break;
 				}
+				case 'reasoning-start': {
+					reasoningCollector.start(part.id, part.providerMetadata);
+					if (fullReasoningSoFar) { fullReasoningSoFar += '\n\n'; }
+					// A redacted block has no words to show; it is marked so the fold does not look like the model skipped thinking.
+					if ((part.providerMetadata as { anthropic?: { redactedData?: unknown } } | undefined)?.anthropic?.redactedData !== undefined) {
+						fullReasoningSoFar += '[redacted_thinking]';
+					}
+					break;
+				}
 				case 'reasoning-delta': {
-					resetIdle();
+					markContent();
+					reasoningCollector.delta(part.id, part.text ?? '', part.providerMetadata);
 					fullReasoningSoFar += part.text ?? '';
 					onText({ fullText: fullTextSoFar, fullReasoning: fullReasoningSoFar, toolCall: buildPartialToolCallObj() });
 					break;
 				}
+				case 'reasoning-end': {
+					reasoningCollector.end(part.id, part.providerMetadata);
+					break;
+				}
 				case 'tool-input-start': {
-					// Single-slot accumulator (parity with existing _sendOpenAICompatibleChat).
+					// Single-slot accumulator: one tool call per turn.
 					// Additional tool calls in the same response are intentionally ignored
 					// — the consumer pipeline downstream only handles one tool per turn.
 					if (toolName) { break; }
 					toolName = part.toolName ?? '';
 					toolId = part.id ?? '';
-					resetIdle();
+					markContent();
 					onText({ fullText: fullTextSoFar, fullReasoning: fullReasoningSoFar, toolCall: buildPartialToolCallObj() });
 					break;
 				}
 				case 'tool-input-delta': {
 					if (toolId && part.id !== toolId) { break; }
+					// Arguments streaming IS the answer flowing: a large file write streams for minutes, and
+					// without this reset the idle timer cut it 45 s after the call began.
+					markContent();
 					toolParamsStr += part.delta ?? '';
 					onText({ fullText: fullTextSoFar, fullReasoning: fullReasoningSoFar, toolCall: buildPartialToolCallObj() });
 					break;
@@ -1657,6 +1985,9 @@ export const sendViaAISdk = async (params: SendChatParams_Internal): Promise<voi
 					if (!toolName && part.toolName) {
 						toolName = part.toolName;
 						toolId = part.toolCallId ?? toolId;
+					}
+					if (part.toolCallId === toolId || !toolId) {
+						toolCallComplete = true;
 					}
 					toolSignature ??= googleThoughtSignatureOf((part as { providerMetadata?: unknown }).providerMetadata);
 					const input = part.input;
@@ -1669,6 +2000,10 @@ export const sendViaAISdk = async (params: SendChatParams_Internal): Promise<voi
 				case 'finish-step':
 				case 'finish': {
 					lastFinishReason = part.finishReason ?? lastFinishReason;
+					lastRawFinishReason = part.rawFinishReason ?? lastRawFinishReason;
+					if (part.type === 'finish-step') {
+						lastFinishMetadata = part.providerMetadata ?? lastFinishMetadata;
+					}
 					// AI SDK v5+ (we are on `ai: ^6.0.182`) renamed `promptTokens`→`inputTokens`
 					// and `completionTokens`→`outputTokens`. Old field names are kept as
 					// fallback for any provider/path still on v4 shape. `finish-step` fires
@@ -1692,8 +2027,11 @@ export const sendViaAISdk = async (params: SendChatParams_Internal): Promise<voi
 						// AI SDK v5+ surfaces provider prompt-cache hits as `cachedInputTokens`.
 						const cachedTok = typeof u.cachedInputTokens === 'number' ? u.cachedInputTokens : undefined;
 						// AI SDK 6 reports cache WRITES apart, in `inputTokenDetails`, and counts them inside
-						// `inputTokens` — the whole prompt, for every provider.
-						const cacheWriteTok = typeof u.inputTokenDetails?.cacheWriteTokens === 'number' ? u.inputTokenDetails.cacheWriteTokens : undefined;
+						// `inputTokens` — the whole prompt, for every provider. The compatible wire leaves the
+						// field empty; `cacheWriteTokensExtractor` read it off the raw usage instead.
+						const extractedWrites = (lastFinishMetadata as Record<string, { cacheWriteTokens?: unknown } | undefined> | undefined)?.[USAGE_METADATA_KEY]?.cacheWriteTokens;
+						const cacheWriteTok = typeof u.inputTokenDetails?.cacheWriteTokens === 'number' ? u.inputTokenDetails.cacheWriteTokens
+							: typeof extractedWrites === 'number' ? extractedWrites : undefined;
 						if (typeof inTok === 'number' || typeof outTok === 'number' || typeof totTok === 'number') {
 							lastUsage = {
 								promptTokens: typeof inTok === 'number' ? inTok : lastUsage?.promptTokens,
@@ -1723,52 +2061,41 @@ export const sendViaAISdk = async (params: SendChatParams_Internal): Promise<voi
 
 		if (timeoutFired) { return; }
 		clearAllTimers();
-
-		if (!fullTextSoFar && !fullReasoningSoFar && !toolName) {
-			// Context-overflow signals can surface in `lastFinishReason` (e.g. z.ai
-			// emits `model_context_window_exceeded` as the reason) or stay invisible
-			// on the stream-empty path. Detect the former here so the UI gets a
-			// targeted "compact history" hint instead of a generic "unknown" toast.
-			const reason = lastFinishReason ?? 'unknown';
-			// Attach whatever the provider actually said. An empty stream is the ONE path where
-			// there is no Error object to carry status/headers/body, so without this the caller
-			// cannot tell "the model stopped" from "the provider refused inside an HTTP 200".
-			// Interpreting the verdict is deliberately left to `chatThreadService` — one place
-			// owns error classification.
-			const diagnostics = lastDiagnostics ? { diagnostics: lastDiagnostics } : {};
-			if (isContextOverflow(reason)) {
-				onError({
-					message: buildContextOverflowError(providerName, modelName, `finishReason: ${reason}`),
-					fullError: null,
-					...diagnostics,
-				});
-			} else {
-				onError({
-					message: buildEmptyResponseError(providerName, modelName, reason),
-					fullError: null,
-					...diagnostics,
-				});
-			}
-			return;
-		}
-
-		const tc = finalizeToolCall();
-		onFinalMessage({
-			fullText: fullTextSoFar,
-			fullReasoning: fullReasoningSoFar,
-			anthropicReasoning: null,
-			...(tc ? { toolCall: toolSignature ? { ...tc, thoughtSignature: toolSignature } : tc } : {}),
-			...usageField(withOrchestration(lastUsage, lastOrchestrationTokens)),
-			...(lastQuota ? { providerQuota: lastQuota } : {}),
-			...(lastAnsweredModel ? { answeredModel: lastAnsweredModel } : {}),
-			...(lastSystemFingerprint ? { systemFingerprint: lastSystemFingerprint } : {}),
-		});
-	} catch (error) {
+		deliverAnswer();
+	} catch (streamError) {
 		clearAllTimers();
 		if (timeoutDeliveredPartial) { return; }
 		if (abortController.signal.aborted && !timeoutFired) {
 			// User-initiated abort — propagate nothing, the caller already knows.
 			return;
+		}
+		let error: unknown = streamError;
+		// OpenAI lets an organisation it has not verified call reasoning models but not STREAM them. The same
+		// request without a stream is allowed, so it is repeated once, quietly: the answer is the same, it just
+		// arrives whole. Kept from the OpenAI client this route replaced.
+		if (openAIWire && !contentStarted && UNVERIFIED_ORG_STREAM_REFUSAL.test(errorTextOf(streamError))) {
+			try {
+				const result = await generateText(callOptions);
+				fullTextSoFar = result.text;
+				fullReasoningSoFar = result.reasoningText ?? '';
+				const call = result.toolCalls[0];
+				if (call) {
+					toolName = call.toolName;
+					toolId = call.toolCallId;
+					toolParamsStr = JSON.stringify(call.input ?? {});
+					toolCallComplete = true;
+				}
+				lastFinishReason = result.finishReason;
+				lastRawFinishReason = result.rawFinishReason;
+				lastFinishMetadata = result.providerMetadata;
+				lastUsage = usageOfTotals(result.usage);
+				onText({ fullText: fullTextSoFar, fullReasoning: fullReasoningSoFar, toolCall: buildPartialToolCallObj() });
+				deliverAnswer();
+				return;
+			} catch (retryError) {
+				if (abortController.signal.aborted) { return; }
+				error = retryError;
+			}
 		}
 		// AI SDK error objects expose a loose, version-dependent surface (retry
 		// wrappers, nested API errors, parsed body). Read them through an
@@ -1782,7 +2109,10 @@ export const sendViaAISdk = async (params: SendChatParams_Internal): Promise<voi
 		// the truth instead of surfacing the useless "<none>" wrapper text.
 		const inner: AiSdkErrorView | undefined = errorView.lastError
 			?? (Array.isArray(errorView.errors) && errorView.errors.length > 0 ? errorView.errors[errorView.errors.length - 1] : undefined);
-		const status = errorView.statusCode ?? errorView.status ?? inner?.statusCode ?? inner?.status;
+		const httpStatus = errorView.statusCode ?? errorView.status ?? inner?.statusCode ?? inner?.status;
+		// A 429 we re-statused to stop in-place retries is reported as what it is — a rate limit — so the
+		// chat's pause waits out the vendor's `retry-after` instead of stopping the run.
+		const status = Number((errorView.responseHeaders ?? inner?.responseHeaders)?.[ORIGINAL_STATUS_HEADER]) === 429 ? 429 : httpStatus;
 		const innerMsg: string | undefined = typeof inner?.message === 'string' ? inner.message : undefined;
 		const outerMsg: string = errorView.message ?? String(error);
 		// Prefer the inner error's message when the outer one is the retry wrapper.
@@ -1812,7 +2142,15 @@ export const sendViaAISdk = async (params: SendChatParams_Internal): Promise<voi
 		// provider's own body code travel with EVERY refusal, so the chat can judge structurally
 		// instead of regex-matching the message text.
 		const diag = lastDiagnostics ? { diagnostics: lastDiagnostics } : {};
-		if (status === 413 || isContextOverflow(errMsg) || isContextOverflow(errBody)) {
+		// No status and a network code down the cause chain: the request never reached the provider. Named
+		// in the form the send layer recognises (sendLLMMessage.ts), which adds the likely cause — a local
+		// server that is not running, TLS interception, a blocked network.
+		// After exhausted retries the network error sits under the retry wrapper's `lastError`, not its `cause`.
+		const connectionFailure = status === undefined ? describeConnectionError(inner ?? error) ?? describeConnectionError(error) : undefined;
+		if (connectionFailure) {
+			vibeLog.warn('aiSdkAdapter', `connection failure ${providerName}/${modelName}: ${connectionFailure}`);
+			onError({ message: `APIConnectionError: ${connectionFailure}`, fullError: error instanceof Error ? error : null, ...diag });
+		} else if (status === 413 || isContextOverflow(errMsg) || isContextOverflow(errBody)) {
 			onError({
 				message: buildContextOverflowError(providerName, modelName, errMsg.slice(0, 200)),
 				fullError: error instanceof Error ? error : null,
