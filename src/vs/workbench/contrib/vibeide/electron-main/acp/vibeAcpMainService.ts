@@ -344,8 +344,11 @@ export class VibeAcpMainService extends Disposable implements IVibeAcpMain {
 			request: {
 				requestId,
 				sessionId: agent.sessionId ?? '',
+				toolCallId: readString(toolCall, 'toolCallId') ?? '',
 				// Имя инструмента идёт вторым: человеку «edit_file» говорит больше, чем слово «действие».
 				title: facts.title || facts.name || facts.toolKind || 'действие',
+				name: facts.name,
+				toolKind: facts.toolKind,
 				detail: describeToolCall(toolCall),
 				paths: facts.paths,
 				diffs: facts.diffs,

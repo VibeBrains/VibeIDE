@@ -40,8 +40,18 @@ export interface IAcpAgentLaunch {
 export interface IAcpPermissionRequest {
 	readonly requestId: string;
 	readonly sessionId: string;
+	/** The guest's own id of the call — ties the answer to the call in the audit log. Empty if not sent. */
+	readonly toolCallId: string;
 	/** Название инструмента, как его назвал агент. */
 	readonly title: string;
+	/**
+	 * Programmatic tool name (`read_file`), empty when the guest sends none. Shown next to the title
+	 * because the title is free text the guest writes as it likes, while the name is stable. It is a
+	 * label only: ACP declares it grants nothing, so no decision reads it.
+	 */
+	readonly name: string;
+	/** ACP tool kind (`edit`, `execute`, `read`…), empty when not sent. */
+	readonly toolKind: string;
 	/** Что именно он собирается сделать — готовая строка для показа. */
 	readonly detail: string;
 	/** Файлы, которых коснётся действие: по ним снимается чекпоинт ДО применения. */

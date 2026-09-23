@@ -39,6 +39,15 @@ suite('acpPermissionCard', () => {
 		assert.deepStrictEqual([card.includes('/app/file4.ts'), card.includes('/app/file8.ts'), card.includes('…и ещё 4')], [true, false, true]);
 	});
 
+	test('стабильное имя инструмента видно рядом с заголовком, но не дублирует его', () => {
+		// The title is the guest's free text; the name is what is actually called.
+		const named = formatAcpPermissionCard({ agentName: 'Агент', title: 'Прочитать настройки', name: 'read_file', paths: [], diffs: [] });
+		const same = formatAcpPermissionCard({ agentName: 'Агент', title: 'read_file', name: 'read_file', paths: [], diffs: [] });
+		assert.deepStrictEqual(
+			[named.includes('инструмент: `read_file`'), same.includes('инструмент:')],
+			[true, false]);
+	});
+
 	test('действие без правки файлов остаётся понятным', () => {
 		const card = formatAcpPermissionCard({ agentName: 'Агент', title: '', paths: [], diffs: [] });
 		assert.ok(card.includes('действие без названия'), card);

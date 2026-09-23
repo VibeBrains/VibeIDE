@@ -26,6 +26,11 @@ const ACP_CARD_MAX_PATHS = 5;
 export interface IAcpCardInput {
 	readonly agentName: string;
 	readonly title: string;
+	/**
+	 * Programmatic tool name, when the guest sent one. The title is free text the guest writes as it
+	 * likes; the name is stable, so a person deciding with a thumb sees what is actually being called.
+	 */
+	readonly name?: string;
 	readonly paths: readonly string[];
 	readonly diffs: readonly IAcpDiff[];
 }
@@ -38,6 +43,9 @@ export interface IAcpCardInput {
  */
 export function formatAcpPermissionCard(input: IAcpCardInput): string {
 	const lines: string[] = [`🤝 **${input.agentName}** просит разрешения`, '', input.title || 'действие без названия'];
+	if (input.name && input.name !== input.title) {
+		lines.push(`инструмент: \`${input.name}\``);
+	}
 
 	const shown = input.paths.slice(0, ACP_CARD_MAX_PATHS);
 	if (shown.length > 0) {

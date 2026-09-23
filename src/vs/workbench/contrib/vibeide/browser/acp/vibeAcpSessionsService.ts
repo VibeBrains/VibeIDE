@@ -23,7 +23,9 @@ import { ICommandService } from '../../../../../platform/commands/common/command
 import { INotificationService, Severity } from '../../../../../platform/notification/common/notification.js';
 import { AcpEvent, IAcpPermissionRequest, IAcpSession } from '../../common/acp/acpTypes.js';
 import { AcpStopReason, IAcpDiff } from '../../common/acp/acpProtocol.js';
-import { AcpSessionLog, IAcpSessionSnapshot } from '../../common/acp/acpSessionLog.js';
+import { AcpLogEntry, AcpSessionLog, IAcpSessionSnapshot } from '../../common/acp/acpSessionLog.js';
+import { buildAcpPermissionAudit, buildAcpSessionAudit, buildAcpToolCallAudit } from '../../common/acp/acpAudit.js';
+import { AuditEvent, IAuditLogService } from '../../common/auditLogService.js';
 import { IVibeAcpService } from '../../common/acp/vibeAcpService.js';
 import { IRollbackSnapshotService } from '../../common/rollbackSnapshotService.js';
 import { IVibeAgentActivityLogService } from '../vibeAgentActivityLogService.js';
@@ -93,6 +95,7 @@ class VibeAcpSessionsService extends Disposable implements IVibeAcpSessionsServi
 		@IVibeAgentActivityLogService private readonly _activityLog: IVibeAgentActivityLogService,
 		@INotificationService private readonly _notificationService: INotificationService,
 		@ICommandService private readonly _commandService: ICommandService,
+		@IAuditLogService private readonly _auditLog: IAuditLogService,
 	) {
 		super();
 		this._register(this._acpService.onEvent(event => this._observe(event)));
@@ -129,6 +132,7 @@ class VibeAcpSessionsService extends Disposable implements IVibeAcpSessionsServi
 			busy: false,
 		});
 		this._activityLog.logStarted(localize('vibeide.acp.log.session', "Внешний агент «{0}» открыл сессию", session.agentName));
+		this._audit(buildAcpSessionAudit({ agentId: agent.id, sessionId: session.sessionId, phase: 'started' }, Date.now()));
 		this._onDidChange.fire();
 		return session;
 	}
@@ -163,6 +167,17 @@ class VibeAcpSessionsService extends Disposable implements IVibeAcpSessionsServi
 		this._onDidChange.fire();
 
 		await this._acpService.answerPermission(pending.request.requestId, optionId);
+		const request = pending.request;
+		this._audit(buildAcpPermissionAudit({
+			agentId: state.agentId,
+			sessionId,
+			toolCallId: request.toolCallId,
+			title: request.title,
+			name: request.name,
+			toolKind: request.toolKind,
+			paths: request.paths,
+			optionKind: optionId ? request.options.find(option => option.optionId === optionId)?.kind : undefined,
+		}, Date.now()));
 		if (!optionId && pending.snapshotId) {
 			await this._snapshotService.discardSnapshot(pending.snapshotId);
 		}
@@ -174,6 +189,10 @@ class VibeAcpSessionsService extends Disposable implements IVibeAcpSessionsServi
 
 	async endSession(sessionId: string): Promise<void> {
 		await this._acpService.endSession(sessionId);
+		const state = this._sessions.get(sessionId);
+		if (state) {
+			this._audit(buildAcpSessionAudit({ agentId: state.agentId, sessionId, phase: 'ended' }, Date.now()));
+		}
 		this._sessions.delete(sessionId);
 		this._onDidChange.fire();
 	}
@@ -189,7 +208,10 @@ class VibeAcpSessionsService extends Disposable implements IVibeAcpSessionsServi
 			case 'tool': {
 				const state = this._sessions.get(event.sessionId);
 				state?.log.applyTool({ toolCallId: event.toolCallId, title: event.title, name: event.name, toolKind: event.toolKind, status: event.status, paths: event.paths, diffs: event.diffs });
-				if (state) { this._journalEdit(state, event.toolCallId, event.status); }
+				if (state) {
+					this._journalEdit(state, event.toolCallId, event.status);
+					this._auditToolCall(state, event.toolCallId, event.status);
+				}
 				this._onDidChange.fire();
 				return;
 			}
@@ -217,6 +239,7 @@ class VibeAcpSessionsService extends Disposable implements IVibeAcpSessionsServi
 					state.busy = false;
 					state.error = event.error;
 					state.pending = undefined;
+					this._audit(buildAcpSessionAudit({ agentId: state.agentId, sessionId: state.sessionId, phase: 'failed', error: event.error }, Date.now()));
 				}
 				this._activityLog.logError(localize('vibeide.acp.log.failed', "Связь с внешним агентом оборвалась: {0}", event.error));
 				this._onDidChange.fire();
@@ -239,16 +262,42 @@ class VibeAcpSessionsService extends Disposable implements IVibeAcpSessionsServi
 	 * итог. Слушатель, читающий дифф из завершающего события, не запишет ни одной правки.
 	 */
 	private _journalEdit(state: ISessionState, toolCallId: string, status: string): void {
-		if (status !== 'completed' && status !== 'failed') { return; }
-		const entry = state.log.snapshot.entries.find(item => item.kind === 'tool' && item.id === toolCallId);
-		const diffs = entry?.kind === 'tool' ? entry.diffs : [];
-		if (diffs.length === 0) { return; }
-		const text = describeEdits(entry?.kind === 'tool' ? entry.title : '', diffs);
+		const entry = settledToolEntry(state, toolCallId, status);
+		const diffs = entry?.diffs ?? [];
+		if (!entry || diffs.length === 0) { return; }
+		const text = describeEdits(entry.title, diffs);
 		if (status === 'failed') {
 			this._activityLog.logError(localize('vibeide.acp.log.editFailed', "Правка внешнего агента не удалась: {0}", text));
 		} else {
 			this._activityLog.logFinished(text);
 		}
+	}
+
+	/**
+	 * A settled call goes to the audit log whether or not it edited anything: reading a secret or
+	 * running a command is exactly what the log has to answer for. Built from the accumulated log entry
+	 * for the same reason as the journal above — the finishing frame carries no diff.
+	 */
+	private _auditToolCall(state: ISessionState, toolCallId: string, status: string): void {
+		const entry = settledToolEntry(state, toolCallId, status);
+		if (!entry) { return; }
+		this._audit(buildAcpToolCallAudit({
+			agentId: state.agentId,
+			sessionId: state.sessionId,
+			toolCallId,
+			title: entry.title,
+			name: entry.name,
+			toolKind: entry.toolKind,
+			status: entry.status,
+			paths: entry.paths,
+			diffs: entry.diffs,
+		}, Date.now()));
+	}
+
+	/** Writing the audit must never break the guest's turn: a failed write is dropped, not thrown. */
+	private _audit(event: AuditEvent): void {
+		if (!this._auditLog.isEnabled()) { return; }
+		void this._auditLog.append(event).catch(() => { });
 	}
 
 	/** Чекпоинт по путям правки, затем вопрос человеку — уведомлением, если вкладка закрыта. */
@@ -318,5 +367,14 @@ export function describeEdits(title: string, diffs: readonly IAcpDiff[]): string
 
 /** Пустой текст — это ноль строк: так выглядит создание файла и удаление содержимого. */
 const countLines = (text: string): number => (text ? text.split('\n').length : 0);
+
+type AcpToolLogEntry = Extract<AcpLogEntry, { readonly kind: 'tool' }>;
+
+/** The log entry of a call that has just settled; only `completed` and `failed` settle a call. */
+function settledToolEntry(state: ISessionState, toolCallId: string, status: string): AcpToolLogEntry | undefined {
+	if (status !== 'completed' && status !== 'failed') { return undefined; }
+	const entry = state.log.snapshot.entries.find(item => item.kind === 'tool' && item.id === toolCallId);
+	return entry?.kind === 'tool' ? entry : undefined;
+}
 
 registerSingleton(IVibeAcpSessionsService, VibeAcpSessionsService, InstantiationType.Delayed);

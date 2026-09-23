@@ -484,6 +484,7 @@ export class VibeTelegramBridgeContribution extends Disposable implements IWorkb
 			text: markdownToTelegramHtml(formatAcpPermissionCard({
 				agentName: session.agentName,
 				title: pending.title,
+				name: pending.name,
 				paths: pending.paths,
 				diffs: pending.diffs,
 			})),

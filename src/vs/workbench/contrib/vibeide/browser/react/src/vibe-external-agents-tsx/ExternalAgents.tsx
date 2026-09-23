@@ -131,6 +131,10 @@ const PermissionCard = ({ session, onAnswer }: { session: IVibeAcpSessionView; o
 	if (!request) { return null; }
 	return <div className='rounded-lg border border-vibe-warning bg-vibe-bg-2 px-3 py-3'>
 		<div className='text-root font-semibold text-vibe-fg-0'>{request.title}</div>
+		{/* The title is free text the guest writes; the name is stable and shows what is really called. */}
+		{request.name && request.name !== request.title && <div className='mt-1 text-root text-vibe-fg-2'>
+			инструмент: <span className='font-mono'>{request.name}</span>
+		</div>}
 		<div className='mt-1 whitespace-pre-wrap text-root text-vibe-fg-2'>{request.detail}</div>
 		{request.diffs.length > 0 && <div className='mt-2 flex flex-col gap-2'>
 			{request.diffs.map((diff, index) => <DiffBlock key={`${diff.path}:${index}`} diff={diff} />)}

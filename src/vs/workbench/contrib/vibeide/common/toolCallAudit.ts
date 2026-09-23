@@ -71,7 +71,6 @@ export function toolCallTargetPath(input: ToolCallAuditInput): string | undefine
 	return candidate.slice(0, MAX_TARGET_LEN);
 }
 
-/** Fields for the audit event of a tool call. Arguments never travel; the target path may. */
 /** Tools that change files. Reading `.vibe/` is ordinary work; writing to it is the notable event. */
 const WRITE_TOOLS: ReadonlySet<string> = new Set([
 	'edit_file',
@@ -104,6 +103,7 @@ export function writesToSharedState(toolName: string, targetPath: string | undef
 	return normalized === '.vibe' || normalized.startsWith('.vibe/') || normalized.includes('/.vibe/') || normalized.endsWith('/.vibe');
 }
 
+/** Fields for the audit event of a tool call. Arguments never travel; the target path may. */
 export function buildToolCallAudit(input: ToolCallAuditInput): ToolCallAuditFields {
 	const target = toolCallTargetPath(input);
 	const meta: Record<string, unknown> = { tool: input.toolName };

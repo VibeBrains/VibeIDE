@@ -73,8 +73,10 @@ Registry.as<IConfigurationRegistry>(ConfigurationExtensions.Configuration).regis
  *   - `agent`    — the main agent acted inside a turn, on the person's behalf.
  *   - `subagent` — a delegated role acted; `actorId` names which one.
  *   - `system`   — VibeIDE itself acted with nobody asking (rotation, breaker recovery, schedules).
+ *   - `guest`    — an external agent speaking ACP acted inside the editor; `actorId` is its id in
+ *                  `.vibe/agents.json`. Not a `subagent`: it is someone else's code, not our delegate.
  */
-export type AuditActor = 'human' | 'agent' | 'subagent' | 'system';
+export type AuditActor = 'human' | 'agent' | 'subagent' | 'system' | 'guest';
 
 export interface AuditEvent {
 	ts: number;
@@ -104,6 +106,9 @@ export interface AuditEvent {
 	| 'agent_stop'
 	// A call to an MCP tool outside the server's `tools` list in mcp.json, refused before the server saw it.
 	| 'mcp_tool_refused'
+	// A guest agent over ACP: its session boundaries, the person's answers to it, its settled tool calls.
+	// What is and is not recorded about a guest — see `acp/acpAudit.ts`.
+	| 'acp_session' | 'acp_permission' | 'acp_tool_call'
 	| 'job_pr_creation'
 	| 'run_tests:start' | 'run_tests:complete'
 	| 'verify_gate:result'
