@@ -104,8 +104,11 @@ export interface AuditEvent {
 	| 'llm_turn'
 	// User stop: how long the run took to actually halt, and whether the ceiling had to force it.
 	| 'agent_stop'
-	// A call to an MCP tool outside the server's `tools` list in mcp.json, refused before the server saw it.
+	// A call to an MCP tool refused before the server saw it: outside the entry's `tools` list in mcp.json,
+	// or changed since it was approved (`meta.reason` says which).
 	| 'mcp_tool_refused'
+	// A server changed or added tools after approval; the person reviewed and accepted the change.
+	| 'mcp_tool_drift' | 'mcp_tool_drift_approved'
 	// A guest agent over ACP: its session boundaries, the person's answers to it, its settled tool calls.
 	// What is and is not recorded about a guest — see `acp/acpAudit.ts`.
 	| 'acp_session' | 'acp_permission' | 'acp_tool_call'

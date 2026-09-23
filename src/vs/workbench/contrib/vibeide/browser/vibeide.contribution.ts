@@ -719,6 +719,8 @@ import '../common/vibeBrowserAutomationService.js';
 
 // VibeIDE: MCP token rotation — thresholds for the rotation policy (vibeide.mcp.tokenRotation.*)
 import '../common/mcpTokenRotationConfiguration.js';
+// VibeIDE: MCP tool pins — a tool changed after approval is withheld until reviewed (vibeide.mcp.requireToolReapproval)
+import '../common/mcpToolPinsConfiguration.js';
 
 // VibeIDE: Binary diff policy — limits/placeholder for binary/large files in diff preview
 import '../common/vibeBinaryDiffPolicyService.js';

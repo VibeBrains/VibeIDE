@@ -434,6 +434,7 @@ export class MCPChannel implements IServerChannel {
 	 * сам говорит, до какого момента ему верить, и по истечении мы перечитываем ровно его.
 	 */
 	private async _listTools(client: import('@modelcontextprotocol/sdk/client/index.js').Client, serverName: string): Promise<{ tools: MCPTool[] }> {
+		await this._watchToolListChanges(client, serverName);
 		const listed = await client.listTools();
 		const meta = parseCacheableMeta(listed);
 		this._scheduleToolListRefresh(serverName, meta);
@@ -445,6 +446,23 @@ export class MCPChannel implements IServerChannel {
 			vibeLog.warn('mcpChannel', `MCP server "${serverName}": инструмент «${item.name}» отвергнут — ${item.reason}`);
 		}
 		return { tools };
+	}
+
+	/**
+	 * Re-read the list the moment the server says it changed (`notifications/tools/list_changed`), so a
+	 * tool changed after approval is checked against its pin now rather than at the next start. Only a
+	 * server that declared `tools.listChanged` sends it; for the rest a declared cache lifetime is still
+	 * the only signal. Setting the handler again on every re-read is harmless: it replaces itself.
+	 */
+	private async _watchToolListChanges(client: import('@modelcontextprotocol/sdk/client/index.js').Client, serverName: string): Promise<void> {
+		if (!client.getServerCapabilities()?.tools?.listChanged) {
+			return;
+		}
+		const { ToolListChangedNotificationSchema } = await import('@modelcontextprotocol/sdk/types.js');
+		client.setNotificationHandler(ToolListChangedNotificationSchema, () => {
+			vibeLog.info('mcpChannel', `MCP server "${serverName}": сервер сообщил об изменении списка инструментов — перечитываю`);
+			void this._rereadToolList(serverName);
+		});
 	}
 
 	/** Перечитать список этого сервера, когда объявленный им срок истечёт. */
@@ -461,11 +479,11 @@ export class MCPChannel implements IServerChannel {
 		vibeLog.info('mcpChannel', `MCP server "${serverName}": список инструментов годен ${meta.ttlMs} мс${meta.cacheScope ? ` (${meta.cacheScope})` : ''} — перечитаю через ${delay} мс`);
 		this._toolListTimers.set(serverName, setTimeout(() => {
 			this._toolListTimers.delete(serverName);
-			void this._refreshExpiredToolList(serverName);
+			void this._rereadToolList(serverName);
 		}, delay));
 	}
 
-	private async _refreshExpiredToolList(serverName: string): Promise<void> {
+	private async _rereadToolList(serverName: string): Promise<void> {
 		const info = this.infoOfClientId[serverName];
 		const client = info?._client;
 		if (!client || info.mcpServer.status !== 'success') {

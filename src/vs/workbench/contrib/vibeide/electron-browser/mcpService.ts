@@ -45,7 +45,11 @@ import { IVibeideSettingsService } from '../common/vibeideSettingsService.js';
 import { MCPUserStateOfName } from '../common/vibeideSettingsTypes.js';
 import { IVibeOutboundRingBuffer } from '../common/vibeOutboundRingBuffer.js';
 import { IConfigurationService } from '../../../../platform/configuration/common/configuration.js';
-import { INotificationService } from '../../../../platform/notification/common/notification.js';
+import { INotificationService, Severity } from '../../../../platform/notification/common/notification.js';
+import { IStorageService } from '../../../../platform/storage/common/storage.js';
+import { InMemoryFileSystemProvider } from '../../../../platform/files/common/inMemoryFilesystemProvider.js';
+import { McpToolDefinitions, McpToolDrift, McpToolPinsStore, describeDefinitions, diffToolDefinitions, serverPinKey, toolDefinitionsOf, withheldToolsOf } from '../common/mcpToolPins.js';
+import { MCP_REQUIRE_TOOL_REAPPROVAL_KEY } from '../common/mcpToolPinsConfiguration.js';
 import { scanMcpConfig, ConfigGuardFinding } from '../common/vibeConfigGuard.js';
 import { IMCPService, MCPServiceState } from '../common/mcpService.js';
 import { FoundMemoryServer, VIBE_MEMORY_SERVER_NAME, vibeMemoryServerPathSegments, withDiscoveredMemoryServer } from '../common/vibeMemoryServerDiscovery.js';
@@ -117,8 +121,10 @@ class MCPService extends Disposable implements IMCPService {
 		@IAuditLogService private readonly _auditLogService: IAuditLogService,
 		@IQuickInputService private readonly _quickInput: IQuickInputService,
 		@IWorkspaceContextService private readonly _workspace: IWorkspaceContextService,
+		@IStorageService storageService: IStorageService,
 	) {
 		super();
+		this._toolPins = new McpToolPinsStore(storageService);
 		this.channel = this.mainProcessService.getChannel('vibe-channel-mcp');
 
 
@@ -247,8 +253,117 @@ class MCPService extends Disposable implements IMCPService {
 			this._memoryProjectOfFolder.clear();
 		}
 		this._warnAboutShadowedBuiltins(serverName, newServer);
+		this._checkToolPins(serverName, newServer);
 		this._onDidChangeState.fire();
 	};
+
+	// ── Tool definitions changed after approval ───────────────────────────────────
+
+	private readonly _toolPins: McpToolPinsStore;
+	/** Tools of each server hidden from the model until a person has looked at their change. */
+	private readonly _withheldTools = new Map<string, ReadonlySet<string>>();
+	/** The change awaiting a look, per server: what to pin once it is accepted. */
+	private readonly _pendingDrift = new Map<string, { readonly key: string; readonly pinned: McpToolDefinitions; readonly current: McpToolDefinitions; readonly drift: McpToolDrift }>();
+	/** The last change announced per server: a list re-read on a timer must not announce it again. */
+	private readonly _announcedDrift = new Map<string, string>();
+	/** Read-only documents for the before/after comparison; registered on first use. */
+	private _driftDocuments: InMemoryFileSystemProvider | undefined;
+
+	/**
+	 * Compare the server's tools with what was approved. The first listing is pinned silently; a later
+	 * change or addition is withheld and announced; a removal alone just updates the pin. With the check
+	 * switched off every listing is accepted — and still pinned, so switching it back on starts from now.
+	 */
+	private _checkToolPins(serverName: string, server: MCPServer | undefined): void {
+		if (!server || server.status !== 'success' || !server.tools) {
+			// A server out of work offers nothing. The announcement is kept, so a server that comes back
+			// with the same change is not announced a second time.
+			this._withheldTools.delete(serverName);
+			this._pendingDrift.delete(serverName);
+			return;
+		}
+		const key = serverPinKey(serverName, this._serverEntries[serverName]);
+		const current = toolDefinitionsOf(server.tools);
+		const pinned = this._toolPins.get(key);
+		if (!pinned) {
+			// First listing: adding the server to mcp.json was the consent.
+			this._toolPins.set(key, current);
+			this._forgetToolDrift(serverName);
+			return;
+		}
+		const drift = diffToolDefinitions(pinned, current);
+		const needsLook = drift.changed.length > 0 || drift.added.length > 0;
+		if (!needsLook || this._configurationService.getValue<boolean>(MCP_REQUIRE_TOOL_REAPPROVAL_KEY) === false) {
+			if (needsLook || drift.removed.length > 0) {
+				this._toolPins.set(key, current);
+			}
+			this._forgetToolDrift(serverName);
+			return;
+		}
+		this._withheldTools.set(serverName, withheldToolsOf(drift));
+		this._pendingDrift.set(serverName, { key, pinned, current, drift });
+		const signature = JSON.stringify(drift) + JSON.stringify(drift.changed.map(name => current[name]));
+		if (this._announcedDrift.get(serverName) === signature) {
+			return;
+		}
+		this._announcedDrift.set(serverName, signature);
+		if (this._auditLogService.isEnabled()) {
+			void this._auditLogService.append({ ts: Date.now(), actor: 'system', action: 'mcp_tool_drift', ok: false, meta: { serverName, changed: drift.changed, added: drift.added, removed: drift.removed } }).catch(() => { });
+		}
+		this._notificationService.prompt(
+			Severity.Warning,
+			localize('vibeide.mcp.drift.notify', "MCP-сервер «{0}» изменил инструменты после одобрения: изменено {1}, добавлено {2}. Пока вы их не посмотрите, агент их не видит.", serverName, drift.changed.length, drift.added.length),
+			[
+				{ label: localize('vibeide.mcp.drift.show', "Показать изменения"), run: () => void this._showToolDrift(serverName) },
+				{ label: localize('vibeide.mcp.drift.accept', "Принять"), run: () => this._acceptToolDrift(serverName) },
+			],
+			{ sticky: true },
+		);
+	}
+
+	private _forgetToolDrift(serverName: string): void {
+		this._withheldTools.delete(serverName);
+		this._pendingDrift.delete(serverName);
+		this._announcedDrift.delete(serverName);
+	}
+
+	/** Before and after, side by side, for the changed and added tools only. */
+	private async _showToolDrift(serverName: string): Promise<void> {
+		const pending = this._pendingDrift.get(serverName);
+		if (!pending) {
+			return;
+		}
+		if (!this._driftDocuments) {
+			this._driftDocuments = this._register(new InMemoryFileSystemProvider());
+			this._register(this.fileService.registerProvider(MCP_DRIFT_SCHEME, this._driftDocuments));
+		}
+		const names = [...pending.drift.changed, ...pending.drift.added];
+		const folder = URI.from({ scheme: MCP_DRIFT_SCHEME, path: `/${encodeURIComponent(serverName)}` });
+		const before = joinPath(folder, 'approved.json');
+		const after = joinPath(folder, 'now.json');
+		this._driftDocuments.setReadOnly(false);
+		await this.fileService.writeFile(before, VSBuffer.fromString(describeDefinitions(pending.pinned, names)));
+		await this.fileService.writeFile(after, VSBuffer.fromString(describeDefinitions(pending.current, names)));
+		this._driftDocuments.setReadOnly(true);
+		await this.editorService.openEditor({
+			original: { resource: before },
+			modified: { resource: after },
+			label: localize('vibeide.mcp.drift.diffTitle', "MCP «{0}»: одобрено ↔ сейчас", serverName),
+		});
+	}
+
+	private _acceptToolDrift(serverName: string): void {
+		const pending = this._pendingDrift.get(serverName);
+		if (!pending) {
+			return;
+		}
+		this._toolPins.set(pending.key, pending.current);
+		this._forgetToolDrift(serverName);
+		if (this._auditLogService.isEnabled()) {
+			void this._auditLogService.append({ ts: Date.now(), actor: 'human', action: 'mcp_tool_drift_approved', ok: true, meta: { serverName, changed: pending.drift.changed, added: pending.drift.added, removed: pending.drift.removed } }).catch(() => { });
+		}
+		this._onDidChangeState.fire();
+	}
 
 	/** Answers of `project_resolve` by folder; only real answers are kept, so a slow server is asked again. */
 	private readonly _memoryProjectOfFolder = new Map<string, MemoryProjectAnswer>();
@@ -362,6 +477,8 @@ class MCPService extends Disposable implements IMCPService {
 				if (!isMcpToolVisibleToModel(tool)) { return; }
 				// A tool outside the entry's own list is not offered: the model cannot ask for what it never saw.
 				if (!isMcpToolAllowedByEntry(this._serverEntries[serverName], tool.name)) { return; }
+				// Nor is one that changed after approval: its new description is an instruction nobody reviewed.
+				if (this._withheldTools.get(serverName)?.has(tool.name)) { return; }
 				const sanitizedTool = sanitizeMcpIdentifier(tool.name);
 				// Model-facing identifier with collision-safe `<server>_<tool>` prefix.
 				// Two MCP servers exposing same-named tools used to alias each other —
@@ -627,15 +744,22 @@ class MCPService extends Disposable implements IMCPService {
 	/** Entries of the last read `mcp.json`, for the per-server tool list. */
 	private _serverEntries: Record<string, MCPConfigFileEntryJSON> = {};
 
-	/** Refuse a call outside the entry's tool list before it reaches the server, and say so in the audit log. */
+	/**
+	 * Refuse a call before it reaches the server, and say so in the audit log: a tool outside the entry's
+	 * tool list, or one that changed after approval and has not been looked at yet.
+	 */
 	private _refuseUnlistedTool(serverName: string, toolName: string): void {
-		if (isMcpToolAllowedByEntry(this._serverEntries[serverName], toolName)) {
+		const notListed = !isMcpToolAllowedByEntry(this._serverEntries[serverName], toolName);
+		const changed = !notListed && !!this._withheldTools.get(serverName)?.has(toolName);
+		if (!notListed && !changed) {
 			return;
 		}
 		if (this._auditLogService.isEnabled()) {
-			void this._auditLogService.append({ ts: Date.now(), actor: 'agent', action: 'mcp_tool_refused', ok: false, meta: { serverName, toolName } }).catch(() => { });
+			void this._auditLogService.append({ ts: Date.now(), actor: 'agent', action: 'mcp_tool_refused', ok: false, meta: { serverName, toolName, reason: notListed ? 'notListed' : 'changedAfterApproval' } }).catch(() => { });
 		}
-		throw new Error(localize('vibeide.mcp.toolNotListed', 'Инструмент «{0}» сервера «{1}» не входит в список tools его записи в mcp.json — вызов отклонён до обращения к серверу.', toolName, serverName));
+		throw new Error(notListed
+			? localize('vibeide.mcp.toolNotListed', 'Инструмент «{0}» сервера «{1}» не входит в список tools его записи в mcp.json — вызов отклонён до обращения к серверу.', toolName, serverName)
+			: localize('vibeide.mcp.toolChanged', 'Инструмент «{0}» сервера «{1}» изменился после одобрения — вызов отклонён, пока вы не посмотрите изменения.', toolName, serverName));
 	}
 
 	public getLastGuardFindings(): readonly ConfigGuardFinding[] {
@@ -724,5 +848,8 @@ class MCPService extends Disposable implements IMCPService {
 	// 	return toolFns
 	// }
 }
+
+/** Scheme of the read-only before/after documents of a tool change. */
+const MCP_DRIFT_SCHEME = 'vibe-mcp-drift';
 
 registerSingleton(IMCPService, MCPService, InstantiationType.Eager);
