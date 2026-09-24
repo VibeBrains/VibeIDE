@@ -3007,13 +3007,9 @@ const getTitle = (toolMessage: Pick<ChatMessage & { role: 'tool' }, 'name' | 'ty
 	if (!builtinToolNames.includes(t.name as BuiltinToolName)) {
 		// descriptor of Running or Ran etc
 		const descriptor =
-			t.type === 'success' ? 'Called'
-				: t.type === 'running_now' ? 'Calling'
-					: t.type === 'tool_request' ? 'Call'
-						: t.type === 'rejected' ? 'Call'
-							: t.type === 'invalid_params' ? 'Call'
-								: t.type === 'tool_error' ? 'Call'
-									: 'Call';
+			t.type === 'success' ? 'Вызвал'
+				: t.type === 'running_now' ? 'Вызывает'
+					: 'Вызвать';
 
 
 		const title = `${descriptor} ${toolMessage.mcpServerName || 'MCP'}`;
@@ -3500,13 +3496,18 @@ const McpAppFrame = ({ data, callId }: { data: IVibeMcpAppData; callId: string }
 	</div>;
 };
 
-/** Renders any tool without a bespoke wrapper: every MCP tool, plus built-ins not listed in `builtinToolNameToComponent`. */
+/**
+ * Renders any tool without a bespoke wrapper: every MCP tool, plus built-ins not listed in `builtinToolNameToComponent`
+ * A built-in keeps its whole name and shows `content` — the string the model got, hook verdict and loop nudge included
+ */
 const GenericToolWrapper = ({ toolMessage, threadId }: WrapperProps<string>) => {
 	const accessor = useAccessor();
 	const mcpService = accessor.get('IMCPService');
 
+	const isBuiltin = isABuiltinToolName(toolMessage.name);
 	const title = getTitle(toolMessage);
-	const desc1 = removeMCPToolNamePrefix(toolMessage.name);
+	// The prefix strip is for MCP names (`server_tool`); on a built-in it cut `design_review` down to `review`.
+	const desc1 = isBuiltin ? toolMessage.name : removeMCPToolNamePrefix(toolMessage.name);
 	const icon = null;
 
 
@@ -3535,12 +3536,10 @@ const GenericToolWrapper = ({ toolMessage, threadId }: WrapperProps<string>) => 
 
 	const redactedParams = redactParams(params);
 	const paramsStr = JSON.stringify(redactedParams, null, 2);
-	componentParams.desc2 = <CopyButton codeStr={paramsStr} toolTipName={`Copy inputs (redacted): ${paramsStr}`} />;
+	componentParams.desc2 = <CopyButton codeStr={paramsStr} toolTipName={`Скопировать параметры (секреты скрыты): ${paramsStr}`} />;
 
-	componentParams.info = !toolMessage.mcpServerName ? 'MCP tool not found' : undefined;
-
-	// Add copy inputs button in desc2
-
+	// A built-in has no server by nature; only an MCP tool whose server is gone deserves this note.
+	componentParams.info = !isBuiltin && !toolMessage.mcpServerName ? 'MCP-инструмент не найден' : undefined;
 
 	const appResourceUri = toolMessage.type === 'success' && toolMessage.mcpServerName ? mcpService.getAppResourceUri(toolMessage.mcpServerName, toolMessage.name) : undefined;
 
@@ -3560,7 +3559,17 @@ const GenericToolWrapper = ({ toolMessage, threadId }: WrapperProps<string>) => 
 		return <ToolHeaderWrapper {...componentParams} isOpen={true} />;
 	}
 
-	if (toolMessage.type === 'success' || toolMessage.type === 'tool_request') {
+	if (isBuiltin && toolMessage.type === 'success') {
+		// The result object is the tool's internals; the model reads the formatted text, and so should the user.
+		if (toolMessage.content) {
+			componentParams.children = <ToolChildrenWrapper>
+				<CodeChildren className='bg-vibe-bg-3'>
+					<pre className='font-mono whitespace-pre-wrap break-words'>{toolMessage.content}</pre>
+				</CodeChildren>
+			</ToolChildrenWrapper>;
+		}
+	}
+	else if (toolMessage.type === 'success' || toolMessage.type === 'tool_request') {
 		const { result } = toolMessage;
 		if (result) {
 			const resultStr = mcpService.stringifyResult(result);
