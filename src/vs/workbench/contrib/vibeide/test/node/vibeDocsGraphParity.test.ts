@@ -19,6 +19,7 @@ import { fileURLToPath, pathToFileURL } from 'url';
 import { join } from 'path';
 import { parseDocLinks as parseInModel } from '../../common/vibeDocsGraph.js';
 import { ensureNoDisposablesAreLeakedInTestSuite } from '../../../../../base/test/common/utils.js';
+import { skipInElectronRenderer } from './nodeOnly.js';
 
 interface IRawLink { readonly target: string; readonly kind: string }
 type ParseFn = (content: string) => IRawLink[];
@@ -59,10 +60,7 @@ suite('vibeDocsGraph — parity with scripts/vibe-docs-graph.mjs', () => {
 		// `out/`. The Electron renderer (where `test.sh` runs the unit suite) cannot fetch a file://
 		// module beyond the app bundle → "Failed to fetch dynamically imported module". The parity is
 		// exercised by the node test runner (`npm run test-node`), so skip it in the renderer.
-		const proc = (globalThis as { process?: { type?: string } }).process;
-		if (proc?.type === 'renderer') {
-			this.skip();
-		}
+		skipInElectronRenderer(this);
 		const scriptPath = join(repoRootOf(import.meta.url), 'scripts', 'vibe-docs-graph.mjs');
 		const script = await import(pathToFileURL(scriptPath).href);
 		parseInScript = script.parseDocLinks;

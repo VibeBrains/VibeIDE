@@ -9,10 +9,13 @@ import { AddressInfo } from 'net';
 import { deepClone } from '../../../../../base/common/objects.js';
 import { ensureNoDisposablesAreLeakedInTestSuite } from '../../../../../base/test/common/utils.js';
 // The channel and the send path live in electron-main but are plain Node — the Node runner is where they run.
+// They are imported in `suiteSetup`, after the renderer skip: statically, the renderer fails to resolve a package
+// subpath of the send path and the whole Electron run stops at load.
 // eslint-disable-next-line local/code-layering, local/code-import-patterns
-import { LLMMessageChannel } from '../../electron-main/sendLLMMessageChannel.js';
+import type * as ChannelModule from '../../electron-main/sendLLMMessageChannel.js';
 // eslint-disable-next-line local/code-layering, local/code-import-patterns
-import { sendLLMMessage } from '../../electron-main/llmMessage/sendLLMMessage.js';
+import type * as SendModule from '../../electron-main/llmMessage/sendLLMMessage.js';
+import { skipInElectronRenderer } from './nodeOnly.js';
 import type { IMetricsService } from '../../common/metricsService.js';
 import type { AbortRef, MainSendLLMMessageParams } from '../../common/sendLLMMessageTypes.js';
 import { defaultSettingsOfProvider, SettingsOfProvider } from '../../common/vibeideSettingsTypes.js';
@@ -33,7 +36,13 @@ suite('Отмена запроса к модели — обрыв соедине
 	let port = 0;
 	const calls: { closed: boolean; answered: boolean }[] = [];
 
-	suiteSetup(async () => {
+	let LLMMessageChannel: typeof ChannelModule.LLMMessageChannel;
+	let sendLLMMessage: typeof SendModule.sendLLMMessage;
+
+	suiteSetup(async function () {
+		skipInElectronRenderer(this);
+		({ LLMMessageChannel } = await import('../../electron-main/sendLLMMessageChannel.js'));
+		({ sendLLMMessage } = await import('../../electron-main/llmMessage/sendLLMMessage.js'));
 		const { createServer } = await import('http');
 		server = createServer((req: IncomingMessage, res: ServerResponse) => {
 			const call = { closed: false, answered: false };
@@ -58,6 +67,10 @@ suite('Отмена запроса к модели — обрыв соедине
 	});
 
 	suiteTeardown(async () => {
+		// Skipped in the renderer before the server was made; mocha still runs the teardown.
+		if (!server) {
+			return;
+		}
 		server.closeAllConnections();
 		await new Promise<void>(resolve => server.close(() => resolve()));
 	});

@@ -11,16 +11,18 @@ import { deepClone } from '../../../../../base/common/objects.js';
 // The adapter lives in electron-main but is plain Node — undici, the AI SDK, no Electron API. The Electron unit
 // runner loads tests into a renderer, where undici finds no Node internals (`markResourceTiming`, timer `unref`)
 // and fails; the Node runner is the environment this code actually runs in.
+// Imported in `suiteSetup`, after the renderer skip — statically, the renderer stops the whole Electron run at load.
 // eslint-disable-next-line local/code-layering, local/code-import-patterns
-import { sendViaAISdk } from '../../electron-main/llmMessage/aiSdkAdapter.js';
+import type * as AdapterModule from '../../electron-main/llmMessage/aiSdkAdapter.js';
 // eslint-disable-next-line local/code-layering, local/code-import-patterns
 import type { SendChatParams_Internal } from '../../electron-main/llmMessage/sendLLMMessage.internalTypes.js';
 // eslint-disable-next-line local/code-layering, local/code-import-patterns
-import { sendLLMMessage } from '../../electron-main/llmMessage/sendLLMMessage.js';
+import type * as SendModule from '../../electron-main/llmMessage/sendLLMMessage.js';
 import type { IMetricsService } from '../../common/metricsService.js';
 import type { LLMChatMessage } from '../../common/sendLLMMessageTypes.js';
 import { defaultSettingsOfProvider, SettingsOfProvider } from '../../common/vibeideSettingsTypes.js';
 import { setExternalProviders } from '../../common/modelCapabilities.js';
+import { skipInElectronRenderer } from './nodeOnly.js';
 
 /**
  * Встроенные провайдеры через AI SDK — против локального сервера, отдающего настоящие потоки вендоров.
@@ -134,7 +136,13 @@ suite('aiSdkAdapter — встроенные провайдеры против �
 	const requests: RecordedRequest[] = [];
 	const savedEnv = { anthropic: process.env.ANTHROPIC_BASE_URL, openai: process.env.OPENAI_BASE_URL };
 
-	suiteSetup(async () => {
+	let sendViaAISdk: typeof AdapterModule.sendViaAISdk;
+	let sendLLMMessage: typeof SendModule.sendLLMMessage;
+
+	suiteSetup(async function () {
+		skipInElectronRenderer(this);
+		({ sendViaAISdk } = await import('../../electron-main/llmMessage/aiSdkAdapter.js'));
+		({ sendLLMMessage } = await import('../../electron-main/llmMessage/sendLLMMessage.js'));
 		const { createServer } = await import('http');
 		server = createServer((req, res) => {
 			let raw = '';
@@ -157,7 +165,10 @@ suite('aiSdkAdapter — встроенные провайдеры против �
 		process.env.OPENAI_BASE_URL = savedEnv.openai;
 		if (savedEnv.anthropic === undefined) { delete process.env.ANTHROPIC_BASE_URL; }
 		if (savedEnv.openai === undefined) { delete process.env.OPENAI_BASE_URL; }
-		await new Promise<void>(resolve => server.close(() => resolve()));
+		// Skipped in the renderer before the server was made; mocha still runs the teardown.
+		if (server) {
+			await new Promise<void>(resolve => server.close(() => resolve()));
+		}
 	});
 
 	setup(() => { requests.length = 0; });
