@@ -41,7 +41,7 @@ interface ProviderRow {
 	name: string;
 	kind: 'builtin' | 'dynamic';
 	baseURL?: string;
-	keySource: string;            // 'gui' | 'env' | 'ref' | 'os-env' | 'secure' | 'none'
+	keySource: string;            // 'gui' | 'env' | 'ref' | 'os-env' | 'secure' | 'keyless' | 'none'
 	dyn?: ProviderDiagnosticsTarget;
 	layers: { config: LayerResult; network: LayerResult; auth: LayerResult; models: LayerResult };
 	latencyMs?: number;
@@ -66,6 +66,7 @@ const KEY_SOURCE_LABEL: Record<string, string> = {
 	ref: 'ссылка (apiKeyRef)',
 	'os-env': 'OS env (в main)',
 	secure: 'защищённое хранилище',
+	keyless: 'не нужен (auth: none)',
 	none: 'нет ключа',
 };
 
@@ -110,9 +111,9 @@ export const VibeProviderDiagnostics: React.FC = () => {
 
 	const enumerate = useCallback((): ProviderRow[] => {
 		const out: ProviderRow[] = [];
-		// Dynamic providers (.vibe/providers.json) — only the active ones (have a key).
+		// Dynamic providers (.vibe/providers.json) — only the active ones (have a key, or need none).
 		for (const t of dynProviders.getDiagnosticsTargets()) {
-			const keySource = (t.apiKeyEnv && !t.apiKey) ? 'os-env' : t.keySource;
+			const keySource = t.keyless ? 'keyless' : (t.apiKeyEnv && !t.apiKey) ? 'os-env' : t.keySource;
 			out.push({ id: t.id, name: t.displayName, kind: 'dynamic', baseURL: t.baseURL, keySource, dyn: t, layers: idleLayers(), checking: false });
 		}
 		// Built-in providers — only those with an actual API key. NOT `_didFillInProviderSettings`:
@@ -160,13 +161,15 @@ export const VibeProviderDiagnostics: React.FC = () => {
 				latencyMs = Math.round(performance.now() - start);
 				if (res.status === 'ok') {
 					layers.network = { status: 'ok' };
-					layers.auth = { status: 'ok' };
+					layers.auth = t.keyless ? { status: 'skip', detail: 'ключ не нужен' } : { status: 'ok' };
 					modelCount = res.models.length;
 					layers.models = { status: modelCount > 0 ? 'ok' : 'warn', detail: `${modelCount} моделей` };
 					markModelPresence(res.models);
 				} else if (res.status === 'unauthorized') {
 					layers.network = { status: 'ok' };
-					if (!t.apiKey && t.apiKeyEnv) {
+					if (t.keyless) {
+						layers.auth = { status: 'fail', detail: 'сервер требует ключ, а в файле auth: "none"' };
+					} else if (!t.apiKey && t.apiKeyEnv) {
 						layers.auth = { status: 'warn', detail: 'ключ в OS env — проверится при отправке' };
 					} else {
 						layers.auth = { status: 'fail', detail: 'ключ отклонён (401/403)' };

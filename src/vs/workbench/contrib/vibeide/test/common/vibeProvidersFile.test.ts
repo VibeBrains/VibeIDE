@@ -13,7 +13,9 @@
 import * as assert from 'assert';
 import {
 	parseProvidersFile,
+	parseAuth,
 	normalizeAuth,
+	isKeyless,
 	mergeProviderEntry,
 	VibeProviderEntry,
 } from '../../common/vibeProvidersFile.js';
@@ -76,6 +78,22 @@ suite('vibeProvidersFile — .vibe/providers.json format', () => {
 		test('passes through explicit header/query forms', () => {
 			assert.deepStrictEqual(normalizeAuth({ type: 'header', name: 'x-api-key' }), { type: 'header', name: 'x-api-key' });
 			assert.deepStrictEqual(normalizeAuth({ type: 'query', name: 'key' }), { type: 'query', name: 'key' });
+		});
+		// `none` used to fall through to bearer in silence, so a keyless local server was treated as one missing its key.
+		test('reads "none" in both forms; an unreadable value is named invalid and still falls back to bearer', () => {
+			const written: unknown[] = ['none', { type: 'none' }, 'None', 'basic', { type: 'oauth' }, 42];
+			assert.deepStrictEqual(written.map(auth => ({
+				parsed: parseAuth(auth),
+				normalized: normalizeAuth(auth as VibeProviderEntry['auth']),
+				keyless: isKeyless({ auth: auth as VibeProviderEntry['auth'] }),
+			})), [
+				{ parsed: { type: 'none' }, normalized: { type: 'none' }, keyless: true },
+				{ parsed: { type: 'none' }, normalized: { type: 'none' }, keyless: true },
+				{ parsed: 'invalid', normalized: { type: 'bearer' }, keyless: false },
+				{ parsed: 'invalid', normalized: { type: 'bearer' }, keyless: false },
+				{ parsed: 'invalid', normalized: { type: 'bearer' }, keyless: false },
+				{ parsed: 'invalid', normalized: { type: 'bearer' }, keyless: false },
+			]);
 		});
 	});
 

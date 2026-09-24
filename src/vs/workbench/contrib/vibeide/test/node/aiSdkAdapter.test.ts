@@ -372,6 +372,55 @@ suite('aiSdkAdapter — встроенные провайдеры против �
 		);
 	});
 
+	test('сервер без ключа (auth: "none"): ни на одном проводе ключа нет, ключ из окружения не подхватывается', async () => {
+		// Every SDK reads its vendor's variable when handed no key: a keyless route that let it would carry the
+		// user's real key to a server that asked for none.
+		const canary = 'sk-canary-from-env';
+		const envNames = ['OPENAI_API_KEY', 'ANTHROPIC_API_KEY', 'GOOGLE_GENERATIVE_AI_API_KEY'] as const;
+		const savedKeys = envNames.map(name => process.env[name]);
+		for (const name of envNames) { process.env[name] = canary; }
+		const wires = [
+			{ protocol: 'openai', base: '/compat/v1', path: '/compat/v1/chat/completions', model: 'local-model' },
+			{ protocol: 'openai-responses', base: '/v1', path: '/v1/responses', model: 'local-model' },
+			{ protocol: 'anthropic', base: '/v1', path: '/v1/messages', model: 'local-model' },
+			{ protocol: 'gemini', base: '/v1beta', path: '/v1beta/models/', model: 'local-model' },
+		];
+		try {
+			for (const wire of wires) {
+				await send({
+					providerName: 'test-keyless' as SendChatParams_Internal['providerName'],
+					modelName: wire.model,
+					settingsOfProvider: settingsWith({ 'test-keyless': { baseURL: `http://127.0.0.1:${port}${wire.base}`, protocol: wire.protocol, keyless: true, headers: { 'x-team': 'platform' } } }),
+					messages: [{ role: 'user', content: 'Привет' }],
+				});
+			}
+			await send({
+				providerName: 'test-keyed' as SendChatParams_Internal['providerName'],
+				modelName: 'local-model',
+				settingsOfProvider: settingsWith({ 'test-keyed': { baseURL: `http://127.0.0.1:${port}/compat/v1`, apiKey: 'k', protocol: 'openai' } }),
+				messages: [{ role: 'user', content: 'Привет' }],
+			});
+		} finally {
+			envNames.forEach((name, i) => {
+				if (savedKeys[i] === undefined) { delete process.env[name]; } else { process.env[name] = savedKeys[i]; }
+			});
+		}
+		const seen = (path: string, nth: number) => {
+			const request = requests.filter(r => r.path.startsWith(path))[nth];
+			return {
+				authorization: request?.headers['authorization'],
+				xApiKey: request?.headers['x-api-key'],
+				xGoogApiKey: request?.headers['x-goog-api-key'],
+				team: request?.headers['x-team'],
+			};
+		};
+		const keyless = { authorization: undefined, xApiKey: undefined, xGoogApiKey: undefined, team: 'platform' };
+		assert.deepStrictEqual(
+			[...wires.map(wire => seen(wire.path, 0)), seen('/compat/v1/chat/completions', 1)],
+			[keyless, keyless, keyless, keyless, { authorization: 'Bearer k', xApiKey: undefined, xGoogApiKey: undefined, team: undefined }],
+		);
+	});
+
 	test('Google: пауза из RetryInfo становится retry-after, далёкая пауза не повторяется на месте и названа лимитом', async () => {
 		const outcome = await send({
 			providerName: 'test-gemini' as SendChatParams_Internal['providerName'],

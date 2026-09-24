@@ -239,11 +239,11 @@ export class RemoteCatalogService implements IRemoteCatalogService {
 	private async fetchFromProvider(providerName: ProviderName): Promise<RemoteModelInfo[]> {
 		// Dynamic providers (.vibe/providers.json) aren't in settingsOfProvider. Resolve their
 		// baseURL + key from the transient transport overlay and fetch the standard OpenAI-compatible
-		// /v1/models — same generic handler the built-in openai-compat providers use. No baseURL or no
-		// key → nothing to fetch (the picker also hides keyless dynamic providers).
+		// /v1/models — same generic handler the built-in openai-compat providers use. No baseURL, or no
+		// key on a server that wants one → nothing to fetch; a server declared keyless is asked without one.
 		const dyn = this.settingsService.getDynamicTransportConfigs()[providerName as unknown as string];
 		if (dyn?.baseURL) {
-			if (!dyn.apiKey?.trim()) {
+			if (!dyn.keyless && !dyn.apiKey?.trim()) {
 				return [];
 			}
 			// `models.fetch: "<url>"` overrides the endpoint; otherwise derive it from baseURL.

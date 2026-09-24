@@ -343,6 +343,11 @@ export interface DynProviderTransportConfig {
 	readonly headers?: Record<string, string>;
 	readonly apiKey?: string;
 	readonly apiKeyEnv?: string;
+	/**
+	 * The file declares `"auth": "none"`: the server takes no key, and no key goes on the wire in any form
+	 * `apiKey` and `apiKeyEnv` are then absent — the renderer does not hand the send path a key it must not use
+	 */
+	readonly keyless?: true;
 	/** Custom models-catalog URL from `models.fetch: "<url>"`. When set, the catalog fetch hits this
 	 *  URL verbatim instead of the `<baseURL>/v1/models` default. */
 	readonly modelsUrl?: string;
@@ -387,10 +392,14 @@ export type DynamicProviderSeed = {
 	_didFillInProviderSettings: boolean;
 	/** Key validation status shown in the provider card. `valid` = the models endpoint authenticated;
 	 *  `invalid` = 401/403; `error` = network/server; `pending` = probe in flight; `unverified` =
-	 *  static-only (`fetch:false`, no probe); `none` = no key resolved. */
+	 *  static-only (`fetch:false`, no probe); `none` = no key resolved.
+	 *  For a `keyless` provider the same values read as the SERVER's answer to a probe sent without a key:
+	 *  `invalid` then means the server wants a key after all. */
 	keyStatus?: 'valid' | 'invalid' | 'error' | 'pending' | 'unverified' | 'none';
 	/** Where the resolved key came from — surfaced in the card so the user knows what's in effect. */
 	keySource?: 'gui' | 'env' | 'ref' | 'none';
+	/** `"auth": "none"` — the card hides the key field, which could only be ignored, and says no key is needed. */
+	keyless?: true;
 	/** Per-model caps from the file `static` list, carried so the SEND PATH (electron-main) can register
 	 *  this provider into its own copy of the caps registry — settingsOfProvider crosses the process
 	 *  boundary per request, the renderer-side registry doesn't. */

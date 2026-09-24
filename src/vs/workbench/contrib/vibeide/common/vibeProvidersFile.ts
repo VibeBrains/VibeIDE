@@ -81,9 +81,13 @@ export interface VibeProviderLongContext {
 
 export type VibeProviderProtocol = 'openai' | 'openai-responses' | 'anthropic' | 'gemini';
 
-/** Auth shorthand `"bearer"` or the explicit object form. `header`/`query` carry the field name. */
+/**
+ * Auth shorthand `"bearer"` / `"none"` or the explicit object form. `header`/`query` carry the field name
+ * `none` is a server that takes no key: nothing is sent, whatever key sources the entry declares
+ */
 export type VibeProviderAuth =
 	| { readonly type: 'bearer' }
+	| { readonly type: 'none' }
 	| { readonly type: 'header'; readonly name: string }
 	| { readonly type: 'query'; readonly name: string };
 
@@ -248,7 +252,7 @@ export interface VibeProviderEntry {
 
 	readonly protocol?: VibeProviderProtocol;
 	readonly baseURL?: string;
-	readonly auth?: VibeProviderAuth | 'bearer';
+	readonly auth?: VibeProviderAuth | 'bearer' | 'none';
 	/** API key from an environment variable (key never stored in the file). */
 	readonly apiKeyEnv?: string;
 	/** API key from VibeIDE's secure settings, by provider id. */
@@ -290,13 +294,32 @@ export interface VibeProvidersParseResult {
 
 const isObject = (v: unknown): v is Record<string, unknown> => !!v && typeof v === 'object' && !Array.isArray(v);
 
-/** Normalize the `auth` shorthand to its object form. Defaults to bearer. */
-export function normalizeAuth(auth: VibeProviderEntry['auth']): VibeProviderAuth {
-	if (auth === 'bearer' || auth === undefined) { return { type: 'bearer' }; }
-	if (isObject(auth) && (auth.type === 'bearer' || auth.type === 'header' || auth.type === 'query')) {
-		return auth as VibeProviderAuth;
+/**
+ * The `auth` field in its object form, or `'invalid'` for a value no product reads
+ * Absent means bearer. Values are case-sensitive, as VibeIDEA reads them
+ */
+export function parseAuth(auth: unknown): VibeProviderAuth | 'invalid' {
+	if (auth === undefined || auth === 'bearer') { return { type: 'bearer' }; }
+	if (auth === 'none') { return { type: 'none' }; }
+	if (isObject(auth)) {
+		if (auth.type === 'bearer' || auth.type === 'none') { return { type: auth.type }; }
+		if (auth.type === 'header' || auth.type === 'query') { return auth as VibeProviderAuth; }
 	}
-	return { type: 'bearer' };
+	return 'invalid';
+}
+
+/**
+ * Normalize the `auth` shorthand to its object form
+ * An unreadable value falls back to bearer, as in VibeIDEA; the loader warns about it (`parseAuth`)
+ */
+export function normalizeAuth(auth: VibeProviderEntry['auth']): VibeProviderAuth {
+	const parsed = parseAuth(auth);
+	return parsed === 'invalid' ? { type: 'bearer' } : parsed;
+}
+
+/** The entry declares a server that takes no key (`"auth": "none"`) */
+export function isKeyless(entry: Pick<VibeProviderEntry, 'auth'>): boolean {
+	return normalizeAuth(entry.auth).type === 'none';
 }
 
 /**

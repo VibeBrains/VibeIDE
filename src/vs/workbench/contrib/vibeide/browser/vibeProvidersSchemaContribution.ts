@@ -125,10 +125,10 @@ const providerSchema: IJSONSchema = {
 		protocol: { enum: ['openai', 'openai-responses', 'anthropic', 'gemini'], default: 'openai', description: 'Формат API провайдера по умолчанию. `openai-responses` — эндпоинт /v1/responses, это другой эндпоинт, а не диалект chat-completions.' },
 		baseURL: { type: 'string', description: 'Базовый URL API.' },
 		auth: {
-			description: 'Авторизация. "bearer" или объект.',
+			description: 'Авторизация: "bearer" (по умолчанию), "none" — сервер без ключа (ключ не отправляется ни в каком виде, модели каталога запрашиваются без него) или объект.',
 			oneOf: [
-				{ type: 'string', enum: ['bearer'] },
-				{ type: 'object', required: ['type'], additionalProperties: false, properties: { type: { enum: ['bearer', 'header', 'query'] }, name: { type: 'string', description: 'Имя заголовка/параметра для header/query.' } } },
+				{ type: 'string', enum: ['bearer', 'none'] },
+				{ type: 'object', required: ['type'], additionalProperties: false, properties: { type: { enum: ['bearer', 'none', 'header', 'query'] }, name: { type: 'string', description: 'Имя заголовка/параметра для header/query.' } } },
 			],
 		},
 		apiKeyEnv: { type: 'string', description: 'Ключ из переменной окружения (в файле НЕ хранится).' },

@@ -957,6 +957,15 @@ export const providersS = {
 	dynKeyNone: 'Ключ не задан',
 	dynKeySrcPrefix: 'источник',
 	dynKeySrc: { gui: 'введён в IDE', env: '.vibe/.env', ref: 'apiKeyRef', none: '—' } satisfies Record<string, string>,
+	// `"auth": "none"`: there is no key to judge, so the status is the server's answer to a probe sent without one.
+	dynKeyless: {
+		valid: 'Ключ не нужен — сервер ответил',
+		invalid: 'Сервер требует ключ, а в файле "auth": "none"',
+		error: 'Сервер не отвечает — запущен ли он? Проверка повторяется сама',
+		pending: 'Ключ не нужен — проверка сервера…',
+		unverified: 'Ключ не нужен (static-список, сервер не опрашивается)',
+		none: 'Ключ не нужен',
+	} satisfies Record<string, string>,
 	warnOllama: 'Установите модель Ollama — мы её подхватим автоматически.',
 	warnAddModel: (providerTitle: string) =>
 		`Добавьте модель для ${providerTitle} (раздел «Модели»).`,

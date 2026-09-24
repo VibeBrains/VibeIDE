@@ -1226,17 +1226,19 @@ export const SettingsForProvider = ({ providerName, showProviderTitle, showProvi
 	// const vibeideSettingsService = accessor.get('IVibeideSettingsService')
 
 	// const { enabled } = vibeSettingsState.settingsOfProvider[providerName]
-	const settingNames = customSettingNamesOfProvider(providerName);
-	const providerFieldKeys = settingNames.filter((sn) => !(providerName === 'openRouter' && sn === 'publicCatalog'));
-
-	const { title: providerTitle } = displayInfoOfProviderName(providerName);
-
 	// Dynamic providers (.vibe/providers.json) carry key validation status + source on their seeded
 	// entry — surfaced below the key field so the user sees whether the key actually works.
 	const isDynamicProvider = !(providerNames as readonly string[]).includes(providerName as string);
-	const dynSeed = isDynamicProvider ? (vibeSettingsState.settingsOfProvider as Record<string, { keyStatus?: string; keySource?: string } | undefined>)[providerName] : undefined;
+	const dynSeed = isDynamicProvider ? (vibeSettingsState.settingsOfProvider as Record<string, { keyStatus?: string; keySource?: string; keyless?: boolean } | undefined>)[providerName] : undefined;
 	const dynKeyStatus = dynSeed?.keyStatus;
 	const dynKeySource = (dynSeed?.keySource ?? 'none') as keyof typeof providersS.dynKeySrc;
+	const dynKeyless = dynSeed?.keyless === true;
+
+	const settingNames = customSettingNamesOfProvider(providerName);
+	// A server declared keyless never receives a key, so a key field could only take one and ignore it.
+	const providerFieldKeys = dynKeyless ? [] : settingNames.filter((sn) => !(providerName === 'openRouter' && sn === 'publicCatalog'));
+
+	const { title: providerTitle } = displayInfoOfProviderName(providerName);
 
 	const inner = <>
 		<div className='flex items-center w-full gap-4'>
@@ -1274,7 +1276,16 @@ export const SettingsForProvider = ({ providerName, showProviderTitle, showProvi
 					subTextMd={null}
 				/> : null}
 
-			{isDynamicProvider && dynKeyStatus ? (() => {
+			{isDynamicProvider && dynKeyStatus && dynKeyless ? (() => {
+					const text = providersS.dynKeyless[dynKeyStatus as keyof typeof providersS.dynKeyless] ?? providersS.dynKeyless.none;
+					const color = dynKeyStatus === 'valid' ? 'text-emerald-400'
+						: dynKeyStatus === 'invalid' ? 'text-red-400'
+							: dynKeyStatus === 'error' ? 'text-amber-400'
+								: 'text-vibe-fg-3';
+					return <div className={`text-xs mt-1 pl-2 ${color}`}>{text}</div>;
+				})() : null}
+
+			{isDynamicProvider && dynKeyStatus && !dynKeyless ? (() => {
 					const srcSuffix = (dynKeyStatus !== 'none' && dynKeyStatus !== 'pending')
 						? ` · ${providersS.dynKeySrcPrefix}: ${providersS.dynKeySrc[dynKeySource] ?? providersS.dynKeySrc.none}`
 						: '';

@@ -50,7 +50,7 @@ function describeProvider(p: ResolvedProviderEntry): string {
 		lines.push(`- baseURL: ${e.baseURL ?? '— (наследуется/не задан)'}`);
 		const auth = normalizeAuth(e.auth);
 		lines.push(`- auth: ${auth.type}${auth.type === 'header' || auth.type === 'query' ? ` (${auth.name})` : ''}`);
-		lines.push(`- apiKey: ${e.apiKeyEnv ? `env:${e.apiKeyEnv}` : e.apiKeyRef ? `ref:${e.apiKeyRef}` : '— (не задан)'}`);
+		lines.push(`- apiKey: ${auth.type === 'none' ? 'не нужен (auth: none)' : e.apiKeyEnv ? `env:${e.apiKeyEnv}` : e.apiKeyRef ? `ref:${e.apiKeyRef}` : '— (не задан)'}`);
 	}
 	const fetchSpec = e.models?.fetch;
 	const statics = e.models?.static ?? [];

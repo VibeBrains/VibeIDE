@@ -42,7 +42,7 @@ import { IVibeideSettingsService, VibeProviderActiveOverrides, ModelOption, DynP
 import type { BuiltinWireHints } from '../common/builtinWireHints.js';
 import { setExternalProviders, ExternalProviderDescriptor, VibeideStaticModelInfo, ModelLongContext } from '../common/modelCapabilities.js';
 import { IRemoteCatalogService, DynamicKeyValidation } from '../common/remoteCatalogService.js';
-import { VibeProviderEntry, VibeProviderModelCost, VibeProviderModelEntry, isProviderCatalogueFile, mergeProviderEntry, mergeProviderLayers, parseProvidersFile, promptCacheTtlOf, VibeProviderLongContext, VibeProviderTimeOfDay } from '../common/vibeProvidersFile.js';
+import { VibeProviderEntry, VibeProviderModelCost, VibeProviderModelEntry, isKeyless, isProviderCatalogueFile, mergeProviderEntry, mergeProviderLayers, parseAuth, parseProvidersFile, promptCacheTtlOf, VibeProviderLongContext, VibeProviderTimeOfDay } from '../common/vibeProvidersFile.js';
 import { parseEnvFile } from '../common/vibeEnvFile.js';
 import { DEFAULT_PRICE_CHANGE_SOON_DAYS, effectiveCost, nextPriceChangeMoment, parseTimeOfDay, PriceTimeOfDay, priceChangeStatus } from '../common/modelPriceSchedule.js';
 import { VIBE_CONFIG_PROVIDERS_CACHE_KEY } from '../common/storageKeys.js';
@@ -54,6 +54,12 @@ const TOOL_FORMAT_MAP: Record<string, 'openai-style' | 'anthropic-style' | 'gemi
 };
 /** setTimeout overflows above ~24.8 days and fires at once; wait no longer and re-arm. */
 const MAX_PRICE_TIMER_MS = 7 * 24 * 60 * 60 * 1000;
+/**
+ * How often a provider whose probe found no server is asked again
+ * A local server is usually started after the IDE, and without a repeat its models would stay away until the files change
+ * Ten seconds shows it almost at once and does not hammer a cloud endpoint that is down
+ */
+const UNREACHABLE_REPROBE_MS = 10_000;
 
 const SYS_MSG_MAP: Record<string, 'system-role' | 'developer-role' | 'separated'> = {
 	system: 'system-role', developer: 'developer-role', separated: 'separated',
@@ -190,6 +196,49 @@ export function sortStaticModels(models: readonly VibeProviderModelEntry[]): Vib
 	return [...models].map((m, i) => ({ m, i })).sort((a, b) => rank(a.m) - rank(b.m) || a.i - b.i).map(x => x.m);
 }
 
+/** What decides whether a dynamic provider's models are offered — see `dynamicKeyGate` */
+export interface DynamicKeyGateInput {
+	/** `"auth": "none"`: the server takes no key, so the probe goes without one */
+	readonly keyless: boolean;
+	/** A key the renderer can see: typed in the card, `apiKeyRef`, `.vibe/.env` */
+	readonly hasBrowserKey: boolean;
+	/** The OS variable named by `apiKeyEnv` is set; its value stays in electron-main */
+	readonly hasOsEnvKey: boolean;
+	/** `models.fetch: false` — the file's list is the list, nothing is probed */
+	readonly staticOnly: boolean;
+	/** The probe's answer; `undefined` until it lands */
+	readonly validation: DynamicKeyValidation | undefined;
+}
+
+/** The card's status and which list the picker gets: nothing, the file's `static`, or the probed catalogue */
+export interface DynamicKeyGate {
+	readonly keyStatus: NonNullable<DynamicProviderSeed['keyStatus']>;
+	readonly offer: 'none' | 'static' | 'catalog';
+}
+
+/**
+ * Models are gated on a WORKING credential, not on mere presence (PRODUCT invariants 4, 8, 10)
+ *
+ * A keyless server stands where a key would: it is probed, and its answer decides, as a key's would
+ * The OS-env route cannot be probed from here, so it offers the file's list unverified
+ */
+export function dynamicKeyGate(input: DynamicKeyGateInput): DynamicKeyGate {
+	if (!input.keyless && !input.hasBrowserKey) {
+		return input.hasOsEnvKey ? { keyStatus: 'unverified', offer: 'static' } : { keyStatus: 'none', offer: 'none' };
+	}
+	if (input.staticOnly) {
+		return { keyStatus: 'unverified', offer: 'static' };
+	}
+	const validation = input.validation;
+	if (!validation) {
+		return { keyStatus: 'pending', offer: 'none' };
+	}
+	if (validation.status === 'ok') {
+		return { keyStatus: 'valid', offer: 'catalog' };
+	}
+	return { keyStatus: validation.status === 'unauthorized' ? 'invalid' : 'error', offer: 'none' };
+}
+
 /** How a file entry relates to the built-in provider set. */
 export type ResolvedProviderKind =
 	| 'definition'        // brand-new provider (id not a built-in, no extends-of-built-in)
@@ -208,7 +257,7 @@ export interface ResolvedProviderEntry {
 /**
  * One active dynamic provider, flattened for the «Проверка провайдеров» diagnostics modal.
  * "Active" = resolvable key (gui / .vibe/.env / apiKeyRef) OR an OS-env key name (`apiKeyEnv`,
- * resolved in electron-main at send time and therefore invisible to the renderer).
+ * resolved in electron-main at send time and therefore invisible to the renderer) OR a server declared keyless.
  */
 export interface ProviderDiagnosticsTarget {
 	readonly id: string;
@@ -224,6 +273,8 @@ export interface ProviderDiagnosticsTarget {
 	readonly modelsUrl?: string;
 	/** `false` => static-only (no catalog probe). */
 	readonly modelsFetch: boolean;
+	/** `"auth": "none"` — probed without a key, and a 401/403 means the server wants one after all */
+	readonly keyless: boolean;
 }
 
 /**
@@ -304,6 +355,9 @@ class VibeDynamicProvidersService extends Disposable implements IVibeDynamicProv
 	private _lastPriceWarningSig = '';
 
 	private readonly _priceChangeTimer = this._register(new MutableDisposable());
+
+	/** Armed while a probed provider found no server — see `UNREACHABLE_REPROBE_MS` */
+	private readonly _reprobeTimer = this._register(new MutableDisposable());
 
 	constructor(
 		@IFileService private readonly _fileService: IFileService,
@@ -745,6 +799,14 @@ class VibeDynamicProvidersService extends Disposable implements IVibeDynamicProv
 					warnings.push(`«${entry.id}»: новый провайдер без baseURL — он не сможет отправлять запросы`);
 				}
 			}
+			// An unreadable `auth` used to become bearer in silence — `"auth": "None"` looked written and did nothing.
+			if (parseAuth(resolved.auth) === 'invalid') {
+				warnings.push(`«${entry.id}»: auth ${JSON.stringify(resolved.auth)} не разобран — ключ уйдёт заголовком Authorization: Bearer; допустимо "bearer", "none" или { "type": "header" | "query", "name": … }`);
+			}
+			// A built-in patch keeps the built-in's own transport, so `auth` changes nothing there.
+			if (kind !== 'override' && isKeyless(resolved) && (resolved.apiKeyEnv || resolved.apiKeyRef)) {
+				warnings.push(`«${entry.id}»: "auth": "none" — ключ из ${resolved.apiKeyEnv ? 'apiKeyEnv' : 'apiKeyRef'} не отправляется; уберите его или auth`);
+			}
 			if (parseQuotaSpec(resolved.quota) === 'invalid') {
 				warnings.push(`«${entry.id}»: quota не разобран (url только https, format — minimax-token-plan или zai-monitor) — остаток подписки не запрашивается`);
 			}
@@ -763,6 +825,7 @@ class VibeDynamicProvidersService extends Disposable implements IVibeDynamicProv
 	private _setState(state: VibeDynamicProvidersState): void {
 		this._state = state;
 		const gen = ++this._reloadGen;
+		this._reprobeTimer.clear();
 		// Apply IMMEDIATELY with the file's static model list (no network) so the picker is populated at
 		// once and built-in disables take effect without waiting — preserves Phase 1 behavior / no regress.
 		this._buildAndApply(state.providers, undefined);
@@ -833,8 +896,9 @@ class VibeDynamicProvidersService extends Disposable implements IVibeDynamicProv
 			if (p.entry.active === false) { continue; }
 			const keySource = this._resolveKeySource(p);
 			const hasOsEnv = !!p.entry.apiKeyEnv;
-			// "Active" = key resolvable in the renderer OR an OS-env key resolved in main.
-			if (keySource === 'none' && !hasOsEnv) { continue; }
+			const keyless = isKeyless(p.entry);
+			// "Active" = key resolvable in the renderer OR an OS-env key resolved in main OR no key needed.
+			if (keySource === 'none' && !hasOsEnv && !keyless) { continue; }
 			const fetchSpec = p.entry.models?.fetch;
 			out.push({
 				id: p.id,
@@ -842,10 +906,11 @@ class VibeDynamicProvidersService extends Disposable implements IVibeDynamicProv
 				baseURL: p.entry.baseURL,
 				protocol: p.entry.protocol,
 				keySource,
-				apiKeyEnv: p.entry.apiKeyEnv,
-				apiKey: this._resolveBrowserKey(p),
+				// A keyless server is probed as it is asked at send time — with no key at all.
+				...(keyless ? {} : { apiKeyEnv: p.entry.apiKeyEnv, apiKey: this._resolveBrowserKey(p) }),
 				modelsUrl: typeof fetchSpec === 'string' ? fetchSpec : undefined,
 				modelsFetch: fetchSpec !== false,
+				keyless,
 			});
 		}
 		return out;
@@ -854,24 +919,19 @@ class VibeDynamicProvidersService extends Disposable implements IVibeDynamicProv
 	/**
 	 * Fetch the live model catalog (<baseURL>/v1/models) for every connected dynamic provider and
 	 * re-apply the overlay so the picker shows catalog models instead of only the file's static list.
-	 * Only connected (resolvable browser key) providers are fetched — keeps a keyless provider out of
-	 * the catalog's negative cache. Bails if a newer reload superseded this run.
+	 * Connected = a resolvable browser key, or a server declared keyless, which is probed without one.
+	 * Bails if a newer reload superseded this run.
 	 */
 	private async _enrichWithCatalog(providers: readonly ResolvedProviderEntry[], gen: number): Promise<void> {
 		// `models.fetch: false` = static only, no probe. `true` / custom URL / omitted (default) → probe the
 		// models endpoint to BOTH validate the key (401/403 = invalid) and fetch the live model list.
 		const connected = providers.filter(p =>
 			p.kind !== 'override' && p.entry.active !== false && !!p.entry.baseURL
-			&& p.entry.models?.fetch !== false && !!this._resolveBrowserKey(p));
+			&& p.entry.models?.fetch !== false && (isKeyless(p.entry) || !!this._resolveBrowserKey(p)));
 		if (connected.length === 0) { return; }
 
 		const validationByProvider = new Map<string, DynamicKeyValidation>();
-		await Promise.all(connected.map(async p => {
-			const fetchSpec = p.entry.models?.fetch;
-			const modelsUrl = typeof fetchSpec === 'string' ? fetchSpec : undefined;
-			const res = await this._remoteCatalogService.fetchDynamicWithStatus(p.entry.baseURL!, this._resolveBrowserKey(p), modelsUrl);
-			validationByProvider.set(p.id, res);
-		}));
+		await Promise.all(connected.map(async p => { validationByProvider.set(p.id, await this._probe(p)); }));
 
 		// A reload (file/.env change, workspace switch) since we started owns the overlay now — drop ours.
 		if (gen !== this._reloadGen) { return; }
@@ -879,6 +939,41 @@ class VibeDynamicProvidersService extends Disposable implements IVibeDynamicProv
 		// all-invalid) so keyStatus flips pending → valid/invalid and a bad key's models leave the picker.
 		this._lastValidation = validationByProvider;
 		this._buildAndApply(providers, validationByProvider);
+		this._scheduleReprobe(providers, gen);
+	}
+
+	/** One probe of a provider's models endpoint — with its key, or with none for a keyless server */
+	private _probe(p: ResolvedProviderEntry): Promise<DynamicKeyValidation> {
+		const fetchSpec = p.entry.models?.fetch;
+		const modelsUrl = typeof fetchSpec === 'string' ? fetchSpec : undefined;
+		const apiKey = isKeyless(p.entry) ? undefined : this._resolveBrowserKey(p);
+		return this._remoteCatalogService.fetchDynamicWithStatus(p.entry.baseURL!, apiKey, modelsUrl);
+	}
+
+	/**
+	 * Ask again, later, the providers whose probe found no server
+	 * Only `error` is repeated: a 401/403 cannot change until the key or the file does, and both trigger a reload
+	 */
+	private _scheduleReprobe(providers: readonly ResolvedProviderEntry[], gen: number): void {
+		const unreachable = providers.filter(p => this._lastValidation?.get(p.id)?.status === 'error');
+		// A disposed MutableDisposable ignores a new value, so a timer armed after disposal would never be cleared.
+		if (unreachable.length === 0 || this._store.isDisposed) {
+			this._reprobeTimer.clear();
+			return;
+		}
+		const handle = setTimeout(async () => {
+			const answers = await Promise.all(unreachable.map(async p => [p.id, await this._probe(p)] as const));
+			if (gen !== this._reloadGen || !this._lastValidation) { return; }
+			const merged = new Map(this._lastValidation);
+			for (const [id, answer] of answers) { merged.set(id, answer); }
+			this._lastValidation = merged;
+			// The overlay is rebuilt only when a server answered: an unchanged `error` would re-render the picker for nothing.
+			if (answers.some(([, answer]) => answer.status !== 'error')) {
+				this._buildAndApply(providers, merged);
+			}
+			this._scheduleReprobe(providers, gen);
+		}, UNREACHABLE_REPROBE_MS);
+		this._reprobeTimer.value = toDisposable(() => clearTimeout(handle));
 	}
 
 	/**
@@ -929,6 +1024,7 @@ class VibeDynamicProvidersService extends Disposable implements IVibeDynamicProv
 
 		for (const p of activeDynamic) {
 			const resolvedKey = this._resolveBrowserKey(p);
+			const keyless = isKeyless(p.entry);
 
 			// Transport overlay — built regardless of UI key (apiKeyEnv may resolve in main at send time),
 			// only needs a baseURL. extends-builtin without baseURL inherits downstream (follow-up).
@@ -937,8 +1033,11 @@ class VibeDynamicProvidersService extends Disposable implements IVibeDynamicProv
 				const modelProtocols = modelProtocolsOf(p.entry.models?.static);
 				transportConfigs[p.id] = {
 					baseURL: p.entry.baseURL,
-					...(resolvedKey ? { apiKey: resolvedKey } : {}),
-					...(p.entry.apiKeyEnv ? { apiKeyEnv: p.entry.apiKeyEnv } : {}),
+					// A keyless server gets no key to send, not a key the send path is trusted to drop.
+					...(keyless ? { keyless: true } : {
+						...(resolvedKey ? { apiKey: resolvedKey } : {}),
+						...(p.entry.apiKeyEnv ? { apiKeyEnv: p.entry.apiKeyEnv } : {}),
+					}),
 					...(p.entry.headers ? { headers: { ...p.entry.headers } } : {}),
 					...(typeof fetchSpec === 'string' ? { modelsUrl: fetchSpec } : {}),
 					...(p.entry.protocol ? { protocol: p.entry.protocol } : {}),
@@ -947,13 +1046,7 @@ class VibeDynamicProvidersService extends Disposable implements IVibeDynamicProv
 				};
 			}
 
-			// Models are gated on a WORKING key, not mere presence (PRODUCT invariants 4, 8, 10):
-			//  • no key            → keyStatus 'none', no models
-			//  • fetch:false       → keyStatus 'unverified' (no probe), show file static list
-			//  • fetch:true probed → 'valid' (catalog/static), 'invalid' (401/403 → NO models),
-			//                        'error' (network → NO models), 'pending' (sync pass, probe not done)
 			const keySource = this._resolveKeySource(p);
-			const isStaticOnly = p.entry.models?.fetch === false;
 			const label = p.entry.name || p.id;
 			const seedModels: VibeideStatefulModelInfo[] = [];
 			const staticById = new Map<string, VibeProviderModelEntry>();
@@ -979,39 +1072,27 @@ class VibeDynamicProvidersService extends Disposable implements IVibeDynamicProv
 			};
 			const pushStatic = () => { for (const m of sortStaticModels([...staticById.values()])) { pushModel(m.id, m.name || m.id, 'manual'); } };
 
-			let keyStatus: DynamicProviderSeed['keyStatus'];
-			if (!resolvedKey && this._hasOsEnvKey(p)) {
-				// Key lives only in an OS env var: the renderer can't see the value (so no catalog probe),
-				// but electron-main resolves it at send time — same standing a built-in with a canonical
-				// env key gets. Offer the file's static models as usable, mark the key unverified.
-				keyStatus = 'unverified';
+			const validation = validationByProvider?.get(p.id);
+			const { keyStatus, offer } = dynamicKeyGate({
+				keyless,
+				hasBrowserKey: !!resolvedKey,
+				hasOsEnvKey: this._hasOsEnvKey(p),
+				staticOnly: p.entry.models?.fetch === false,
+				validation,
+			});
+			if (offer === 'static') {
 				pushStatic();
-			} else if (!resolvedKey) {
-				keyStatus = 'none';
-			} else if (isStaticOnly) {
-				keyStatus = 'unverified';
-				pushStatic();
-			} else {
-				const v = validationByProvider?.get(p.id);
-				if (!v) {
-					keyStatus = 'pending'; // sync pass — probe not done yet, offer nothing until validated
-				} else if (v.status === 'ok') {
-					keyStatus = 'valid';
-					if (v.models.length > 0) {
-						// Catalog is the source of truth; a same-id static entry marks it as a file override.
-						for (const cm of v.models) {
-							const st = staticById.get(cm.id);
-							pushModel(cm.id, st?.name || cm.name || cm.id, st ? 'override' : undefined);
-						}
-						for (const m of staticById.values()) {
-							if (!v.models.some(cm => cm.id === m.id)) { pushModel(m.id, m.name || m.id, 'manual'); }
-						}
-					} else {
-						pushStatic(); // valid key but empty catalog → fall back to the file's curated list
-					}
-				} else {
-					keyStatus = v.status === 'unauthorized' ? 'invalid' : 'error'; // NO models for a bad/unreachable key
+			} else if (offer === 'catalog' && validation && validation.models.length > 0) {
+				// Catalog is the source of truth; a same-id static entry marks it as a file override.
+				for (const cm of validation.models) {
+					const st = staticById.get(cm.id);
+					pushModel(cm.id, st?.name || cm.name || cm.id, st ? 'override' : undefined);
 				}
+				for (const m of staticById.values()) {
+					if (!validation.models.some(cm => cm.id === m.id)) { pushModel(m.id, m.name || m.id, 'manual'); }
+				}
+			} else if (offer === 'catalog') {
+				pushStatic(); // the server answered with an empty catalog → fall back to the file's curated list
 			}
 
 			// First-class seed for the Settings UI. `apiKey` = the UI-typed key only (editable field value).
@@ -1025,6 +1106,7 @@ class VibeDynamicProvidersService extends Disposable implements IVibeDynamicProv
 				_didFillInProviderSettings: keyStatus === 'valid' || keyStatus === 'unverified',
 				keyStatus,
 				keySource,
+				...(keyless ? { keyless: true } : {}),
 				// Carried to electron-main (via settingsOfProvider) so the send-path registers this provider
 				// in its own caps registry — same `modelCapOverrides` as the renderer-side descriptor.
 				...(Object.keys(modelCapOverrides).length ? { modelCapOverrides } : {}),

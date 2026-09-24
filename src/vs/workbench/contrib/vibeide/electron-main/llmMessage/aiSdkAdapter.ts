@@ -301,8 +301,32 @@ const headersToRecord = (headers: Headers): Record<string, string> => {
  */
 const REFUSAL_BODY_PEEK_CHARS = 4_000;
 
+/**
+ * Stands in for the key of a server declared `"auth": "none"`
+ * Every SDK insists on some key: given `undefined` it reads OPENAI_API_KEY, ANTHROPIC_API_KEY or
+ * GOOGLE_GENERATIVE_AI_API_KEY and sends the user's real key to a server that asked for none, and given `''` it sends an
+ * empty `Bearer `. So the SDK gets this marker, and `makeCustomFetch` drops every header that carries it
+ */
+const KEYLESS_KEY_MARKER = 'vibeide-keyless-no-key';
+
+/**
+ * The request headers without any whose value carries `marker`
+ * Matched by value, not by name: the SDKs name their key header differently, and headers the file declares never carry it
+ */
+const headersWithout = (headers: HeadersInit | undefined, marker: string): Record<string, string> => {
+	const kept: Record<string, string> = {};
+	new Headers(headers).forEach((value, name) => {
+		if (!value.includes(marker)) {
+			kept[name] = value;
+		}
+	});
+	return kept;
+};
+
 const makeCustomFetch = (opts: {
 	providerName: string;
+	/** Headers carrying this marker are removed before the request leaves — see `KEYLESS_KEY_MARKER` */
+	dropHeadersCarrying?: string;
 	onQuota?: (snapshot: ProviderQuotaSnapshot) => void;
 	/** The model named in the answer — a proxy or a failover target may serve a different one. */
 	onAnsweredModel?: (model: string, fingerprint: string | undefined) => void;
@@ -316,7 +340,8 @@ const makeCustomFetch = (opts: {
 }): typeof globalThis.fetch => async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
 	const requestsInWindow = requestRateWindow.record(opts.providerName, Date.now());
 	const undiciInput = input as unknown as UndiciFetchParams[0];
-	const undiciInit = { ...(init as unknown as UndiciFetchParams[1]), dispatcher: ensureSystemCADispatcher() };
+	const outgoing = opts.dropHeadersCarrying ? { ...init, headers: headersWithout(init?.headers, opts.dropHeadersCarrying) } : init;
+	const undiciInit = { ...(outgoing as unknown as UndiciFetchParams[1]), dispatcher: ensureSystemCADispatcher() };
 	const response = await (undiciFetch(undiciInput, undiciInit) as unknown as Promise<Response>);
 	// Cloned HERE, before the diagnostics tap below starts consuming the stream: `clone()` throws
 	// once the body has been read, and the funds check further down needs the text. Refusals only —
@@ -510,6 +535,8 @@ type ResolvedEndpoint = {
 	apiKey: string;
 	headers?: Record<string, string>;
 	queryParams?: Record<string, string>;
+	/** `apiKey` is `KEYLESS_KEY_MARKER`, and the header carrying it must not leave — `"auth": "none"` */
+	keyless?: true;
 };
 
 const ANTHROPIC_DEFAULT_BASE_URL = 'https://api.anthropic.com/v1';
@@ -718,13 +745,16 @@ const resolveEndpoint = async (
 			// (electron-main has reliable process.env). Empty baseURL → caller's guard surfaces a clear
 			// error (PRODUCT invariant 3). Mirror of the openai-compatible fallthrough in
 			// `newOpenAICompatibleSDK` (sendLLMMessage.impl.ts), but for the AI-SDK path.
-			const cfg = (settingsOfProvider as unknown as Record<string, { baseURL?: string; apiKey?: string; apiKeyEnv?: string; headers?: Record<string, string> } | undefined>)[providerName as string];
+			const cfg = (settingsOfProvider as unknown as Record<string, { baseURL?: string; apiKey?: string; apiKeyEnv?: string; headers?: Record<string, string>; keyless?: boolean } | undefined>)[providerName as string];
 			const headers = (cfg?.headers && typeof cfg.headers === 'object') ? cfg.headers : undefined;
 			if (headers) {
 				for (const [hName, hValue] of Object.entries(headers)) {
 					assertHttpHeaderSafe(`Dynamic provider "${providerName}" header name "${hName}"`, hName);
 					if (typeof hValue === 'string') { assertHttpHeaderSafe(`Dynamic provider "${providerName}" header "${hName}" value`, hValue); }
 				}
+			}
+			if (cfg?.keyless) {
+				return { baseURL: cfg.baseURL ?? '', apiKey: KEYLESS_KEY_MARKER, headers, keyless: true };
 			}
 			const apiKey = cfg?.apiKey || (cfg?.apiKeyEnv ? (process.env[cfg.apiKeyEnv] ?? '') : '') || 'noop';
 			return { baseURL: cfg?.baseURL ?? '', apiKey, headers };
@@ -1370,6 +1400,7 @@ export const sendViaAISdk = async (params: SendChatParams_Internal): Promise<voi
 	let lastDiagnostics: ProviderRefusalDiagnostics | undefined;
 	const callFetch = makeCustomFetch({
 		providerName,
+		...(resolved.keyless ? { dropHeadersCarrying: KEYLESS_KEY_MARKER } : {}),
 		onQuota: snapshot => { lastQuota = snapshot; },
 		onAnsweredModel: (model, fingerprint) => { lastAnsweredModel = model; lastSystemFingerprint = fingerprint; },
 		onOrchestrationTokens: tokens => { lastOrchestrationTokens = tokens; },
