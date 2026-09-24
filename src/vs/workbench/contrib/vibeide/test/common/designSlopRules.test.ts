@@ -18,9 +18,14 @@ import {
 import { ALL_RULE_IDS, RULE, RULE_META, RuleId } from '../../common/designReview/ruleIds.js';
 import { SLOP_CATALOG_JSONC } from '../../common/slopCatalog.generated.js';
 import { compileSlopCatalog, lexicalSlopCatalog, parseSlopCatalog } from '../../common/textSlop/slopCatalog.js';
+import { analyzeTextSlop, SlopFinding } from '../../common/textSlop/textSlop.js';
 
-/** The page copy catalogue the product passes: the shipped text-slop catalogue, list and template rules only. */
-const pageSlop = lexicalSlopCatalog(compileSlopCatalog(parseSlopCatalog(SLOP_CATALOG_JSONC, () => { })!, () => { }));
+/** The page copy catalogue the product uses: the shipped text-slop catalogue, list and template rules only. */
+const pageSlopCatalog = lexicalSlopCatalog(compileSlopCatalog(parseSlopCatalog(SLOP_CATALOG_JSONC, () => { })!, () => { }));
+
+/** The findings the product hands the rules — computed per text before they run, as the worker does. */
+const pageSlopOf = (snapshot: DocumentSnapshot): ReadonlyMap<string, readonly SlopFinding[]> =>
+	new Map(snapshot.elements.map(element => [element.text, analyzeTextSlop(element.text, pageSlopCatalog).findings]));
 
 /** A neutral element: dark text on white, comfortable everything. Tests override one field at a time. */
 const el = (over: Partial<ElementSnapshot> = {}): ElementSnapshot => ({
@@ -100,7 +105,7 @@ const doc = (elements: ElementSnapshot[], over: Partial<DocumentSnapshot> = {}):
 	...over,
 });
 
-const rulesFired = (snapshot: DocumentSnapshot): string[] => [...new Set(reviewDesign(snapshot, undefined, { pageSlop }).map(f => f.rule))].sort();
+const rulesFired = (snapshot: DocumentSnapshot): string[] => [...new Set(reviewDesign(snapshot, undefined, { pageSlop: pageSlopOf(snapshot) }).map(f => f.rule))].sort();
 
 suite('компонентные правила', () => {
 	ensureNoDisposablesAreLeakedInTestSuite();
@@ -316,8 +321,8 @@ suite('designSlopRules', () => {
 			el({ selector: '.hero', text: 'В современном мире наша бесшовная платформа выводит работу на новый уровень.' }),
 			el({ selector: '.plain', text: 'Сервер отвечает за десять миллисекунд.' }),
 		]);
-		const copy = (inputs?: { pageSlop: typeof pageSlop }) => reviewDesign(page, undefined, inputs).filter(f => f.rule === 'copy-slop');
-		const found = copy({ pageSlop });
+		const copy = (inputs?: { pageSlop: ReadonlyMap<string, readonly SlopFinding[]> }) => reviewDesign(page, undefined, inputs).filter(f => f.rule === 'copy-slop');
+		const found = copy({ pageSlop: pageSlopOf(page) });
 		assert.deepStrictEqual(
 			{ selectors: found.map(f => f.selector), major: found[0]?.message.startsWith('Шаблонный текст: '), withoutCatalogue: copy().length },
 			{ selectors: ['.hero'], major: true, withoutCatalogue: 0 },
@@ -462,7 +467,7 @@ suite('designSlopRules', () => {
 		const page = doc([el({ selector: '.slogan', text: 'Раскройте потенциал команды: бесшовная работа на новом уровне.' })]);
 		const accepted = (rule: string) => reviewDesign(page, {
 			design: { fonts: [], colors: [], namedRules: [], acceptedDrift: [{ rule, reason: 'слоган бренда' }], raw: '' },
-		}, { pageSlop }).find(f => f.rule === 'copy-slop')?.accepted;
+		}, { pageSlop: pageSlopOf(page) }).find(f => f.rule === 'copy-slop')?.accepted;
 		assert.deepStrictEqual(
 			[accepted('marketing-filler'), accepted('marketing-promise'), accepted('copy-slop')],
 			[{ reason: 'слоган бренда' }, { reason: 'слоган бренда' }, { reason: 'слоган бренда' }],

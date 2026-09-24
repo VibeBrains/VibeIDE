@@ -86,6 +86,7 @@ const workerEntryPoints = [
 	'vs/workbench/services/languageDetection/browser/languageDetectionWebWorkerMain',
 	'vs/workbench/services/search/worker/localFileSearchMain',
 	'vs/workbench/contrib/output/common/outputLinkComputerMain',
+	'vs/workbench/contrib/vibeide/common/textSlop/textSlopWorkerMain',
 	'vs/workbench/services/textMate/browser/backgroundTokenization/worker/textMateTokenizationWorker.workerMain',
 ];
 

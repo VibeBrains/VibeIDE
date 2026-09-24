@@ -1684,7 +1684,6 @@ export class ToolsService extends Disposable implements IToolsService {
 				// The project's own design system decides which style tells are its identity, so the
 				// context is read before judging rather than after arguing.
 				const { context } = await this.designContextService.read();
-				const inputs = { pageSlop: await this.textSlopService.pageCatalog() };
 				const passes: Finding[][] = [];
 				let url: string | undefined;
 				let truncated = false;
@@ -1697,7 +1696,9 @@ export class ToolsService extends Disposable implements IToolsService {
 					}
 					url = scan.snapshot.url;
 					truncated = truncated || scan.truncated;
-					passes.push(reviewDesign(scan.snapshot, context, inputs));
+					// The copy of the page is judged off the window thread, the same way the prose check is.
+					const pageSlop = await this.textSlopService.pageFindings(scan.snapshot.elements.map(el => el.text));
+					passes.push(reviewDesign(scan.snapshot, context, pageSlop ? { pageSlop } : undefined));
 				}
 				const all = mergeViewportFindings(passes);
 				const findings = severity ? all.filter(f => f.severity === severity) : all;

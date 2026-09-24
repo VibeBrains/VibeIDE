@@ -714,6 +714,14 @@ export class VibeideGlobalSettingsConfigurationContribution extends Disposable i
 					description: localize('vibeide.llm.autoResetTransport', 'Автоматически пересоздавать сетевой транспорт LLM (кэши клиентов + общее соединение), когда сетевые сбои идут сразу у двух и более провайдеров в одном окне — сигнатура «залипшего» общего пула соединений, которую один провайдер объяснить не может. То же действие, что кнопка «Починить связь с провайдерами», но без участия пользователя; не чаще одного раза в 10 минут. При выключении остаётся ручная кнопка в статус-баре.'),
 					scope: ConfigurationScope.APPLICATION,
 				},
+				'vibeide.textSlop.checkTimeoutMs': {
+					type: 'integer',
+					minimum: 1000,
+					maximum: 600_000,
+					default: 20_000,
+					description: localize('vibeide.textSlop.checkTimeoutMs', 'Сколько может идти одна проверка нейрослопа (инструмент `vibe_text_slop_check` и правило страницы `copy-slop`). Миллисекунды. Проверка идёт в отдельном потоке: правило из `.vibe/slop.json` с катастрофическим возвратом в регулярке (`(a+)+$`) не вешает окно — поток останавливается, правило называется в предупреждении, а текст проверяется без него. По умолчанию 20000: текст в 1 МБ встроенный каталог проверяет за несколько секунд.'),
+					scope: ConfigurationScope.APPLICATION,
+				},
 				'vibeide.llm.timeoutMs.local': {
 					type: 'integer',
 					minimum: 1000,

@@ -7530,8 +7530,6 @@ Output ONLY the JSON, no other text. Start with { and end with }.`;
 						// would disagree with the tool's on the same page. Two numbers for one fact is
 						// how a report loses trust (caught by the live smoke: 8 errors vs 9).
 						const { context } = await this._designContextService.read();
-						// The same catalogue for the copy as the tool's, for the same reason as the two widths.
-						const inputs = { pageSlop: await this._textSlopService.pageCatalog() };
 						const passes: Finding[][] = [];
 						let measured = true;
 						for (const width of DESIGN_HOOK_VIEWPORTS) {
@@ -7540,7 +7538,9 @@ Output ONLY the JSON, no other text. Start with { and end with }.`;
 								measured = false;
 								break;
 							}
-							passes.push(reviewDesign(scan.snapshot, context, inputs));
+							// The same copy check as the tool's, for the same reason as the two widths.
+							const pageSlop = await this._textSlopService.pageFindings(scan.snapshot.elements.map(el => el.text));
+							passes.push(reviewDesign(scan.snapshot, context, pageSlop ? { pageSlop } : undefined));
 						}
 						const findings = measured ? mergeViewportFindings(passes) : [];
 						const decision = decideDesignHook({

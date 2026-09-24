@@ -11,7 +11,7 @@
  * always be argued with by re-measuring rather than by taste.
  */
 
-import type { CompiledSlopCatalog } from '../textSlop/slopCatalog.js';
+import type { SlopFinding } from '../textSlop/textSlop.js';
 
 /** Which viewport a snapshot was taken in — a finding is only true for the width it was measured at. */
 export type ViewportLabel = 'desktop' | 'mobile';
@@ -275,10 +275,11 @@ export type RuleFinding = Omit<Finding, 'ruleClass'>;
 /** What some rules need beyond the page itself; the caller supplies it, the page cannot. */
 export type RuleInputs = {
 	/**
-	 * The text-slop catalogue for the page's copy: list and template rules only, the project's
-	 * `.vibe/slop.json` applied. Absent — the copy rule stays silent rather than guess.
+	 * The text-slop findings of the page's copy, by text: list and template rules only, the project's
+	 * `.vibe/slop.json` applied. Computed before the rules run, off the window thread — a project pattern can
+	 * backtrack for hours (`IVibeTextSlopService.pageFindings`). Absent — the copy rule stays silent rather than guess.
 	 */
-	readonly pageSlop?: CompiledSlopCatalog;
+	readonly pageSlop?: ReadonlyMap<string, readonly SlopFinding[]>;
 };
 
 export type Rule = (doc: DocumentSnapshot, inputs?: RuleInputs) => RuleFinding[];

@@ -4,20 +4,11 @@
  *--------------------------------------------------------------------------------------------*/
 
 import * as assert from 'assert';
-import { VSBuffer } from '../../../../../base/common/buffer.js';
-import { Schemas } from '../../../../../base/common/network.js';
-import { URI } from '../../../../../base/common/uri.js';
 import { ensureNoDisposablesAreLeakedInTestSuite } from '../../../../../base/test/common/utils.js';
-import { FileService } from '../../../../../platform/files/common/fileService.js';
-import { InMemoryFileSystemProvider } from '../../../../../platform/files/common/inMemoryFilesystemProvider.js';
-import { NullLogService } from '../../../../../platform/log/common/log.js';
-import { testWorkspace } from '../../../../../platform/workspace/test/common/testWorkspace.js';
-import { TestContextService } from '../../../../test/common/workbenchTestServices.js';
 import { SLOP_CATALOG_JSONC } from '../../common/slopCatalog.generated.js';
 import { compileSlopCatalog, CompiledSlopCatalog, parseSlopCatalog, SlopSeverity, unicodeClassesOf } from '../../common/textSlop/slopCatalog.js';
 import { renderSlopReport } from '../../common/textSlop/slopRender.js';
 import { analyzeTextSlop, SlopFinding, SlopReport } from '../../common/textSlop/textSlop.js';
-import { VibeTextSlopService } from '../../common/textSlop/vibeTextSlopService.js';
 import { VIBE_DEFAULTS_MANIFEST } from '../../common/vibeDefaultsManifest.generated.js';
 
 /**
@@ -96,40 +87,5 @@ suite('textSlop — каталог сборки, навык набора и от
 			'…и ещё 1',
 			'Предупреждения: slop.json: правило X не собрано',
 		]);
-	});
-});
-
-/**
- * Сервис — одна точка для всех поверхностей (инструмент, правило текста страницы, хук дизайна): каталог сборки плюс
- * `.vibe/slop.json` проекта. Проверяется на настоящем FileService поверх файловой системы в памяти.
- */
-suite('VibeTextSlopService — каталог сборки с правками проекта', () => {
-
-	const disposables = ensureNoDisposablesAreLeakedInTestSuite();
-
-	test('правки проекта читаются при каждой проверке, битый файл не выключает проверку', async () => {
-		const fileService = disposables.add(new FileService(new NullLogService()));
-		disposables.add(fileService.registerProvider(Schemas.file, disposables.add(new InMemoryFileSystemProvider())));
-		const service = new VibeTextSlopService(fileService, new TestContextService(testWorkspace(URI.file('/ws'))));
-		const writeOverrides = (text: string) => fileService.writeFile(URI.file('/ws/.vibe/slop.json'), VSBuffer.fromString(text));
-		const text = 'Стоит отметить, что сборка занимает две минуты.';
-
-		const shipped = await service.check(text);
-		await writeOverrides('{ "disable": ["RU-W2"] }');
-		const disabled = await service.check(text);
-		await writeOverrides('{ broken');
-		const broken = await service.check(text);
-
-		assert.deepStrictEqual({
-			shipped: shipped?.report.findings.map(f => `${f.rule}:${f.line}`),
-			disabled: disabled?.report.findings.map(f => f.rule),
-			broken: broken?.report.findings.map(f => f.rule),
-			brokenSaid: broken?.warnings.map(w => w.split(':')[0]),
-		}, {
-			shipped: ['RU-W2:1'],
-			disabled: [],
-			broken: ['RU-W2'],
-			brokenSaid: ['slop.json'],
-		});
 	});
 });

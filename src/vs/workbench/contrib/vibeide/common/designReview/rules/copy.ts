@@ -15,7 +15,7 @@
 import { DocumentSnapshot, RuleFinding, Rule } from '../designSnapshot.js';
 import { RULE } from '../ruleIds.js';
 import { slopSeverityRank } from '../../textSlop/slopCatalog.js';
-import { analyzeTextSlop, SlopFinding } from '../../textSlop/textSlop.js';
+import { SlopFinding } from '../../textSlop/textSlop.js';
 
 /** Pictographs; ©, ® and ™ are Extended_Pictographic too, but they are typography, not icons. */
 const EMOJI = /\p{Extended_Pictographic}/u;
@@ -37,8 +37,8 @@ const REPEAT_MIN_TEXT_LENGTH = 12;
  * its heaviest tell: a headline with three tells is one headline to rewrite.
  */
 const ruleCopySlop: Rule = (doc, inputs) => {
-	const catalog = inputs?.pageSlop;
-	if (!catalog) {
+	const pageSlop = inputs?.pageSlop;
+	if (!pageSlop) {
 		return [];
 	}
 	const findings: RuleFinding[] = [];
@@ -47,7 +47,7 @@ const ruleCopySlop: Rule = (doc, inputs) => {
 			continue;
 		}
 		let heaviest: SlopFinding | undefined;
-		for (const finding of analyzeTextSlop(el.text, catalog).findings) {
+		for (const finding of pageSlop.get(el.text) ?? []) {
 			if (!heaviest || slopSeverityRank(finding.severity) > slopSeverityRank(heaviest.severity)) {
 				heaviest = finding;
 			}
