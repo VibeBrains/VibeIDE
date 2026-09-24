@@ -141,7 +141,7 @@
 - Файловый `static` → `modelCapOverrides` (per-model partial caps поверх распознанного baseline), строит `vibeDynamicProvidersService` через `modelEntryToCaps`.
 - УДАЛЕНО: `_dynamicProviderModelCaps`/`setDynamicProviderModelCaps`, `remoteModelToCaps`, ветка в `getModelCapabilities`, fallback-хак `getProviderCapabilities`. (Разделы «2b-2 A/B» выше — историческое описание снятого подхода.)
 
-**⚠ GOTCHA (корень «тулы/vision не доезжали до модели»):** `getModelCapabilities` зовётся в ДВУХ процессах — рендерер (UI/пикер) И electron-main (send-path, `aiSdkAdapter`). Реестр — module-state, заполняется в РЕНДЕРЕРЕ и границу процесса НЕ пересекает → в main реестр пустой → у динамика нет `specialToolFormat` → тулы не шлются. Фикс: `DynamicProviderSeed.modelCapOverrides` едет в `settingsOfProvider` (он и так пересекает границу per-request), а `sendLLMMessage` (main) зовёт `setExternalProviders` из него ДО любого `getModelCapabilities`.
+**⚠ GOTCHA (корень «тулы/vision не доезжали до модели»):** `getModelCapabilities` зовётся в ДВУХ процессах — рендерер (UI/пикер) И electron-main (send-path, `aiSdkAdapter`). Реестр — module-state, заполняется в РЕНДЕРЕРЕ и границу процесса НЕ пересекает → в main реестр пустой → у динамика нет `specialToolFormat` → тулы не шлются. Фикс: `modelCapOverrides` едет в `settingsOfProvider` (он и так пересекает границу per-request), а `sendLLMMessage` (main) зовёт `setExternalProviders` из него ДО любого `getModelCapabilities`. **Поправка 2026-09-24:** ехать им надо в ТРАНСПОРТЕ (`DynProviderTransportConfig`), а не на сиде: при отправке транспорт ложится в `settingsOfProvider` поверх сида под тем же id и заменяет его целиком, так что поле сида до main не доходило никогда — см. раздел про диалект ниже.
 
 **Урок:** для динамиков НЕ плодить параллельный путь — гнать через общий реестр+распознавание. Добавить семейство в `extensiveModelOptionsFallback` — польза ВСЕМ openai-compat (и openRouter, и динамику). Любой capability-гейт (vision: `visionModelHelper`/`imageQAIntegration`; tool-format в `aiSdkAdapter`) обязан спрашивать `getModelCapabilities`, а не свою эвристику-набор провайдеров (именно отдельная vision-эвристика и держала тост у динамика).
 
@@ -255,3 +255,32 @@
 
 **Не сделано и заведено в roadmap:** `auth` `header`/`query`, поля `query` и `timeoutMs` файлового провайдера по-прежнему до
 провода не доходят, а проба каталога не несёт `headers` — нужна договорённость с VibeIDEA, что значит `bearer` на протоколах anthropic и gemini.
+
+## [дефект→решение] 2026-09-24 — диалект рассуждения OpenRouter и возможности модели, не доезжавшие до отправки
+
+**Диалект.** VibeIDEA завела в общем наборе поле провайдера `"reasoningDialect": "openrouter"`: OpenRouter не называет поле
+OpenAI `reasoning_effort` и принимает один объект `reasoning` для всех моделей (openrouter.ai/docs/use-cases/reasoning-tokens,
+сверено 24.09). Сверка двух продуктов:
+
+- уровень — `reasoning.effort` у обоих
+- бюджет токенов — `reasoning.max_tokens` только у нас: у VibeIDEA на этом проводе ползунок только уровнями; оставлено
+- «выключено» — `reasoning.effort: "none"` только у VibeIDEA; взято к нам (`providerReasoningIOSettings.input.offPayload`),
+  теперь и встроенный OpenRouter выключает рассуждение, а не молчит; `reasoning.off` самой модели сильнее
+
+Провайдер из файла с диалектом регистрируется с настройками рассуждения встроенного `openRouter`
+(`buildExternalProviderInfo`). Как у VibeIDEA, диалект действует только на OpenAI-совместимом проводе: тело рассуждения
+доливается только туда (`openAICompatExtraBody`).
+
+**Дефект, найденный по дороге.** Возможности моделей из `static` (`extraBody`, `reasoning.off`, `toolFormat`, сэмплинг)
+ехали в главный процесс на сиде настроек. Но при отправке `sendLLMMessageService` кладёт транспорт провайдера в
+`settingsOfProvider` поверхностным слиянием `{ ...settingsOfProvider, ...dynamicTransport }` — транспорт заменяет сид под
+тем же id целиком. Главный процесс регистрировал провайдера из файла без возможностей моделей. Тест MiMo этого не ловил:
+он кладёт возможности в реестр напрямую, мимо границы процессов. Теперь всё, что читает путь отправки, собирает чистая
+`dynamicTransportConfigOf`, и новый тест идёт через `sendLLMMessage` главного процесса с транспортом той формы, какую
+шлёт окно.
+
+**Правило:** поле, которое нужно главному процессу, кладётся в транспорт. Сид — для интерфейса настроек, до отправки он
+не доживает.
+
+**Утверждение соседа, не подтвердившееся:** VibeIDEA написала, что гейта на поля сидов у VibeIDE нет. Есть —
+`scripts/vibe-seed-fields.ts`; он краснел на `reasoningDialect`, пока поле не дошло до типа и спеки.

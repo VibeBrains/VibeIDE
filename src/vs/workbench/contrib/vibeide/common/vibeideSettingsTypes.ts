@@ -183,12 +183,12 @@ export type SettingsAtProvider<providerName extends ProviderName> = CustomProvid
  * Supertype every provider entry in state satisfies — built-in (`SettingsAtProvider`) and
  * config-provider seed (`DynamicProviderSeed`) alike. This is what indexing `settingsOfProvider`
  * with a plain `ProviderId` yields, so consumers work on the MERGED provider set without casts.
- * The `keyStatus`/`keySource`/`modelCapOverrides` extras only ever appear on config-provider seeds.
+ * The `keyStatus`/`keySource`/`keyless` extras only ever appear on config-provider seeds.
  */
 export type AnyProviderSettings = CommonProviderSettings & { [k in CustomSettingName]?: string } & {
 	keyStatus?: 'valid' | 'invalid' | 'error' | 'pending' | 'unverified' | 'none';
 	keySource?: 'gui' | 'env' | 'ref' | 'none';
-	modelCapOverrides?: { [modelId: string]: object };
+	keyless?: true;
 };
 
 // part of state — built-ins are precisely typed; any other `ProviderId` key is a config-provider

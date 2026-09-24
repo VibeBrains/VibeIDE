@@ -1251,9 +1251,10 @@ export const sendViaAISdk = async (params: SendChatParams_Internal): Promise<voi
 	// it off, where the model or its file names one; without that the vendor default would decide.
 	const reasoningOff = !!reasoningCapabilities && reasoningCapabilities.canTurnOffReasoning
 		&& !getIsReasoningEnabledState('Chat', providerName, modelName_, modelSelectionOptions, overridesOfModel);
+	// The model's own «off» wins over the provider's: whoever wrote the entry knows that route's spelling.
 	const reasoningInputPayload = {
 		...(providerReasoningIOSettings?.input?.includeInPayload?.(reasoningInfo) ?? {}),
-		...(reasoningOff && reasoningCapabilities ? reasoningCapabilities.reasoningOffPayload ?? {} : {}),
+		...(reasoningOff && reasoningCapabilities ? reasoningCapabilities.reasoningOffPayload ?? providerReasoningIOSettings?.input?.offPayload ?? {} : {}),
 	};
 	// The per-request `extraBody` goes last: it is a contract for this one call (a JSON Schema for an
 	// extraction), and a provider-wide default must not overwrite it.

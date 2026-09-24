@@ -9,6 +9,7 @@ import { SendLLMMessageParams, OnText, OnFinalMessage, OnError } from '../../com
 import { IMetricsService } from '../../common/metricsService.js';
 import { displayInfoOfProviderName, FeatureName, providerNames } from '../../common/vibeideSettingsTypes.js';
 import { setExternalProviders, ExternalProviderDescriptor, VibeideStaticModelInfo } from '../../common/modelCapabilities.js';
+import type { VibeReasoningDialect } from '../../common/vibeProvidersFile.js';
 import { traceSendEvent } from '../../common/llmSendTrace.js';
 import { sendLLMMessageToProviderImplementation, dynamicProviderImplementation } from './sendLLMMessage.impl.js';
 import { setLLMProxyConfig } from './systemCAFetch.js';
@@ -17,19 +18,23 @@ import { withoutThoughtSignatures } from '../../common/thoughtSignature.js';
 
 /**
  * Register dynamic providers (.vibe/providers.json) into THIS process's caps registry. The renderer's
- * registry doesn't cross the process boundary, but `settingsOfProvider` (carrying each dynamic provider's
- * seed entry + `modelCapOverrides`) does — per request. Without this, getModelCapabilities in the send
- * path can't recognize a dynamic model and sends no tools / wrong caps. Replace-all each call (cheap).
+ * registry doesn't cross the process boundary, but `settingsOfProvider` does — per request, with each dynamic
+ * provider's transport config (`modelCapOverrides`, `reasoningDialect`) under its id. Without this, getModelCapabilities
+ * in the send path can't recognize a dynamic model and sends no tools / wrong caps. Replace-all each call (cheap).
  */
 const _builtinProviderSet = new Set<string>(providerNames as readonly string[]);
 const syncExternalProvidersFromSettings = (settingsOfProvider: SendLLMMessageParams['settingsOfProvider']): void => {
 	const descriptors: ExternalProviderDescriptor[] = [];
-	const entries = settingsOfProvider as unknown as Record<string, { modelCapOverrides?: { [modelId: string]: Partial<VibeideStaticModelInfo> } } | undefined>;
+	const entries = settingsOfProvider as unknown as Record<string, { modelCapOverrides?: { [modelId: string]: Partial<VibeideStaticModelInfo> }; reasoningDialect?: VibeReasoningDialect } | undefined>;
 	for (const id of Object.keys(entries)) {
 		if (_builtinProviderSet.has(id)) { continue; }
 		const entry = entries[id];
 		if (!entry) { continue; }
-		descriptors.push({ id, source: 'file', ...(entry.modelCapOverrides ? { modelCapOverrides: entry.modelCapOverrides } : {}) });
+		descriptors.push({
+			id, source: 'file',
+			...(entry.modelCapOverrides ? { modelCapOverrides: entry.modelCapOverrides } : {}),
+			...(entry.reasoningDialect === 'openrouter' ? { reasoningDialect: entry.reasoningDialect } : {}),
+		});
 	}
 	setExternalProviders(descriptors);
 };

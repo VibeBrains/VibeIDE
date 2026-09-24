@@ -16,6 +16,7 @@ import {
 	parseAuth,
 	normalizeAuth,
 	isKeyless,
+	reasoningDialectOf,
 	mergeProviderEntry,
 	VibeProviderEntry,
 } from '../../common/vibeProvidersFile.js';
@@ -94,6 +95,16 @@ suite('vibeProvidersFile — .vibe/providers.json format', () => {
 				{ parsed: 'invalid', normalized: { type: 'bearer' }, keyless: false },
 				{ parsed: 'invalid', normalized: { type: 'bearer' }, keyless: false },
 			]);
+		});
+	});
+
+	suite('reasoningDialectOf', () => {
+		// The shared set's contract with VibeIDEA: one dialect so far, anything else named rather than half-honoured.
+		test('knows "openrouter", absent is nothing, anything else is invalid', () => {
+			assert.deepStrictEqual(
+				[undefined, 'openrouter', 'OpenRouter', 'anthropic', 1].map(reasoningDialectOf),
+				[undefined, 'openrouter', 'invalid', 'invalid', 'invalid'],
+			);
 		});
 	});
 

@@ -15,6 +15,7 @@ import { IConfigurationService } from '../../../../platform/configuration/common
 import { IMetricsService } from './metricsService.js';
 import { vibeLog } from './vibeLog.js';
 import { defaultProviderSettings, getModelCapabilities, isFloatingModel, ModelOverrides, VibeideStaticModelInfo } from './modelCapabilities.js';
+import type { VibeReasoningDialect } from './vibeProvidersFile.js';
 import { VOID_SETTINGS_STORAGE_KEY } from './storageKeys.js';
 import type { BuiltinWireHints } from './builtinWireHints.js';
 import { autoFallbackProviderIds, defaultSettingsOfProvider, FeatureName, isBuiltinProviderId, ProviderId, ProviderName, ModelSelectionOfFeature, SettingsOfProvider, SettingName, providerNames, ModelSelection, modelSelectionsEqual, featureNames, VibeideStatefulModelInfo, GlobalSettings, GlobalSettingName, defaultGlobalSettings, ModelSelectionOptions, OptionsOfModelSelection, ChatMode, OverridesOfModel, defaultOverridesOfModel, MCPUserStateOfName as MCPUserStateOfName, MCPUserState, MinimalismMode } from './vibeideSettingsTypes.js';
@@ -362,6 +363,14 @@ export interface DynProviderTransportConfig {
 	readonly modelProtocols?: Readonly<Record<string, string>>;
 	/** The file declared that this endpoint accepts `prompt_cache_key` — see `VibeProviderEntry.promptCacheKey`. */
 	readonly promptCacheKey?: boolean;
+	/** `openrouter` — see `VibeProviderEntry.reasoningDialect`; electron-main registers the provider with it */
+	readonly reasoningDialect?: VibeReasoningDialect;
+	/**
+	 * Per-model caps from the file `static` list, for the send path's own caps registry (`syncExternalProvidersFromSettings`)
+	 * They ride here, not on the settings seed: at send time this config replaces the seed under the same id, and a field
+	 * left on the seed never reached electron-main
+	 */
+	readonly modelCapOverrides?: { readonly [modelId: string]: Partial<VibeideStaticModelInfo> };
 }
 
 export interface VibeProviderActiveOverrides {
@@ -400,10 +409,6 @@ export type DynamicProviderSeed = {
 	keySource?: 'gui' | 'env' | 'ref' | 'none';
 	/** `"auth": "none"` — the card hides the key field, which could only be ignored, and says no key is needed. */
 	keyless?: true;
-	/** Per-model caps from the file `static` list, carried so the SEND PATH (electron-main) can register
-	 *  this provider into its own copy of the caps registry — settingsOfProvider crosses the process
-	 *  boundary per request, the renderer-side registry doesn't. */
-	modelCapOverrides?: { [modelId: string]: Partial<VibeideStaticModelInfo> };
 };
 let _providerActiveOverrides: VibeProviderActiveOverrides | undefined = undefined;
 

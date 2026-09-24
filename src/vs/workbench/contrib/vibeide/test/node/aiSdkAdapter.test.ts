@@ -15,6 +15,9 @@ import { deepClone } from '../../../../../base/common/objects.js';
 import { sendViaAISdk } from '../../electron-main/llmMessage/aiSdkAdapter.js';
 // eslint-disable-next-line local/code-layering, local/code-import-patterns
 import type { SendChatParams_Internal } from '../../electron-main/llmMessage/sendLLMMessage.internalTypes.js';
+// eslint-disable-next-line local/code-layering, local/code-import-patterns
+import { sendLLMMessage } from '../../electron-main/llmMessage/sendLLMMessage.js';
+import type { IMetricsService } from '../../common/metricsService.js';
 import type { LLMChatMessage } from '../../common/sendLLMMessageTypes.js';
 import { defaultSettingsOfProvider, SettingsOfProvider } from '../../common/vibeideSettingsTypes.js';
 import { setExternalProviders } from '../../common/modelCapabilities.js';
@@ -370,6 +373,53 @@ suite('aiSdkAdapter — встроенные провайдеры против �
 			{ off: [off?.body?.thinking, off?.body?.reasoning_effort], on: [on?.body?.thinking, on?.body?.reasoning_effort] },
 			{ off: [{ type: 'disabled' }, undefined], on: [undefined, 'low'] },
 		);
+	});
+
+	test('провайдер из файла через главный процесс: возможности модели доезжают, диалект OpenRouter пишет рассуждение объектом', async () => {
+		// Shaped as the window sends it — the transport config under the provider's id, nothing registered by hand:
+		// the file's model caps used to ride on the settings seed, which this config replaces, and never arrived.
+		const reasoning = {
+			supportsReasoning: true, canTurnOffReasoning: true, canIOReasoning: true,
+			reasoningSlider: { type: 'effort_slider', values: ['low', 'high'], default: 'high' },
+		};
+		const transport = (id: string, dialect: boolean) => ({
+			baseURL: `http://127.0.0.1:${port}/compat/v1`, apiKey: 'k', protocol: 'openai',
+			...(dialect ? { reasoningDialect: 'openrouter' } : {}),
+			modelCapOverrides: { 'router-model': { reasoningCapabilities: reasoning, additionalOpenAIPayload: { route_hint: id } } },
+		});
+		const metrics = { capture: () => { } } as unknown as IMetricsService;
+		const viaMain = (providerName: string, dialect: boolean, reasoningEnabled: boolean) => new Promise<void>(resolve => {
+			void sendLLMMessage({
+				messagesType: 'chatMessages',
+				messages: [{ role: 'user', content: 'Привет' }],
+				separateSystemMessage: undefined,
+				chatMode: 'agent',
+				logging: { loggingName: 'dialect-test' },
+				modelSelection: { providerName: providerName as SendChatParams_Internal['providerName'], modelName: 'router-model' },
+				modelSelectionOptions: reasoningEnabled ? { reasoningEnabled: true, reasoningEffort: 'low' } : { reasoningEnabled: false },
+				overridesOfModel: undefined,
+				settingsOfProvider: settingsWith({ [providerName]: transport(providerName, dialect) }),
+				mcpTools: undefined,
+				runtimeOptions: { timeoutMs: { connection: 10_000, cloud: 15_000, aggregator: 15_000, streamIdle: 10_000, local: 10_000 } },
+				abortRef: { current: null },
+				onText: () => { },
+				onFinalMessage: () => resolve(),
+				onError: () => resolve(),
+			}, metrics);
+		});
+		try {
+			await viaMain('test-router', true, false);
+			await viaMain('test-router', true, true);
+			await viaMain('test-plain', false, true);
+		} finally {
+			setExternalProviders([]);
+		}
+		const bodies = requests.filter(r => r.path === '/compat/v1/chat/completions').map(r => r.body);
+		assert.deepStrictEqual(bodies.map(b => ({ reasoning: b?.reasoning, reasoningEffort: b?.reasoning_effort, routeHint: b?.route_hint })), [
+			{ reasoning: { effort: 'none' }, reasoningEffort: undefined, routeHint: 'test-router' },
+			{ reasoning: { effort: 'low' }, reasoningEffort: undefined, routeHint: 'test-router' },
+			{ reasoning: undefined, reasoningEffort: 'low', routeHint: 'test-plain' },
+		]);
 	});
 
 	test('сервер без ключа (auth: "none"): ни на одном проводе ключа нет, ключ из окружения не подхватывается', async () => {

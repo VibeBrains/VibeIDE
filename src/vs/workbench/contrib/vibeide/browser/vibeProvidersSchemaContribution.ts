@@ -137,6 +137,7 @@ const providerSchema: IJSONSchema = {
 		query: { type: 'object', additionalProperties: { type: 'string' }, description: 'Статические query-параметры.' },
 		timeoutMs: { type: 'number', description: 'Таймаут запроса (мс). Агрегаторам нужно больше.' },
 		promptCacheKey: { type: 'boolean', description: 'Endpoint принимает `prompt_cache_key` (OpenAI, xAI): IDE шлёт ключ, постоянный в пределах разговора, и запросы попадают на сервер с их кэшем — иначе вход может быть оплачен по полной цене. Без объявления поле не отправляется: строгие OpenAI-совместимые вендоры отвечают 400 на незнакомое.' },
+		reasoningDialect: { enum: ['openrouter'], description: 'Как endpoint пишет рассуждение на проводе OpenAI. `openrouter` — объект `reasoning` (`effort`, `max_tokens`, «выключено» — `effort: "none"`) вместо `reasoning_effort`, как у OpenRouter.' },
 		docsUrl: { type: 'string' },
 		apiKeyUrl: { type: 'string' },
 		quota: {

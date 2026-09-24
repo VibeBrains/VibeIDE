@@ -232,6 +232,19 @@ export interface VibeProviderModelsSpec {
 	readonly static?: readonly VibeProviderModelEntry[];
 }
 
+/**
+ * A router's own spelling of reasoning on the OpenAI wire
+ * `openrouter`: one `reasoning` object for every routed model — `effort` or `max_tokens` inside, `effort: "none"` for off
+ * (openrouter.ai/docs/use-cases/reasoning-tokens); OpenRouter does not name OpenAI's `reasoning_effort`
+ */
+export type VibeReasoningDialect = 'openrouter';
+
+/** The declared dialect, nothing when absent, or `'invalid'` for a value no product reads — the loader names it */
+export function reasoningDialectOf(value: unknown): VibeReasoningDialect | undefined | 'invalid' {
+	if (value === undefined) { return undefined; }
+	return value === 'openrouter' ? value : 'invalid';
+}
+
 /** The `quota` field of a provider: raw, as written; validated by `parseQuotaSpec`. */
 export interface VibeProviderQuota {
 	readonly url?: string;
@@ -266,6 +279,11 @@ export interface VibeProviderEntry {
 	 * vendor answers 400 to a field it does not know. See `common/promptCacheKey.ts`.
 	 */
 	readonly promptCacheKey?: boolean;
+	/**
+	 * How the endpoint spells reasoning on the OpenAI wire, when not as OpenAI does — see `VibeReasoningDialect`
+	 * The shared set's contract with VibeIDEA: `openrouter`, the only dialect so far
+	 */
+	readonly reasoningDialect?: VibeReasoningDialect;
 	readonly docsUrl?: string;
 	readonly apiKeyUrl?: string;
 	/**

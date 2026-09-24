@@ -21,6 +21,7 @@
 import { FeatureName, ModelSelectionOptions, OverridesOfModel, ProviderId, ProviderName } from './vibeideSettingsTypes.js';
 import { effectiveCost, PriceTimeOfDay } from './modelPriceSchedule.js';
 import { effortWithinValues } from './reasoningEffortLevel.js';
+import type { VibeReasoningDialect } from './vibeProvidersFile.js';
 
 
 
@@ -440,7 +441,14 @@ export const isFreeModel = (providerName: ProviderId, modelName: string): boolea
 
 type ProviderReasoningIOSettings = {
 	// include this in payload to get reasoning
-	input?: { includeInPayload?: (reasoningState: SendableReasoningInfo) => null | { [key: string]: unknown } };
+	input?: {
+		includeInPayload?: (reasoningState: SendableReasoningInfo) => null | { [key: string]: unknown };
+		/**
+		 * The body that switches reasoning off on every model of this provider, when the model names none of its own
+		 * A router spells «off» once for everything it routes; without it «off» sends nothing and the model's default decides
+		 */
+		offPayload?: { readonly [key: string]: unknown };
+	};
 	// nameOfFieldInDelta: reasoning output is in response.choices[0].delta[deltaReasoningField]
 	// needsManualParse: whether we must manually parse out the <think> tags
 	output?:
@@ -2380,7 +2388,9 @@ const openRouterSettings: VoidStaticProviderInfo = {
 					};
 				}
 				return null;
-			}
+			},
+			// The router turns reasoning off the same way for every model behind it — shared with VibeIDEA's `openrouter` dialect.
+			offPayload: { reasoning: { effort: 'none' } },
 		},
 		output: { nameOfFieldInDelta: 'reasoning' },
 	},
@@ -2567,6 +2577,8 @@ export type ExternalProviderDescriptor = {
 	id: string;
 	source: 'file' | 'network';
 	modelCapOverrides?: { [modelId: string]: Partial<VibeideStaticModelInfo> };
+	/** `openrouter`: reasoning goes as OpenRouter spells it, the built-in `openRouter`'s settings, not OpenAI's field */
+	reasoningDialect?: VibeReasoningDialect;
 };
 
 const _externalProviders = new Map<string, { info: VoidStaticProviderInfo; source: 'file' | 'network' }>();
@@ -2580,7 +2592,7 @@ const buildExternalProviderInfo = (d: ExternalProviderDescriptor): VoidStaticPro
 		modelOptions[modelId] = { ...baseline, ...partial };
 	}
 	return {
-		providerReasoningIOSettings: openaiCompatible.providerReasoningIOSettings,
+		providerReasoningIOSettings: d.reasoningDialect === 'openrouter' ? openRouterSettings.providerReasoningIOSettings : openaiCompatible.providerReasoningIOSettings,
 		modelOptions,
 		modelOptionsFallback: aggregatorOpenAIFallback,
 	};

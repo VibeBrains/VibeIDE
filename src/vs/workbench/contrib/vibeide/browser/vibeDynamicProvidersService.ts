@@ -42,7 +42,7 @@ import { IVibeideSettingsService, VibeProviderActiveOverrides, ModelOption, DynP
 import type { BuiltinWireHints } from '../common/builtinWireHints.js';
 import { setExternalProviders, ExternalProviderDescriptor, VibeideStaticModelInfo, ModelLongContext } from '../common/modelCapabilities.js';
 import { IRemoteCatalogService, DynamicKeyValidation } from '../common/remoteCatalogService.js';
-import { VibeProviderEntry, VibeProviderModelCost, VibeProviderModelEntry, isKeyless, isProviderCatalogueFile, mergeProviderEntry, mergeProviderLayers, parseAuth, parseProvidersFile, promptCacheTtlOf, VibeProviderLongContext, VibeProviderTimeOfDay } from '../common/vibeProvidersFile.js';
+import { VibeProviderEntry, VibeProviderModelCost, VibeProviderModelEntry, isKeyless, isProviderCatalogueFile, mergeProviderEntry, mergeProviderLayers, parseAuth, parseProvidersFile, promptCacheTtlOf, reasoningDialectOf, VibeProviderLongContext, VibeProviderTimeOfDay } from '../common/vibeProvidersFile.js';
 import { parseEnvFile } from '../common/vibeEnvFile.js';
 import { DEFAULT_PRICE_CHANGE_SOON_DAYS, effectiveCost, nextPriceChangeMoment, parseTimeOfDay, PriceTimeOfDay, priceChangeStatus } from '../common/modelPriceSchedule.js';
 import { VIBE_CONFIG_PROVIDERS_CACHE_KEY } from '../common/storageKeys.js';
@@ -80,6 +80,38 @@ export function modelProtocolsOf(models: readonly VibeProviderModelEntry[] | und
 	// lookup would quietly miss and send the model in the provider's format — the very failure this
 	// field exists to prevent.
 	return declared.length ? Object.fromEntries(declared.map(m => [m.id.toLowerCase(), m.protocol!])) : undefined;
+}
+
+/**
+ * What electron-main needs to send to a provider from the files — exported for tests
+ *
+ * Everything the send path reads rides here: at send time this config replaces the provider's settings seed under
+ * the same id, so a field left on the seed never crossed the process boundary. The file's model caps went missing
+ * that way — `extraBody`, `reasoning.off`, `toolFormat` of a `static` model reached the picker and not the request
+ */
+export function dynamicTransportConfigOf(
+	entry: VibeProviderEntry & { readonly baseURL: string },
+	resolvedKey: string | undefined,
+	modelCapOverrides: { readonly [modelId: string]: Partial<VibeideStaticModelInfo> },
+): DynProviderTransportConfig {
+	const fetchSpec = entry.models?.fetch;
+	const modelProtocols = modelProtocolsOf(entry.models?.static);
+	const reasoningDialect = reasoningDialectOf(entry.reasoningDialect);
+	return {
+		baseURL: entry.baseURL,
+		// A keyless server gets no key to send, not a key the send path is trusted to drop.
+		...(isKeyless(entry) ? { keyless: true } : {
+			...(resolvedKey ? { apiKey: resolvedKey } : {}),
+			...(entry.apiKeyEnv ? { apiKeyEnv: entry.apiKeyEnv } : {}),
+		}),
+		...(entry.headers ? { headers: { ...entry.headers } } : {}),
+		...(typeof fetchSpec === 'string' ? { modelsUrl: fetchSpec } : {}),
+		...(entry.protocol ? { protocol: entry.protocol } : {}),
+		...(modelProtocols ? { modelProtocols } : {}),
+		...(entry.promptCacheKey === true ? { promptCacheKey: true } : {}),
+		...(reasoningDialect && reasoningDialect !== 'invalid' ? { reasoningDialect } : {}),
+		...(Object.keys(modelCapOverrides).length ? { modelCapOverrides } : {}),
+	};
 }
 
 /**
@@ -807,6 +839,10 @@ class VibeDynamicProvidersService extends Disposable implements IVibeDynamicProv
 			if (kind !== 'override' && isKeyless(resolved) && (resolved.apiKeyEnv || resolved.apiKeyRef)) {
 				warnings.push(`«${entry.id}»: "auth": "none" — ключ из ${resolved.apiKeyEnv ? 'apiKeyEnv' : 'apiKeyRef'} не отправляется; уберите его или auth`);
 			}
+			// Dropped aloud, as VibeIDEA does: sent as OpenAI's spelling, an unknown dialect would look like a dial that works.
+			if (reasoningDialectOf(resolved.reasoningDialect) === 'invalid') {
+				warnings.push(`«${entry.id}»: reasoningDialect ${JSON.stringify(resolved.reasoningDialect)} не разобран — рассуждение уйдёт как у OpenAI (reasoning_effort); допустимо "openrouter"`);
+			}
 			if (parseQuotaSpec(resolved.quota) === 'invalid') {
 				warnings.push(`«${entry.id}»: quota не разобран (url только https, format — minimax-token-plan или zai-monitor) — остаток подписки не запрашивается`);
 			}
@@ -1026,24 +1062,21 @@ class VibeDynamicProvidersService extends Disposable implements IVibeDynamicProv
 			const resolvedKey = this._resolveBrowserKey(p);
 			const keyless = isKeyless(p.entry);
 
+			// Register this provider as openai-compatible; file `static` caps become per-model overrides on
+			// the recognized baseline (vision/reasoning/tool-format come from the knowledge base by name).
+			const modelCapOverrides: { [id: string]: Partial<VibeideStaticModelInfo> } = {};
+			for (const m of (p.entry.models?.static ?? [])) { modelCapOverrides[m.id] = modelEntryToCaps(m); }
+			const reasoningDialect = reasoningDialectOf(p.entry.reasoningDialect);
+			descriptors.push({
+				id: p.id, source: 'file',
+				...(Object.keys(modelCapOverrides).length ? { modelCapOverrides } : {}),
+				...(reasoningDialect && reasoningDialect !== 'invalid' ? { reasoningDialect } : {}),
+			});
+
 			// Transport overlay — built regardless of UI key (apiKeyEnv may resolve in main at send time),
 			// only needs a baseURL. extends-builtin without baseURL inherits downstream (follow-up).
 			if (p.entry.baseURL) {
-				const fetchSpec = p.entry.models?.fetch;
-				const modelProtocols = modelProtocolsOf(p.entry.models?.static);
-				transportConfigs[p.id] = {
-					baseURL: p.entry.baseURL,
-					// A keyless server gets no key to send, not a key the send path is trusted to drop.
-					...(keyless ? { keyless: true } : {
-						...(resolvedKey ? { apiKey: resolvedKey } : {}),
-						...(p.entry.apiKeyEnv ? { apiKeyEnv: p.entry.apiKeyEnv } : {}),
-					}),
-					...(p.entry.headers ? { headers: { ...p.entry.headers } } : {}),
-					...(typeof fetchSpec === 'string' ? { modelsUrl: fetchSpec } : {}),
-					...(p.entry.protocol ? { protocol: p.entry.protocol } : {}),
-					...(modelProtocols ? { modelProtocols } : {}),
-					...(p.entry.promptCacheKey === true ? { promptCacheKey: true } : {}),
-				};
+				transportConfigs[p.id] = dynamicTransportConfigOf({ ...p.entry, baseURL: p.entry.baseURL }, resolvedKey, modelCapOverrides);
 			}
 
 			const keySource = this._resolveKeySource(p);
@@ -1053,12 +1086,6 @@ class VibeDynamicProvidersService extends Disposable implements IVibeDynamicProv
 			for (const m of (p.entry.models?.static ?? [])) {
 				if (m.active !== false) { staticById.set(m.id, m); }
 			}
-
-			// Register this provider as openai-compatible; file `static` caps become per-model overrides on
-			// the recognized baseline (vision/reasoning/tool-format come from the knowledge base by name).
-			const modelCapOverrides: { [id: string]: Partial<VibeideStaticModelInfo> } = {};
-			for (const m of (p.entry.models?.static ?? [])) { modelCapOverrides[m.id] = modelEntryToCaps(m); }
-			descriptors.push({ id: p.id, source: 'file', ...(Object.keys(modelCapOverrides).length ? { modelCapOverrides } : {}) });
 
 			const hiddenOverrides = (this._settingsService.state.dynamicModelHidden ?? {})[p.id];
 			const pushModel = (id: string, name: string, fileNote?: 'override' | 'manual') => {
@@ -1107,9 +1134,6 @@ class VibeDynamicProvidersService extends Disposable implements IVibeDynamicProv
 				keyStatus,
 				keySource,
 				...(keyless ? { keyless: true } : {}),
-				// Carried to electron-main (via settingsOfProvider) so the send-path registers this provider
-				// in its own caps registry — same `modelCapOverrides` as the renderer-side descriptor.
-				...(Object.keys(modelCapOverrides).length ? { modelCapOverrides } : {}),
 			};
 		}
 		// Register all active dynamic providers in the unified caps registry (replace-all each apply).
