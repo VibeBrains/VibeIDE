@@ -6,7 +6,7 @@
 
 import * as assert from 'assert';
 import { ensureNoDisposablesAreLeakedInTestSuite } from '../../../../../base/test/common/utils.js';
-import { decideStop, estimateTokensFromChars, hopTokenCost, truncateSummary, chatModeForAllowedTools, collectPathsFromRawParams, buildExploreReport, buildSubagentTaskMessage } from '../../common/subagentLoopPolicy.js';
+import { decideStop, estimateTokensFromChars, hopTokenCost, truncateSummary, summaryTail, RESULT_SUMMARY_MAX_CHARS, chatModeForAllowedTools, collectPathsFromRawParams, buildExploreReport, buildSubagentTaskMessage } from '../../common/subagentLoopPolicy.js';
 
 const LIMITS = { maxSteps: 5, maxTokensEst: 1000, deadlineAtMs: 10_000, maxDeniedActions: 3 };
 const OK_STATE = { stepsDone: 1, tokensUsedEst: 100, deniedActions: 0, nowMs: 5000, cancelled: false };
@@ -63,6 +63,20 @@ suite('subagentLoopPolicy — headless tool-loop decisions (Phase 3b)', () => {
 				[true, true, true, true],
 			],
 		);
+	});
+
+	/** A reviewer ends with its verdict: the part a head cut used to throw away. */
+	test('a role answer travels as its end, and a diff rides as a block after the context', () => {
+		const review = `${'замечание. '.repeat(400)}\nВЕРДИКТ: доработать`;
+		const tail = summaryTail(review, RESULT_SUMMARY_MAX_CHARS);
+		const msg = buildSubagentTaskMessage({ displayName: 'Критик', systemAppendix: '', goal: 'Сведи замечания', contextItems: ['src/x.ts'], diff: 'Дифф прогона:\n```diff\n+x\n```' });
+		assert.deepStrictEqual({
+			length: tail.length,
+			keepsVerdict: tail.endsWith('ВЕРДИКТ: доработать'),
+			marksCut: tail.startsWith('…'),
+			short: summaryTail('  коротко  ', 10),
+			diffAfterContext: msg.indexOf('Дифф прогона:') > msg.indexOf('src/x.ts') && msg.indexOf('Дифф прогона:') < msg.indexOf('vibe_complete'),
+		}, { length: RESULT_SUMMARY_MAX_CHARS, keepsVerdict: true, marksCut: true, short: 'коротко', diffAfterContext: true });
 	});
 
 	test('hopTokenCost: real usage charges uncached input + output; excludes cache hits; falls back to char estimate', () => {

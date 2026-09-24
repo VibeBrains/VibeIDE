@@ -147,7 +147,7 @@ suite('Project hooks — verdicts', () => {
 		);
 	});
 
-	test('a refusal outranks notes, and only preToolUse can block', () => {
+	test('a refusal outranks notes, and blocks only what has not happened yet', () => {
 		const verdicts = [
 			{ kind: 'note' as const, text: 'заметка' },
 			{ kind: 'refuse' as const, text: 'нельзя' },
@@ -161,10 +161,12 @@ suite('Project hooks — verdicts', () => {
 				preSaysNoFirst: pre.agentMessage?.includes('нельзя') === true && pre.agentMessage?.includes('заметка') === false,
 				// After the fact there is nothing to block: the agent is told to fix it instead.
 				postBlocked: post.blocked,
+				// The cascade gate refuses a draft before it is accepted — the refusal is what escalates the step.
+				gateBlocked: decideHooks('pipelineStepEnd', verdicts).blocked,
 				broken: pre.brokenHooks,
 				quiet: decideHooks('turnEnd', [{ kind: 'ok' }]).agentMessage,
 			},
-			{ preBlocked: true, preSaysNoFirst: true, postBlocked: false, broken: ['хук сломан'], quiet: undefined },
+			{ preBlocked: true, preSaysNoFirst: true, postBlocked: false, gateBlocked: true, broken: ['хук сломан'], quiet: undefined },
 		);
 	});
 

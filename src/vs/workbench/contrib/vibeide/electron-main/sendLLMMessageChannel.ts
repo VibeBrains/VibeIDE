@@ -29,8 +29,8 @@ export class LLMMessageChannel implements IServerChannel {
 		onError: new Emitter<EventLLMMessageOnErrorParams>(),
 	};
 
-	// aborters for above
-	private readonly _infoOfRunningRequest: Record<string, { waitForSend: Promise<void> | undefined; abortRef: AbortRef }> = {};
+	// aborters for above — one per request while it runs
+	private readonly _infoOfRunningRequest: Record<string, { abortRef: AbortRef }> = {};
 
 
 	// list
@@ -74,7 +74,7 @@ export class LLMMessageChannel implements IServerChannel {
 				this._callSendLLMMessage(params as MainSendLLMMessageParams);
 			}
 			else if (command === 'abort') {
-				await this._callAbort(params as MainLLMMessageAbortParams);
+				this._callAbort(params as MainLLMMessageAbortParams);
 			}
 			else if (command === 'ollamaList') {
 				this._callOllamaList(params as MainModelListParams<OllamaModelResponse>);
@@ -131,7 +131,7 @@ export class LLMMessageChannel implements IServerChannel {
 		const modelName = params.modelSelection?.modelName;
 		traceSendEvent({ kind: 'ipc-send', requestId, providerName, modelName });
 
-		if (!Object.hasOwn(this._infoOfRunningRequest, requestId)) { this._infoOfRunningRequest[requestId] = { waitForSend: undefined, abortRef: { current: null } }; }
+		if (!Object.hasOwn(this._infoOfRunningRequest, requestId)) { this._infoOfRunningRequest[requestId] = { abortRef: { current: null } }; }
 
 		let sawFirstChunk = false;
 		const mainThreadParams: SendLLMMessageParams = {
@@ -160,16 +160,20 @@ export class LLMMessageChannel implements IServerChannel {
 		if (this._infoOfRunningRequest[requestId].abortRef.current !== null) {
 			traceSendEvent({ kind: 'aborter-set', requestId, providerName, modelName });
 		}
-		this._infoOfRunningRequest[requestId].waitForSend = p;
+		// A finished request has nothing left to abort. Its entry goes with it: the abort closure holds
+		// the whole answer, and entries of finished requests used to stay for the life of the window.
+		const release = () => { delete this._infoOfRunningRequest[requestId]; };
+		p.then(release, release);
 	}
 
-	private async _callAbort(params: MainLLMMessageAbortParams) {
+	private _callAbort(params: MainLLMMessageAbortParams): void {
 		const { requestId } = params;
 		if (!Object.hasOwn(this._infoOfRunningRequest, requestId)) { return; }
 		traceSendEvent({ kind: 'abort', requestId });
-		const { waitForSend, abortRef } = this._infoOfRunningRequest[requestId];
-		await waitForSend; // wait for the send to finish so we know abortRef was set
-		abortRef?.current?.();
+		// Now, not after the send: `sendLLMMessage` sets `abortRef.current` before its first await, and
+		// waiting for the send meant waiting for the whole answer — the request was never cut, the
+		// provider went on generating and billing a response nobody would read.
+		this._infoOfRunningRequest[requestId].abortRef.current?.();
 		delete this._infoOfRunningRequest[requestId];
 	}
 

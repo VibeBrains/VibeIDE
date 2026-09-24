@@ -164,7 +164,10 @@ export function verdictOf(run: VibeHookRun): VibeHookVerdict {
 }
 
 export interface VibeHookDecision {
-	/** True when a `preToolUse` hook refused: the tool call must not happen. */
+	/**
+	 * True when a refusal stops something that has not happened yet: the tool call (`preToolUse`) or
+	 * the acceptance of a cascade draft (`pipelineStepEnd`, which then escalates the step).
+	 */
 	readonly blocked: boolean;
 	/** Text handed to the agent, or `undefined` when the hooks had nothing to say. */
 	readonly agentMessage: string | undefined;
@@ -187,7 +190,9 @@ export function decideHooks(event: VibeHookEvent, verdicts: readonly VibeHookVer
 		const head = event === 'preToolUse'
 			? 'Действие остановлено проверкой проекта:'
 			: 'Проверка проекта нашла проблему в том, что только что сделано:';
-		return { blocked: event === 'preToolUse', agentMessage: [head, ...refusals].join('\n'), brokenHooks: broken };
+		// The cascade gate blocks too: its refusal is the whole point of the event, and read as a mere
+		// note it let every draft through — the hook's exit code 2 escalated nothing.
+		return { blocked: event === 'preToolUse' || event === 'pipelineStepEnd', agentMessage: [head, ...refusals].join('\n'), brokenHooks: broken };
 	}
 	return { blocked: false, agentMessage: notes.length ? notes.join('\n') : undefined, brokenHooks: broken };
 }

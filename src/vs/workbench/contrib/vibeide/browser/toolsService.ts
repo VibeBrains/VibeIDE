@@ -73,6 +73,7 @@ import { IVibeDesignScanService, unreachableReasonOf } from './designReview/vibe
 import { IVibeDesignContextService } from './designContext/vibeDesignContextService.js';
 import { IVibeTextSlopService } from '../common/textSlop/vibeTextSlopService.js';
 import { renderSlopReport } from '../common/textSlop/slopRender.js';
+import { AgentReadRules, agentMayReadByRules } from '../common/agentReadPolicy.js';
 import { Finding, ViewportLabel, mergeViewportFindings, reviewDesign, summarize } from '../common/designReview/designSlopRules.js';
 import { formatCouncilResult } from '../common/modelCouncil.js';
 import { IVibeModelCouncilService } from './vibeModelCouncilService.js';
@@ -533,11 +534,8 @@ export class ToolsService extends Disposable implements IToolsService {
 		// symlinks (`agentSearchScope`), so below the root a result's name is the file itself and the
 		// read rules can be asked about it directly — the rules of `gateRead`, without a disk round trip
 		// per result. `.vibe/ignore` included: search is the other half of what it governs.
-		const isReadableResult = (u: URI): boolean => {
-			if (vibeIgnoreService.isIgnored(u)) { return false; }
-			try { this.vibeConstraintsService.checkReadAllowed(u.fsPath); } catch { return false; }
-			return this.vibePermissionsService.canRead(u.fsPath);
-		};
+		const readRules: AgentReadRules = { ignore: vibeIgnoreService, constraints: this.vibeConstraintsService, permissions: this.vibePermissionsService };
+		const isReadableResult = (u: URI): boolean => agentMayReadByRules(u, readRules);
 		// Agent search never follows symlinks — ripgrep's own default, overriding `search.followSymlinks`
 		// for the agent only. A followed link turns a search into a walk through whatever it points at,
 		// outside the workspace or into a folder a deny rule closes, under names no rule was written for.

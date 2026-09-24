@@ -11,8 +11,9 @@ import { join, join as pathJoin } from 'path';
 import { copyFile, mkdir, readFile, rm, writeFile } from 'fs/promises';
 import { Disposable } from '../../../../base/common/lifecycle.js';
 import { generateUuid } from '../../../../base/common/uuid.js';
-import { IVibeideSCMService, IWorkspaceSnapshotRestorePlan } from '../common/vibeideSCMTypes.js';
+import { ChangeRange, IChangedFile, IChangeSet, IVibeideSCMService, IWorkspaceSnapshotRestorePlan } from '../common/vibeideSCMTypes.js';
 import { isSnapshotTreeId, parsePathList, parsePinnedSnapshots, planSnapshotRestore, selectStaleSnapshotRefs, shouldReuseSnapshot, snapshotCommitMessage, SnapshotCommitMeta, SNAPSHOT_ARGV } from '../common/workspaceSnapshotPolicy.js';
+import { CHANGES_ARGV, chunkChangedFiles, isSafeBranchName, parseNameStatusZ, parsePipelineRunRefs, pathspecOf, pipelineSnapshotMessage, pipelineSnapshotRef, selectStaleRunRefs, splitPatchSections } from '../common/workspaceChangesPolicy.js';
 
 interface NumStat {
 	file: string;
@@ -136,6 +137,18 @@ const withTemporaryIndex = async <T>(root: string, body: (indexFile: string) => 
 	}
 };
 
+/**
+ * The working tree as a git tree object — tracked, modified and untracked files alike, ignored ones
+ * excluded — written through a scratch index. `undefined` when git does not answer with a tree id.
+ */
+const writeWorkingTree = async (root: string): Promise<string | undefined> => {
+	const tree = await withTemporaryIndex(root, async indexFile => {
+		await gitArgv(SNAPSHOT_ARGV.stageAll, root, indexFile);
+		return gitArgv(SNAPSHOT_ARGV.writeTree, root, indexFile);
+	});
+	return isSnapshotTreeId(tree) ? tree.trim() : undefined;
+};
+
 export class VibeideSCMService extends Disposable implements IVibeideSCMService {
 	readonly _serviceBrand: undefined;
 
@@ -239,41 +252,33 @@ export class VibeideSCMService extends Disposable implements IVibeideSCMService 
 	async createWorkspaceSnapshot(path: string, meta?: SnapshotCommitMeta, previousCommit?: string): Promise<string | undefined> {
 		try {
 			const root = await gitArgv(SNAPSHOT_ARGV.repoRoot, path);
-			return await withTemporaryIndex(root, async indexFile => {
-				await gitArgv(SNAPSHOT_ARGV.stageAll, root, indexFile);
-				const tree = await gitArgv(SNAPSHOT_ARGV.writeTree, root, indexFile);
-				if (!isSnapshotTreeId(tree)) {
-					return undefined;
-				}
-				// Ход, ничего не изменивший в папке (агент только читал), не порождает второго
-				// объекта: одинаковое содержимое даёт одинаковый sha дерева. Экономия здесь
-				// второстепенна — важнее, что подряд идущие одинаковые снимки превращают историю
-				// ходов в шум, где не видно, какой ход что-то сделал.
-				if (previousCommit) {
-					try {
-						const previousTree = await gitArgv(SNAPSHOT_ARGV.treeOfCommit(previousCommit), root);
-						if (shouldReuseSnapshot(tree, previousTree)) {
-							return previousCommit;
-						}
-					} catch {
-						// Предыдущего коммита уже нет (сборка мусора, чужая правка ссылок) — пишем новый.
+			const tree = await writeWorkingTree(root);
+			if (!tree) {
+				return undefined;
+			}
+			// Ход, ничего не изменивший в папке (агент только читал), не порождает второго
+			// объекта: одинаковое содержимое даёт одинаковый sha дерева. Экономия здесь
+			// второстепенна — важнее, что подряд идущие одинаковые снимки превращают историю
+			// ходов в шум, где не видно, какой ход что-то сделал.
+			if (previousCommit) {
+				try {
+					const previousTree = await gitArgv(SNAPSHOT_ARGV.treeOfCommit(previousCommit), root);
+					if (shouldReuseSnapshot(tree, previousTree)) {
+						return previousCommit;
 					}
+				} catch {
+					// Предыдущего коммита уже нет (сборка мусора, чужая правка ссылок) — пишем новый.
 				}
-				// A bare tree is unreachable and `git gc` deletes it (verified: `gc --prune=now` made a
-				// fresh tree unreadable). Wrap it in a commit and give that commit a ref, so a snapshot
-				// survives for as long as the checkpoint that points at it.
-				const commit = await gitArgv(
-					SNAPSHOT_ARGV.commitTree(tree.trim(), snapshotCommitMessage(tree.trim(), meta)),
-					root,
-					indexFile,
-					SNAPSHOT_IDENTITY,
-				);
-				if (!isSnapshotTreeId(commit)) {
-					return undefined;
-				}
-				await gitArgv(SNAPSHOT_ARGV.updateRef(commit.trim(), commit.trim()), root);
-				return commit.trim();
-			});
+			}
+			// A bare tree is unreachable and `git gc` deletes it (verified: `gc --prune=now` made a
+			// fresh tree unreadable). Wrap it in a commit and give that commit a ref, so a snapshot
+			// survives for as long as the checkpoint that points at it.
+			const commit = await gitArgv(SNAPSHOT_ARGV.commitTree(tree, snapshotCommitMessage(tree, meta)), root, undefined, SNAPSHOT_IDENTITY);
+			if (!isSnapshotTreeId(commit)) {
+				return undefined;
+			}
+			await gitArgv(SNAPSHOT_ARGV.updateRef(commit.trim(), commit.trim()), root);
+			return commit.trim();
 		} catch {
 			// No repository, no git on PATH, or a repository too broken to stage: checkpoints keep
 			// working with their own file snapshots, they just cannot cover terminal-side changes.
@@ -295,6 +300,106 @@ export class VibeideSCMService extends Disposable implements IVibeideSCMService 
 		} catch {
 			return 0;
 		}
+	}
+
+	async pinPipelineSnapshot(path: string, run: string, label: string): Promise<string | undefined> {
+		const ref = pipelineSnapshotRef(run, label);
+		try {
+			const root = await gitArgv(SNAPSHOT_ARGV.repoRoot, path);
+			const tree = await writeWorkingTree(root);
+			if (!tree) {
+				return undefined;
+			}
+			// A commit with a ref, like a checkpoint: a bare tree is unreachable and `gc` may take it mid-run.
+			const commit = await gitArgv(SNAPSHOT_ARGV.commitTree(tree, pipelineSnapshotMessage(run, label, tree)), root, undefined, SNAPSHOT_IDENTITY);
+			if (!isSnapshotTreeId(commit)) {
+				return undefined;
+			}
+			await gitArgv(CHANGES_ARGV.pinRef(ref, commit.trim()), root);
+			return commit.trim();
+		} catch {
+			return undefined;
+		}
+	}
+
+	async releasePipelineSnapshots(path: string, run: string): Promise<void> {
+		try {
+			const root = await gitArgv(SNAPSHOT_ARGV.repoRoot, path);
+			const refs = parsePipelineRunRefs(await gitArgv(CHANGES_ARGV.listRunRefs, root));
+			for (const pinned of refs.filter(ref => ref.run === run)) {
+				await gitArgv(CHANGES_ARGV.deleteRef(pinned.ref), root).catch(() => { /* already gone */ });
+			}
+		} catch {
+			// Housekeeping: a pin left behind is swept later by `prunePipelineSnapshots`.
+		}
+	}
+
+	async prunePipelineSnapshots(path: string, minAgeMs: number): Promise<number> {
+		try {
+			const root = await gitArgv(SNAPSHOT_ARGV.repoRoot, path);
+			const stale = selectStaleRunRefs(parsePipelineRunRefs(await gitArgv(CHANGES_ARGV.listRunRefs, root)), Date.now(), minAgeMs);
+			for (const ref of stale.refs) {
+				await gitArgv(CHANGES_ARGV.deleteRef(ref), root).catch(() => { /* already gone */ });
+			}
+			return stale.runs;
+		} catch {
+			return 0;
+		}
+	}
+
+	async listChanges(path: string, range: ChangeRange): Promise<IChangeSet | undefined> {
+		try {
+			const root = await gitArgv(SNAPSHOT_ARGV.repoRoot, path);
+			// Asked in the folder itself: git knows where it sits in the repository even when the folder
+			// was opened through a symlink, which comparing absolute paths would not survive.
+			const prefix = await gitArgv(CHANGES_ARGV.showPrefix, path);
+			let from: string;
+			let to: string | undefined;
+			if (range.kind === 'snapshot') {
+				if (!isSnapshotTreeId(range.commit)) {
+					return undefined;
+				}
+				from = await gitArgv(CHANGES_ARGV.treeOf(range.commit), root);
+				to = await writeWorkingTree(root);
+			} else {
+				if (!isSafeBranchName(range.branch)) {
+					return undefined;
+				}
+				const base = await gitArgv(CHANGES_ARGV.mergeBase(range.branch), root);
+				from = await gitArgv(CHANGES_ARGV.treeOf(base), root);
+				to = await gitArgv(CHANGES_ARGV.treeOf(range.branch), root);
+			}
+			if (!isSnapshotTreeId(from) || !to || !isSnapshotTreeId(to)) {
+				return undefined;
+			}
+			const files = parseNameStatusZ(await gitArgv(CHANGES_ARGV.nameStatus(from, to), root));
+			return { prefix, from, to, files };
+		} catch {
+			return undefined;
+		}
+	}
+
+	async diffChanges(path: string, from: string, to: string, files: readonly IChangedFile[], maxChars: number): Promise<string[]> {
+		if (!isSnapshotTreeId(from) || !isSnapshotTreeId(to)) {
+			throw new Error(`Не похоже на деревья git: ${from}, ${to}`);
+		}
+		const root = await gitArgv(SNAPSHOT_ARGV.repoRoot, path);
+		const sections: string[] = [];
+		let collected = 0;
+		for (const chunk of chunkChangedFiles(files)) {
+			if (collected > maxChars) {
+				break;
+			}
+			const patch = await gitArgv(CHANGES_ARGV.patch(from, to, chunk.flatMap(pathspecOf)), root);
+			for (const section of splitPatchSections(patch)) {
+				if (collected > maxChars) {
+					break;
+				}
+				sections.push(section);
+				collected += section.length;
+			}
+		}
+		return sections;
 	}
 
 	async planWorkspaceSnapshotRestore(path: string, tree: string): Promise<IWorkspaceSnapshotRestorePlan> {

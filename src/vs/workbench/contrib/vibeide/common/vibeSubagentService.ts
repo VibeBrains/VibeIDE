@@ -27,7 +27,7 @@ import { registerSingleton, InstantiationType } from '../../../../platform/insta
 import { ILogService } from '../../../../platform/log/common/log.js';
 import { IConfigurationService } from '../../../../platform/configuration/common/configuration.js';
 import { DEFAULT_SUBAGENT_TOKEN_QUOTA } from './subagentIsolationPolicy.js';
-import type { SubagentStopReason } from './subagentLoopPolicy.js';
+import { RESULT_SUMMARY_MAX_CHARS, SubagentStopReason, summaryTail } from './subagentLoopPolicy.js';
 import type { ModelSelection, ProviderId } from './vibeideSettingsTypes.js';
 import type { ChatImageAttachment, ChatMessage } from './chatThreadServiceTypes.js';
 import { IAuditLogService } from './auditLogService.js';
@@ -145,6 +145,14 @@ export interface SubagentHandoff {
 	 * have been started with `keepTranscript`.
 	 */
 	continuesRunId?: string;
+	/**
+	 * A ready block with the changes this run is to judge — the diff a pipeline hands its judging
+	 * steps. Kept out of `goal` on purpose: the goal goes to the ledger with every run, and forty
+	 * thousand characters of diff per record would bury the journal.
+	 */
+	diff?: string;
+	/** «Шаг 3/5 · волна «review»» when the run is a pipeline step — how the activity row names it. */
+	pipelineStepLabel?: string;
 }
 
 /** Statuses that still hold the key — a finished run must not block a new attempt. */
@@ -184,11 +192,11 @@ export function continuationRefusal(handoff: Pick<SubagentHandoff, 'type' | 'con
 	return undefined;
 }
 
-/** Compact result returned to the parent — bounded by MAX_RESULT_CHARS */
+/** Compact result returned to the parent — the summary is bounded by `RESULT_SUMMARY_MAX_CHARS`. */
 export interface SubagentResult {
 	subagentId: string;
 	status: 'success' | 'failed' | 'stopped' | 'skipped';
-	/** Brief summary (≤500 chars) */
+	/** The end of the role's answer (see `summaryTail`), with the worktree note when there is one. */
 	summary: string;
 	/** Changed file paths (if any) */
 	artifacts?: string[];
@@ -212,6 +220,12 @@ export interface SubagentResult {
 	truncated?: boolean;
 	/** Structured explore report (only for type='explore') */
 	exploreReport?: ExploreSubagentReport;
+	/**
+	 * Where an isolated run left its committed work: its branch and worktree, and whether the branch
+	 * was merged into the project. A pipeline reads it to show a judge work that is not in the open
+	 * folder — an unmerged branch is invisible to a diff of the working tree.
+	 */
+	worktree?: { readonly branch: string; readonly path: string; readonly merged: boolean };
 }
 
 /**
@@ -272,8 +286,18 @@ export interface IVibeSubagentService {
 	/** Wait for a subagent to complete and receive its compact result */
 	awaitResult(subagentId: string): Promise<SubagentResult>;
 
-	/** Dispose a subagent — releases token quota, removes from registry */
+	/**
+	 * Dispose a subagent — releases token quota, removes from registry. A run that has not finished is
+	 * stopped, and whoever awaits its result receives `stopped` rather than waiting forever.
+	 */
 	disposeSubagent(subagentId: string): void;
+
+	/**
+	 * Why a run of `type` would be refused right now — a latched protective breaker or a spent role
+	 * budget — or `undefined` when it may start. The same checks `spawn` makes, asked ahead: a pipeline
+	 * wave starts whole or not at all, so it has to know before the first of its steps is spawned.
+	 */
+	launchRefusal(type: SubagentType): Promise<string | undefined>;
 
 	/** Fired whenever a subagent's status changes */
 	readonly onSubagentStatusChanged: Event<SubagentEntry>;
@@ -293,9 +317,6 @@ export interface IVibeSubagentService {
 }
 
 // ── Constants ─────────────────────────────────────────────────────────────────
-
-/** Maximum characters in any SubagentResult field — enforces compact handoff contract */
-const MAX_RESULT_SUMMARY_CHARS = 500;
 
 /**
  * Сколько собственного ответа роли остаётся, какой бы длинной ни вышла приписка про дерево.
@@ -355,7 +376,18 @@ function writeScopeField(scope: WriteScope | undefined): { writeScope?: WriteSco
  */
 const WRITING_TOOLS = new Set(['edit_file', 'rewrite_file', 'create_file_or_folder', 'run_command', 'write_file']);
 
-class VibeSubagentService extends Disposable implements IVibeSubagentService {
+/**
+ * Whether a role can change the project: its whitelist holds a writing tool.
+ *
+ * Read off the whitelist rather than listed apart, so the two cannot drift. An unknown role counts as
+ * writing: a pipeline decides by this which steps of a wave must write to separate places, and a
+ * role nobody defined cannot be proven harmless.
+ */
+export function roleMayWrite(role: string): boolean {
+	return !isSubagentType(role) || TOOL_WHITELIST[role].some(tool => WRITING_TOOLS.has(tool));
+}
+
+export class VibeSubagentService extends Disposable implements IVibeSubagentService {
 	declare readonly _serviceBrand: undefined;
 
 	private readonly _registry = new Map<string, SubagentEntry>();
@@ -442,15 +474,13 @@ class VibeSubagentService extends Disposable implements IVibeSubagentService {
 		// run, but a role is spawned through here — and it is the role that What's New promises to
 		// stop. Recorded as `skipped`, exactly like a spent budget: a run that did not happen for a
 		// reason belongs in the dispatch panel, not in silence.
-		const blocking = PROTECTIVE_BREAKERS.filter(breaker => this._breakers.isBlocking(breaker));
-		if (blocking.length > 0) {
-			const reasons = blocking.map(breaker => this._breakers.snapshot(breaker).reason || breakerName(breaker)).join('; ');
-			const message = `Роль не запущена: сработал защитный предохранитель — ${reasons}. Снимается командой «VibeIDE: Предохранители агента».`;
+		const breakerRefusal = this._breakerRefusal();
+		if (breakerRefusal) {
 			this._completeWithResult(entry, {
 				subagentId: id,
 				status: 'skipped',
-				summary: this._truncate(message, MAX_RESULT_SUMMARY_CHARS),
-				reason: message,
+				summary: this._truncate(breakerRefusal, RESULT_SUMMARY_MAX_CHARS),
+				reason: breakerRefusal,
 				tokensUsed: 0,
 			});
 			return id;
@@ -469,7 +499,7 @@ class VibeSubagentService extends Disposable implements IVibeSubagentService {
 			this._completeWithResult(entry, {
 				subagentId: id,
 				status: 'skipped',
-				summary: this._truncate(refusal, MAX_RESULT_SUMMARY_CHARS),
+				summary: this._truncate(refusal, RESULT_SUMMARY_MAX_CHARS),
 				reason: refusal,
 				tokensUsed: 0,
 			});
@@ -528,7 +558,18 @@ class VibeSubagentService extends Disposable implements IVibeSubagentService {
 		entry.status = 'disposed';
 		this._registry.delete(subagentId);
 		this._transcripts.delete(subagentId);
+		// Whoever awaits this run gets its end now. Dropping the waiter unresolved left the caller
+		// waiting forever: stopping a pipeline step from the dispatch panel hung the whole pipeline.
+		const waiter = this._waiters.get(subagentId);
 		this._waiters.delete(subagentId);
+		waiter?.resolve({
+			subagentId,
+			status: 'stopped',
+			summary: 'Прогон остановлен, не закончившись.',
+			reason: 'остановлен',
+			tokensUsed: entry.liveTokensUsed ?? 0,
+			stopCode: 'cancelled',
+		});
 		// Audit A: a live runner loop must die with its registry entry — cancel stops it at
 		// the hop boundary and aborts the in-flight LLM request (no more token burn).
 		const cts = this._ctsById.get(subagentId);
@@ -538,6 +579,10 @@ class VibeSubagentService extends Disposable implements IVibeSubagentService {
 			this._ctsById.delete(subagentId);
 		}
 		this._log.info(`[VibeSubagent] Disposed ${subagentId}`);
+	}
+
+	async launchRefusal(type: SubagentType): Promise<string | undefined> {
+		return this._breakerRefusal() ?? await this._roleBudgetRefusal(type);
 	}
 
 	async spawnExplore(params: {
@@ -573,6 +618,16 @@ class VibeSubagentService extends Disposable implements IVibeSubagentService {
 			this._log.warn(`[VibeSubagent] ${warning}`);
 		}
 		return roles.qaWritePaths;
+	}
+
+	/** Refusal text while a protective breaker is latched, or `undefined`. */
+	private _breakerRefusal(): string | undefined {
+		const blocking = PROTECTIVE_BREAKERS.filter(breaker => this._breakers.isBlocking(breaker));
+		if (blocking.length === 0) {
+			return undefined;
+		}
+		const reasons = blocking.map(breaker => this._breakers.snapshot(breaker).reason || breakerName(breaker)).join('; ');
+		return `Роль не запущена: сработал защитный предохранитель — ${reasons}. Снимается командой «VibeIDE: Предохранители агента».`;
 	}
 
 	/**
@@ -697,6 +752,7 @@ class VibeSubagentService extends Disposable implements IVibeSubagentService {
 			modelSelection: handoff.modelSelection,
 			cancellationToken: this._ctsById.get(entry.id)?.token,
 			...(handoff.continuesRunId ? { transcript: this._transcripts.get(handoff.continuesRunId) } : {}),
+			...(handoff.diff ? { diff: handoff.diff } : {}),
 			onProgress: (tokensUsedEst, stepsDone, deadlineAtMs) => {
 				// Per-hop live spend → chat spinner. Only while still running; terminal state
 				// carries the final tokens in `result`.
@@ -718,14 +774,16 @@ class VibeSubagentService extends Disposable implements IVibeSubagentService {
 		// Работа роли фиксируется ВСЕГДА, чем бы прогон ни кончился: правки лежат в дереве
 		// некоммитнутыми, а `merge` берёт коммиты — без коммита сливать было бы нечего, и упавший
 		// прогон унёс бы свою работу в папку, о которой никто не вспомнит.
-		const worktreeNote = worktree ? await this._settleWorktree(worktree, entry, outcome.status) : '';
+		const settled = worktree ? await this._settleWorktree(worktree, entry, outcome.status) : undefined;
+		const worktreeNote = settled?.note ?? '';
 
 		const result: SubagentResult = {
 			subagentId: entry.id,
 			status: outcome.status,
 			// Приписка про дерево занимает место ВНУТРИ предела, а не сверх него: предел существует,
 			// чтобы ответ роли оставался компактным, и обойти его собственной строкой было бы нечестно.
-			summary: `${this._truncate(outcome.summary, Math.max(MIN_RESULT_SUMMARY_CHARS, MAX_RESULT_SUMMARY_CHARS - worktreeNote.length))}${worktreeNote}`,
+			summary: `${summaryTail(outcome.summary, Math.max(MIN_RESULT_SUMMARY_CHARS, RESULT_SUMMARY_MAX_CHARS - worktreeNote.length))}${worktreeNote}`,
+			...(worktree && settled?.committed ? { worktree: { branch: worktree.branch, path: worktree.path, merged: settled.merged } } : {}),
 			artifacts: outcome.artifacts,
 			tokensUsed: outcome.tokensUsedEst,
 			truncated: outcome.truncated || undefined,
@@ -747,27 +805,30 @@ class VibeSubagentService extends Disposable implements IVibeSubagentService {
 	 * Под автопилотом человека у клавиатуры нет, и оставленная ветка означала бы, что работа не
 	 * приземлилась вовсе. В обычном режиме решение «влить» принимает пользователь, поэтому дерево
 	 * остаётся на месте, а строка ответа называет ветку — иначе найти работу будет негде.
+	 *
+	 * Кроме строки ответа возвращается, где работа осталась: закоммичена ли она и влита ли — пайплайн
+	 * по этому показывает судящему шагу работу, которой нет в открытой папке.
 	 */
-	private async _settleWorktree(worktree: WorktreeInfo, entry: SubagentEntry, status: SubagentResult['status']): Promise<string> {
+	private async _settleWorktree(worktree: WorktreeInfo, entry: SubagentEntry, status: SubagentResult['status']): Promise<{ readonly note: string; readonly committed: boolean; readonly merged: boolean }> {
 		const committed = await this._worktrees.commitAgentWorktree(worktree.id, `агент(${entry.type}): ${this._truncate(entry.handoff.goal, WORKTREE_COMMIT_SUBJECT_CHARS)}`);
 		if (committed === 'nothing') {
-			return `\n\nРоль ничего не записала — дерево ${worktree.branch} осталось пустым.`;
+			return { note: `\n\nРоль ничего не записала — дерево ${worktree.branch} осталось пустым.`, committed: false, merged: false };
 		}
 		if (committed === 'failed') {
 			// Работа есть, но она не зафиксирована — сливать нечего, и молчать об этом нельзя.
-			return `\n\nЗафиксировать работу в ветке ${worktree.branch} не удалось — она лежит НЕЗАФИКСИРОВАННОЙ в дереве ${worktree.path}. Причина — в журнале «Worktree».`;
+			return { note: `\n\nЗафиксировать работу в ветке ${worktree.branch} не удалось — она лежит НЕЗАФИКСИРОВАННОЙ в дереве ${worktree.path}. Причина — в журнале «Worktree».`, committed: false, merged: false };
 		}
 		const autopilot = this._settings.state.globalSettings.chatAgentAutopilot === true;
 		if (status !== 'success' || !autopilot) {
-			return `\n\nРабота зафиксирована в ветке ${worktree.branch} (дерево ${worktree.path}) и НЕ влита в проект.`;
+			return { note: `\n\nРабота зафиксирована в ветке ${worktree.branch} (дерево ${worktree.path}) и НЕ влита в проект.`, committed: true, merged: false };
 		}
 		try {
 			await this._worktrees.mergeWorktree(worktree.id);
-			return `\n\nВетка ${worktree.branch} влита в проект.`;
+			return { note: `\n\nВетка ${worktree.branch} влита в проект.`, committed: true, merged: true };
 		} catch (e) {
 			// Конфликт слияния — не потеря: дерево и ветка остаются, чинить есть чем.
 			this._log.error(`[VibeSubagent] ${entry.id} — слияние ${worktree.branch} не прошло: ${e instanceof Error ? e.message : String(e)}`);
-			return `\n\nСлить ветку ${worktree.branch} не удалось (вероятен конфликт) — работа зафиксирована в ней, дерево ${worktree.path} на месте.`;
+			return { note: `\n\nСлить ветку ${worktree.branch} не удалось (вероятен конфликт) — работа зафиксирована в ней, дерево ${worktree.path} на месте.`, committed: true, merged: false };
 		}
 	}
 
@@ -810,7 +871,7 @@ class VibeSubagentService extends Disposable implements IVibeSubagentService {
 		this._completeWithResult(entry, {
 			subagentId: entry.id,
 			status: 'failed',
-			summary: this._truncate(`Subagent failed: ${reason}`, MAX_RESULT_SUMMARY_CHARS),
+			summary: this._truncate(`Subagent failed: ${reason}`, RESULT_SUMMARY_MAX_CHARS),
 			reason,
 			tokensUsed: 0,
 		});

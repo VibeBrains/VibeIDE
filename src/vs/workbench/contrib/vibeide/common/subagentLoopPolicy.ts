@@ -79,10 +79,33 @@ export function stopReasonToRussian(reason: SubagentStopReason): string {
 	}
 }
 
-/** Enforce the compact-handoff contract (≤500 chars per field). */
+/** Cut `s` to `max` characters from the start — for text whose beginning says what it is. */
 export function truncateSummary(s: string, max: number): string {
 	const trimmed = s.trim();
 	return trimmed.length > max ? trimmed.slice(0, max - 1) + '…' : trimmed;
+}
+
+/**
+ * How much of a role's answer travels on: to the parent, the next pipeline step, the ledger.
+ *
+ * 2000, VibeIDEA's figure for the same hand-over: the shared `pipelines.json` runs in both products,
+ * and a reviewer whose answer survives in one and is cut in the other is the same pipeline doing two
+ * different things. The old 500 lost the end of any real review.
+ */
+export const RESULT_SUMMARY_MAX_CHARS = 2000;
+
+/**
+ * The end of a role's answer, at most `max` characters.
+ *
+ * The end, not the beginning: a role finishes with its conclusion — the reviewer's «ВЕРДИКТ:» line,
+ * the acceptance lines, the list of files — and a head cut kept the preamble and dropped exactly that.
+ */
+export function summaryTail(s: string, max: number): string {
+	const trimmed = s.trim();
+	if (trimmed.length <= max) {
+		return trimmed;
+	}
+	return max <= 1 ? '…' : `…${trimmed.slice(trimmed.length - (max - 1))}`;
 }
 
 /**
@@ -117,14 +140,20 @@ export function buildExploreReport(touchedPaths: readonly string[], truncated: b
 	};
 }
 
-/** First user message of the isolated transcript: role framing + goal + optional context. */
-export function buildSubagentTaskMessage(opts: { displayName: string; systemAppendix: string; goal: string; acceptanceCriteria?: string; contextItems?: readonly string[] }): string {
+/**
+ * First user message of the isolated transcript: role framing + goal + optional context.
+ *
+ * `diff` is a ready block — the changes a pipeline hands a judging step — and goes after the context:
+ * the task says what to judge, the diff is the material.
+ */
+export function buildSubagentTaskMessage(opts: { displayName: string; systemAppendix: string; goal: string; acceptanceCriteria?: string; contextItems?: readonly string[]; diff?: string }): string {
 	const parts: string[] = [];
 	parts.push(`Ты выполняешь роль: ${opts.displayName}.`);
 	if (opts.systemAppendix.trim()) { parts.push(opts.systemAppendix.trim()); }
 	parts.push(`Задача: ${opts.goal.trim()}`);
 	if (opts.acceptanceCriteria?.trim()) { parts.push(`Критерии приёмки: ${opts.acceptanceCriteria.trim()}`); }
 	if (opts.contextItems?.length) { parts.push(`Контекст (файлы/ссылки): ${opts.contextItems.join(', ')}`); }
+	if (opts.diff?.trim()) { parts.push(opts.diff.trim()); }
 	parts.push('Работай автономно. Когда задача выполнена — заверши ход инструментом vibe_complete с кратким итогом (если vibe_complete недоступен — просто закончи ответ кратким итогом без вызова инструментов).');
 	return parts.join('\n\n');
 }

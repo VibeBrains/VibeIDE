@@ -14,6 +14,7 @@ import {
 	parseModelRef,
 	parsePipelineFile,
 	parseReviewVerdict,
+	pipelineStepLabel,
 	PipelineStepOutcome,
 	QA_DEFAULT_WRITE_PATHS,
 	shouldRunStep,
@@ -23,7 +24,7 @@ import {
 import { isSubagentType } from '../../common/vibeSubagentService.js';
 
 const ok = (over: Partial<PipelineStepOutcome> = {}): PipelineStepOutcome => ({
-	role: 'coder', status: 'success', summary: 'сделал', artifacts: ['src/a.ts'], ...over,
+	role: 'coder', step: 1, status: 'success', summary: 'сделал', artifacts: ['src/a.ts'], ...over,
 });
 
 suite('vibePipelineFile — parsing', () => {
@@ -90,6 +91,19 @@ suite('vibePipelineFile — parsing', () => {
 		);
 	});
 
+	test('the wave label is read trimmed, and an empty one is no label', () => {
+		const parsed = parsePipelineFile({
+			pipelines: [{
+				id: 'w', steps: [
+					{ role: 'code-reviewer', task: 'а', wave: ' review ' },
+					{ role: 'security', task: 'б', wave: '  ' },
+					{ role: 'critic', task: 'в', wave: 7 },
+				],
+			}],
+		});
+		assert.deepStrictEqual(parsed.file.pipelines[0].steps.map(s => s.wave), ['review', undefined, undefined]);
+	});
+
 	test('more than twenty steps is refused — a runaway file must not spawn a fleet', () => {
 		const steps = Array.from({ length: 21 }, () => ({ role: 'coder', task: 'go' }));
 		const parsed = parsePipelineFile({ pipelines: [{ id: 'huge', steps }] });
@@ -107,7 +121,7 @@ suite('vibePipelineFile — handing work to the next step', () => {
 	const step: VibePipelineStep = { role: 'reviewer', task: 'проверь работу' };
 
 	test('the first step gets its task and nothing else', () => {
-		assert.deepStrictEqual(buildStepInput(step, []), { goal: 'проверь работу', contextItems: [] });
+		assert.deepStrictEqual(buildStepInput(step, [], 3), { goal: 'проверь работу', contextItems: [] });
 	});
 
 	test('earlier steps are told in a line each, the previous one in full, the paths accumulate', () => {
@@ -116,7 +130,7 @@ suite('vibePipelineFile — handing work to the next step', () => {
 		const input = buildStepInput(step, [
 			ok({ role: 'architect', summary: 'спроектировал', artifacts: ['docs/plan.md'] }),
 			ok({ role: 'coder', summary: 'написал код', artifacts: ['src/a.ts', 'docs/plan.md'] }),
-		]);
+		], 3);
 		assert.deepStrictEqual(input, {
 			goal: 'проверь работу\n\nХод работы до этого:\n- architect: спроектировал\n\nПредыдущий шаг (coder) сообщил: написал код\n\nФайлы, затронутые предыдущими шагами (прочитайте нужные сами): docs/plan.md, src/a.ts',
 			contextItems: ['docs/plan.md', 'src/a.ts'],
@@ -126,7 +140,7 @@ suite('vibePipelineFile — handing work to the next step', () => {
 	/** A diary is a matter of length: an earlier step gets one line however much it wrote. */
 	test('an earlier step is capped to one line, the previous one is not', () => {
 		const long = `начало ${'слово '.repeat(200)}`;
-		const goal = buildStepInput(step, [ok({ role: 'architect', summary: `${long}\n\nвторой абзац` }), ok({ summary: long })]).goal;
+		const goal = buildStepInput(step, [ok({ role: 'architect', summary: `${long}\n\nвторой абзац` }), ok({ summary: long })], 3).goal;
 		const earlierLine = goal.split('\n').find(line => line.startsWith('- architect: ')) ?? '';
 		assert.deepStrictEqual({
 			earlierLength: earlierLine.length,
@@ -146,7 +160,7 @@ suite('vibePipelineFile — handing work to the next step', () => {
 			ok({ role: 'architect', summary: 'спроектировал', review: accepted }),
 			ok({ role: 'qa', status: 'failed', summary: 'тесты не запустились' }),
 			ok({ role: 'coder', summary: 'написал код', artifacts: [], review: { ...accepted, verdict: 'rework' } }),
-		]).goal;
+		], 4).goal;
 		assert.strictEqual(goal, [
 			'проверь работу',
 			'Ход работы до этого:\n- architect: спроектировал [ревью openAI/gpt-5.6: принято]\n- qa (не удался): тесты не запустились',
@@ -155,22 +169,66 @@ suite('vibePipelineFile — handing work to the next step', () => {
 		].join('\n\n'));
 	});
 
+	/** After a wave the next step hears every step of it — the last one alone is just one of several. */
+	test('after a wave every step of it is told whole, each under its own heading', () => {
+		const accepted = { by: 'openAI/gpt-6-sol', verdict: 'accepted' as const, notes: 'ок', sawWorkerSummary: false };
+		const input = buildStepInput({ role: 'critic', task: 'сведи замечания' }, [
+			ok({ role: 'planner', step: 1, summary: 'план в docs/plan.md', artifacts: ['docs/plan.md'] }),
+			ok({ role: 'code-reviewer', step: 2, wave: 'review', summary: 'две ошибки в src/a.ts', artifacts: [], review: accepted }),
+			ok({ role: 'security', step: 3, wave: 'review', status: 'failed', summary: 'модель не ответила', artifacts: [] }),
+		], 4);
+		assert.deepStrictEqual(input, {
+			goal: [
+				'сведи замечания',
+				'Ход работы до этого:\n- planner: план в docs/plan.md',
+				'Предыдущие шаги шли одновременно, волной «review», — итог каждого под своим заголовком:',
+				'Шаг 2/4 · code-reviewer [ревью openAI/gpt-6-sol: принято]\nдве ошибки в src/a.ts',
+				'Шаг 3/4 · security · не удался\nмодель не ответила',
+				'Файлы, затронутые предыдущими шагами (прочитайте нужные сами): docs/plan.md',
+			].join('\n\n'),
+			contextItems: ['docs/plan.md'],
+		});
+	});
+
+	test('a wave followed by another wave hears only the later one in full', () => {
+		const goal = buildStepInput({ role: 'critic', task: 'итог' }, [
+			ok({ role: 'backend-dev', step: 1, wave: 'build', summary: 'сервер', artifacts: [] }),
+			ok({ role: 'frontend-dev', step: 2, wave: 'build', summary: 'интерфейс', artifacts: [] }),
+			ok({ role: 'code-reviewer', step: 3, wave: 'review', summary: 'чисто', artifacts: [] }),
+			ok({ role: 'security', step: 4, wave: 'review', summary: '', artifacts: [] }),
+		], 5).goal;
+		assert.strictEqual(goal, [
+			'итог',
+			'Ход работы до этого:\n- backend-dev: сервер\n- frontend-dev: интерфейс',
+			'Предыдущие шаги шли одновременно, волной «review», — итог каждого под своим заголовком:',
+			'Шаг 3/5 · code-reviewer\nчисто',
+			'Шаг 4/5 · security',
+		].join('\n\n'));
+	});
+
+	test('a pipeline run is named by its step, its wave and whether it is the review', () => {
+		assert.deepStrictEqual(
+			[pipelineStepLabel(3, 5, undefined), pipelineStepLabel(2, 4, 'review'), pipelineStepLabel(2, 4, 'review', true)],
+			['Шаг 3/5', 'Шаг 2/4 · волна «review»', 'Шаг 2/4 · волна «review» · ревью'],
+		);
+	});
+
 	test('acceptance criteria ride along with the task', () => {
 		assert.strictEqual(
-			buildStepInput({ role: 'coder', task: 'почини', acceptance: 'тесты зелёные' }, []).goal,
+			buildStepInput({ role: 'coder', task: 'почини', acceptance: 'тесты зелёные' }, [], 1).goal,
 			'почини\n\nКритерий готовности: тесты зелёные',
 		);
 	});
 
 	test('a step may ask for fresh eyes and gets no inheritance at all', () => {
 		assert.deepStrictEqual(
-			buildStepInput({ ...step, ignorePreviousArtifacts: true }, [ok()]),
+			buildStepInput({ ...step, ignorePreviousArtifacts: true }, [ok()], 2),
 			{ goal: 'проверь работу', contextItems: [] },
 		);
 	});
 
 	test('nothing produced → no empty section is invented', () => {
-		const input = buildStepInput(step, [ok({ summary: '', artifacts: [] }), ok({ summary: '', artifacts: [] })]);
+		const input = buildStepInput(step, [ok({ summary: '', artifacts: [] }), ok({ summary: '', artifacts: [] })], 3);
 		assert.deepStrictEqual(input, { goal: 'проверь работу', contextItems: [] });
 	});
 
@@ -242,9 +300,11 @@ suite('vibePipelineFile — каскад и критика', () => {
 		assert.deepStrictEqual({
 			безПересказа: composeReviewGoal(reviewed, 'сделал, всё проверил', false),
 			сПересказом: composeReviewGoal(reviewed, 'сделал, всё проверил', true),
+			сДиффом: composeReviewGoal(reviewed, 'сделал, всё проверил', false, true),
 		}, {
 			безПересказа: `${head}Проверьте по файлам: пересказа исполнителя здесь нет намеренно.${tail}`,
 			сПересказом: `${head}Что сделано, со слов исполнителя: сделал, всё проверил\nПроверьте по файлам, а не по пересказу.${tail}`,
+			сДиффом: `${head}Что шаг изменил, показывает его дифф в конце задания; файлы можно открыть и целиком.\nПроверьте по файлам: пересказа исполнителя здесь нет намеренно.${tail}`,
 		});
 	});
 

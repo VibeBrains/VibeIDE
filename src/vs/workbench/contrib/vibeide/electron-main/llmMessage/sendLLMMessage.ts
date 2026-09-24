@@ -90,8 +90,16 @@ export const sendLLMMessage = async ({
 
 	let _fullTextSoFar = '';
 	let _aborter: (() => void) | null = null;
-	const _setAborter = (fn: () => void) => { _aborter = fn; };
 	let _didAbort = false;
+	// A provider arms its aborter only after its own awaits (client, tools, request body). An abort that
+	// came earlier must still stop the request, so arming after it fires the aborter at once — otherwise
+	// the request ran to its end and the provider billed an answer nobody would read.
+	const _setAborter = (fn: () => void) => {
+		_aborter = fn;
+		if (_didAbort) {
+			try { fn(); } catch (e) { /* an aborter may throw on a request that has not started */ }
+		}
+	};
 
 	const onText: OnText = (params) => {
 		const { fullText } = params;
@@ -150,9 +158,11 @@ export const sendLLMMessage = async ({
 	// we should NEVER call onAbort internally, only from the outside
 	const onAbort = () => {
 		captureLLMEvent(`${loggingName} - Abort`, { messageLengthSoFar: _fullTextSoFar.length });
+		// Marked first: the aborter's own error must be swallowed as the abort it is, and an aborter
+		// armed later reads this flag.
+		_didAbort = true;
 		try { _aborter?.(); } // aborter sometimes automatically throws an error
 		catch (e) { }
-		_didAbort = true;
 	};
 	abortRef_.current = onAbort;
 

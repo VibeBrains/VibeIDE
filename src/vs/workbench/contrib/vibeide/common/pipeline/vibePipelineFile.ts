@@ -79,9 +79,10 @@ export interface VibePipelineStep {
 	/**
 	 * Stronger model to retry this step with, once, if it does not succeed.
 	 *
-	 * The gate is the step's own outcome — a failed run, a refused acceptance check, a red
-	 * verify-gate — not a model's opinion of itself. Asking a model whether its answer is good
-	 * enough gets an answer shaped like «yes».
+	 * The gate is the step's own outcome — a failed run, a red verify gate (the project's check
+	 * command, `vibeide.agent.verifyGate`), a `pipelineStepEnd` hook that refuses the draft — not a
+	 * model's opinion of itself. Asking a model whether its answer is good enough gets an answer
+	 * shaped like «yes».
 	 */
 	readonly escalateTo?: string;
 	/**
@@ -100,6 +101,11 @@ export interface VibePipelineStep {
 	 * role has none to look it up in. Waiting is visible and can be skipped — see the pipeline service.
 	 */
 	readonly offPeak?: boolean;
+	/**
+	 * Wave label: neighbouring steps with the same label run at once, and the next step starts when the
+	 * last of them has finished. What may share a wave is decided in `pipelineWaves.ts`.
+	 */
+	readonly wave?: string;
 }
 
 /** What a reviewer decided about the work it was shown. */
@@ -352,6 +358,7 @@ function parseStep(raw: unknown): { ok: true; value: VibePipelineStep } | { ok: 
 			...(parseModelRef(s['escalateTo'] as string | undefined) ? { escalateTo: (s['escalateTo'] as string).trim() } : {}),
 			...(parseModelRef(s['reviewWith'] as string | undefined) ? { reviewWith: (s['reviewWith'] as string).trim() } : {}),
 			...(s['offPeak'] === true ? { offPeak: true } : {}),
+			...(typeof s['wave'] === 'string' && s['wave'].trim() ? { wave: s['wave'].trim() } : {}),
 		},
 	};
 }
@@ -359,9 +366,19 @@ function parseStep(raw: unknown): { ok: true; value: VibePipelineStep } | { ok: 
 /** What one finished step leaves behind for the next one. */
 export interface PipelineStepOutcome {
 	readonly role: string;
+	/** Position of the step in its pipeline, from 1. */
+	readonly step: number;
+	/** The wave the step ran in, when it ran beside other steps. */
+	readonly wave?: string;
 	readonly status: 'success' | 'failed' | 'stopped' | 'skipped';
 	readonly summary: string;
 	readonly artifacts: readonly string[];
+	/**
+	 * The branches holding the step's work when it ran isolated and was not merged — the author's run
+	 * and its rework each get one. That work is not in the open folder, and a judge shown only the
+	 * folder's diff would not see it.
+	 */
+	readonly unmergedBranches?: readonly string[];
 	/** Set when the cheap draft did not pass and the step was retried on this model. */
 	readonly escalatedTo?: string;
 	/** Set when a second model reviewed the result: what it decided, and on which model. */
@@ -388,16 +405,21 @@ export interface PipelineStepInput {
 export const EARLIER_STEP_NOTE_CHARS = 300;
 
 /**
- * Build the input for step `index` from what came before.
+ * Build the input for a step from what came before.
  *
  * Earlier steps are told in one capped line each, with how they ended and what their reviewer said;
- * the previous step's story is told in full; the files are listed as paths. Each part is omitted
- * entirely when there is nothing to say — an agent told "предыдущий шаг ничего не изменил" as a
- * matter of routine starts to ignore the section.
+ * the previous step's story is told in full — and when the previous steps were a wave, every one of
+ * them, each under its own heading; the files are listed as paths. Each part is omitted entirely when
+ * there is nothing to say — an agent told "предыдущий шаг ничего не изменил" as a matter of routine
+ * starts to ignore the section.
+ *
+ * Every step of a wave is built from the same `previous` — what was known before the wave: a
+ * neighbour's work does not exist yet when the wave starts.
  */
 export function buildStepInput(
 	step: VibePipelineStep,
 	previous: readonly PipelineStepOutcome[],
+	totalSteps: number,
 ): PipelineStepInput {
 	if (step.ignorePreviousArtifacts || previous.length === 0) {
 		return { goal: composeGoal(step), contextItems: [] };
@@ -411,21 +433,58 @@ export function buildStepInput(
 			if (path && !seen.has(path)) { seen.add(path); artifacts.push(path); }
 		}
 	}
-	const last = previous[previous.length - 1];
+	const lastWave = trailingWave(previous);
+	const told = previous.slice(0, previous.length - lastWave.length);
 	const parts = [composeGoal(step)];
-	const earlier = previous.slice(0, -1).map(describeEarlierStep).filter((line): line is string => line !== undefined);
+	const earlier = told.map(describeEarlierStep).filter((line): line is string => line !== undefined);
 	if (earlier.length > 0) {
 		parts.push(`Ход работы до этого:\n${earlier.join('\n')}`);
 	}
-	const lastStatus = statusWord(last);
-	const lastReview = describeReview(last);
-	if (last.summary || lastStatus || lastReview) {
-		parts.push(`Предыдущий шаг (${last.role}${lastStatus ? `, ${lastStatus}` : ''})${last.summary ? ` сообщил: ${last.summary}` : ''}${lastReview}`);
+	if (lastWave.length > 1) {
+		parts.push([
+			`Предыдущие шаги шли одновременно, волной «${lastWave[0].wave}», — итог каждого под своим заголовком:`,
+			...lastWave.map(outcome => describeWaveStep(outcome, totalSteps)),
+		].join('\n\n'));
+	} else {
+		const last = lastWave[0];
+		const lastStatus = statusWord(last);
+		const lastReview = describeReview(last);
+		if (last.summary || lastStatus || lastReview) {
+			parts.push(`Предыдущий шаг (${last.role}${lastStatus ? `, ${lastStatus}` : ''})${last.summary ? ` сообщил: ${last.summary}` : ''}${lastReview}`);
+		}
 	}
 	if (artifacts.length > 0) {
 		parts.push(`Файлы, затронутые предыдущими шагами (прочитайте нужные сами): ${artifacts.join(', ')}`);
 	}
 	return { goal: parts.join('\n\n'), contextItems: artifacts };
+}
+
+/** The last step, or all the steps of the wave the pipeline has just finished. */
+function trailingWave(previous: readonly PipelineStepOutcome[]): readonly PipelineStepOutcome[] {
+	const last = previous[previous.length - 1];
+	if (last.wave === undefined) {
+		return [last];
+	}
+	let start = previous.length - 1;
+	while (start > 0 && previous[start - 1].wave === last.wave) {
+		start--;
+	}
+	return previous.slice(start);
+}
+
+/** One step of the previous wave: a heading, then its whole story — the heading alone when it said nothing. */
+function describeWaveStep(outcome: PipelineStepOutcome, totalSteps: number): string {
+	const status = statusWord(outcome);
+	const heading = `Шаг ${outcome.step}/${totalSteps} · ${outcome.role}${status ? ` · ${status}` : ''}${describeReview(outcome)}`;
+	return outcome.summary ? `${heading}\n${outcome.summary}` : heading;
+}
+
+/**
+ * How the activity row and the progress notification name a pipeline run: «Шаг 3/5 · волна «review»».
+ * A reviewer's run of the step says so — it is the step's second model, not a step of its own.
+ */
+export function pipelineStepLabel(step: number, totalSteps: number, wave: string | undefined, review = false): string {
+	return `Шаг ${step}/${totalSteps}${wave ? ` · волна «${wave}»` : ''}${review ? ' · ревью' : ''}`;
 }
 
 /** How a step ended, in words — nothing for a success, which is the case not worth a word. */
@@ -473,12 +532,16 @@ function composeGoal(step: VibePipelineStep): string {
  *
  * Findings come in two blocks — the task and the craft — because one masks the other when they are
  * ranked together: clean code that quietly delivers half the task reads as a good result.
+ *
+ * `withDiff` says the step's diff rides along (as a block of the task, see `composeDiffBlock`): the
+ * reviewer is told it is there, and that the files can still be opened whole.
  */
-export function composeReviewGoal(step: Pick<VibePipelineStep, 'role' | 'task' | 'acceptance'>, workerSummary: string, showWorkerSummary: boolean): string {
+export function composeReviewGoal(step: Pick<VibePipelineStep, 'role' | 'task' | 'acceptance'>, workerSummary: string, showWorkerSummary: boolean, withDiff = false): string {
 	return [
 		`Проверьте результат шага «${step.role}».`,
 		`Задача шага: ${step.task}`,
 		step.acceptance ? `Критерий готовности: ${step.acceptance}` : '',
+		withDiff ? 'Что шаг изменил, показывает его дифф в конце задания; файлы можно открыть и целиком.' : '',
 		showWorkerSummary && workerSummary ? `Что сделано, со слов исполнителя: ${workerSummary}` : '',
 		showWorkerSummary
 			? 'Проверьте по файлам, а не по пересказу. Закончите ответ строкой «ВЕРДИКТ: принято» или'

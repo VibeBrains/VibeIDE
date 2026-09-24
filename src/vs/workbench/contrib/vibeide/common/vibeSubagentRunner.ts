@@ -67,11 +67,13 @@ export interface SubagentRunRequest {
 	 * in it, sent as is; the role framing, the context items and the images are already there.
 	 */
 	readonly transcript?: readonly ChatMessage[];
+	/** A ready block with the changes to judge — see `SubagentHandoff.diff`. */
+	readonly diff?: string;
 }
 
 export interface SubagentRunOutcome {
 	readonly status: 'success' | 'failed' | 'stopped';
-	/** Compact summary (≤500 chars — the handoff contract). */
+	/** The end of the role's answer, at most `RESULT_SUMMARY_MAX_CHARS`. */
 	readonly summary: string;
 	/** File paths touched by write-tools during the run. */
 	readonly artifacts: string[];

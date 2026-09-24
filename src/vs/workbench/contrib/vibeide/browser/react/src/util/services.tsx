@@ -459,19 +459,21 @@ export const useFullChatThreadsStreamState = () => {
 
 
 // Internal roadmap-agent subagents run mid-stream during a normal turn and would clutter the
-// thread — mirror the chat-notice contribution and never surface them as live activity.
+// thread — mirror the chat-notice contribution and never surface them as live activity. A pipeline
+// step is never internal, whatever its role: the user started the pipeline, and a wave whose
+// `explore` step ran unseen would look like a wave with a step missing.
 const SUBAGENT_INTERNAL_TYPES = new Set<SubagentType>(['explore', 'implement-step', 'recover-or-skip']);
 const EMPTY_SUBAGENT_ACTIVITY: SubagentActivityItem[] = [];
 
-export type SubagentActivityItem = { id: string; displayName: string; liveTokensUsed?: number; tokenQuota?: number; liveStepsDone?: number; maxSteps?: number; deadlineAtMs?: number };
+export type SubagentActivityItem = { id: string; displayName: string; pipelineStepLabel?: string; liveTokensUsed?: number; tokenQuota?: number; liveStepsDone?: number; maxSteps?: number; deadlineAtMs?: number };
 
 /** Running/pending curated roles for a parent thread — drives the live "role thinking" spinner. */
 export const useSubagentActivity = (threadId: string): SubagentActivityItem[] => {
 	const compute = (): SubagentActivityItem[] => {
 		if (!subagentSvc || !subagentRegistry || !threadId) { return EMPTY_SUBAGENT_ACTIVITY; }
 		const active = subagentSvc.getByParentThread(threadId)
-			.filter(e => (e.status === 'running' || e.status === 'pending') && !SUBAGENT_INTERNAL_TYPES.has(e.type))
-			.map(e => ({ id: e.id, displayName: subagentRegistry!.getPreset(e.type).displayName, liveTokensUsed: e.liveTokensUsed, tokenQuota: e.tokenQuota, liveStepsDone: e.liveStepsDone, maxSteps: e.maxSteps, deadlineAtMs: e.deadlineAtMs }));
+			.filter(e => (e.status === 'running' || e.status === 'pending') && (e.handoff.pipelineStepLabel !== undefined || !SUBAGENT_INTERNAL_TYPES.has(e.type)))
+			.map(e => ({ id: e.id, displayName: subagentRegistry!.getPreset(e.type).displayName, pipelineStepLabel: e.handoff.pipelineStepLabel, liveTokensUsed: e.liveTokensUsed, tokenQuota: e.tokenQuota, liveStepsDone: e.liveStepsDone, maxSteps: e.maxSteps, deadlineAtMs: e.deadlineAtMs }));
 		return active.length === 0 ? EMPTY_SUBAGENT_ACTIVITY : active;
 	};
 	const [s, ss] = useState<SubagentActivityItem[]>(compute);

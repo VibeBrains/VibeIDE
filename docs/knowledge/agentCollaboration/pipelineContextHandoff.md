@@ -41,7 +41,7 @@ suite «handing work to the next step». Меняешь формат строк�
   cognition.com/blog/multi-agents-working) описывает ревью, которое лучше работает в контексте без
   хода разработки.
 - Теперь задание ревьюеру собирает чистая `composeReviewGoal`: задача шага, критерий готовности и файлы
-  (через `contextItems`), без резюме. Настройка `vibeide.pipeline.reviewerSeesStepSummary` (по
+  (через `contextItems`), без резюме; с 24.09 — ещё дифф шага отдельным блоком задания. Настройка `vibeide.pipeline.reviewerSeesStepSummary` (по
   умолчанию выключена) возвращает пересказ — для сравнения режимов. Режим пишется рядом с каждым
   вердиктом: строка в логе (`Pipeline`) и поле `review.sawWorkerSummary` в результате прогона.
 - **Замер не проводился.** «Слепое ревью ловит больше» — вывод чужого отчёта, а не наших прогонов.
@@ -81,5 +81,6 @@ suite «handing work to the next step». Меняешь формат строк�
 
 **Живьём не проверено:** нужен пайплайн с `reviewWith` и вердиктом «доработать».
 
-**Связано:** [agentGates.md](agentGates.md) — детерминированные гейты хода;
+**Связано:** [pipelineWavesAndRunDiff.md](pipelineWavesAndRunDiff.md) — волны, дифф прогона, итог роли с хвоста;
+[agentGates.md](agentGates.md) — детерминированные гейты хода;
 [agentRunLedger.md](agentRunLedger.md) — журнал прогонов; спека — `docs/manuals/pipelinesSpec.md`.

@@ -1122,7 +1122,7 @@ const SubagentActivityRow = ({ role }: { role: SubagentActivityItem }) => {
 				<IconLoading state="processing" inline />
 			</span>
 			<span className="text-sm text-vibe-fg-2 opacity-80">
-				🧩 Роль «{role.displayName}» работает…{readout}
+				🧩 {role.pipelineStepLabel ? `${role.pipelineStepLabel} · ` : ''}Роль «{role.displayName}» работает…{readout}
 			</span>
 		</div>
 	);

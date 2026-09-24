@@ -114,7 +114,7 @@ class VibeHooksService extends Disposable implements IVibeHooksService {
 		}
 	}
 
-	async run(event: VibeHookEvent, context: { toolName?: string; params?: { [name: string]: unknown }; mcpServerName?: string; changedFiles?: readonly string[]; pipeline?: string; step?: number; role?: string; model?: string; answer?: string }): Promise<VibeHookDecision> {
+	async run(event: VibeHookEvent, context: { toolName?: string; params?: { [name: string]: unknown }; mcpServerName?: string; changedFiles?: readonly string[]; pipeline?: string; step?: number; role?: string; model?: string; wave?: string; answer?: string }): Promise<VibeHookDecision> {
 		try {
 			// Remembered before the enabled/trust checks below, and before we know whether any hook
 			// matches: a trail with holes in it is worse than no trail, because a rule written
@@ -169,6 +169,7 @@ class VibeHooksService extends Disposable implements IVibeHooksService {
 				step: context.step,
 				role: context.role,
 				model: context.model,
+				wave: context.wave,
 				// Truncated deliberately — see the field's note in `VibeHookPayload`.
 				answer: context.answer === undefined ? undefined : context.answer.slice(0, PIPELINE_ANSWER_LIMIT),
 			};

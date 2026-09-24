@@ -28,7 +28,7 @@ import { IVibeSubagentRunner, SubagentRunRequest, SubagentRunOutcome } from '../
 import { IVibeSubagentRegistryService } from '../common/vibeSubagentRegistryService.js';
 import { IVibeSpendLedgerService } from './vibeSpendLedgerService.js';
 import { commandEscapesScope, describeCommandEscape } from '../common/commandEscapesScope.js';
-import { decideStop, hopTokenCost, truncateSummary, chatModeForAllowedTools, collectPathsFromRawParams, buildExploreReport, buildSubagentTaskMessage, stopReasonToRussian, SUBAGENT_MAX_DENIED_ACTIONS, SubagentStopReason } from '../common/subagentLoopPolicy.js';
+import { decideStop, hopTokenCost, truncateSummary, summaryTail, RESULT_SUMMARY_MAX_CHARS, chatModeForAllowedTools, collectPathsFromRawParams, buildExploreReport, buildSubagentTaskMessage, stopReasonToRussian, SUBAGENT_MAX_DENIED_ACTIONS, SubagentStopReason } from '../common/subagentLoopPolicy.js';
 import { IConvertToLLMMessageService } from './convertToLLMMessageService.js';
 import { IToolsService } from './toolsService.js';
 import { IVibeAgentActivityLogService } from './vibeAgentActivityLogService.js';
@@ -50,8 +50,13 @@ const SUBAGENT_AUTOPILOT_RESET_COOLDOWN_MS = 1_000;
 const SUBAGENT_MAX_LLM_RETRIES = 4;
 const SUBAGENT_MAX_LLM_RETRIES_AUTOPILOT = 12;
 
-/** The compact-handoff contract: no result field exceeds this. */
-const MAX_SUMMARY_CHARS = 500;
+/**
+ * Room kept for the stop note around a stopped role's last words («Роль … остановлена: …»).
+ *
+ * The summary is cut from the end, so a long last output would push the note — the one line saying
+ * why the role stopped — out of it. The last words are cut first, leaving the note this much room.
+ */
+const STOP_NOTE_RESERVE_CHARS = 400;
 /**
  * Tool results are head+tail-truncated BEFORE entering the loop's history (audit I): the
  * history is re-sent on every hop, so one big read_file would inflate every later hop and
@@ -174,7 +179,7 @@ class VibeSubagentRunnerService extends Disposable implements IVibeSubagentRunne
 		// re-bill them on every hop.
 		const taskMessage = req.transcript
 			? req.goal
-			: buildSubagentTaskMessage({ displayName: preset.displayName, systemAppendix: preset.systemAppendix, goal: req.goal, acceptanceCriteria: req.acceptanceCriteria, contextItems: req.contextItems });
+			: buildSubagentTaskMessage({ displayName: preset.displayName, systemAppendix: preset.systemAppendix, goal: req.goal, acceptanceCriteria: req.acceptanceCriteria, contextItems: req.contextItems, diff: req.diff });
 		const history: ChatMessage[] = [...(req.transcript ?? []), {
 			role: 'user',
 			content: taskMessage,
@@ -242,7 +247,7 @@ class VibeSubagentRunnerService extends Disposable implements IVibeSubagentRunne
 				// Soft degradation: NOT a hard failure. Keep the partial result (lastText + artifacts +
 				// touched paths) and return status 'stopped' so the route/report shows partial work that
 				// can be resumed, instead of discarding it as «failed».
-				const summary = localize('vibeide.subagentRunner.stoppedWithModel', "Роль «{0}» остановлена: {1}{2}. Модель {3}. Частичный результат сохранён. Последний вывод: {4}", preset.displayName, reason, budgetNote, modelLabel, lastText);
+				const summary = localize('vibeide.subagentRunner.stoppedWithModel', "Роль «{0}» остановлена: {1}{2}. Модель {3}. Частичный результат сохранён. Последний вывод: {4}", preset.displayName, reason, budgetNote, modelLabel, summaryTail(lastText, RESULT_SUMMARY_MAX_CHARS - STOP_NOTE_RESERVE_CHARS));
 				return this._outcome(req, 'stopped', summary, artifacts, tokensUsedEst, true, reason, touchedPaths, history, { stopCode: stop, model: modelSelection, promptTokens: promptTokensUsed, completionTokens: completionTokensUsed, cachedTokens: cachedTokensUsed });
 			}
 			stepsDone++;
@@ -272,7 +277,7 @@ class VibeSubagentRunnerService extends Disposable implements IVibeSubagentRunne
 					}
 					const reason = stopReasonToRussian('deadline');
 					this._activityLog.logError(`Subagent ${req.subagentId}: остановлен — ${reason} (в момент запроса к модели)`);
-					const summary = localize('vibeide.subagentRunner.stopped', "Роль «{0}» остановлена: {1}. Частичный результат сохранён. Последний вывод: {2}", preset.displayName, reason, lastText);
+					const summary = localize('vibeide.subagentRunner.stopped', "Роль «{0}» остановлена: {1}. Частичный результат сохранён. Последний вывод: {2}", preset.displayName, reason, summaryTail(lastText, RESULT_SUMMARY_MAX_CHARS - STOP_NOTE_RESERVE_CHARS));
 					return this._outcome(req, 'stopped', summary, artifacts, tokensUsedEst, true, reason, touchedPaths, history, { stopCode: 'deadline', model: modelSelection, promptTokens: promptTokensUsed, completionTokens: completionTokensUsed, cachedTokens: cachedTokensUsed });
 				}
 				// Transient LLM error (provider 5xx, rate-limit, network, timeout): retry the hop with a
@@ -289,7 +294,8 @@ class VibeSubagentRunnerService extends Disposable implements IVibeSubagentRunne
 				}
 				this._activityLog.logError(`Subagent ${req.subagentId}: ошибка LLM — ${hop.message}`);
 				const shortMsg = hop.message.length > 140 ? `${hop.message.slice(0, 140)}…` : hop.message;
-				return this._outcome(req, 'failed', localize('vibeide.subagentRunner.modelRequestFailed', "Роль «{0}»: ошибка запроса к модели — {1}", preset.displayName, hop.message), artifacts, tokensUsedEst, false, `ошибка модели: ${shortMsg}`, touchedPaths, history, { model: modelSelection, promptTokens: promptTokensUsed, completionTokens: completionTokensUsed, cachedTokens: cachedTokensUsed });
+				// An error says what it is at its start, so it is cut from the start before the summary is cut from the end.
+				return this._outcome(req, 'failed', localize('vibeide.subagentRunner.modelRequestFailed', "Роль «{0}»: ошибка запроса к модели — {1}", preset.displayName, truncateSummary(hop.message, RESULT_SUMMARY_MAX_CHARS - STOP_NOTE_RESERVE_CHARS)), artifacts, tokensUsedEst, false, `ошибка модели: ${shortMsg}`, touchedPaths, history, { model: modelSelection, promptTokens: promptTokensUsed, completionTokens: completionTokensUsed, cachedTokens: cachedTokensUsed });
 			}
 
 			consecutiveLlmErrors = 0; // healthy hop — clear the transient-error streak
@@ -560,7 +566,7 @@ class VibeSubagentRunnerService extends Disposable implements IVibeSubagentRunne
 	private _outcome(req: SubagentRunRequest, status: 'success' | 'failed' | 'stopped', summary: string, artifacts: string[], tokensUsedEst: number, truncated: boolean, stopReason: string, touchedPaths: string[], transcript: readonly ChatMessage[], extra?: { stopCode?: SubagentStopReason; model?: ModelSelection; promptTokens?: number; completionTokens?: number; cachedTokens?: number }): SubagentRunOutcome {
 		return {
 			status,
-			summary: truncateSummary(summary, MAX_SUMMARY_CHARS),
+			summary: summaryTail(summary, RESULT_SUMMARY_MAX_CHARS),
 			artifacts: [...new Set(artifacts)],
 			tokensUsedEst,
 			truncated,

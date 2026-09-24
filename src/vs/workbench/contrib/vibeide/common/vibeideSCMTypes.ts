@@ -5,6 +5,7 @@
 
 
 import { SnapshotCommitMeta } from './workspaceSnapshotPolicy.js';
+import type { WriteScope } from './pipeline/vibePipelineFile.js';
 import { createDecorator } from '../../../../platform/instantiation/common/instantiation.js';
 
 /** What a working-tree restore would touch, shown to the user before anything is overwritten. */
@@ -12,6 +13,33 @@ export interface IWorkspaceSnapshotRestorePlan {
 	readonly restore: readonly string[];
 	readonly delete: readonly string[];
 }
+
+/** One changed file between two points of a repository; paths are relative to the repository root. */
+export interface IChangedFile {
+	readonly status: 'added' | 'modified' | 'deleted' | 'renamed' | 'copied';
+	readonly path: string;
+	/** Where a renamed or copied file came from. */
+	readonly oldPath?: string;
+}
+
+/** What changed between two trees of a repository. */
+export interface IChangeSet {
+	/**
+	 * Where the folder asked about sits inside the repository — `packages/app/`, empty at the root.
+	 * Paths are relative to the repository root, and this is how they are placed in the folder: by
+	 * git's own answer, not by comparing absolute paths, which a symlinked folder would defeat.
+	 */
+	readonly prefix: string;
+	/** Tree ids, as `diffChanges` takes them. */
+	readonly from: string;
+	readonly to: string;
+	readonly files: readonly IChangedFile[];
+}
+
+/** Two points to compare: a pinned snapshot and the working tree now, or an agent branch and the commit it forked from. */
+export type ChangeRange =
+	| { readonly kind: 'snapshot'; readonly commit: string }
+	| { readonly kind: 'branch'; readonly branch: string };
 
 export interface IVibeideSCMService {
 	readonly _serviceBrand: undefined;
@@ -52,6 +80,36 @@ export interface IVibeideSCMService {
 	 * @param liveSnapshotIds Ids still referenced by a checkpoint
 	 */
 	pruneWorkspaceSnapshots(path: string, liveSnapshotIds: readonly string[]): Promise<number>;
+	/**
+	 * Pin the working tree, untracked files included, as a commit under
+	 * `refs/vibe/pipelines/<run>/<label>` — the point a pipeline measures its changes from.
+	 *
+	 * A namespace of its own, not the checkpoints': their sweep releases every snapshot no checkpoint
+	 * names once it is an hour old, and a pipeline run can last longer. Returns `undefined` when the
+	 * folder is not a usable git repository.
+	 *
+	 * @param path Any path inside the repository
+	 */
+	pinPipelineSnapshot(path: string, run: string, label: string): Promise<string | undefined>;
+	/** Unpin every snapshot of `run`. Never throws. */
+	releasePipelineSnapshots(path: string, run: string): Promise<void>;
+	/** Unpin runs older than `minAgeMs` — pins a window closed mid-run left behind. Returns how many runs. Never throws. */
+	prunePipelineSnapshots(path: string, minAgeMs: number): Promise<number>;
+	/**
+	 * What changed over `range`, file by file. `undefined` when git cannot say: no repository, a snapshot
+	 * or branch that is gone.
+	 *
+	 * @param path The folder the caller works in — `prefix` of the answer places it in the repository
+	 */
+	listChanges(path: string, range: ChangeRange): Promise<IChangeSet | undefined>;
+	/**
+	 * The patch of `files` between the trees of a `listChanges` answer, one section per file in git's
+	 * order: new files whole, deleted ones by their header only.
+	 *
+	 * Collection stops once the sections pass `maxChars`: the caller cuts to its own budget, and
+	 * megabytes of patch are not worth moving between processes to be thrown away.
+	 */
+	diffChanges(path: string, from: string, to: string, files: readonly IChangedFile[], maxChars: number): Promise<string[]>;
 	/**
 	 * Get git diff --stat
 	 *
@@ -164,6 +222,48 @@ export interface IVibeWorkspaceSnapshotService {
 }
 
 export const IVibeWorkspaceSnapshotService = createDecorator<IVibeWorkspaceSnapshotService>('vibeWorkspaceSnapshotService');
+
+/** What a judging step is shown of the changes: the patch file by file, and what was held back. */
+export interface CollectedDiff {
+	/** One section per file in git's order, secrets masked — fewer than `files` when the budget ran out. */
+	readonly sections: readonly string[];
+	/** Changed files the agent may read — what `sections` is a part of. */
+	readonly files: number;
+	/** Changed files the agent's read rules close: left out, only counted. */
+	readonly hidden: number;
+	/** Set when no diff could be taken — why. */
+	readonly unavailable?: string;
+}
+
+export interface RunDiffRequest {
+	/** The pinned snapshot to compare the open folder with; absent — branches only. */
+	readonly since?: string;
+	/** Agent branches whose work is not merged into the folder, each compared with where it forked. */
+	readonly branches: readonly string[];
+	/** How much patch to collect, in characters. */
+	readonly maxChars: number;
+	/** Only files this scope may write: a step's own changes, without its wave neighbours'. */
+	readonly within?: WriteScope;
+}
+
+/**
+ * The changes of a pipeline run as an agent may see them: the files its read rules close are left out,
+ * secrets are masked, and the size is bounded.
+ *
+ * Lives behind a `common` decorator with the git work in the main process, like the snapshot service:
+ * the pipeline depends on the decorator and stays free of the transport.
+ */
+export interface IVibeRunDiffService {
+	readonly _serviceBrand: undefined;
+	/** Pin the open folder for a pipeline run; `undefined` when it is not a git repository. Never throws. */
+	pin(run: string, label: string): Promise<string | undefined>;
+	/** What changed, read rules applied and secrets masked, within `maxChars`. Never throws. */
+	collect(request: RunDiffRequest): Promise<CollectedDiff>;
+	/** Unpin the run's snapshots, and the runs a closed window left behind. Never throws. */
+	release(run: string): Promise<void>;
+}
+
+export const IVibeRunDiffService = createDecorator<IVibeRunDiffService>('vibeRunDiffService');
 
 /**
  * Repository state as the agent asks for it: no path to pass, and a folder that is not a git
