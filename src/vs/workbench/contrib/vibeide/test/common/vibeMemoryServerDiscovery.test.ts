@@ -5,7 +5,8 @@
 
 import * as assert from 'assert';
 import { ensureNoDisposablesAreLeakedInTestSuite } from '../../../../../base/test/common/utils.js';
-import { teamServerOfSidecar, vibeMemoryServerPathSegments, withDiscoveredMemoryServer, withDiscoveredTeamServers } from '../../common/vibeMemoryServerDiscovery.js';
+import { URI } from '../../../../../base/common/uri.js';
+import { teamServerOfSidecar, vibeMemoryEngine, vibeMemoryServerPathSegments, withDiscoveredMemoryServer, withDiscoveredTeamServers } from '../../common/vibeMemoryServerDiscovery.js';
 
 /**
  * Общая память семейства подключается сама, если сервер установлен.
@@ -38,8 +39,23 @@ suite('vibeMemoryServerDiscovery — сервер памяти без ручно
 	test('на Windows у бинаря расширение .exe', () => {
 		assert.deepStrictEqual(
 			[vibeMemoryServerPathSegments(false), vibeMemoryServerPathSegments(true)],
-			[['.vibememory', 'bin', 'vibememory-mcp'], ['.vibememory', 'bin', 'vibememory-mcp.exe']],
+			[['bin', 'vibememory-mcp'], ['bin', 'vibememory-mcp.exe']],
 		);
+	});
+
+	test('каталог движка — как у CLI VibeMemory: VIBEMEMORY_DIR, пустая — не задана, относительная — от дома; переменная уходит серверу', () => {
+		const home = URI.file('/Users/me');
+		const engine = (value: string | undefined) => {
+			const found = vibeMemoryEngine(home, value);
+			return { dir: found.dir.path, env: found.env };
+		};
+		assert.deepStrictEqual([engine(undefined), engine(''), engine('/opt/vm'), engine('work/vm')], [
+			{ dir: '/Users/me/.vibememory', env: undefined },
+			{ dir: '/Users/me/.vibememory', env: undefined },
+			{ dir: '/opt/vm', env: { VIBEMEMORY_DIR: URI.file('/opt/vm').fsPath } },
+			{ dir: '/Users/me/work/vm', env: { VIBEMEMORY_DIR: URI.file('/Users/me/work/vm').fsPath } },
+		]);
+		assert.deepStrictEqual(withDiscoveredMemoryServer({}, { ...found, env: { VIBEMEMORY_DIR: '/opt/vm' } }).vibememory.env, { VIBEMEMORY_DIR: '/opt/vm' });
 	});
 
 	test('память команды: сайдкар этого агента с https — сервер с помощником и ревизией токена; чужое — пропуск с причиной', () => {
@@ -62,9 +78,13 @@ suite('vibeMemoryServerDiscovery — сервер памяти без ручно
 			'пропуск', 'пропуск', 'пропуск', 'пропуск', 'пропуск',
 		]);
 		const teams = [{ team: 'acme', url: 'https://vibememory.ru/mcp', tokenId: 't-1' }, { team: 'mine', url: 'https://vibememory.ru/mcp' }];
-		assert.deepStrictEqual(withDiscoveredTeamServers({ 'vibememory-mine': { command: '/own' } }, teams, '/home/me/.vibememory/bin/vibememory'), {
+		assert.deepStrictEqual(withDiscoveredTeamServers({ 'vibememory-mine': { command: '/own' } }, teams, { command: '/home/me/.vibememory/bin/vibememory' }), {
 			'vibememory-mine': { command: '/own' },
 			'vibememory-acme': { type: 'http', url: 'https://vibememory.ru/mcp', headersHelper: { command: '/home/me/.vibememory/bin/vibememory', args: ['mcp-headers', 'acme', 'vibeide'], revision: 't-1' } },
+		});
+		// A moved engine folder reaches the helper, or it would look for the token where connect did not put it
+		assert.deepStrictEqual(withDiscoveredTeamServers({}, teams.slice(0, 1), { command: '/opt/vm/bin/vibememory', env: { VIBEMEMORY_DIR: '/opt/vm' } }), {
+			'vibememory-acme': { type: 'http', url: 'https://vibememory.ru/mcp', headersHelper: { command: '/opt/vm/bin/vibememory', args: ['mcp-headers', 'acme', 'vibeide'], env: { VIBEMEMORY_DIR: '/opt/vm' }, revision: 't-1' } },
 		});
 		// Without the helper there is no way to get the header, so no team is offered
 		assert.deepStrictEqual(withDiscoveredTeamServers({}, teams, undefined), {});

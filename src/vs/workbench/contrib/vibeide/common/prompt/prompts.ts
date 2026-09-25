@@ -4,7 +4,7 @@
  *--------------------------------------------------------------------------------------------*/
 
 
-import { BrevityLevel, brevityBlock, brevityLine } from './brevity.js';
+import { BrevityLevel, brevityBlock, brevityShortBlock } from './brevity.js';
 import { URI } from '../../../../../base/common/uri.js';
 import { IFileService } from '../../../../../platform/files/common/files.js';
 import { IDirectoryStrService } from '../directoryStrService.js';
@@ -487,9 +487,9 @@ export const chat_systemMessage_local = ({ memoryProjects, maxTools, workspaceFo
 	if (minimalismMode && minimalismMode !== 'off' && mode !== 'gather') {
 		details.push('Minimalism: reuse this codebase/stdlib/installed deps before writing new code; no speculative abstractions; smallest diff that works. Never trim validation, error handling or security.');
 	}
-	const terseLine = brevityLine(brevity ?? 'off');
-	if (terseLine) {
-		details.push(terseLine);
+	const terse = brevityShortBlock(brevity ?? 'off');
+	if (terse) {
+		details.push(terse);
 	}
 
 	const importantDetails = details.length > 0 ? `\n${details.join('\n')}` : '';

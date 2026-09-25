@@ -65,11 +65,19 @@ export function normalizeModelRoutes(raw: unknown): ModelRoutes {
 	return routes;
 }
 
+/** Откуда пришёл слой имён: засеянный каталог или файл, который пишет человек, — глобально или в проекте */
+export type RoutesSource = 'globalCatalogue' | 'workspaceCatalogue' | 'globalFile' | 'workspaceFile';
+
+/**
+ * Порядок слоёв, первый — самый слабый. Общий контракт с VibeIDEA и тот же, что у самих провайдеров:
+ * оба засеянных каталога под обоими файлами человека, поэтому имя из будущего сида не перекроет имя
+ * из глобального `providers.json`. У нас сверху ещё настройка `vibeide.model.routes`
+ */
+export const ROUTES_LAYER_ORDER: readonly RoutesSource[] = ['globalCatalogue', 'workspaceCatalogue', 'globalFile', 'workspaceFile'];
+
 /**
  * Сложить слои, первый — самый слабый: позднее имя перекрывает раннее, объявленный `null` переживает слияние.
- *
- * Порядок слоёв — общий контракт с VibeIDEA: глобальные `providers/*`, глобальный `providers.json`,
- * проектные `providers/*`, проектный `providers.json`; у нас сверху ещё настройка `vibeide.model.routes`.
+ * Слои файлов провайдеров идут в порядке `ROUTES_LAYER_ORDER`.
  */
 export function mergeModelRoutes(layers: readonly ModelRoutes[]): ModelRoutes {
 	const merged: Record<string, string | null> = {};

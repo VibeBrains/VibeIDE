@@ -454,7 +454,7 @@ export function scanMcpConfig(servers: Record<string, MCPConfigFileEntryJSON> | 
 		const helper = raw.headersHelper;
 		if (helper && typeof helper.command === 'string') {
 			const helperArgs = Array.isArray(helper.args) ? helper.args.filter((a): a is string => typeof a === 'string') : [];
-			findings.push(...scanLaunchCommand({ rulePrefix: 'mcp', name, label: `Помощник заголовков MCP-сервера «${name}»` }, helper.command, helperArgs, undefined));
+			findings.push(...scanLaunchCommand({ rulePrefix: 'mcp', name, label: `Помощник заголовков MCP-сервера «${name}»` }, helper.command, helperArgs, helper.env));
 		}
 		for (const [header, value] of Object.entries(raw.headers ?? {})) {
 			if (typeof value === 'string' && isEmbeddedSecret(header, value)) {

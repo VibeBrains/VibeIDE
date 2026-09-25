@@ -168,6 +168,8 @@ export interface MCPConfigFileEntryJSON {
 	headersHelper?: {
 		command: string;
 		args?: string[];
+		/** Variables of the helper's process, over the IDE's own; the critical names never apply, as for a server's `env` */
+		env?: Record<string, string>;
 		/**
 		 * Changes whenever the credential behind the helper is re-issued. The helper is run on connect only, so a new
 		 * value is what makes a running client reconnect and ask again

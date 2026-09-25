@@ -17,7 +17,7 @@ import { readFileSync } from 'fs';
 // eslint-disable-next-line local/code-import-patterns -- node 'fs'/'path' в node-тесте (by design)
 import { join } from 'path';
 import { ensureNoDisposablesAreLeakedInTestSuite } from '../../../../../base/test/common/utils.js';
-import { mergeModelRoutes, ModelRoutes, resolveModelReference, RouteResolution } from '../../common/modelRouteKeys.js';
+import { mergeModelRoutes, ModelRoutes, resolveModelReference, ROUTES_LAYER_ORDER, RouteResolution, RoutesSource } from '../../common/modelRouteKeys.js';
 
 /** Корень репозитория от `out/vs/workbench/contrib/vibeide/test/node/` — как в modelQuirksCatalog.test.ts. */
 const REPO_ROOT = join(fileURLToPath(import.meta.url), '..', '..', '..', '..', '..', '..', '..', '..');
@@ -52,7 +52,11 @@ suite('modelRoutes — общие с VibeIDEA векторы из набора',
 	const vectors: ModelRoutesVectors = JSON.parse(readFileSync(join(REPO_ROOT, '.vibe-defaults', 'testVectors', 'modelRoutes.json'), 'utf8'));
 
 	test('слои складываются так же, как в VibeIDEA, и имя ведёт к той же модели', () => {
-		const merged = mergeModelRoutes(vectors.layers);
+		// The vectors list the layers by their files; ours are put in the order the service reads them in, so a change
+		// of that order is caught here and not only in the vector file
+		const [globalCatalogue, workspaceCatalogue, globalFile, workspaceFile] = vectors.layers;
+		const bySource: Record<RoutesSource, ModelRoutes> = { globalCatalogue, workspaceCatalogue, globalFile, workspaceFile };
+		const merged = mergeModelRoutes(ROUTES_LAYER_ORDER.map(source => bySource[source]));
 		assert.deepStrictEqual(
 			{ merged, resolved: vectors.resolve.map(v => ({ reference: v.reference, result: asVector(resolveModelReference(v.reference, merged)) })) },
 			{ merged: vectors.merged, resolved: vectors.resolve.map(v => ({ reference: v.reference, result: v.result })) },

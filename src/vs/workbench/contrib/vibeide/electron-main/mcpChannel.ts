@@ -367,8 +367,12 @@ export class MCPChannel extends Disposable implements IServerChannel {
 			return server.headers;
 		}
 		const { execFile } = await import('child_process');
+		const { env, ignored } = mergeServerEnv(process.env, helper.env);
+		if (ignored.length > 0) {
+			vibeLog.warn('MCP', `MCP server "${serverName}": helper variables not applied from mcp.json (critical, would override the IDE environment): ${ignored.join(', ')}`);
+		}
 		const stdout = await new Promise<string>((resolve, reject) => {
-			execFile(helper.command, helper.args ?? [], { timeout: HEADERS_HELPER_TIMEOUT_MS, windowsHide: true, maxBuffer: HEADERS_HELPER_MAX_OUTPUT }, (err, out) => {
+			execFile(helper.command, helper.args ?? [], { env, timeout: HEADERS_HELPER_TIMEOUT_MS, windowsHide: true, maxBuffer: HEADERS_HELPER_MAX_OUTPUT }, (err, out) => {
 				if (err) {
 					const why = err.killed ? 'не уложился в срок' : `завершился с кодом ${err.code ?? 'неизвестно'}`;
 					reject(new Error(`[VibeIDE MCP] Помощник заголовков сервера «${serverName}» ${why}`));

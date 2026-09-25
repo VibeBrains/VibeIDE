@@ -44,7 +44,7 @@ import { setExternalProviders, setBuiltinModelPatches, BuiltinModelPatch, Extern
 import { IRemoteCatalogService, DynamicKeyValidation } from '../common/remoteCatalogService.js';
 import { catalogRequestOf, VibeCatalogRequest, VibeProviderEntry, VibeProviderModelCost, VibeProviderModelEntry, isKeyless, isProviderCatalogueFile, mergeProviderEntry, mergeProviderLayers, parseAuth, parseProvidersFile, promptCacheTtlOf, reasoningDialectOf, VibeProviderLongContext, VibeProviderTimeOfDay } from '../common/vibeProvidersFile.js';
 import { isLocalAddress, runsLocallyOf } from '../common/isLocalProvider.js';
-import { mergeModelRoutes, MODEL_ROUTES_SETTING, ModelRoutes, normalizeModelRoutes } from '../common/modelRouteKeys.js';
+import { mergeModelRoutes, MODEL_ROUTES_SETTING, ModelRoutes, normalizeModelRoutes, ROUTES_LAYER_ORDER, RoutesSource } from '../common/modelRouteKeys.js';
 import { parseEnvFile } from '../common/vibeEnvFile.js';
 import { DEFAULT_PRICE_CHANGE_SOON_DAYS, effectiveCost, nextPriceChangeMoment, parseTimeOfDay, PriceTimeOfDay, priceChangeStatus } from '../common/modelPriceSchedule.js';
 import { VIBE_CONFIG_PROVIDERS_CACHE_KEY } from '../common/storageKeys.js';
@@ -723,13 +723,14 @@ class VibeDynamicProvidersService extends Disposable implements IVibeDynamicProv
 			parseSide(wsRaw, 'workspace/providers.json'),
 		];
 		const mergedEntries = mergeProviderLayers(layers);
-		// Routes layer as VibeIDEA layers them — scope first, then file kind — not as providers do: a project's name
-		// overrides a global one whichever file declares it
-		const routeLabels = [
-			...globalCatalogue.map(file => `~/.vibe/providers/${file.name}`), '~/.vibe/providers.json',
-			...wsCatalogue.map(file => `workspace/providers/${file.name}`), 'workspace/providers.json',
-		];
-		this._fileRoutes = mergeModelRoutes(routeLabels.map(label => routesByLabel.get(label) ?? {}));
+		// Routes layer in the order shared with VibeIDEA — see ROUTES_LAYER_ORDER for why it is the providers' order
+		const routeLabels: Record<RoutesSource, readonly string[]> = {
+			globalCatalogue: globalCatalogue.map(file => `~/.vibe/providers/${file.name}`),
+			workspaceCatalogue: wsCatalogue.map(file => `workspace/providers/${file.name}`),
+			globalFile: ['~/.vibe/providers.json'],
+			workspaceFile: ['workspace/providers.json'],
+		};
+		this._fileRoutes = mergeModelRoutes(ROUTES_LAYER_ORDER.flatMap(source => routeLabels[source]).map(label => routesByLabel.get(label) ?? {}));
 
 		if (mergedEntries.length === 0 && parseError) {
 			// Everything present failed to parse — surface the error, keep the cache (last good set):

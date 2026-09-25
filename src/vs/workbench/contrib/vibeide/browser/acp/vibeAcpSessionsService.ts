@@ -20,6 +20,7 @@ import { Disposable } from '../../../../../base/common/lifecycle.js';
 import { createDecorator } from '../../../../../platform/instantiation/common/instantiation.js';
 import { InstantiationType, registerSingleton } from '../../../../../platform/instantiation/common/extensions.js';
 import { ICommandService } from '../../../../../platform/commands/common/commands.js';
+import { IConfigurationService } from '../../../../../platform/configuration/common/configuration.js';
 import { INotificationService, Severity } from '../../../../../platform/notification/common/notification.js';
 import { AcpEvent, IAcpPermissionRequest, IAcpSession } from '../../common/acp/acpTypes.js';
 import { AcpReconnectMode, AcpStopReason, IAcpConfigOption, IAcpDiff } from '../../common/acp/acpProtocol.js';
@@ -31,6 +32,7 @@ import { IRollbackSnapshotService } from '../../common/rollbackSnapshotService.j
 import { IVibeAgentActivityLogService } from '../vibeAgentActivityLogService.js';
 import { IVibeAcpRegistryService } from './vibeAcpRegistryService.js';
 import { VibeAgentEntry } from '../../common/acp/vibeAgentsFile.js';
+import { BREVITY_SETTING, BrevityLevel, brevityForAgent, brevityLevelOf } from '../../common/prompt/brevity.js';
 
 export const IVibeAcpSessionsService = createDecorator<IVibeAcpSessionsService>('vibeAcpSessionsService');
 
@@ -97,6 +99,8 @@ interface ISessionState {
 	pending?: { readonly request: IAcpPermissionRequest; readonly snapshotId?: string };
 	configOptions: readonly IAcpConfigOption[];
 	configuring: boolean;
+	/** The «Краткие ответы» level the agent was last given; undefined — it has not been told anything */
+	brevitySent?: BrevityLevel;
 }
 
 class VibeAcpSessionsService extends Disposable implements IVibeAcpSessionsService {
@@ -116,6 +120,7 @@ class VibeAcpSessionsService extends Disposable implements IVibeAcpSessionsServi
 		@INotificationService private readonly _notificationService: INotificationService,
 		@ICommandService private readonly _commandService: ICommandService,
 		@IAuditLogService private readonly _auditLog: IAuditLogService,
+		@IConfigurationService private readonly _configurationService: IConfigurationService,
 	) {
 		super();
 		this._register(this._acpService.onEvent(event => this._observe(event)));
@@ -178,8 +183,12 @@ class VibeAcpSessionsService extends Disposable implements IVibeAcpSessionsServi
 		state.error = undefined;
 		state.lastStopReason = undefined;
 		this._onDidChange.fire();
+		// The agent keeps its own history, so the style goes once and again only on a change of level
+		const brevity = brevityLevelOf(this._configurationService.getValue(BREVITY_SETTING));
+		const note = brevityForAgent(state.brevitySent, brevity);
 		try {
-			state.lastStopReason = await this._acpService.prompt(sessionId, text);
+			state.lastStopReason = await this._acpService.prompt(sessionId, note ? `${note}\n\n${text}` : text);
+			state.brevitySent = brevity;
 		} catch (err) {
 			state.error = err instanceof Error ? err.message : String(err);
 		} finally {
@@ -265,6 +274,10 @@ class VibeAcpSessionsService extends Disposable implements IVibeAcpSessionsServi
 			current.busy = false;
 			// A new process may expose other settings; an agent that reported none keeps showing none
 			current.configOptions = back.configOptions ?? [];
+			// A fresh session has none of the old history, the style included
+			if (back.mode === 'new') {
+				current.brevitySent = undefined;
+			}
 			current.log.appendNotice(reconnectNotice(back.mode));
 			this._activityLog.logStarted(localize('vibeide.acp.log.reconnected', "Внешний агент «{0}» переподключён", current.agentName));
 			this._audit(buildAcpSessionAudit({ agentId: current.agentId, sessionId: current.sessionId, phase: 'reconnected', reconnectMode: back.mode }, Date.now()));

@@ -6,7 +6,7 @@ This repository incorporates material as listed below or described in the code.
 
 ---------------------------------------------------------
 
-caveman skill text (rules of the «Краткие ответы» mode, src/vs/workbench/contrib/vibeide/common/prompt/brevity.ts)
+caveman skill text (rules of the «Краткие ответы» mode: terse/replies.md of the shared VibeBrains set, embedded as src/vs/workbench/contrib/vibeide/common/prompt/terseReplies.generated.ts)
 https://github.com/juliusbrussee/caveman
 
 MIT License

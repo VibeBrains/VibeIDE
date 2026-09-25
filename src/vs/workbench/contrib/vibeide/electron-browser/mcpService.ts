@@ -51,7 +51,8 @@ import { McpToolDefinitions, McpToolDrift, McpToolPinsStore, describeDefinitions
 import { MCP_REQUIRE_TOOL_REAPPROVAL_KEY } from '../common/mcpToolPinsConfiguration.js';
 import { scanMcpConfig, ConfigGuardFinding } from '../common/vibeConfigGuard.js';
 import { IMCPService, MCPServiceState } from '../common/mcpService.js';
-import { FoundMemoryServer, FoundTeamServer, teamServerOfSidecar, VIBE_MEMORY_SERVER_NAME, VIBE_MEMORY_TEAM_SERVER_PREFIX, VIBE_MEMORY_TEAM_SIDECAR, VIBE_MEMORY_TOKENS_SEGMENTS, vibeMemoryHelperPathSegments, vibeMemoryServerPathSegments, withDiscoveredMemoryServer, withDiscoveredTeamServers } from '../common/vibeMemoryServerDiscovery.js';
+import { FoundHeadersHelper, FoundMemoryServer, FoundTeamServer, teamServerOfSidecar, VIBE_MEMORY_DIR_ENV, VIBE_MEMORY_SERVER_NAME, VIBE_MEMORY_TEAM_SERVER_PREFIX, VIBE_MEMORY_TEAM_SIDECAR, VIBE_MEMORY_TOKENS_FOLDER, vibeMemoryEngine, VibeMemoryEngine, vibeMemoryHelperPathSegments, vibeMemoryServerPathSegments, withDiscoveredMemoryServer, withDiscoveredTeamServers } from '../common/vibeMemoryServerDiscovery.js';
+import { IShellEnvironmentService } from '../../../services/environment/electron-browser/shellEnvironmentService.js';
 import { MEMORY_PROJECT_RESOLVE_TOOL, MemoryProjectAnswer, parseProjectResolveAnswer, TeamMemoryProject } from '../common/vibeMemoryProject.js';
 import { joinPath } from '../../../../base/common/resources.js';
 import { isWindows } from '../../../../base/common/platform.js';
@@ -127,6 +128,7 @@ class MCPService extends Disposable implements IMCPService {
 		@IAuditLogService private readonly _auditLogService: IAuditLogService,
 		@IQuickInputService private readonly _quickInput: IQuickInputService,
 		@IWorkspaceContextService private readonly _workspace: IWorkspaceContextService,
+		@IShellEnvironmentService private readonly _shellEnvironmentService: IShellEnvironmentService,
 		@IStorageService storageService: IStorageService,
 	) {
 		super();
@@ -684,12 +686,13 @@ class MCPService extends Disposable implements IMCPService {
 	private async _findMemoryServer(): Promise<FoundMemoryServer | undefined> {
 		try {
 			const home = await this.pathService.userHome();
-			const binary = joinPath(home, ...vibeMemoryServerPathSegments(isWindows));
+			const engine = await this._vibeMemoryEngine();
+			const binary = joinPath(engine.dir, ...vibeMemoryServerPathSegments(isWindows));
 			if (!await this.fileService.exists(binary)) {
 				vibeLog.info('mcp', 'VibeMemory: сервер памяти не установлен — общая память агенту недоступна');
 				return undefined;
 			}
-			return { command: binary.fsPath, homeDir: home.fsPath };
+			return { command: binary.fsPath, homeDir: home.fsPath, ...(engine.env ? { env: engine.env } : {}) };
 		} catch (err) {
 			vibeLog.warn('mcp', 'VibeMemory: не удалось проверить сервер памяти', err);
 			return undefined;
@@ -697,17 +700,27 @@ class MCPService extends Disposable implements IMCPService {
 	}
 
 	/**
-	 * Teams this machine was connected to: their sidecars in `~/.vibememory/tokens/*`, and the helper that prints
+	 * VibeMemory's engine folder: `VIBEMEMORY_DIR` of the user's shell, else `~/.vibememory`
+	 * The shell's environment and not the IDE's own: an IDE started from the Dock does not have the shell's variables
+	 */
+	private async _vibeMemoryEngine(): Promise<VibeMemoryEngine> {
+		const home = await this.pathService.userHome();
+		const shellEnv = await this._shellEnvironmentService.getShellEnv();
+		return vibeMemoryEngine(home, shellEnv[VIBE_MEMORY_DIR_ENV]);
+	}
+
+	/**
+	 * Teams this machine was connected to: their sidecars in `tokens/*` of the engine folder, and the helper that prints
 	 * a team's header. The token files are never opened here. A skipped sidecar is one log line with the reason
 	 */
-	private async _findTeamServers(): Promise<{ readonly teams: readonly FoundTeamServer[]; readonly helper: string | undefined }> {
+	private async _findTeamServers(): Promise<{ readonly teams: readonly FoundTeamServer[]; readonly helper: FoundHeadersHelper | undefined }> {
 		try {
-			const home = await this.pathService.userHome();
-			const tokens = joinPath(home, ...VIBE_MEMORY_TOKENS_SEGMENTS);
+			const engine = await this._vibeMemoryEngine();
+			const tokens = joinPath(engine.dir, VIBE_MEMORY_TOKENS_FOLDER);
 			if (!await this.fileService.exists(tokens)) {
 				return { teams: [], helper: undefined };
 			}
-			const helper = joinPath(home, ...vibeMemoryHelperPathSegments(isWindows));
+			const helper = joinPath(engine.dir, ...vibeMemoryHelperPathSegments(isWindows));
 			if (!await this.fileService.exists(helper)) {
 				vibeLog.warn('mcp', 'VibeMemory: есть подключённые команды, но нет помощника vibememory — память команды недоступна');
 				return { teams: [], helper: undefined };
@@ -726,7 +739,7 @@ class MCPService extends Disposable implements IMCPService {
 					teams.push(found);
 				}
 			}
-			return { teams, helper: helper.fsPath };
+			return { teams, helper: { command: helper.fsPath, ...(engine.env ? { env: engine.env } : {}) } };
 		} catch (err) {
 			vibeLog.warn('mcp', 'VibeMemory: не удалось прочитать подключённые команды', err);
 			return { teams: [], helper: undefined };
@@ -740,10 +753,10 @@ class MCPService extends Disposable implements IMCPService {
 	private readonly _teamTokensWatcher = this._register(new MutableDisposable<DisposableStore>());
 
 	private async _watchTeamTokens(): Promise<void> {
-		const home = await this.pathService.userHome();
-		const tokens = joinPath(home, ...VIBE_MEMORY_TOKENS_SEGMENTS);
+		const engine = await this._vibeMemoryEngine();
+		const tokens = joinPath(engine.dir, VIBE_MEMORY_TOKENS_FOLDER);
 		const hasTokens = await this.fileService.exists(tokens);
-		const target = hasTokens ? tokens : joinPath(home, VIBE_MEMORY_TOKENS_SEGMENTS[0]);
+		const target = hasTokens ? tokens : engine.dir;
 		if (!hasTokens && !await this.fileService.exists(target)) {
 			this._teamTokensWatcher.clear();
 			return;

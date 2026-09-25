@@ -3,6 +3,9 @@
  *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
 
+import { isAbsolute } from '../../../../base/common/path.js';
+import { joinPath } from '../../../../base/common/resources.js';
+import { URI } from '../../../../base/common/uri.js';
 import type { MCPConfigFileEntryJSON } from './mcpServiceTypes.js';
 
 /**
@@ -27,15 +30,43 @@ import type { MCPConfigFileEntryJSON } from './mcpServiceTypes.js';
 /** The name the entry takes in the server list. A user entry with this name always wins. */
 export const VIBE_MEMORY_SERVER_NAME = 'vibememory';
 
-/** `~/.vibememory/bin/vibememory-mcp`, with `.exe` on Windows. */
-export function vibeMemoryServerPathSegments(windows: boolean): readonly string[] {
-	return ['.vibememory', 'bin', windows ? 'vibememory-mcp.exe' : 'vibememory-mcp'];
+/** The variable VibeMemory takes its engine folder from: binaries, configuration and team tokens all live there */
+export const VIBE_MEMORY_DIR_ENV = 'VIBEMEMORY_DIR';
+
+/** The engine folder the IDE looks in */
+export interface VibeMemoryEngine {
+	readonly dir: URI;
+	/**
+	 * The variable for the programs the IDE starts from that folder, set only when the folder is not the default one
+	 * They run with the IDE's own environment, and an IDE started from the Dock does not have the shell's variables:
+	 * without it the helper would look for the team tokens in `~/.vibememory` while the IDE found them elsewhere
+	 */
+	readonly env?: Readonly<Record<string, string>>;
 }
 
-/** What the renderer found on disk: the server binary and the folder to start it in. */
+/**
+ * The engine folder as VibeMemory's own CLI finds it: `VIBEMEMORY_DIR`, else `~/.vibememory`
+ * An empty variable counts as unset, as it does for the shell and for the CLI
+ * A relative value is taken from the home folder, the folder the memory server is started in
+ */
+export function vibeMemoryEngine(home: URI, override: string | undefined): VibeMemoryEngine {
+	if (!override) {
+		return { dir: joinPath(home, '.vibememory') };
+	}
+	const dir = isAbsolute(override) ? URI.file(override) : joinPath(home, override);
+	return { dir, env: { [VIBE_MEMORY_DIR_ENV]: dir.fsPath } };
+}
+
+/** `bin/vibememory-mcp` in the engine folder, with `.exe` on Windows. */
+export function vibeMemoryServerPathSegments(windows: boolean): readonly string[] {
+	return ['bin', windows ? 'vibememory-mcp.exe' : 'vibememory-mcp'];
+}
+
+/** What the renderer found on disk: the server binary, the folder to start it in and the engine's variable. */
 export interface FoundMemoryServer {
 	readonly command: string;
 	readonly homeDir: string;
+	readonly env?: Readonly<Record<string, string>>;
 }
 
 /**
@@ -52,14 +83,14 @@ export function withDiscoveredMemoryServer(
 	}
 	return {
 		...servers,
-		[VIBE_MEMORY_SERVER_NAME]: { command: found.command, args: ['--agent', 'vibeide'], cwd: found.homeDir },
+		[VIBE_MEMORY_SERVER_NAME]: { command: found.command, args: ['--agent', 'vibeide'], cwd: found.homeDir, ...(found.env ? { env: { ...found.env } } : {}) },
 	};
 }
 
 /**
  * Team memory over HTTPS, one server per team the machine was connected to (VibeMemory `vibememory connect`).
  *
- * `connect` leaves `~/.vibememory/tokens/<team>/` with the token itself, a ready `mcp.json` fragment and a sidecar
+ * `connect` leaves `tokens/<team>/` in the engine folder with the token itself, a ready `mcp.json` fragment and a sidecar
  * without the token. Only the sidecar is read: the fragment carries the token in plain text, and copying it into our
  * configuration is exactly what the helper exists to avoid. The header is asked of `vibememory mcp-headers` each time
  * the client connects, so a token re-issued in the cabinet is picked up by a reconnect, not by an edit.
@@ -68,15 +99,21 @@ export function withDiscoveredMemoryServer(
 /** Team servers are named `vibememory-<team>`, as VibeMemory names them in its own fragment */
 export const VIBE_MEMORY_TEAM_SERVER_PREFIX = 'vibememory-';
 
-/** Where `connect` puts a team's files: `~/.vibememory/tokens/<team>/` */
-export const VIBE_MEMORY_TOKENS_SEGMENTS: readonly string[] = ['.vibememory', 'tokens'];
+/** Where `connect` puts a team's files: `tokens/<team>/` in the engine folder */
+export const VIBE_MEMORY_TOKENS_FOLDER = 'tokens';
 
 /** The sidecar this agent reads in a team's folder */
 export const VIBE_MEMORY_TEAM_SIDECAR = 'vibeide.json';
 
-/** `~/.vibememory/bin/vibememory`, with `.exe` on Windows — the helper that prints a team's header */
+/** `bin/vibememory` in the engine folder, with `.exe` on Windows — the helper that prints a team's header */
 export function vibeMemoryHelperPathSegments(windows: boolean): readonly string[] {
-	return ['.vibememory', 'bin', windows ? 'vibememory.exe' : 'vibememory'];
+	return ['bin', windows ? 'vibememory.exe' : 'vibememory'];
+}
+
+/** The helper found on disk and the engine's variable it has to run with */
+export interface FoundHeadersHelper {
+	readonly command: string;
+	readonly env?: Readonly<Record<string, string>>;
 }
 
 /** A team this machine is connected to, as its sidecar says */
@@ -130,10 +167,10 @@ export function teamServerOfSidecar(folder: string, text: string): FoundTeamServ
 export function withDiscoveredTeamServers(
 	servers: Readonly<Record<string, MCPConfigFileEntryJSON>>,
 	teams: readonly FoundTeamServer[],
-	helperCommand: string | undefined,
+	helper: FoundHeadersHelper | undefined,
 ): Record<string, MCPConfigFileEntryJSON> {
 	const out = { ...servers };
-	if (!helperCommand) {
+	if (!helper) {
 		return out;
 	}
 	for (const { team, url, tokenId } of teams) {
@@ -141,7 +178,7 @@ export function withDiscoveredTeamServers(
 		if (Object.prototype.hasOwnProperty.call(out, name)) {
 			continue;
 		}
-		out[name] = { type: 'http', url, headersHelper: { command: helperCommand, args: ['mcp-headers', team, 'vibeide'], ...(tokenId ? { revision: tokenId } : {}) } };
+		out[name] = { type: 'http', url, headersHelper: { command: helper.command, args: ['mcp-headers', team, 'vibeide'], ...(helper.env ? { env: { ...helper.env } } : {}), ...(tokenId ? { revision: tokenId } : {}) } };
 	}
 	return out;
 }
