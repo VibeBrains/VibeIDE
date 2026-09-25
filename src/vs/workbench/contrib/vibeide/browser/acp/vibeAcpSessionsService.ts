@@ -22,7 +22,7 @@ import { InstantiationType, registerSingleton } from '../../../../../platform/in
 import { ICommandService } from '../../../../../platform/commands/common/commands.js';
 import { INotificationService, Severity } from '../../../../../platform/notification/common/notification.js';
 import { AcpEvent, IAcpPermissionRequest, IAcpSession } from '../../common/acp/acpTypes.js';
-import { AcpReconnectMode, AcpStopReason, IAcpDiff } from '../../common/acp/acpProtocol.js';
+import { AcpReconnectMode, AcpStopReason, IAcpConfigOption, IAcpDiff } from '../../common/acp/acpProtocol.js';
 import { AcpLogEntry, AcpSessionLog, IAcpSessionSnapshot } from '../../common/acp/acpSessionLog.js';
 import { buildAcpPermissionAudit, buildAcpSessionAudit, buildAcpToolCallAudit } from '../../common/acp/acpAudit.js';
 import { AuditEvent, IAuditLogService } from '../../common/auditLogService.js';
@@ -52,6 +52,10 @@ export interface IVibeAcpSessionView {
 	readonly log: IAcpSessionSnapshot;
 	/** Вопрос, ждущий человека. Пока он есть, ход стоит. */
 	readonly pendingPermission?: IAcpPermissionRequest;
+	/** The settings the agent exposes — model, mode, thinking — as it last reported them */
+	readonly configOptions: readonly IAcpConfigOption[];
+	/** A setting change is on its way to the agent: the controls wait for its answer */
+	readonly configuring: boolean;
 }
 
 export interface IVibeAcpSessionsService {
@@ -70,6 +74,8 @@ export interface IVibeAcpSessionsService {
 	answerPermission(sessionId: string, optionId: string | undefined): Promise<void>;
 	cancel(sessionId: string): Promise<void>;
 	endSession(sessionId: string): Promise<void>;
+	/** Change a setting the agent exposes; the card shows the state the agent answers with, not the value asked for */
+	setConfigOption(sessionId: string, configId: string, value: string | boolean): Promise<void>;
 	/**
 	 * Bring back a session whose agent process died, without restarting the IDE. The transcript stays;
 	 * a note in it says whether the agent still remembers the conversation. With a new session the id
@@ -89,6 +95,8 @@ interface ISessionState {
 	disconnected: boolean;
 	reconnecting: boolean;
 	pending?: { readonly request: IAcpPermissionRequest; readonly snapshotId?: string };
+	configOptions: readonly IAcpConfigOption[];
+	configuring: boolean;
 }
 
 class VibeAcpSessionsService extends Disposable implements IVibeAcpSessionsService {
@@ -125,6 +133,8 @@ class VibeAcpSessionsService extends Disposable implements IVibeAcpSessionsServi
 			reconnecting: state.reconnecting,
 			log: state.log.snapshot,
 			pendingPermission: state.pending?.request,
+			configOptions: state.configOptions,
+			configuring: state.configuring,
 		}));
 	}
 
@@ -146,6 +156,8 @@ class VibeAcpSessionsService extends Disposable implements IVibeAcpSessionsServi
 			busy: false,
 			disconnected: false,
 			reconnecting: false,
+			configOptions: session.configOptions ?? [],
+			configuring: false,
 		});
 		this._activityLog.logStarted(localize('vibeide.acp.log.session', "Внешний агент «{0}» открыл сессию", session.agentName));
 		this._audit(buildAcpSessionAudit({ agentId: agent.id, sessionId: session.sessionId, phase: 'started' }, Date.now()));
@@ -209,6 +221,23 @@ class VibeAcpSessionsService extends Disposable implements IVibeAcpSessionsServi
 		return this._acpService.cancel(sessionId);
 	}
 
+	async setConfigOption(sessionId: string, configId: string, value: string | boolean): Promise<void> {
+		const state = this._sessions.get(sessionId);
+		if (!state || state.configuring || state.disconnected) { return; }
+		state.configuring = true;
+		state.error = undefined;
+		this._onDidChange.fire();
+		try {
+			state.configOptions = await this._acpService.setConfigOption(sessionId, configId, value);
+		} catch (err) {
+			// The control goes back to what the agent last reported: it still holds that value
+			state.error = localize('vibeide.acp.config.failed', "Агент не принял настройку: {0}", err instanceof Error ? err.message : String(err));
+		} finally {
+			state.configuring = false;
+			this._onDidChange.fire();
+		}
+	}
+
 	async reconnect(sessionId: string): Promise<void> {
 		const state = this._sessions.get(sessionId);
 		if (!state || !state.disconnected || state.reconnecting) { return; }
@@ -234,6 +263,8 @@ class VibeAcpSessionsService extends Disposable implements IVibeAcpSessionsServi
 			}
 			current.disconnected = false;
 			current.busy = false;
+			// A new process may expose other settings; an agent that reported none keeps showing none
+			current.configOptions = back.configOptions ?? [];
 			current.log.appendNotice(reconnectNotice(back.mode));
 			this._activityLog.logStarted(localize('vibeide.acp.log.reconnected', "Внешний агент «{0}» переподключён", current.agentName));
 			this._audit(buildAcpSessionAudit({ agentId: current.agentId, sessionId: current.sessionId, phase: 'reconnected', reconnectMode: back.mode }, Date.now()));
@@ -319,6 +350,12 @@ class VibeAcpSessionsService extends Disposable implements IVibeAcpSessionsServi
 			case 'done': {
 				const state = this._sessions.get(event.sessionId);
 				if (state) { state.lastStopReason = event.stopReason; }
+				this._onDidChange.fire();
+				return;
+			}
+			case 'config': {
+				const state = this._sessions.get(event.sessionId);
+				if (state) { state.configOptions = event.options; }
 				this._onDidChange.fire();
 				return;
 			}

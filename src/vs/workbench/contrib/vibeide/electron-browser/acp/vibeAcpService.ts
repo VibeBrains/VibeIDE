@@ -17,7 +17,7 @@ import { Event } from '../../../../../base/common/event.js';
 import { InstantiationType, registerSingleton } from '../../../../../platform/instantiation/common/extensions.js';
 import { IMainProcessService } from '../../../../../platform/ipc/common/mainProcessService.js';
 import { AcpEvent, IAcpAgentLaunch, IAcpReconnection, IAcpSession, IVibeAcpMain, VIBE_ACP_CHANNEL } from '../../common/acp/acpTypes.js';
-import { AcpStopReason } from '../../common/acp/acpProtocol.js';
+import { AcpStopReason, IAcpConfigOption } from '../../common/acp/acpProtocol.js';
 import { IVibeAcpService } from '../../common/acp/vibeAcpService.js';
 
 export class VibeAcpService implements IVibeAcpService {
@@ -47,6 +47,10 @@ export class VibeAcpService implements IVibeAcpService {
 
 	cancel(sessionId: string): Promise<void> {
 		return this._proxy.cancel(sessionId);
+	}
+
+	setConfigOption(sessionId: string, configId: string, value: string | boolean): Promise<readonly IAcpConfigOption[]> {
+		return this._proxy.setConfigOption(sessionId, configId, value);
 	}
 
 	endSession(sessionId: string): Promise<void> {

@@ -5803,9 +5803,11 @@ prompts, tools, and preceding messages») действует на API-аккау
       `.vibe/local/demos/…/report.html` с видео и скриншотами; ожидание проверяется на странице, а не по картинке. Браузер —
       подключённый MCP-сервер или Playwright проекта, установка только с разрешения. VibeIDEA вписывает навык в свой
       список засева — хендофф.
-- [ ] **ACP: настройки сессии гостя** — `configOptions` (модель, режим, уровень мышления гостя) и
-      `session/set_config_option`; булевы — только при объявленной возможности `session.configOptions.boolean`.
-      Фича (средняя)
+- [x] **ACP: настройки сессии гостя и закрытие по протоколу** — ✅ (2026-09-25, next) `configOptions` из ответов
+      `session/new`, `load`, `resume` и обновления `config_option_update` (и во время повтора истории), смена —
+      `session/set_config_option`, карточка показывает ответ агента; булевы объявлены возможностью
+      `session.configOptions.boolean`. «Закрыть сессию» зовёт `session/close`, если агент его объявил, с потолком 3 с, потом
+      гасит процесс. Knowledge: `agentCollaboration/acpHost.md`.
 - [x] **`VibeBrowserAutomationService` — раскопки и удаление** — ✅ (2026-09-25, next) не работал ни дня: не внедрялся,
       сценарий не передавался (`script: null`), `child_process` из `common/` в окне с песочницей, раннер вне сборки, видео
       нет. Удалены сервис, раннер, схема сценария с тестом, настройки `vibeide.browserAutomation.*` и тип аудита; два

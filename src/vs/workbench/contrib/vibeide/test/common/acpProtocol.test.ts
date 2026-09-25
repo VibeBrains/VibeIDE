@@ -7,6 +7,8 @@
 import * as assert from 'assert';
 import {
 	AcpStreamDecoder,
+	agentSupportsClose,
+	configOptionsOf,
 	initializeParams,
 	isNotification,
 	isRequest,
@@ -16,6 +18,7 @@ import {
 	promptParams,
 	reconnectModesOf,
 	returnToSessionParams,
+	setConfigOptionParams,
 	authMethodsOf,
 	parseSessionUpdate,
 	stopReasonOf,
@@ -86,6 +89,8 @@ suite('acpProtocol', () => {
 		test('возможности объявляются только те, что мы обслуживаем', () => {
 			const fs = (initializeParams() as Record<string, JsonValue>)['clientCapabilities'] as Record<string, JsonValue>;
 			assert.deepStrictEqual(fs['fs'], { readTextFile: true, writeTextFile: true });
+			// The card shows an on/off setting as a checkbox, so a boolean option is welcome
+			assert.deepStrictEqual(fs['session'], { configOptions: { boolean: {} } });
 		});
 
 		test('session/new несёт обязательный mcpServers даже пустым', () => {
@@ -257,6 +262,39 @@ suite('acpProtocol', () => {
 			необъявлено: ['new'],
 			безЗнакомства: ['new'],
 			параметры: { sessionId: 's-1', cwd: '/ws', mcpServers: [] },
+		});
+	});
+
+	test('настройки сессии гостя: выбор плоский и по группам, флажок, битые пропущены; смена и обновление от агента', () => {
+		const created: JsonValue = {
+			sessionId: 's-1',
+			configOptions: [
+				{ id: 'mode', name: 'Режим', category: 'mode', type: 'select', currentValue: 'ask', options: [{ value: 'ask', name: 'Спрашивать', description: 'До правок' }, { value: 'code' }] },
+				{ id: 'model', name: 'Модель', category: 'model', type: 'select', currentValue: 'm1', options: [{ group: 'rec', name: 'Рекомендуемые', options: [{ value: 'm1', name: 'Модель 1' }] }, { value: 'm2', name: 'Модель 2' }] },
+				{ id: 'brave', name: 'Смелый режим', type: 'boolean', currentValue: true },
+				// A current value that does not match the type, and a type we do not know: a control would show a false state
+				{ id: 'broken', name: 'x', type: 'select', currentValue: 3, options: [] },
+				{ id: 'slider', name: 'y', type: 'range', currentValue: 1 },
+			],
+		};
+		assert.deepStrictEqual({
+			опции: configOptionsOf(created),
+			безПоля: configOptionsOf({ sessionId: 's-1' }),
+			обновление: parseSessionUpdate({ sessionId: 's-1', update: { sessionUpdate: 'config_option_update', configOptions: [{ id: 'brave', name: 'Смелый режим', type: 'boolean', currentValue: false }] } }),
+			выбор: setConfigOptionParams('s-1', 'mode', 'code'),
+			флажок: setConfigOptionParams('s-1', 'brave', false),
+			закрытие: [agentSupportsClose({ agentCapabilities: { sessionCapabilities: { close: {} } } }), agentSupportsClose({ agentCapabilities: {} }), agentSupportsClose(undefined)],
+		}, {
+			опции: [
+				{ id: 'mode', name: 'Режим', category: 'mode', type: 'select', currentValue: 'ask', choices: [{ value: 'ask', name: 'Спрашивать', description: 'До правок' }, { value: 'code', name: 'code' }] },
+				{ id: 'model', name: 'Модель', category: 'model', type: 'select', currentValue: 'm1', choices: [{ value: 'm1', name: 'Модель 1', group: 'Рекомендуемые' }, { value: 'm2', name: 'Модель 2' }] },
+				{ id: 'brave', name: 'Смелый режим', type: 'boolean', currentValue: true },
+			],
+			безПоля: undefined,
+			обновление: { kind: 'config', options: [{ id: 'brave', name: 'Смелый режим', type: 'boolean', currentValue: false }] },
+			выбор: { sessionId: 's-1', configId: 'mode', value: 'code' },
+			флажок: { sessionId: 's-1', configId: 'brave', type: 'boolean', value: false },
+			закрытие: [true, false, false],
 		});
 	});
 });

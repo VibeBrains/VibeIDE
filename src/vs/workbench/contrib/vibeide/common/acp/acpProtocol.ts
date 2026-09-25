@@ -33,6 +33,8 @@ export const ACP_AGENT_METHOD = {
 	resumeSession: 'session/resume',
 	prompt: 'session/prompt',
 	cancel: 'session/cancel',
+	setConfigOption: 'session/set_config_option',
+	closeSession: 'session/close',
 } as const;
 
 /** Методы, которые агент вызывает у НАС. Реализовать их — и значит быть хостом. */
@@ -165,6 +167,8 @@ export const initializeParams = (): JsonValue => ({
 	clientCapabilities: {
 		fs: { readTextFile: true, writeTextFile: true },
 		terminal: false,
+		// The session header shows an on/off option as a checkbox: without this an agent must not send one
+		session: { configOptions: { boolean: {} } },
 	},
 	clientInfo: { name: 'VibeIDE', version: '1' },
 });
@@ -252,6 +256,97 @@ export function reconnectModesOf(greeting: JsonValue | undefined): readonly AcpR
 	return modes;
 }
 
+/**
+ * Whether the agent declared `session/close` (`agentCapabilities.sessionCapabilities.close`)
+ * Without it a session is ended by ending the process; calling an undeclared method is forbidden by the spec
+ */
+export function agentSupportsClose(greeting: JsonValue | undefined): boolean {
+	const close = asObject(objectAt(asObject(greeting)?.['agentCapabilities'], 'sessionCapabilities'))?.['close'];
+	return close === true || !!asObject(close);
+}
+
+/** One value of a select option; `group` names the group it came in, when the agent grouped them */
+export interface IAcpConfigChoice {
+	readonly value: string;
+	readonly name: string;
+	readonly description?: string;
+	readonly group?: string;
+}
+
+/**
+ * A setting of a guest session the agent exposes: its model, its mode, how hard it thinks
+ * `category` is only a hint for placement; the option is identified by `id` alone
+ */
+export type IAcpConfigOption = {
+	readonly id: string;
+	readonly name: string;
+	readonly description?: string;
+	readonly category?: string;
+} & (
+		| { readonly type: 'select'; readonly currentValue: string; readonly choices: readonly IAcpConfigChoice[] }
+		| { readonly type: 'boolean'; readonly currentValue: boolean }
+	);
+
+/**
+ * The session's settings from a response or an update carrying `configOptions`; `undefined` when the field is absent
+ * An option of an unknown type, or one whose current value does not match its type, is skipped: a control that
+ * cannot show the agent's state would show a false one
+ */
+export function configOptionsOf(source: JsonValue | undefined): readonly IAcpConfigOption[] | undefined {
+	const raw = asObject(source)?.['configOptions'];
+	if (!Array.isArray(raw)) { return undefined; }
+	const options: IAcpConfigOption[] = [];
+	for (const entry of raw) {
+		const record = asObject(entry);
+		const id = stringAt(record, 'id');
+		if (!record || !id) { continue; }
+		const base = {
+			id,
+			name: stringAt(record, 'name') ?? id,
+			...(stringAt(record, 'description') ? { description: stringAt(record, 'description') } : {}),
+			...(stringAt(record, 'category') ? { category: stringAt(record, 'category') } : {}),
+		};
+		const current = record['currentValue'];
+		if (record['type'] === 'boolean' && typeof current === 'boolean') {
+			options.push({ ...base, type: 'boolean', currentValue: current });
+		} else if (record['type'] === 'select' && typeof current === 'string') {
+			options.push({ ...base, type: 'select', currentValue: current, choices: configChoicesOf(record['options']) });
+		}
+	}
+	return options;
+}
+
+/** Values of a select, flat or in groups; the group's name rides on each of its values */
+function configChoicesOf(raw: JsonValue | undefined): readonly IAcpConfigChoice[] {
+	if (!Array.isArray(raw)) { return []; }
+	const choices: IAcpConfigChoice[] = [];
+	const push = (entry: JsonValue, group?: string) => {
+		const record = asObject(entry);
+		const value = stringAt(record, 'value');
+		if (!value) { return; }
+		const description = stringAt(record, 'description');
+		choices.push({ value, name: stringAt(record, 'name') ?? value, ...(description ? { description } : {}), ...(group ? { group } : {}) });
+	};
+	for (const entry of raw) {
+		const record = asObject(entry);
+		const nested = record?.['options'];
+		if (Array.isArray(nested)) {
+			const group = stringAt(record, 'name') ?? stringAt(record, 'group');
+			nested.forEach(inner => push(inner, group));
+		} else {
+			push(entry);
+		}
+	}
+	return choices;
+}
+
+/** Params of `session/set_config_option`; a boolean says its type, as the spec asks */
+export function setConfigOptionParams(sessionId: string, configId: string, value: string | boolean): JsonValue {
+	return typeof value === 'boolean'
+		? { sessionId, configId, type: 'boolean', value }
+		: { sessionId, configId, value };
+}
+
 /** Params of `session/resume` and `session/load`: the same shape, the session to come back to. */
 export const returnToSessionParams = (sessionId: string, cwd: string, mcpServers: readonly JsonValue[] = []): JsonValue => ({
 	sessionId,
@@ -324,7 +419,9 @@ export type AcpUpdate =
 	/** Вызов инструмента: чем занят агент и что именно меняет. */
 	| { readonly kind: 'tool'; readonly toolCallId: string; readonly title: string; readonly name: string; readonly toolKind: string; readonly status: AcpToolStatus; readonly paths: readonly string[]; readonly diffs: readonly IAcpDiff[] }
 	/** Расход контекста и денег за ход. */
-	| { readonly kind: 'usage'; readonly used: number; readonly size: number; readonly costUsd?: number };
+	| { readonly kind: 'usage'; readonly used: number; readonly size: number; readonly costUsd?: number }
+	/** The agent changed the session's settings itself: the full list, as in a response */
+	| { readonly kind: 'config'; readonly options: readonly IAcpConfigOption[] };
 
 /** Разбор уведомления `session/update`. `undefined` — кадр, который нам нечего показать. */
 export function parseSessionUpdate(params: JsonValue | undefined): AcpUpdate | undefined {
@@ -352,6 +449,11 @@ export function parseSessionUpdate(params: JsonValue | undefined): AcpUpdate | u
 			paths: facts.paths,
 			diffs: facts.diffs,
 		};
+	}
+
+	if (kind === 'config_option_update') {
+		const options = configOptionsOf(update);
+		return options ? { kind: 'config', options } : undefined;
 	}
 
 	if (kind === 'usage_update') {

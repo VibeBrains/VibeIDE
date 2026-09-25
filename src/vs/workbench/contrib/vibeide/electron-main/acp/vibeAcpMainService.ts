@@ -10,6 +10,7 @@ import { ChildProcessWithoutNullStreams } from 'child_process';
 import crossSpawn from 'cross-spawn';
 import { Emitter, Event } from '../../../../../base/common/event.js';
 import { Disposable } from '../../../../../base/common/lifecycle.js';
+import { raceTimeout } from '../../../../../base/common/async.js';
 import { generateUuid } from '../../../../../base/common/uuid.js';
 import { vibeLog } from '../../common/vibeLog.js';
 import {
@@ -19,9 +20,12 @@ import {
 	AcpStreamDecoder,
 	AcpStopReason,
 	IAcpAuthMethod,
+	IAcpConfigOption,
 	JSON_RPC_ERROR,
 	JsonValue,
+	agentSupportsClose,
 	authMethodsOf,
+	configOptionsOf,
 	encodeMessage,
 	errorFrame,
 	initializeParams,
@@ -36,6 +40,7 @@ import {
 	requestFrame,
 	resultFrame,
 	returnToSessionParams,
+	setConfigOptionParams,
 	stopReasonOf,
 	toolCallFacts,
 } from '../../common/acp/acpProtocol.js';
@@ -92,6 +97,10 @@ interface IAgentProcess {
 	nextId: number;
 	/** Способы входа, объявленные агентом: понадобятся, когда он откажет по авторизации. */
 	authMethods: readonly IAcpAuthMethod[];
+	/** The agent declared `session/close`: a session ends with it before the process is ended */
+	closeSupported?: boolean;
+	/** The session's settings as the agent last reported them — a boolean's change has to say its type */
+	configOptions?: readonly IAcpConfigOption[];
 	/**
 	 * Set when we end the process ourselves. Its exit is then the expected outcome, not a broken
 	 * connection: reporting it would log an error on every ordinary close and offer to reconnect a
@@ -106,6 +115,9 @@ interface IAgentProcess {
 	 */
 	replaying?: boolean;
 }
+
+/** How long a close waits for the agent to save the session before the process is ended anyway */
+const ACP_CLOSE_TIMEOUT_MS = 3_000;
 
 /**
  * Переменные, которыми Claude Code метит свою сессию.
@@ -164,7 +176,7 @@ export class VibeAcpMainService extends Disposable implements IVibeAcpMain {
 		}
 		this._adopt(agent, sessionId);
 		vibeLog.info('ACP', `${launch.name}: сессия ${sessionId} в ${launch.cwd}`);
-		return { sessionId, agentName: launch.name };
+		return { sessionId, agentName: launch.name, ...(agent.configOptions ? { configOptions: agent.configOptions } : {}) };
 	}
 
 	/**
@@ -185,7 +197,7 @@ export class VibeAcpMainService extends Disposable implements IVibeAcpMain {
 				const sessionId = await this._openSession(agent, mode, previousSessionId, mcpServers);
 				this._adopt(agent, sessionId);
 				vibeLog.info('ACP', `${launch.name}: сессия ${sessionId} восстановлена способом ${mode}`);
-				return { sessionId, agentName: launch.name, mode };
+				return { sessionId, agentName: launch.name, mode, ...(agent.configOptions ? { configOptions: agent.configOptions } : {}) };
 			} catch (err) {
 				// A dead process fails every next way too; the last way has nothing to fall back to.
 				if (agent.failed || mode === 'new') {
@@ -232,6 +244,7 @@ export class VibeAcpMainService extends Disposable implements IVibeAcpMain {
 			throw err;
 		}
 		agent.authMethods = authMethodsOf(greeting);
+		agent.closeSupported = agentSupportsClose(greeting);
 		// HTTP-серверы отсеиваются здесь, а не в окне: поддержку такого транспорта агент объявляет
 		// в рукопожатии, и раньше этого момента узнать её неоткуда. Отсеянное называется в журнале —
 		// у гостя это выглядело бы как неработающий сервер без всякой причины.
@@ -257,16 +270,19 @@ export class VibeAcpMainService extends Disposable implements IVibeAcpMain {
 			if (!sessionId) {
 				throw new Error(`${agent.launch.name} не вернул идентификатор сессии`);
 			}
+			agent.configOptions = configOptionsOf(created) ?? agent.configOptions;
 			return sessionId;
 		}
 		if (mode === 'resume') {
-			await this._call(agent, ACP_AGENT_METHOD.resumeSession, returnToSessionParams(previousSessionId, cwd, mcpServers));
+			const resumed = await this._call(agent, ACP_AGENT_METHOD.resumeSession, returnToSessionParams(previousSessionId, cwd, mcpServers));
+			agent.configOptions = configOptionsOf(resumed) ?? agent.configOptions;
 			return previousSessionId;
 		}
 		// The agent streams the whole conversation before it answers `session/load`.
 		agent.replaying = true;
 		try {
-			await this._call(agent, ACP_AGENT_METHOD.loadSession, returnToSessionParams(previousSessionId, cwd, mcpServers));
+			const loaded = await this._call(agent, ACP_AGENT_METHOD.loadSession, returnToSessionParams(previousSessionId, cwd, mcpServers));
+			agent.configOptions = configOptionsOf(loaded) ?? agent.configOptions;
 		} finally {
 			agent.replaying = false;
 		}
@@ -327,7 +343,23 @@ export class VibeAcpMainService extends Disposable implements IVibeAcpMain {
 		if (!agent) { return; }
 		this._agents.delete(sessionId);
 		this._releasePermissionsOf(agent);
+		// An agent that keeps sessions across runs saves this one on `session/close`; a silent or broken agent
+		// does not hold the close up — the process is ended either way
+		if (agent.closeSupported && !agent.failed) {
+			await raceTimeout(this._call(agent, ACP_AGENT_METHOD.closeSession, { sessionId }).catch(() => undefined), ACP_CLOSE_TIMEOUT_MS);
+		}
 		this._close(agent);
+	}
+
+	async setConfigOption(sessionId: string, configId: string, value: string | boolean): Promise<readonly IAcpConfigOption[]> {
+		const agent = this._require(sessionId);
+		const result = await this._call(agent, ACP_AGENT_METHOD.setConfigOption, setConfigOptionParams(sessionId, configId, value));
+		// The answer is the whole state: a model switch may change the modes on offer, not only the model
+		const options = configOptionsOf(result);
+		if (options) {
+			agent.configOptions = options;
+		}
+		return agent.configOptions ?? [];
 	}
 
 	// ── Приём ────────────────────────────────────────────────────────────────
@@ -366,10 +398,19 @@ export class VibeAcpMainService extends Disposable implements IVibeAcpMain {
 	 * ЧТО именно изменилось, мы узнаём только отсюда — из диффа в кадре, а не из запроса на запись.
 	 */
 	private _onUpdate(agent: IAgentProcess, params: JsonValue | undefined): void {
-		const sessionId = agent.sessionId;
-		if (!sessionId || agent.replaying) { return; }
 		const update = parseSessionUpdate(params);
 		if (!update) { return; }
+		const sessionId = agent.sessionId;
+		// The replay of `session/load` is history already on screen — but a settings change during it is the current
+		// state. It is kept even before the session is adopted, and the reconnection hands it over
+		if (update.kind === 'config') {
+			agent.configOptions = update.options;
+			if (sessionId) {
+				this._onEvent.fire({ kind: 'config', sessionId, options: update.options });
+			}
+			return;
+		}
+		if (!sessionId || agent.replaying) { return; }
 		switch (update.kind) {
 			case 'text':
 				this._onEvent.fire({ kind: 'text', sessionId, text: update.text, thought: update.thought });

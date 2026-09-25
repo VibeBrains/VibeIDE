@@ -7,7 +7,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useAccessor, useIsDark } from '../util/services.js';
 import { IVibeAcpSessionView } from '../../../acp/vibeAcpSessionsService.js';
 import { AcpLogEntry, IAcpSessionSpend } from '../../../../common/acp/acpSessionLog.js';
-import { AcpStopReason, IAcpDiff } from '../../../../common/acp/acpProtocol.js';
+import { AcpStopReason, IAcpConfigChoice, IAcpConfigOption, IAcpDiff } from '../../../../common/acp/acpProtocol.js';
 import { VibeAgentEntry } from '../../../../common/acp/vibeAgentsFile.js';
 import { IAcpAgentUpdate, VIBE_ACP_ADD_FROM_REGISTRY_COMMAND_ID, VIBE_ACP_UPDATE_FROM_REGISTRY_COMMAND_ID } from '../../../../common/acp/vibeAcpRegistryImport.js';
 
@@ -163,6 +163,57 @@ const PermissionCard = ({ session, onAnswer }: { session: IVibeAcpSessionView; o
 
 // ── Сессия ────────────────────────────────────────────────────────────────────
 
+/**
+ * The settings a guest exposes for its session — model, mode, how hard it thinks — as the agent reports them
+ * A change goes to the agent, and the control shows what it answers: an agent may refuse or move other options too
+ */
+const SessionSettings = ({ session, onChange }: { session: IVibeAcpSessionView; onChange: (configId: string, value: string | boolean) => void }) => {
+	if (session.configOptions.length === 0) { return null; }
+	const locked = session.configuring || session.disconnected;
+	return <div className='flex flex-wrap items-end gap-3'>
+		{session.configOptions.map(option => {
+			const controlId = `vibe-acp-config-${session.sessionId}-${option.id}`;
+			return <div key={option.id} className='flex flex-col gap-1'>
+				<label className='text-root font-medium text-vibe-fg-2' htmlFor={controlId}>{option.name}</label>
+				{option.type === 'boolean'
+					? <input
+						id={controlId}
+						type='checkbox'
+						className='h-4 w-4'
+						checked={option.currentValue}
+						disabled={locked}
+						onChange={event => onChange(option.id, event.target.checked)}
+					/>
+					: <select
+						id={controlId}
+						className='rounded-md border border-vibe-border-3 bg-vibe-bg-1 px-2 py-1 text-root text-vibe-fg-1 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-vibe-border-1'
+						value={option.currentValue}
+						disabled={locked}
+						onChange={event => onChange(option.id, event.target.value)}
+					>
+						{choiceGroups(option).map(([group, choices]) => group
+							? <optgroup key={group} label={group}>{choices.map(choice => <option key={choice.value} value={choice.value}>{choice.name}</option>)}</optgroup>
+							: choices.map(choice => <option key={choice.value} value={choice.value}>{choice.name}</option>))}
+					</select>}
+			</div>;
+		})}
+	</div>;
+};
+
+/** A select's values in the agent's order, grouped where the agent grouped them */
+function choiceGroups(option: IAcpConfigOption & { readonly type: 'select' }): readonly (readonly [string | undefined, readonly IAcpConfigChoice[]])[] {
+	const groups: [string | undefined, IAcpConfigChoice[]][] = [];
+	for (const choice of option.choices) {
+		const last = groups[groups.length - 1];
+		if (last && last[0] === choice.group) {
+			last[1].push(choice);
+		} else {
+			groups.push([choice.group, [choice]]);
+		}
+	}
+	return groups;
+}
+
 const SessionCard = ({ session }: { session: IVibeAcpSessionView }) => {
 	const accessor = useAccessor();
 	const sessions = accessor.get('IVibeAcpSessionsService');
@@ -189,6 +240,8 @@ const SessionCard = ({ session }: { session: IVibeAcpSessionView }) => {
 				<PaneButton onClick={() => void sessions.endSession(session.sessionId)}>Закрыть сессию</PaneButton>
 			</div>
 		</div>
+
+		<SessionSettings session={session} onChange={(configId, value) => void sessions.setConfigOption(session.sessionId, configId, value)} />
 
 		{session.error && <div className='flex items-center justify-between gap-3 rounded-md border border-vibe-border-3 bg-vibe-bg-2 px-3 py-2 text-root text-vibe-warning'>
 			<span>{session.error}</span>

@@ -5,7 +5,7 @@
 
 import { AcpMcpServer } from './acpMcpExport.js';
 import { Event } from '../../../../../base/common/event.js';
-import { AcpReconnectMode, AcpStopReason, AcpToolStatus, IAcpAuthMethod, IAcpDiff } from './acpProtocol.js';
+import { AcpReconnectMode, AcpStopReason, AcpToolStatus, IAcpAuthMethod, IAcpConfigOption, IAcpDiff } from './acpProtocol.js';
 
 /**
  * Контракт хоста ACP: VibeIDE как клиент, внешний агент как процесс.
@@ -77,12 +77,16 @@ export type AcpEvent =
 	| { readonly kind: 'authRequired'; readonly sessionId: string; readonly agentName: string; readonly methods: readonly IAcpAuthMethod[] }
 	/** Ход закончился. */
 	| { readonly kind: 'done'; readonly sessionId: string; readonly stopReason: AcpStopReason }
+	/** The agent changed the session's settings itself (a model switch may change the modes on offer) */
+	| { readonly kind: 'config'; readonly sessionId: string; readonly options: readonly IAcpConfigOption[] }
 	/** Связь с агентом оборвалась. */
 	| { readonly kind: 'failed'; readonly sessionId?: string; readonly error: string };
 
 export interface IAcpSession {
 	readonly sessionId: string;
 	readonly agentName: string;
+	/** The settings the agent exposes for this session; absent when it exposes none */
+	readonly configOptions?: readonly IAcpConfigOption[];
 }
 
 /** A session brought back after its agent process died, and how — which says what the agent remembers. */
@@ -101,6 +105,8 @@ export interface IVibeAcpMain {
 	cancel(sessionId: string): Promise<void>;
 	/** Закрыть сессию и погасить процесс. */
 	endSession(sessionId: string): Promise<void>;
+	/** Change a setting the agent exposes; resolves to the full list after the change, which may move other options too */
+	setConfigOption(sessionId: string, configId: string, value: string | boolean): Promise<readonly IAcpConfigOption[]>;
 	/**
 	 * Bring back a session whose agent process died: a new process, then the strongest way back the
 	 * agent declared — `session/resume`, `session/load` or a new session. With `new` the id changes.
