@@ -10,10 +10,10 @@
 | Data dirs | `dataFolderName`, `sharedDataFolderName`, `serverDataFolderName`, `urlProtocol` → **`.vibeide`** / **`vibeide`** | Microsoft `.vscode` paths |
 | Locale | `defaultLocale` → **`ru`** (product choice) | Often `en` |
 | Gallery | `extensionsGallery` → **Open VSX** URLs | Marketplace endpoints |
-| Trusted links | `linkProtectionTrustedDomains` includes **`vibeide.io`**, **`VibeIDETeam`** GitHub | MS domains only |
+| Trusted links | `linkProtectionTrustedDomains` includes **`vibeide.io`**, **`VibeBrains/VibeIDE`** GitHub | MS domains only |
 | Themes onboarding | `onboardingThemes` pins **Vibe Neon** (`vibe-neon`) | Default VS themes only |
 | Built-ins | `builtInExtensions` list / hashes — align with **`product.json` in main** after upstream bump | Missing vibe-specific extensions |
-| Update service | Auto-update URL / release notes → **VibeIDETeam/VibeIDE** (see `cortexideUpdateMainService` / product wiring) | MS update endpoints |
+| Update service | Auto-update URL / release notes → **VibeBrains/VibeIDE** (see `cortexideUpdateMainService` / product wiring) | MS update endpoints |
 | Remote debugging | **`disableRemoteDebugging`** (or equivalent in merged schema) must stay **enabled for production** per roadmap Phase 1 | Upstream dev defaults |
 
 **Process:** merge upstream → `git diff HEAD~1 -- product.json` → walk table → run `npm run compile` → smoke launch.
