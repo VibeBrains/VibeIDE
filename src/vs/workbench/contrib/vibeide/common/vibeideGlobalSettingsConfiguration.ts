@@ -393,10 +393,11 @@ export class VibeideGlobalSettingsConfigurationContribution extends Disposable i
 							topK: { type: 'integer', minimum: 1 },
 							forceEmptyReasoning: { type: 'boolean' },
 							mirrorReasoningContent: { type: 'boolean' },
+							reasoningAsThinkTags: { type: 'boolean' },
 							forceToolCallFormat: { type: 'string', enum: ['native', 'xml', 'auto'] },
 						},
 					},
-					description: localize('vibeide.modelQuirks', 'User-уровневые override каталога `resources/model-quirks.json`. Ключ — точный id модели (как в выпадающем меню чата, например `qwen3.6-plus`), значение — объект с полями: `temperature` (0..2), `topP` (0..1), `topK` (натуральное число), `forceEmptyReasoning` (boolean), `mirrorReasoningContent` (boolean), `forceToolCallFormat` (`native` / `xml` / `auto`). Заполненные поля перекрывают каталог; пустые наследуются. Изменение требует перезапуска IDE.'),
+					description: localize('vibeide.modelQuirks', 'User-уровневые override каталога `resources/model-quirks.json`. Ключ — точный id модели (как в выпадающем меню чата, например `qwen3.6-plus`), значение — объект с полями: `temperature` (0..2), `topP` (0..1), `topK` (натуральное число), `forceEmptyReasoning` (boolean), `mirrorReasoningContent` (boolean), `reasoningAsThinkTags` (boolean: рассуждение возвращается тегами <think> внутри текста, а не полем), `forceToolCallFormat` (`native` / `xml` / `auto`). Заполненные поля перекрывают каталог; пустые наследуются. Изменение требует перезапуска IDE.'),
 					scope: ConfigurationScope.APPLICATION,
 				},
 				'vibeide.modelQuirks.catalogUrl': {

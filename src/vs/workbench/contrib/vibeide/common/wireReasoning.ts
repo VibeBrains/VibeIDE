@@ -151,6 +151,18 @@ export function replaysThinkingBlock(signed: boolean, target: { readonly echoRea
 	return target.echoReasoning || (signed && target.claude);
 }
 
+/**
+ * The answer text with its reasoning in front, as `<think>…</think>` — the form MiniMax sends on the OpenAI wire and
+ * wants back unchanged. The reasoning is kept apart on arrival (the tags are cut from the shown answer), so going back
+ * it is put where it came from. A text that already opens with the tag is left alone: it has not been cut
+ */
+export function withThinkTags(reasoning: string, text: string): string {
+	if (!reasoning || text.trimStart().startsWith('<think>')) {
+		return text;
+	}
+	return `<think>\n${reasoning}\n</think>\n\n${text}`;
+}
+
 /** A Claude model by its id, served directly or through a gateway that keeps the vendor's name in the id */
 export function isClaudeModelId(modelId: string): boolean {
 	return /claude/i.test(modelId);

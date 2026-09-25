@@ -79,6 +79,12 @@ export interface ModelQuirksRule {
 	 */
 	readonly mirrorReasoningContent?: boolean;
 	/**
+	 * With `mirrorReasoningContent`: on the OpenAI wire the reasoning goes back inside the text as `<think>…</think>`,
+	 * not as the `reasoning_content` field. MiniMax sends it that way and asks for the content back unchanged;
+	 * VibeIDEA calls the same quirk REASONING_AS_THINK_TAGS
+	 */
+	readonly reasoningAsThinkTags?: boolean;
+	/**
 	 * Рассуждение у модели не выключается, а его трейс биллится как выход.
 	 *
 	 * Пометка, а не множитель: сама доля выхода измеряется по журналу прогонов той же модели
@@ -292,6 +298,7 @@ export function validateCatalog(raw: unknown): ModelQuirksCatalog {
 			...readIntPositive(rr, 'topK'),
 			...readBool(rr, 'forceEmptyReasoning'),
 			...readBool(rr, 'mirrorReasoningContent'),
+			...readBool(rr, 'reasoningAsThinkTags'),
 			...readBool(rr, 'reasoningAlwaysBilled'),
 			...readBool(rr, 'anthropicStrictBlocks'),
 			...readString(rr, 'reasoningEffortInSystemPrompt'),
@@ -376,6 +383,7 @@ export function applyUserOverride(catalogQuirks: ResolvedModelQuirks, userOverri
 		...readIntPositive(oo, 'topK'),
 		...readBool(oo, 'forceEmptyReasoning'),
 		...readBool(oo, 'mirrorReasoningContent'),
+		...readBool(oo, 'reasoningAsThinkTags'),
 		...readString(oo, 'reasoningEffortInSystemPrompt'),
 		...readEnum(oo, 'forceToolCallFormat', ['native', 'xml', 'auto']),
 		...readBool(oo, 'forcedToolChoiceUnsupported'),

@@ -375,6 +375,7 @@ RAG-индекс кодовой базы хранится **не** в `.vibe/`, 
 | `topK` | int ≥1 | Только для провайдеров, которые его уважают. |
 | `forceEmptyReasoning` | boolean | Для DeepSeek-семейства: вшивать пустой reasoning placeholder на каждый assistant message (иначе HTTP 400). |
 | `mirrorReasoningContent` | boolean | Дублировать reasoning в `providerOptions.openaiCompatible.reasoning_content` (interleaved-семейства). |
+| `reasoningAsThinkTags` | boolean | Вместе с `mirrorReasoningContent`: на OpenAI-проводе рассуждение возвращается тегами `<think>` внутри текста ответа, а не полем (MiniMax). |
 | `forceToolCallFormat` | `"native"` / `"xml"` / `"auto"` | Override формата tool-call'ов. `"xml"` для моделей с broken native FC (qwen, например). |
 | `note` | string | Свободный комментарий для контрибьюторов, не консумируется рантаймом. |
 

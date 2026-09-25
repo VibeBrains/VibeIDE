@@ -62,6 +62,7 @@ interface ModelQuirksRule {
   topK?: number                              // positive int
   forceEmptyReasoning?: boolean              // DeepSeek family
   mirrorReasoningContent?: boolean           // interleaved families
+  reasoningAsThinkTags?: boolean             // with mirror: <think> inside the text on the OpenAI wire (MiniMax)
   forceToolCallFormat?: 'native'|'xml'|'auto'
   note?: string                              // freeform, ignored at runtime
 }
@@ -103,6 +104,8 @@ interface ModelQuirksRule {
 **Суть (две независимые reasoning-трансформации в opencode):**
 1. **Пустой reasoning-слот** `{type:"reasoning",text:""}` на assistant-ходах без reasoning — вставляется СТРОГО при `model.api.id.toLowerCase().includes("deepseek")`. Это `forceEmptyReasoning` у нас. **Kimi и minimax апстримом НЕ получают.** Назначение: deepseek-reasoner API требует reasoning-блок на каждом assistant-ходе.
 2. **Mirror `reasoning_content`** в `providerOptions.openaiCompatible.[field]` — gated по `model.capabilities.interleaved.field` (model-agnostic, исключая `@openrouter/...`). Это `mirrorReasoningContent` у нас. Применяется к любой interleaved-модели, включая kimi.
+
+**Поправка 25.09.2026:** возврат у `kimi-k2-thinking` и `kimi-k2.5` снят — в руководстве Kimi по мышлению этих моделей нет (разбор ниже, «Возврат рассуждения сверен по вендорам»). Вывод ниже — про форму, а не про то, нужен ли возврат.
 
 **Вывод по kimi-k2-thinking:** `mirrorReasoningContent` без `forceEmptyReasoning` **в точности** повторяет трактовку kimi в opencode → корректно, НЕ пробел. Добавлять `forceEmptyReasoning` к kimi = отклонение от рабочего апстрима + спекуляция без репорта (урок #005).
 
@@ -439,3 +442,23 @@ use /v1/responses or set reasoning_effort to 'none'».
 Тест провода держит обе формы истории.
 Сохранённое сообщение было верным: `anthropicReasoning` в `state.vscdb` стенда лежал целым.
 Дыру нашло тело запроса, а не хранилище.
+
+---
+
+## [решение] Возврат рассуждения сверен по вендорам, а не между продуктами (2026-09-25)
+
+**Контекст:** списки моделей с возвратом рассуждения у VibeIDE и VibeIDEA разошлись.
+Спор «кто прав» решается страницами вендоров, а итог записан общими векторами набора `testVectors/reasoningEcho.json`.
+Тест `test/node/reasoningEchoVectors.test.ts` сверяет с ними настоящий каталог причуд.
+
+**Что поменялось:**
+- `kimi-k2.5` и `kimi-k2-thinking` — возврат снят: руководство Kimi называет только `kimi-k3`, `kimi-k2.7-code`, `kimi-k2.6`.
+- MiMo v2.5 — своё правило с возвратом: вендор требует его и у `mimo-v2.5`, `mimo-v2.5-pro`, а прежнее правило стояло только на v2.6.
+- MiniMax — причуда `reasoningAsThinkTags`: на OpenAI-проводе вендор присылает рассуждение тегами `<think>` в `content` и просит вернуть `content` без изменений.
+  Мы теги из ответа вырезаем (`stripThinkTagsFromContent`) и храним рассуждение отдельно, поэтому обратно оно собирается перед текстом (`withThinkTags`), а поле `reasoning_content` не отправляется.
+  На Anthropic-проводе у MiniMax уходят блоки `thinking`, как раньше.
+
+**Не проверено живьём:** ключей MiniMax, Kimi и MiMo нет; форма взята со страниц вендоров.
+
+**Применение:** правило «модель требует возврат» без ссылки на вендора не заводится; спорное — в векторы набора, а не в один продукт.
+

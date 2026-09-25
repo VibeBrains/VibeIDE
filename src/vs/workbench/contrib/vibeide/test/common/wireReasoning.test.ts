@@ -5,7 +5,7 @@
 
 import * as assert from 'assert';
 import { ensureNoDisposablesAreLeakedInTestSuite } from '../../../../../base/test/common/utils.js';
-import { claudeThinkingDisplayOf, claudeThinkingOptions, googleThinkingConfig, openAIReasoningEffort } from '../../common/wireReasoning.js';
+import { claudeThinkingDisplayOf, claudeThinkingOptions, googleThinkingConfig, openAIReasoningEffort, withThinkTags } from '../../common/wireReasoning.js';
 
 /**
  * Один выбор рассуждения — три написания на проводе. Проверяется то, что уйдёт в опции SDK, и то,
@@ -50,6 +50,20 @@ suite('wireReasoning — выбор рассуждения по проводам
 			googleThinkingConfig({ type: 'effort_slider_value', isReasoningEnabled: true, reasoningEffort: 'xhigh' }),
 			googleThinkingConfig(null),
 		], [{ thinkingBudget: 2048 }, { thinkingLevel: 'high' }, undefined, undefined]);
+	});
+
+	test('MiniMax на OpenAI-проводе: рассуждение возвращается тегами перед ответом; пустое и уже с тегами — без изменений', () => {
+		assert.deepStrictEqual([
+			withThinkTags('plan', 'answer'),
+			withThinkTags('plan', ''),
+			withThinkTags('', 'answer'),
+			withThinkTags('plan', '<think>\nplan\n</think>\n\nanswer'),
+		], [
+			'<think>\nplan\n</think>\n\nanswer',
+			'<think>\nplan\n</think>\n\n',
+			'answer',
+			'<think>\nplan\n</think>\n\nanswer',
+		]);
 	});
 
 	test('настройка показа мышления: опечатка в руками правленом значении не доходит до вендора', () => {

@@ -1,15 +1,22 @@
 {
 	"version": 1,
-	"date": "2026-09-23",
+	"date": "2026-09-25",
 	"description": "VibeIDE model behaviour quirks. Source of truth — see README.md section 'Model behaviour quirks'. PRs welcome. Каждое правило — утверждение о чужом сервере: указывайте `source` (ссылка/коммит/лог) и `observedAt`; правило без источника считается черновиком и называется проверкой `npm run quirks-provenance-check`. Schema: ./src/vs/workbench/contrib/vibeide/common/modelQuirks/modelQuirksTypes.ts.",
 	"docs": "https://github.com/VibeBrains/VibeIDE#model-behaviour-quirks",
 	"rules": [
+		{
+			"match": "mimo-v2.5",
+			"mirrorReasoningContent": true,
+			"note": "Xiaomi MiMo v2.5 и v2.5-pro думают, и вендор требует рассуждение обратно так же, как у v2.6: без него 400 на втором раунде инструментов. Правило несёт только возврат: сэмплинг v2.6 на v2.5 вендором не описан.",
+			"source": "mimo.mi.com/docs/en-US/quick-start/usage-guide/text-generation/deep-thinking",
+			"observedAt": "2026-09-25"
+		},
 		{
 			"match": "mimo-v2.6",
 			"temperature": 1.0,
 			"topP": 0.95,
 			"mirrorReasoningContent": true,
-			"note": "Xiaomi MiMo v2.6 (Pro / Flash / Pro Ultraspeed). ВОЗВРАТ РАССУЖДЕНИЯ (23.09.2026): при включённом мышлении каждый ответ ассистента с вызовами инструментов в истории обязан нести своё рассуждение, иначе 400 на втором раунде инструментов — вендор называет это обязательным на обоих протоколах (mimo.mi.com/docs, deep-thinking, раздел о многоходовой передаче: \"must completely pass back the reasoning_content field, otherwise the API will return a 400 error\"). Мышление включено, если поле thinking не прислать, у Flash тоже. Сид набора с 23.09 ходит по OpenAI-маршруту (https://api.xiaomimimo.com/v1), где рассуждение возвращается полем reasoning_content — это и делает mirrorReasoningContent. Выключатель мышления — {\"thinking\": {\"type\": \"disabled\"}}, объявлен в сиде полем модели reasoning.off. Прежний текст правила, писанный для Anthropic-маршрута: Вендор пишет прямо: в режиме размышления модели \"do not support customizing the temperature and top_p parameters. Even if these parameters are passed in, the actual effective values will be forcibly set by the model to its recommended default values of 1.0 and 0.95\". Значения здесь — декларация вендорского принуждения, а не наш подбор: без правила ползунок температуры обещает пользователю влияние, которого нет, а вендор молча игнорирует переданное (не ошибка, а тишина — хуже отказа). ЧЕГО ЭТИМ ПРАВИЛОМ НЕ ЛЕЧИТСЯ: tool_choice принимается только со значением auto, всё остальное бэкенд выбрасывает из запроса (\"When a value other than auto is passed to type, the backend will remove this field by default\") — принуждение к конкретному инструменту молча не срабатывает; это поведение серверное, причудой не правится. В режиме размышления модель возвращает блок thinking рядом с tool_use и требует возвращать прошлые блоки обратно; есть нестандартная причина остановки repetition_truncation (обрыв по зацикливанию, а не по длине). Матчится по \"mimo-v2.6\", а не по \"mimo\": линейка v2.5 живёт по своим правилам и не проверена. Точки в id обязательны — вендор отвечает 400 \"Not supported model\" на написание через дефис (прецедент чужой нормализации: NousResearch/hermes-agent#19239); у нас нормализации id нет, правило про это ничего не делает. Живьём не проверено — ключа Xiaomi нет.",
+			"note": "Xiaomi MiMo v2.6 (Pro / Flash / Pro Ultraspeed). ВОЗВРАТ РАССУЖДЕНИЯ (23.09.2026): при включённом мышлении каждый ответ ассистента с вызовами инструментов в истории обязан нести своё рассуждение, иначе 400 на втором раунде инструментов — вендор называет это обязательным на обоих протоколах (mimo.mi.com/docs, deep-thinking, раздел о многоходовой передаче: \"must completely pass back the reasoning_content field, otherwise the API will return a 400 error\"). Мышление включено, если поле thinking не прислать, у Flash тоже. Сид набора с 23.09 ходит по OpenAI-маршруту (https://api.xiaomimimo.com/v1), где рассуждение возвращается полем reasoning_content — это и делает mirrorReasoningContent. Выключатель мышления — {\"thinking\": {\"type\": \"disabled\"}}, объявлен в сиде полем модели reasoning.off. Прежний текст правила, писанный для Anthropic-маршрута: Вендор пишет прямо: в режиме размышления модели \"do not support customizing the temperature and top_p parameters. Even if these parameters are passed in, the actual effective values will be forcibly set by the model to its recommended default values of 1.0 and 0.95\". Значения здесь — декларация вендорского принуждения, а не наш подбор: без правила ползунок температуры обещает пользователю влияние, которого нет, а вендор молча игнорирует переданное (не ошибка, а тишина — хуже отказа). ЧЕГО ЭТИМ ПРАВИЛОМ НЕ ЛЕЧИТСЯ: tool_choice принимается только со значением auto, всё остальное бэкенд выбрасывает из запроса (\"When a value other than auto is passed to type, the backend will remove this field by default\") — принуждение к конкретному инструменту молча не срабатывает; это поведение серверное, причудой не правится. В режиме размышления модель возвращает блок thinking рядом с tool_use и требует возвращать прошлые блоки обратно; есть нестандартная причина остановки repetition_truncation (обрыв по зацикливанию, а не по длине). Матчится по \"mimo-v2.6\", а не по \"mimo\": у v2.5 своё правило — только возврат рассуждения, сэмплинг вендор для неё не описывает. Точки в id обязательны — вендор отвечает 400 \"Not supported model\" на написание через дефис (прецедент чужой нормализации: NousResearch/hermes-agent#19239); у нас нормализации id нет, правило про это ничего не делает. Живьём не проверено — ключа Xiaomi нет.",
 			"source": "mimo.mi.com/docs/en-US/quick-start/usage-guide/text-generation/deep-thinking + mimo.mi.com/docs/en-US/api/chat/anthropic-api",
 			"observedAt": "2026-09-23"
 		},
@@ -75,13 +82,17 @@
 			"match": "kimi-k2.5",
 			"temperature": 1.0,
 			"topP": 0.95,
-			"mirrorReasoningContent": true
+			"note": "Возврат рассуждения снят 25.09.2026: руководство Kimi по мышлению называет kimi-k3, kimi-k2.7-code и kimi-k2.6, а kimi-k2.5 — нет. Правило без источника — утверждение о чужом сервере, которое никто не проверял; общие векторы набора (testVectors/reasoningEcho.json) держат k2.5 без возврата, пока источник не найден.",
+			"source": "platform.kimi.ai/docs/guide/use-kimi-k2-thinking-model",
+			"observedAt": "2026-09-25"
 		},
 		{
 			"match": "kimi-k2-thinking",
 			"temperature": 1.0,
 			"topP": 0.95,
-			"mirrorReasoningContent": true
+			"note": "Возврат рассуждения снят 25.09.2026 по той же причине, что у kimi-k2.5: в руководстве вендора по мышлению модели нет.",
+			"source": "platform.kimi.ai/docs/guide/use-kimi-k2-thinking-model",
+			"observedAt": "2026-09-25"
 		},
 		{
 			"match": "kimi-k2",
@@ -126,8 +137,9 @@
 			"topK": 40,
 			"forceEmptyReasoning": true,
 			"mirrorReasoningContent": true,
+			"reasoningAsThinkTags": true,
 			"forcedToolChoiceUnsupported": true,
-			"note": "Future minimax versions — higher topK + reasoning-roundtrip (interleaved-reasoning family). forcedToolChoiceUnsupported: minimax OpenAI-compatible API ignores tool_choice:'required' (returns prose), so the agent loop skips the forced nudge and leans on the implicit-completion net. Covers all minimax-* via field-merge."
+			"note": "reasoningAsThinkTags (25.09.2026, platform.minimax.io/docs/guides/text-m3-function-call): на OpenAI-проводе вендор присылает рассуждение внутри content тегами <think> и просит вернуть content без изменений, а не полем reasoning_content; на Anthropic-проводе возвращаются блоки thinking. Future minimax versions — higher topK + reasoning-roundtrip (interleaved-reasoning family). forcedToolChoiceUnsupported: minimax OpenAI-compatible API ignores tool_choice:'required' (returns prose), so the agent loop skips the forced nudge and leans on the implicit-completion net. Covers all minimax-* via field-merge."
 		},
 		{
 			"match": "kimi",

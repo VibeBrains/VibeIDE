@@ -34,7 +34,7 @@ import { TOOL_NAME_ALIASES, applyParamAliases } from '../../common/prompt/toolAl
 import { lenientJsonParseObject } from '../../common/lenientJson.js';
 import { getModelSdkNpm } from './modelsDevCatalog.js';
 import { buildContextOverflowError, buildEmptyResponseError, isContextOverflow, LLMChatMessage, LLMFinishNotice, LLMTokenUsage, ProviderRefusalDiagnostics, RawToolCallObj, RawToolParamsObj } from '../../common/sendLLMMessageTypes.js';
-import { claudeThinkingOptions, compatibleClaudeThinkingOptions, DEFAULT_CLAUDE_THINKING_DISPLAY, googleThinkingConfig, isClaudeModelId, openAIReasoningEffort, replaysThinkingBlock, withoutEmptyThinkingSignatures } from '../../common/wireReasoning.js';
+import { claudeThinkingOptions, compatibleClaudeThinkingOptions, DEFAULT_CLAUDE_THINKING_DISPLAY, googleThinkingConfig, isClaudeModelId, openAIReasoningEffort, replaysThinkingBlock, withoutEmptyThinkingSignatures, withThinkTags } from '../../common/wireReasoning.js';
 import { AnthropicReasoningCollector, finishNoticeOf } from '../../common/llmStreamFinish.js';
 import { googleRetryDelaySecondsOf } from '../../common/googleRetryInfo.js';
 import { stripUnknownContentBlocks } from '../../common/anthropicStrictBlocks.js';
@@ -928,6 +928,8 @@ const convertMessagesToModelMessages = (messages: LLMChatMessage[], modelName: s
 	// needs the empty-reasoning slot roundtrip. Driven purely by the quirk flag.
 	const forceEmptyReasoningSlot = quirks.forceEmptyReasoning === true;
 	const needsInterleavedMirror = quirks.mirrorReasoningContent === true;
+	// MiniMax on the OpenAI wire: the reasoning goes back inside the text as tags, not as a field
+	const reasoningInText = needsInterleavedMirror && quirks.reasoningAsThinkTags === true && !anthropicWire;
 	const thinkingReplay = { echoReasoning: needsInterleavedMirror, claude: isClaudeModelId(modelName) };
 
 	for (let i = 0; i < messages.length; i++) {
@@ -1007,14 +1009,15 @@ const convertMessagesToModelMessages = (messages: LLMChatMessage[], modelName: s
 			let reasoningText = '';
 			if (typeof reasoningPayload === 'string' && reasoningPayload.length > 0) {
 				reasoningText = reasoningPayload;
-				if (!anthropicWire) {
+				// With reasoningInText it goes into the text below, once the text parts are in place
+				if (!anthropicWire && !reasoningInText) {
 					parts.push({ type: 'reasoning', text: reasoningPayload });
-				} else if (!hasThinkingBlocks(msg.content) && replaysThinkingBlock(false, thinkingReplay)) {
+				} else if (anthropicWire && !hasThinkingBlocks(msg.content) && replaysThinkingBlock(false, thinkingReplay)) {
 					// History shaped for chat completions carries the reasoning as text (a model profile, not the wire, picks the
 					// shape). The SDK drops a reasoning part without a signature, so it rides with an empty one, removed by the fetch
 					parts.push({ type: 'reasoning', text: reasoningPayload, providerOptions: { anthropic: { signature: '' } } });
 				}
-			} else if (forceEmptyReasoningSlot) {
+			} else if (forceEmptyReasoningSlot && !reasoningInText) {
 				// DeepSeek family hard requirement: every assistant turn must carry a
 				// reasoning slot, even empty. Without it the provider returns HTTP 400
 				// or — worse — closes the stream with an empty body that surfaces here
@@ -1057,6 +1060,15 @@ const convertMessagesToModelMessages = (messages: LLMChatMessage[], modelName: s
 					});
 				}
 			}
+			if (reasoningInText && reasoningText) {
+				const first = parts.findIndex(part => part.type === 'text');
+				if (first === -1) {
+					parts.unshift({ type: 'text', text: withThinkTags(reasoningText, '') });
+				} else {
+					const part = parts[first] as { type: 'text'; text: string };
+					parts[first] = { type: 'text', text: withThinkTags(reasoningText, part.text) };
+				}
+			}
 			if (parts.length === 0) {
 				out.push({ role: 'assistant', content: isLastAndAssistant ? '' : EMPTY_CONTENT_PLACEHOLDER });
 			} else {
@@ -1066,7 +1078,7 @@ const convertMessagesToModelMessages = (messages: LLMChatMessage[], modelName: s
 				// per-message JSON field these providers actually consume. Always
 				// emit the field for the right family (even empty string) — DeepSeek
 				// rejects continuations where the key is absent entirely.
-				if (needsInterleavedMirror) {
+				if (needsInterleavedMirror && !reasoningInText) {
 					out.push({
 						role: 'assistant',
 						content: parts,
