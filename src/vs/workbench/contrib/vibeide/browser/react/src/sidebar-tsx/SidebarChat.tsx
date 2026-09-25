@@ -25,6 +25,7 @@ import { BlockCode, TextAreaFns, VibeCustomDropdownBox, VibeInputBox2, VibeSlide
 import { ModelDropdown, } from '../vibe-settings-tsx/ModelDropdown.js';
 import { PastThreadsList, ChatHistoryToolbarDropdown } from './SidebarThreadSelector.js';
 import { ChatContextMeterButton } from './ChatContextMeter.js';
+import { ChatQuickSettingsButton } from './ChatQuickSettings.js';
 import { VIBEIDE_CTRL_L_ACTION_ID } from '../../../actionIDs.js';
 import { VIBEIDE_OPEN_SETTINGS_ACTION_ID } from '../../../vibeideSettingsPane.js';
 import { ChatMode, displayInfoOfProviderName, FeatureName, isFeatureNameDisabled, isValidProviderModelSelection, ProviderName, providerNames } from '../../../../../../../workbench/contrib/vibeide/common/vibeideSettingsTypes.js';
@@ -591,22 +592,6 @@ const PROJECT_RULES_RESOLVE_LINKS_RECURSIVE_KEY = 'vibeide.projectRules.resolveL
 
 /** Schemes whose active editor is a real file the «Файл» context chip may name. */
 const FILE_CHIP_SCHEMES = new Set<string>([Schemas.file, Schemas.vscodeRemote, Schemas.untitled]);
-
-// Mirrors CONFIG_SIMPLIFIED_CONTROLS in vibeSimplifiedControlsToggle.ts (Command Center icon toggle).
-const CHAT_SIMPLIFIED_CONTROLS_KEY = 'vibeide.chat.simplifiedControls';
-/** Reactive read of the «simplified vs full» chat-controls toggle — hides all input knobs but mode + model. */
-function useSimplifiedControls(): boolean {
-	const accessor = useAccessor();
-	const configurationService = accessor.get('IConfigurationService');
-	const read = useCallback(() => configurationService.getValue<boolean>(CHAT_SIMPLIFIED_CONTROLS_KEY) === true, [configurationService]);
-	const [v, setV] = useState<boolean>(read);
-	useEffect(() => {
-		setV(read());
-		const d = configurationService.onDidChangeConfiguration(e => { if (e.affectsConfiguration(CHAT_SIMPLIFIED_CONTROLS_KEY)) { setV(read()); } });
-		return () => d.dispose();
-	}, [configurationService, read]);
-	return v;
-}
 
 /** Toolbar mirror of `vibeide.projectRules.resolveLinksRecursive` — recursive following of links in
  *  project rules. Pure duplicate of the setting (config is the source of truth). Hidden when link
@@ -1575,8 +1560,6 @@ export const VibeChatArea: React.FC<VibeideChatAreaProps> = ({
 	const [isDragOver, setIsDragOver] = React.useState(false);
 	const attachInputRef = React.useRef<HTMLInputElement>(null);
 	const containerRef = React.useRef<HTMLDivElement>(null);
-	// Simplified view (Command Center toggle): keep only mode + model, hide every other input knob.
-	const simplified = useSimplifiedControls();
 
 	// Paste of files (images / PDFs) is handled directly on the textarea via onPaste prop in VibeInputBox2 —
 	// container-level paste listener was removed because it duplicated processing in bubble phase.
@@ -1716,8 +1699,7 @@ export const VibeChatArea: React.FC<VibeideChatAreaProps> = ({
 						<Paperclip size={16} />
 					</button>
 
-					{/* Role-route (subagent) + scout moved next to the model dropdown — they're about
-					    behaviour/paths, not chat, and stay visible in the simplified view. */}
+					{/* Role-route (subagent) + scout sit next to the model dropdown — they're about behaviour/paths, not chat. */}
 
 					{/* Voice input — dictation into the textarea (hidden when the feature is disabled) */}
 					<ChatVoiceInputButton containerRef={containerRef} />
@@ -1754,25 +1736,24 @@ export const VibeChatArea: React.FC<VibeideChatAreaProps> = ({
 					<div className='flex items-center flex-wrap gap-x-2 gap-y-1 text-nowrap flex-1 min-w-0'>
 						{featureName === 'Chat' && <ChatModeDropdown className='text-xs text-vibe-fg-3 @@vibe-toolbar-pill rounded-xl overflow-hidden py-0.5 px-1.5' />}
 						<ChatModelHealthDropdown featureName={featureName} className='text-xs text-vibe-fg-3 @@vibe-toolbar-pill rounded-xl overflow-hidden py-0.5 px-1.5' />
-						{/* Behaviour/paths — role-route (subagent) + scout. Right after the model, and kept
-						    visible in the simplified view (they're interaction, not a chat knob). */}
+						{/* Behaviour/paths — role-route (subagent) + scout, right after the model: interaction, not a chat knob */}
 						{featureName === 'Chat' && <ChatRunRouteButton />}
 						{featureName === 'Chat' && <ChatScoutToggleButton />}
-						{/* Context fill — stays visible in the simplified view: running out of context is
-						    something the user must see regardless of how many knobs they hid. */}
+						{/* Context fill — running out of context is something the user must always see */}
 						{featureName === 'Chat' && <ChatContextMeterButton />}
-						{/* Advanced knobs — hidden in the simplified view (mode + model stay visible). */}
-						{!simplified && <>
-							{featureName === 'Chat' && <ChatTrainingPolicyBadge />}
-							{featureName === 'Chat' && <ChatAgentAutopilotToggle />}
-							{featureName === 'Chat' && <ChatRuleLinksRecursiveToggle />}
-							{featureName === 'Chat' && <ChatSessionResetButton />}
-							{featureName === 'Chat' && <ChatAgentIterationsControl />}
-							{featureName === 'Chat' && <ChatAgentNudgesControl />}
-							{featureName === 'Chat' && <ChatAgentQuestionNudgesControl />}
-							{featureName === 'Chat' && <ChatSubagentResumesControl />}
+						{/* An indicator, not a knob: whether the provider may train on this chat */}
+						{featureName === 'Chat' && <ChatTrainingPolicyBadge />}
+						{/* The knobs sit one click away, each with its real value (ChatQuickSettings.tsx) */}
+						{featureName === 'Chat' ? <ChatQuickSettingsButton agentControls={<>
+							<ChatAgentAutopilotToggle />
+							<ChatRuleLinksRecursiveToggle />
+							<ChatSessionResetButton />
+							<ChatAgentIterationsControl />
+							<ChatAgentNudgesControl />
+							<ChatAgentQuestionNudgesControl />
+							<ChatSubagentResumesControl />
 							<ReasoningOptionSlider featureName={featureName} />
-						</>}
+						</>} /> : <ReasoningOptionSlider featureName={featureName} />}
 					</div>
 				)}
 				<div className='flex shrink-0 items-center gap-2'>
@@ -5700,15 +5681,6 @@ export const SidebarChat = () => {
 	const curChatMode = settingsState.globalSettings.chatMode;
 	const curAutopilot = settingsState.globalSettings.chatAgentAutopilot === true;
 
-	// Simplified view forces autopilot + link-recursion ON (their toggles are hidden there, so a
-	// casual user gets the «just works» behaviour without touching the advanced knobs).
-	const simplified = useSimplifiedControls();
-	useEffect(() => {
-		if (!simplified) { return; }
-		if (settingsState.globalSettings.chatAgentAutopilot !== true) { void vibeideSettingsService.setGlobalSetting('chatAgentAutopilot', true); }
-		if (configurationService.getValue<boolean>(PROJECT_RULES_RESOLVE_LINKS_KEY) !== true) { void configurationService.updateValue(PROJECT_RULES_RESOLVE_LINKS_KEY, true); }
-		if (configurationService.getValue<boolean>(PROJECT_RULES_RESOLVE_LINKS_RECURSIVE_KEY) !== true) { void configurationService.updateValue(PROJECT_RULES_RESOLVE_LINKS_RECURSIVE_KEY, true); }
-	}, [simplified, settingsState.globalSettings.chatAgentAutopilot, vibeideSettingsService, configurationService]);
 	const readChatConfig = useCallback(() => ({
 		model: curModelSel ? { providerName: curModelSel.providerName, modelName: curModelSel.modelName } : null,
 		chatMode: curChatMode as string,
@@ -7337,10 +7309,10 @@ export const SidebarChat = () => {
 			<ContextChipsBar />
 		</ErrorBoundary>
 
-        {/* Quick Actions shortcuts — hidden in the simplified view */}
-        {!simplified && <ErrorBoundary>
+        {/* Quick Actions shortcuts */}
+        <ErrorBoundary>
             <QuickActionsBar />
-        </ErrorBoundary>}
+        </ErrorBoundary>
 
 		{Object.keys(chatThreadsState.allThreads).length > 1 ? // show if there are threads
 			<ErrorBoundary>

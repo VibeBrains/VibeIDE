@@ -457,7 +457,7 @@ export class VibeProjectRulesService extends Disposable implements IVibeProjectR
 		this._linkedPaths = new Set<string>();
 		const resolveLinks = this._config.getValue<boolean>(RESOLVE_LINKS_KEY) ?? true;
 		if (resolveLinks && sources.length > 0) {
-			const recursive = this._config.getValue<boolean>(RESOLVE_LINKS_RECURSIVE_KEY) ?? false;
+			const recursive = this._config.getValue<boolean>(RESOLVE_LINKS_RECURSIVE_KEY) ?? true;
 			this._cachedLinkedRefs = await this._collectLinkedReferences(folders, sources, recursive, maxBytes);
 		}
 

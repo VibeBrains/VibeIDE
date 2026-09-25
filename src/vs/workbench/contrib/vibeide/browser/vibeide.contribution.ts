@@ -48,7 +48,6 @@ import './media/vibeModal.css';
 
 // Builtin Vibe Neon — title-bar glow toggle registration + default theme chrome CSS (extensions/vibeide-neon)
 import './vibeNeonGlowTitleBar.js';
-import './vibeSimplifiedControlsToggle.js';
 import './vibeNeonThemeContribution.js';
 import './vibeThemeSwitch.js';
 import './vibeProjectCommandsTitleBarButton.js';
@@ -395,6 +394,7 @@ import './vibeSettingsMigrationContribution.js';
 
 // VibeIDE: Agent response language setting + helper
 import '../common/vibeAgentResponseLanguageConfiguration.js';
+import '../common/vibeChatBrevityConfiguration.js';
 
 // VibeIDE: Agent behaviour knobs (preferJsonToolArguments / terminalOutputAwareness / thinkingOutLoud)
 import '../common/vibeAgentBehaviorConfiguration.js';

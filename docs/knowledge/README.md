@@ -87,7 +87,7 @@
 
 | Файл | О чём |
 |---|---|
-| [modesAndPolicies.md](chatUx/modesAndPolicies.md) | Normal/Plan/Agent, autopilot vs auto-approve, pre-flight, Trust Score, T&C Suite, confidence vs LLM-judge |
+| [modesAndPolicies.md](chatUx/modesAndPolicies.md) | Normal/Plan/Agent, autopilot vs auto-approve, pre-flight, Trust Score, T&C Suite, confidence vs LLM-judge. Краткие ответы — в системном промпте, не в префиксе хода (иначе сотни токенов на сообщение); меню быстрых настроек вместо «глаза», без принуждения значений |
 | [attachments.md](chatUx/attachments.md) | Paste файлов, vision-capability gate (двойной), скрытый dead-code |
 | [builtinToolCards.md](chatUx/builtinToolCards.md) | **[дефект→решение]** Общая карточка `GenericToolWrapper` писалась для MCP и врала о 30 встроенных инструментах без своей отрисовки: «MCP tool not found», имя без первого сегмента, JSON вместо текста. Теперь полное имя и `content` — ровно строка модели (с вердиктом хуков и подсказкой против зацикливания), а не пересчёт `stringOfResult`. Отказ предохранителя — вид `refused` без `params`: пустой объект под именем инструмента ронял карточки правки и проверку «прочитан перед записью» |
 | [chatHistoryScope.md](chatUx/chatHistoryScope.md) | Поиск по истории чата ищет только по ПЕРВОМУ сообщению треда, а не по транскрипту — единственный реальный гэп из сверки с Cursor v3.11 (side chats и hooks не переносятся, разбор внутри) |

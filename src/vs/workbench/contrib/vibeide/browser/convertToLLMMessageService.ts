@@ -104,6 +104,7 @@ import { VIBE_DOTVIBE_AGENT_PLAYBOOK } from '../common/vibeDotVibeAgentPlaybook.
 import { IVibeContextGuardService } from './vibeContextGuardService.js';
 import { IRemoteCatalogService } from '../common/remoteCatalogService.js';
 import { buildResponseLanguageDirective } from '../common/vibeAgentResponseLanguageConfiguration.js';
+import { BREVITY_SETTING, brevityLevelOf } from '../common/prompt/brevity.js';
 
 export const EMPTY_MESSAGE = '(empty message)';
 
@@ -1659,10 +1660,11 @@ class ConvertToLLMMessageService extends Disposable implements IConvertToLLMMess
 		// file tree ride with the user's message (`_turnContextFor`), so a tab switch no longer rebuilds the cached prefix.
 		// modelFamily is folded in so that future family-specific prompt branches don't bleed across providers.
 		const minimalismMode = this.vibeideSettingsService.state.globalSettings.minimalismMode ?? 'lite';
+		const brevity = brevityLevelOf(this.configurationService.getValue(BREVITY_SETTING));
 		// Part of the key: a folder the memory server has just named must not keep a prompt built without it.
 		const memoryProjects = await this._memoryProjects(workspaceFolders);
 		const mcpTools = this.mcpService.getMCPTools();
-		const cacheKey = `${chatMode}|${specialToolFormat}|${providerName ?? ''}|${modelName ?? ''}|${workspaceFolders.join(',')}|pj:${preferJsonToolArguments}|min:${minimalismMode}|mem:${memoryProjects ?? ''}|mcp:${mcpTools?.map(t => t.name).join(',') ?? ''}`;
+		const cacheKey = `${chatMode}|${specialToolFormat}|${providerName ?? ''}|${modelName ?? ''}|${workspaceFolders.join(',')}|pj:${preferJsonToolArguments}|min:${minimalismMode}|brev:${brevity}|mem:${memoryProjects ?? ''}|mcp:${mcpTools?.map(t => t.name).join(',') ?? ''}`;
 
 		// Check cache
 		const cached = this._systemMessageCache.get(cacheKey);
@@ -1681,7 +1683,7 @@ class ConvertToLLMMessageService extends Disposable implements IConvertToLLMMess
 		// The tool budget of this model; `providerName`/`modelName` are part of the cache key, so it cannot leak into another
 		// model's cached prompt.
 		const { maxTools } = this._promptBudgets(providerName, modelName);
-		const systemMessage = chat_systemMessage({ workspaceFolders, chatMode, mcpTools, includeXMLToolDefinitions, strictJsonToolArguments: preferJsonToolArguments, minimalismMode, modelFamily, memoryProjects, maxTools });
+		const systemMessage = chat_systemMessage({ workspaceFolders, chatMode, mcpTools, includeXMLToolDefinitions, strictJsonToolArguments: preferJsonToolArguments, minimalismMode, brevity, modelFamily, memoryProjects, maxTools });
 
 		// Cache the result
 		this._systemMessageCache.set(cacheKey, { message: systemMessage, timestamp: now });
@@ -2023,7 +2025,7 @@ class ConvertToLLMMessageService extends Disposable implements IConvertToLLMMess
 			const modelFamily = detectModelFamily(validProviderName, modelName, specialToolFormat);
 			const mcpTools = this.mcpService.getMCPTools();
 			const memoryProjects = await this._memoryProjects(workspaceFolders);
-			systemMessage = chat_systemMessage_local({ memoryProjects, workspaceFolders, chatMode, mcpTools, includeXMLToolDefinitions, strictJsonToolArguments: preferJsonToolArguments, minimalismMode: this.vibeideSettingsService.state.globalSettings.minimalismMode ?? 'lite', modelFamily, maxTools: this._promptBudgets(providerName, modelName).maxTools });
+			systemMessage = chat_systemMessage_local({ memoryProjects, workspaceFolders, chatMode, mcpTools, includeXMLToolDefinitions, strictJsonToolArguments: preferJsonToolArguments, minimalismMode: this.vibeideSettingsService.state.globalSettings.minimalismMode ?? 'lite', brevity: brevityLevelOf(this.configurationService.getValue(BREVITY_SETTING)), modelFamily, maxTools: this._promptBudgets(providerName, modelName).maxTools });
 		} else {
 			// Use full system message for cloud models
 			systemMessage = await this._generateChatMessagesSystemMessage(chatMode, specialToolFormat, validProviderName, modelName);

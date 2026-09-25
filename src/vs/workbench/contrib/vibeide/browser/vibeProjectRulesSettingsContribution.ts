@@ -92,7 +92,8 @@ Registry.as<IConfigurationRegistry>(ConfigurationExtensions.Configuration).regis
 		},
 		'vibeide.projectRules.resolveLinksRecursive': {
 			type: 'boolean',
-			default: false,
+			// On by default: a rule that links to another file means that file too, however deep the link
+			default: true,
 			description: localize('vibeide.projectRules.resolveLinksRecursive', 'Рекурсивно следовать по ссылкам внутри уже подтянутых файлов (с защитой от циклов и общими лимитами). Выкл — только один уровень. Требует включённой `vibeide.projectRules.resolveLinks`.'),
 		},
 	},

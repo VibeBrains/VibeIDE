@@ -4,6 +4,7 @@
  *--------------------------------------------------------------------------------------------*/
 
 
+import { BrevityLevel, brevityBlock, brevityLine } from './brevity.js';
 import { URI } from '../../../../../base/common/uri.js';
 import { IFileService } from '../../../../../platform/files/common/files.js';
 import { IDirectoryStrService } from '../directoryStrService.js';
@@ -348,7 +349,7 @@ ${MINIMALISM_RULES_PRECEDENCE}
 // ======================================================== chat (normal, gather, agent) ========================================================
 
 
-export const chat_systemMessage = ({ memoryProjects, maxTools, workspaceFolders, chatMode: mode, mcpTools, includeXMLToolDefinitions, strictJsonToolArguments, minimalismMode, modelFamily: _modelFamily }: { workspaceFolders: string[]; chatMode: ChatMode; mcpTools: InternalToolInfo[] | undefined; includeXMLToolDefinitions: boolean; strictJsonToolArguments?: boolean; minimalismMode?: MinimalismMode; modelFamily?: ModelFamily; maxTools?: number; memoryProjects?: string }) => {
+export const chat_systemMessage = ({ memoryProjects, maxTools, workspaceFolders, chatMode: mode, mcpTools, includeXMLToolDefinitions, strictJsonToolArguments, minimalismMode, brevity, modelFamily: _modelFamily }: { workspaceFolders: string[]; chatMode: ChatMode; mcpTools: InternalToolInfo[] | undefined; includeXMLToolDefinitions: boolean; strictJsonToolArguments?: boolean; minimalismMode?: MinimalismMode; brevity?: BrevityLevel; modelFamily?: ModelFamily; maxTools?: number; memoryProjects?: string }) => {
 	const header = (`You are an expert coding ${mode === 'agent' ? 'agent' : 'assistant'} running inside VibeIDE whose job is \
 ${mode === 'agent' ? `to help the user develop, run, and make changes to their codebase.`
 			: mode === 'gather' ? `to search, understand, and reference files in the user's codebase.`
@@ -446,13 +447,18 @@ ${toolDefinitions}
 	if (minimalism) {
 		ansStrs.push(minimalism);
 	}
+	// How the agent talks applies in every mode, the read-only one included
+	const terse = brevityBlock(brevity ?? 'off');
+	if (terse) {
+		ansStrs.push(terse);
+	}
 	const fullSystemMsgStr = ansStrs.join('\n\n');
 	return fullSystemMsgStr;
 };
 
 // Minimal chat system message for local models (drastically reduced)
 // Used for local models to minimize token usage and latency
-export const chat_systemMessage_local = ({ memoryProjects, maxTools, workspaceFolders, chatMode: mode, includeXMLToolDefinitions, mcpTools, strictJsonToolArguments, minimalismMode, modelFamily: _modelFamily }: { workspaceFolders: string[]; chatMode: ChatMode; mcpTools: InternalToolInfo[] | undefined; includeXMLToolDefinitions: boolean; strictJsonToolArguments?: boolean; minimalismMode?: MinimalismMode; modelFamily?: ModelFamily; maxTools?: number; memoryProjects?: string }) => {
+export const chat_systemMessage_local = ({ memoryProjects, maxTools, workspaceFolders, chatMode: mode, includeXMLToolDefinitions, mcpTools, strictJsonToolArguments, minimalismMode, brevity, modelFamily: _modelFamily }: { workspaceFolders: string[]; chatMode: ChatMode; mcpTools: InternalToolInfo[] | undefined; includeXMLToolDefinitions: boolean; strictJsonToolArguments?: boolean; minimalismMode?: MinimalismMode; brevity?: BrevityLevel; modelFamily?: ModelFamily; maxTools?: number; memoryProjects?: string }) => {
 	const header = mode === 'agent'
 		? 'Coding agent. Use tools for actions.'
 		: mode === 'gather'
@@ -480,6 +486,10 @@ export const chat_systemMessage_local = ({ memoryProjects, maxTools, workspaceFo
 	// Single-line minimalism reminder — local models are token-sensitive, the full ladder is too heavy here.
 	if (minimalismMode && minimalismMode !== 'off' && mode !== 'gather') {
 		details.push('Minimalism: reuse this codebase/stdlib/installed deps before writing new code; no speculative abstractions; smallest diff that works. Never trim validation, error handling or security.');
+	}
+	const terseLine = brevityLine(brevity ?? 'off');
+	if (terseLine) {
+		details.push(terseLine);
 	}
 
 	const importantDetails = details.length > 0 ? `\n${details.join('\n')}` : '';
