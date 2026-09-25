@@ -871,6 +871,26 @@ const flattenTextContent = (c: string | ContentPartView[] | undefined): string =
 //     into the request body; without this mirror, the upstream sees content[]
 //     reasoning parts but not the top-level `reasoning_content` field that
 //     these providers actually read. `transform.ts:303-336`.
+/**
+ * The system prompt of a call: the renderer's system and developer messages, then the separate one
+ * The renderer puts the prompt into the message list for every model whose capability is `system-role` or `developer-role`
+ * (all but Anthropic's own), and the message conversion below drops such messages — the prompt must be taken from here,
+ * or the model gets no rules, no workspace facts and no instructions at all
+ * The AI SDK places the result the way each wire wants it; OpenAI's reasoning models get it as `developer` from the SDK itself
+ */
+function systemPromptOf(separateSystemMessage: string | undefined, messages: readonly LLMChatMessage[]): string | undefined {
+	const parts: string[] = [];
+	for (const message of messages) {
+		if ((message.role === 'system' || message.role === 'developer') && message.content.trim()) {
+			parts.push(message.content);
+		}
+	}
+	if (separateSystemMessage?.trim()) {
+		parts.push(separateSystemMessage);
+	}
+	return parts.length > 0 ? parts.join('\n\n') : undefined;
+}
+
 const convertMessagesToModelMessages = (messages: LLMChatMessage[], modelName: string, providerName: string, anthropicWire: boolean): ModelMessage[] => {
 	const toolNameLookup = buildToolNameLookup(messages);
 	const lastIdx = messages.length - 1;
@@ -891,12 +911,8 @@ const convertMessagesToModelMessages = (messages: LLMChatMessage[], modelName: s
 		const role = msg.role;
 
 		if (role === 'system' || role === 'developer') {
-			// System messages are passed as the top-level `system` option of
-			// streamText (Anthropic-compatible, recommended by AI SDK to avoid
-			// prompt-injection warnings + correct routing on @ai-sdk/anthropic
-			// where system goes into the request's top-level `system` field).
-			// Drop here; sendViaAISdk extracts separateSystemMessage and passes
-			// it to streamText as `system: ...`.
+			// The call's system prompt carries their text (`systemPromptOf`): the AI SDK places it the way each wire
+			// wants it, on @ai-sdk/anthropic in the request's top-level `system` field
 			continue;
 		}
 
@@ -1575,7 +1591,7 @@ export const sendViaAISdk = async (params: SendChatParams_Internal): Promise<voi
 	// branches below, so the line is inside the block that gets the cache breakpoint —
 	// it is stable across turns and must not split the cached prefix.
 	let systemForCall: string | undefined = withReasoningEffortInSystemPrompt(
-		separateSystemMessage,
+		systemPromptOf(separateSystemMessage, messagesForWire),
 		quirks.reasoningEffortInSystemPrompt,
 		reasoningInfo?.type === 'effort_slider_value' ? reasoningInfo.reasoningEffort : undefined,
 	);

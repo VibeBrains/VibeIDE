@@ -543,6 +543,30 @@ suite('aiSdkAdapter — встроенные провайдеры против �
 		]);
 	});
 
+	test('системный промпт в списке сообщений (роль system или developer) доходит до модели на всех проводах', async () => {
+		// Every model but Anthropic's own gets its prompt as a message with the system or developer role; the conversion
+		// dropped such messages, and the model answered without rules, workspace facts or instructions.
+		const wires = [
+			{ protocol: 'openai', base: '/compat/v1', path: '/compat/v1/chat/completions' },
+			{ protocol: 'openai-responses', base: '/v1', path: '/v1/responses' },
+			{ protocol: 'anthropic', base: '/v1', path: '/v1/messages' },
+			{ protocol: 'gemini', base: '/v1beta', path: '/v1beta/models/' },
+		];
+		for (const [i, wire] of wires.entries()) {
+			await send({
+				providerName: 'sys-prompt' as SendChatParams_Internal['providerName'],
+				modelName: 'local-model',
+				settingsOfProvider: settingsWith({ 'sys-prompt': { baseURL: `http://127.0.0.1:${port}${wire.base}`, protocol: wire.protocol, apiKey: 'k' } }),
+				separateSystemMessage: undefined,
+				messages: [{ role: i % 2 === 0 ? 'system' : 'developer', content: `ПРАВИЛА-ПРОЕКТА-${i}` }, { role: 'user', content: 'Привет' }],
+			});
+		}
+		assert.deepStrictEqual(
+			wires.map((wire, i) => JSON.stringify(requests.filter(r => r.path.startsWith(wire.path)).pop()?.body ?? null).includes(`ПРАВИЛА-ПРОЕКТА-${i}`)),
+			[true, true, true, true],
+		);
+	});
+
 	test('Google: пауза из RetryInfo становится retry-after, далёкая пауза не повторяется на месте и названа лимитом', async () => {
 		const outcome = await send({
 			providerName: 'test-gemini' as SendChatParams_Internal['providerName'],
