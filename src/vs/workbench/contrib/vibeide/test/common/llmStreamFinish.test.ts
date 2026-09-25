@@ -35,7 +35,7 @@ suite('llmStreamFinish — причина остановки и блоки ра�
 		]);
 	});
 
-	test('целые блоки — с подписью или скрытые — в порядке потока; недописанный блок отброшен', () => {
+	test('блоки в порядке потока: с подписью, скрытые и неподписанные с текстом; пустой неподписанный отброшен', () => {
 		const collector = new AnthropicReasoningCollector();
 		collector.start('0', undefined);
 		collector.delta('0', 'Сначала прочту ', undefined);
@@ -47,13 +47,17 @@ suite('llmStreamFinish — причина остановки и блоки ра�
 		// Под показом `omitted` блок приходит без слов, но с подписью — он действителен.
 		collector.start('2', undefined);
 		collector.end('2', { anthropic: { signature: 'sig-2' } });
-		// Поток оборвался до подписи.
+		// Без подписи: так пишут Kimi, MiMo и DeepSeek, так же выглядит оборванный поток Claude — решает провод.
 		collector.start('3', undefined);
 		collector.delta('3', 'недодумал', undefined);
+		// Ни слов, ни подписи — возвращать нечего.
+		collector.start('4', undefined);
+		collector.end('4', undefined);
 		assert.deepStrictEqual(collector.blocks(), [
 			{ type: 'thinking', thinking: 'Сначала прочту файл.', signature: 'sig-0' },
 			{ type: 'redacted_thinking', data: 'opaque' },
 			{ type: 'thinking', thinking: '', signature: 'sig-2' },
+			{ type: 'thinking', thinking: 'недодумал' },
 		]);
 		assert.strictEqual(new AnthropicReasoningCollector().blocks(), null);
 	});

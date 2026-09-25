@@ -1854,7 +1854,8 @@ class ConvertToLLMMessageService extends Disposable implements IConvertToLLMMess
 			aiInstructions,
 			supportsSystemMessage,
 			specialToolFormat,
-			supportsAnthropicReasoning: providerName === 'anthropic',
+			// Any route on the Anthropic wire keeps its thinking blocks; which of them go back is the wire's call (replaysThinkingBlock)
+			supportsAnthropicReasoning: providerName === 'anthropic' || specialToolFormat === 'anthropic-style',
 			contextWindow: effectiveContextWindow,
 			reservedOutputTokenSpace: effectiveReservedOutput,
 			maxInputTokensSafety: this.configurationService.getValue<number>('vibeide.chat.maxInputTokensSafety') ?? 0,
@@ -2578,7 +2579,7 @@ class ConvertToLLMMessageService extends Disposable implements IConvertToLLMMess
 			aiInstructions,
 			supportsSystemMessage,
 			specialToolFormat,
-			supportsAnthropicReasoning: validProviderName === 'anthropic',
+			supportsAnthropicReasoning: validProviderName === 'anthropic' || specialToolFormat === 'anthropic-style',
 			contextWindow,
 			reservedOutputTokenSpace,
 			maxInputTokensSafety: this.configurationService.getValue<number>('vibeide.chat.maxInputTokensSafety') ?? 0,

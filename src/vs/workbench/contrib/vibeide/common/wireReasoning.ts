@@ -137,3 +137,55 @@ export function googleThinkingConfig(reasoning: SendableReasoningInfo): GoogleTh
 	}
 	return undefined;
 }
+
+/**
+ * Who gets a past turn's thinking blocks back on the Anthropic wire — VibeIDEA's rule (`ThinkingReplay`)
+ *
+ * Claude verifies a replayed block by its signature, so it gets the signed ones and nothing unsigned: an unsigned
+ * block there is a stream cut short, and replaying it is a 400.
+ * Kimi, MiMo and DeepSeek on their own `/v1/messages` sign nothing and demand their reasoning back
+ * (`mirrorReasoningContent`): they get every block.
+ * Any other model gets none — a Claude signature means nothing to it
+ */
+export function replaysThinkingBlock(signed: boolean, target: { readonly echoReasoning: boolean; readonly claude: boolean }): boolean {
+	return target.echoReasoning || (signed && target.claude);
+}
+
+/** A Claude model by its id, served directly or through a gateway that keeps the vendor's name in the id */
+export function isClaudeModelId(modelId: string): boolean {
+	return /claude/i.test(modelId);
+}
+
+/**
+ * The request body with the empty signatures of unsigned thinking blocks removed
+ *
+ * The Anthropic SDK drops a reasoning part that carries neither a signature nor redacted data, so an unsigned
+ * block goes to it with an empty signature, and here the block leaves as the vendor sent it — without the field.
+ * A body that is not JSON, or has nothing to remove, is returned untouched
+ */
+export function withoutEmptyThinkingSignatures(body: string): string {
+	let parsed: unknown;
+	try {
+		parsed = JSON.parse(body);
+	} catch {
+		return body;
+	}
+	const messages = (parsed as { messages?: unknown })?.messages;
+	if (!Array.isArray(messages)) {
+		return body;
+	}
+	let changed = false;
+	for (const message of messages) {
+		const content = (message as { content?: unknown })?.content;
+		if (!Array.isArray(content)) {
+			continue;
+		}
+		for (const block of content) {
+			if (block && typeof block === 'object' && (block as { type?: unknown }).type === 'thinking' && (block as { signature?: unknown }).signature === '') {
+				delete (block as { signature?: unknown }).signature;
+				changed = true;
+			}
+		}
+	}
+	return changed ? JSON.stringify(parsed) : body;
+}

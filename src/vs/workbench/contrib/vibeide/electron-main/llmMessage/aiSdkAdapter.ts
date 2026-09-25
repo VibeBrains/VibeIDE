@@ -34,7 +34,7 @@ import { TOOL_NAME_ALIASES, applyParamAliases } from '../../common/prompt/toolAl
 import { lenientJsonParseObject } from '../../common/lenientJson.js';
 import { getModelSdkNpm } from './modelsDevCatalog.js';
 import { buildContextOverflowError, buildEmptyResponseError, isContextOverflow, LLMChatMessage, LLMFinishNotice, LLMTokenUsage, ProviderRefusalDiagnostics, RawToolCallObj, RawToolParamsObj } from '../../common/sendLLMMessageTypes.js';
-import { claudeThinkingOptions, compatibleClaudeThinkingOptions, DEFAULT_CLAUDE_THINKING_DISPLAY, googleThinkingConfig, openAIReasoningEffort } from '../../common/wireReasoning.js';
+import { claudeThinkingOptions, compatibleClaudeThinkingOptions, DEFAULT_CLAUDE_THINKING_DISPLAY, googleThinkingConfig, isClaudeModelId, openAIReasoningEffort, replaysThinkingBlock, withoutEmptyThinkingSignatures } from '../../common/wireReasoning.js';
 import { AnthropicReasoningCollector, finishNoticeOf } from '../../common/llmStreamFinish.js';
 import { googleRetryDelaySecondsOf } from '../../common/googleRetryInfo.js';
 import { stripUnknownContentBlocks } from '../../common/anthropicStrictBlocks.js';
@@ -381,6 +381,8 @@ const makeCustomFetch = (opts: {
 	 * body transform (Anthropic); the OpenAI-compatible wire gets the same through `transformRequestBody`
 	 */
 	bodyPatch?: Readonly<Record<string, unknown>>;
+	/** Unsigned thinking blocks go back on this request: their empty signatures are removed from the body */
+	unsignedThinking?: boolean;
 	onQuota?: (snapshot: ProviderQuotaSnapshot) => void;
 	/** The model named in the answer — a proxy or a failover target may serve a different one. */
 	onAnsweredModel?: (model: string, fingerprint: string | undefined) => void;
@@ -396,7 +398,8 @@ const makeCustomFetch = (opts: {
 	const fileKey = opts.fileKey;
 	const undiciInput = (fileKey ? withQueryOnInput(input, fileKey.query) : input) as unknown as UndiciFetchParams[0];
 	const keyed = fileKey ? { ...init, headers: withFileKeyHeaders(init?.headers, fileKey.headers) } : init;
-	const outgoing = opts.bodyPatch && typeof keyed?.body === 'string' ? { ...keyed, body: withBodyPatch(keyed.body, opts.bodyPatch) } : keyed;
+	const patched = opts.bodyPatch && typeof keyed?.body === 'string' ? { ...keyed, body: withBodyPatch(keyed.body, opts.bodyPatch) } : keyed;
+	const outgoing = opts.unsignedThinking && typeof patched?.body === 'string' ? { ...patched, body: withoutEmptyThinkingSignatures(patched.body) } : patched;
 	const undiciInit = { ...(outgoing as unknown as UndiciFetchParams[1]), dispatcher: ensureSystemCADispatcher() };
 	const response = await (undiciFetch(undiciInput, undiciInit) as unknown as Promise<Response>);
 	// Cloned HERE, before the diagnostics tap below starts consuming the stream: `clone()` throws
@@ -920,6 +923,7 @@ const convertMessagesToModelMessages = (messages: LLMChatMessage[], modelName: s
 	// needs the empty-reasoning slot roundtrip. Driven purely by the quirk flag.
 	const forceEmptyReasoningSlot = quirks.forceEmptyReasoning === true;
 	const needsInterleavedMirror = quirks.mirrorReasoningContent === true;
+	const thinkingReplay = { echoReasoning: needsInterleavedMirror, claude: isClaudeModelId(modelName) };
 
 	for (let i = 0; i < messages.length; i++) {
 		const msg = messages[i] as ChatMessageView;
@@ -1017,9 +1021,14 @@ const convertMessagesToModelMessages = (messages: LLMChatMessage[], modelName: s
 						// Anthropic shape: tool calls live as content blocks, not `tool_calls`.
 						// Dropped before → the model's own prior calls vanished from history.
 						parts.push({ type: 'tool-call', toolCallId: p.id, toolName: p.name, input: p.input ?? {}, ...googleThoughtSignatureOptions((p as { thoughtSignature?: unknown }).thoughtSignature) });
-					} else if (anthropicWire && p?.type === 'thinking' && typeof p.signature === 'string') {
-						parts.push({ type: 'reasoning', text: p.thinking ?? '', providerOptions: { anthropic: { signature: p.signature } } });
-					} else if (anthropicWire && p?.type === 'redacted_thinking' && typeof p.data === 'string') {
+					} else if (anthropicWire && p?.type === 'thinking') {
+						const signed = typeof p.signature === 'string' && p.signature.length > 0;
+						if (replaysThinkingBlock(signed, thinkingReplay)) {
+							// An unsigned block rides with an empty signature: the SDK drops a reasoning part without one,
+							// and the fetch removes the empty field (`withoutEmptyThinkingSignatures`)
+							parts.push({ type: 'reasoning', text: p.thinking ?? '', providerOptions: { anthropic: { signature: signed ? p.signature : '' } } });
+						}
+					} else if (anthropicWire && p?.type === 'redacted_thinking' && typeof p.data === 'string' && replaysThinkingBlock(true, thinkingReplay)) {
 						parts.push({ type: 'reasoning', text: '', providerOptions: { anthropic: { redactedData: p.data } } });
 					}
 				}
@@ -1511,6 +1520,7 @@ export const sendViaAISdk = async (params: SendChatParams_Internal): Promise<voi
 		providerName,
 		...(fileKey && fileKeyPlacement ? { fileKey: { headers: fileKeyPlacement.headers, query: { ...fileKey.query, ...fileKeyPlacement.query } } } : {}),
 		...(anthropicBodyPatch && Object.keys(anthropicBodyPatch).length > 0 ? { bodyPatch: anthropicBodyPatch } : {}),
+		...(anthropicWire && quirks.mirrorReasoningContent === true ? { unsignedThinking: true } : {}),
 		onQuota: snapshot => { lastQuota = snapshot; },
 		onAnsweredModel: (model, fingerprint) => { lastAnsweredModel = model; lastSystemFingerprint = fingerprint; },
 		onOrchestrationTokens: tokens => { lastOrchestrationTokens = tokens; },

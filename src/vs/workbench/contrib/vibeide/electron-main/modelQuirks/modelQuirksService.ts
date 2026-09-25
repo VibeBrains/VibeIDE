@@ -362,6 +362,14 @@ export async function refreshModelQuirksCatalogNow(): Promise<boolean> {
 }
 
 /**
+ * Test-only — a catalog without the startup chain, which reads files and goes to the network.
+ * `validateCatalog` keeps a test from passing a rule the real catalog would reject
+ */
+export function __setCatalogForTests(raw: unknown): void {
+	_catalog = validateCatalog(raw);
+}
+
+/**
  * Test-only — reset module state. Real callers should use `initModelQuirksService()`.
  */
 export function __resetForTests(): void {

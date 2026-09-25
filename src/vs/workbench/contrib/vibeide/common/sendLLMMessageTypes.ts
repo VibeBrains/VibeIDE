@@ -179,7 +179,11 @@ export type RawToolCallObj = {
 
 import type { ProviderQuotaSnapshot } from './providerQuota.js';
 
-export type AnthropicReasoning = ({ type: 'thinking'; thinking: string; signature: string } | { type: 'redacted_thinking'; data: string });
+/**
+ * A thinking block of a past turn, kept to go back on the next request
+ * Claude signs its blocks; Kimi, MiMo and DeepSeek on the Anthropic wire do not — who gets which is `replaysThinkingBlock`
+ */
+export type AnthropicReasoning = ({ type: 'thinking'; thinking: string; signature?: string } | { type: 'redacted_thinking'; data: string });
 
 // Provider-normalized token usage from the LLM response. AI SDK exposes these as
 // promptTokens / completionTokens / totalTokens; legacy OpenAI / Anthropic shapes

@@ -59,12 +59,14 @@ interface CollectedBlock {
 }
 
 /**
- * Claude's thinking blocks, rebuilt from the stream so they can go back verbatim on the next turn.
+ * Thinking blocks on the Anthropic wire, rebuilt from the stream so they can go back verbatim on the next turn.
  *
- * The vendor verifies a replayed block by its signature, so a block is kept only whole: its text plus the
- * signature that arrives last, or the opaque data of a redacted block. A block the stream never finished
- * (cut, aborted) has no signature and is dropped — replaying it would be a 400, not a remembered thought.
+ * Claude signs a block with a signature that arrives last, or sends the opaque data of a redacted block.
  * Text may be empty: under the `omitted` display a signed block carries no words and is still valid.
+ * Kimi, MiMo and DeepSeek on their own `/v1/messages` never sign, and demand their reasoning back all the same:
+ * an unsigned block with text is kept too.
+ * Which blocks go back to whom is decided at the wire (`replaysThinkingBlock`): Claude gets only signed ones,
+ * since an unsigned block from Claude is a stream cut short, and replaying it is a 400.
  */
 export class AnthropicReasoningCollector {
 	private readonly _blocks = new Map<string, CollectedBlock>();
@@ -100,6 +102,8 @@ export class AnthropicReasoningCollector {
 				out.push({ type: 'redacted_thinking', data: block.redactedData });
 			} else if (block.signature !== undefined) {
 				out.push({ type: 'thinking', thinking: block.text, signature: block.signature });
+			} else if (block.text.length > 0) {
+				out.push({ type: 'thinking', thinking: block.text });
 			}
 		}
 		return out.length > 0 ? out : null;

@@ -420,6 +420,46 @@ suite('aiSdkAdapter — встроенные провайдеры против �
 		]);
 	});
 
+	test('провод Anthropic: неподписанное рассуждение уходит моделям с возвратом без поля signature, Claude — только подписанное', async () => {
+		// Kimi, MiMo and DeepSeek on their own /v1/messages sign nothing and answer 400 on the second tool round when their
+		// reasoning is missing; the SDK dropped an unsigned part, so it never went back
+		setExternalProviders([{ id: 'test-anthropic-file', source: 'file' }]);
+		// The catalogue decides who demands its reasoning back; one rule is enough to name that party
+		const quirks = await import('../../electron-main/modelQuirks/modelQuirksService.js');
+		quirks.__setCatalogForTests({ version: 1, rules: [{ match: 'kimi-k3', mirrorReasoningContent: true }] });
+		const history: LLMChatMessage[] = [
+			{ role: 'user', content: 'Прочти файл' },
+			{
+				role: 'assistant', content: [
+					{ type: 'thinking', thinking: 'без подписи' },
+					{ type: 'thinking', thinking: 'с подписью', signature: 'sig-1' },
+					{ type: 'text', text: 'Читаю' },
+				],
+			} as unknown as LLMChatMessage,
+			{ role: 'user', content: 'Дальше' },
+		];
+		try {
+			for (const modelName of ['kimi-k3', 'claude-opus-5', 'glm-5']) {
+				await send({
+					providerName: 'test-anthropic-file' as SendChatParams_Internal['providerName'],
+					modelName,
+					settingsOfProvider: settingsWith({ 'test-anthropic-file': { baseURL: `http://127.0.0.1:${port}/v1`, apiKey: 'k', protocol: 'anthropic' } }),
+					messages: history,
+				});
+			}
+		} finally {
+			setExternalProviders([]);
+			quirks.__resetForTests();
+		}
+		const thinkingOf = (body: WireBody | undefined) => ((body?.messages as { content?: unknown }[] | undefined)?.[1]?.content as { type: string }[] | undefined ?? [])
+			.filter(block => block.type === 'thinking');
+		assert.deepStrictEqual(requests.filter(r => r.path === '/v1/messages').slice(-3).map(r => thinkingOf(r.body)), [
+			[{ type: 'thinking', thinking: 'без подписи' }, { type: 'thinking', thinking: 'с подписью', signature: 'sig-1' }],
+			[{ type: 'thinking', thinking: 'с подписью', signature: 'sig-1' }],
+			[],
+		]);
+	});
+
 	test('провайдер из файла через главный процесс: возможности модели доезжают, диалект OpenRouter пишет рассуждение объектом', async () => {
 		// Shaped as the window sends it — the transport config under the provider's id, nothing registered by hand:
 		// the file's model caps used to ride on the settings seed, which this config replaces, and never arrived.
