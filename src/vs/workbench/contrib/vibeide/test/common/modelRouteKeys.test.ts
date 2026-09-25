@@ -5,7 +5,7 @@
 
 import * as assert from 'assert';
 import { ensureNoDisposablesAreLeakedInTestSuite } from '../../../../../base/test/common/utils.js';
-import { normalizeModelRoutes, resolveModelReference, routeKeyOf } from '../../common/modelRouteKeys.js';
+import { mergeModelRoutes, normalizeModelRoutes, resolveModelReference, routeKeyOf } from '../../common/modelRouteKeys.js';
 
 const routes = normalizeModelRoutes({ fast: ' openai/gpt-5.6-terra ', '@smart': 'anthropic/claude-opus-5', broken: '  ', '': 'x' });
 
@@ -33,7 +33,20 @@ suite('modelRouteKeys — логическое имя модели вместо 
 		], [
 			{ kind: 'model', reference: 'openai/gpt-5.6-terra' },
 			{ kind: 'model', reference: 'anthropic/claude-sonnet-5' },
-			{ kind: 'unknown-key', key: 'missing' },
+			{ kind: 'unknown-key', key: 'missing', known: ['fast', 'smart'] },
 		]);
+	});
+
+	/** `null` — имя объявлено и закрыто: слой ниже не может его вернуть, а шаг не может его взять. */
+	test('слои складываются по порядку, null — запрет, который переживает слияние', () => {
+		const merged = mergeModelRoutes([
+			{ fast: 'openai/gpt-6-luna', vision: 'google/gemini-3.8-flash', smart: 'anthropic/claude-opus-5' },
+			{ fast: 'minimax/MiniMax-M3', vision: null },
+			normalizeModelRoutes({ '@smart': 'anthropic/claude-opus-5-5' }),
+		]);
+		assert.deepStrictEqual({ merged, vision: resolveModelReference('@vision', merged) }, {
+			merged: { fast: 'minimax/MiniMax-M3', vision: null, smart: 'anthropic/claude-opus-5-5' },
+			vision: { kind: 'disabled', key: 'vision' },
+		});
 	});
 });

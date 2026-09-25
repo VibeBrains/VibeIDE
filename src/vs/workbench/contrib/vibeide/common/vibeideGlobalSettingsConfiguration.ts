@@ -670,9 +670,9 @@ export class VibeideGlobalSettingsConfigurationContribution extends Disposable i
 			properties: {
 				'vibeide.model.routes': {
 					type: 'object',
-					additionalProperties: { type: 'string' },
+					additionalProperties: { type: ['string', 'null'] },
 					default: {},
-					description: localize('vibeide.model.routes', 'Логические имена моделей: { "fast": "openai/gpt-5.6-terra", "smart": "anthropic/claude-opus-5" }. На такое имя ссылаются как «@fast» в правилах маршрутизации по пути и в шагах пайплайна (`model`, `escalateTo`, `reviewWith`). Вендор поднял цену или снял модель — правка в одном месте вместо трёх. Имени, которого нет в таблице, подстановки не будет: шаг остановится и скажет об этом.'),
+					description: localize('vibeide.model.routes', 'Логические имена моделей: { "fast": "openai/gpt-5.6-terra", "smart": "anthropic/claude-opus-5" }. На такое имя ссылаются как «@fast» в правилах маршрутизации по пути и в шагах пайплайна (`model`, `escalateTo`, `reviewWith`). Вендор поднял цену или снял модель — правка в одном месте вместо трёх. Имена объявляются и блоком "routes" в файлах .vibe/providers (как у VibeIDEA); эта настройка — сильнейший слой поверх них. null — имя запрещено. Имени, которого нет или которое запрещено, подстановки не будет: шаг остановится и скажет об этом.'),
 					scope: ConfigurationScope.RESOURCE,
 				},
 				'vibeide.model.routing': {

@@ -167,6 +167,11 @@ const providersFileSchema: IJSONSchema = {
 	properties: {
 		version: { type: 'number', default: 1, description: 'Версия схемы.' },
 		providers: { type: 'array', description: 'Список провайдеров.', items: providerSchema },
+		routes: {
+			type: 'object',
+			additionalProperties: { type: ['string', 'null'] },
+			description: 'Логические имена моделей: { "fast": "minimax/MiniMax-M3" } — в шагах пайплайна и правилах «путь → модель» пишется «@fast». Блоки всех файлов складываются слоями: глобальные providers/*, глобальный providers.json, проектные providers/*, проектный providers.json, сверху настройка vibeide.model.routes. null — имя запрещено, слой ниже его не вернёт.',
+		},
 	},
 	required: ['providers'],
 };

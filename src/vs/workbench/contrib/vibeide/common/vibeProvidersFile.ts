@@ -312,6 +312,11 @@ export interface VibeProvidersParseResult {
 	/** Top-level failure reason (empty file, not-JSON, no `providers` array). `undefined` on success. */
 	readonly error?: string;
 	readonly providers: readonly VibeProviderEntry[];
+	/**
+	 * The file's `routes` block — logical model names (`@fast` → `provider/model`), `null` — the name is banned
+	 * Shared with VibeIDEA: any providers file may carry one, and the layers add up (`mergeModelRoutes`)
+	 */
+	readonly routes: Readonly<Record<string, string | null>>;
 	/** Non-fatal issues — e.g. an entry skipped for a missing `id`. */
 	readonly warnings: readonly string[];
 }
@@ -454,11 +459,11 @@ export function catalogRequestOf(source: VibeCatalogSource, key: string | undefi
 export function parseProvidersFile(raw: string | undefined | null): VibeProvidersParseResult {
 	const parsed = safeParseConfigJson(raw);
 	if (!parsed.ok) {
-		return { ok: false, error: parsed.reason, providers: [], warnings: [] };
+		return { ok: false, error: parsed.reason, providers: [], routes: {}, warnings: [] };
 	}
 	const root = parsed.value;
 	if (!isObject(root) || !Array.isArray(root.providers)) {
-		return { ok: false, error: 'missing-providers-array', providers: [], warnings: [] };
+		return { ok: false, error: 'missing-providers-array', providers: [], routes: {}, warnings: [] };
 	}
 
 	const providers: VibeProviderEntry[] = [];
@@ -474,7 +479,25 @@ export function parseProvidersFile(raw: string | undefined | null): VibeProvider
 		providers.push(p as unknown as VibeProviderEntry);
 	}
 
-	return { ok: true, providers, warnings };
+	return { ok: true, providers, routes: parseRoutes(root.routes, warnings), warnings };
+}
+
+/** The `routes` block: a text is a target, `null` bans the name; anything else is named and skipped */
+function parseRoutes(raw: unknown, warnings: string[]): Readonly<Record<string, string | null>> {
+	if (raw === undefined) { return {}; }
+	if (!isObject(raw)) {
+		warnings.push('routes — не объект, логические имена из файла не читаются');
+		return {};
+	}
+	const routes: Record<string, string | null> = {};
+	for (const [name, target] of Object.entries(raw)) {
+		if (target === null || typeof target === 'string') {
+			routes[name] = target;
+		} else {
+			warnings.push(`routes.${name} — не строка и не null, имя пропущено`);
+		}
+	}
+	return routes;
 }
 
 /**

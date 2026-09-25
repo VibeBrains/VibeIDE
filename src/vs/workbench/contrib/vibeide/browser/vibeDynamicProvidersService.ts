@@ -44,6 +44,7 @@ import { setExternalProviders, ExternalProviderDescriptor, VibeideStaticModelInf
 import { IRemoteCatalogService, DynamicKeyValidation } from '../common/remoteCatalogService.js';
 import { catalogRequestOf, VibeCatalogRequest, VibeProviderEntry, VibeProviderModelCost, VibeProviderModelEntry, isKeyless, isProviderCatalogueFile, mergeProviderEntry, mergeProviderLayers, parseAuth, parseProvidersFile, promptCacheTtlOf, reasoningDialectOf, VibeProviderLongContext, VibeProviderTimeOfDay } from '../common/vibeProvidersFile.js';
 import { isLocalAddress, runsLocallyOf } from '../common/isLocalProvider.js';
+import { mergeModelRoutes, MODEL_ROUTES_SETTING, ModelRoutes, normalizeModelRoutes } from '../common/modelRouteKeys.js';
 import { parseEnvFile } from '../common/vibeEnvFile.js';
 import { DEFAULT_PRICE_CHANGE_SOON_DAYS, effectiveCost, nextPriceChangeMoment, parseTimeOfDay, PriceTimeOfDay, priceChangeStatus } from '../common/modelPriceSchedule.js';
 import { VIBE_CONFIG_PROVIDERS_CACHE_KEY } from '../common/storageKeys.js';
@@ -364,6 +365,11 @@ export interface IVibeDynamicProvidersService {
 	/** Active dynamic providers (resolvable key or OS-env key), flattened for the diagnostics modal. */
 	getDiagnosticsTargets(): ProviderDiagnosticsTarget[];
 	/**
+	 * Logical model names (`@fast`): the `routes` blocks of every providers file, layered as VibeIDEA layers them,
+	 * and the `vibeide.model.routes` setting on top; `null` bans a name
+	 */
+	getModelRoutes(): ModelRoutes;
+	/**
 	 * Active providers with a valid `quota` and a key the main process can resolve. A provider that patches a built-in
 	 * (`minimax`, `zai`) uses the built-in's key and its environment variable.
 	 */
@@ -398,6 +404,8 @@ class VibeDynamicProvidersService extends Disposable implements IVibeDynamicProv
 	private _lastSeenHidden = '';
 	/** Last key-validation results, cached so a hide-toggle re-apply doesn't re-probe the network. */
 	private _lastValidation: Map<string, DynamicKeyValidation> | undefined = undefined;
+	/** The `routes` blocks of the providers files, merged; the setting is laid on top when asked (`getModelRoutes`) */
+	private _fileRoutes: ModelRoutes = {};
 	/** Config Guard finding signature of the last reload — dedupes the user notification across re-reads. */
 	private _lastGuardSig = '';
 	/** Config Guard findings from the last reload — surfaced by the diagnostic command. */
@@ -662,6 +670,7 @@ class VibeDynamicProvidersService extends Disposable implements IVibeDynamicProv
 
 		if (globalRaw === undefined && wsRaw === undefined && globalCatalogue.length === 0 && wsCatalogue.length === 0) {
 			vibeLog.debug('DynProviders', 'no providers.json and no providers/ catalogue (neither ~/.vibe nor workspace)');
+			this._fileRoutes = {};
 			this._writeCache([]);
 			this._setState(EMPTY_STATE);
 			return;
@@ -671,9 +680,11 @@ class VibeDynamicProvidersService extends Disposable implements IVibeDynamicProv
 		// (and vice versa) — the broken side contributes nothing plus a warning.
 		const warnings: string[] = [];
 		let parseError: string | undefined;
+		const routesByLabel = new Map<string, ModelRoutes>();
 		const parseSide = (raw: string | undefined, label: string): readonly VibeProviderEntry[] => {
 			if (raw === undefined) { return []; }
 			const parsed = parseProvidersFile(raw);
+			routesByLabel.set(label, parsed.routes);
 			if (!parsed.ok) {
 				vibeLog.warn('DynProviders', `${label} parse failed: ${parsed.error}`);
 				warnings.push(`${label}: файл не распознан: ${parsed.error}`);
@@ -696,6 +707,13 @@ class VibeDynamicProvidersService extends Disposable implements IVibeDynamicProv
 			parseSide(wsRaw, 'workspace/providers.json'),
 		];
 		const mergedEntries = mergeProviderLayers(layers);
+		// Routes layer as VibeIDEA layers them — scope first, then file kind — not as providers do: a project's name
+		// overrides a global one whichever file declares it
+		const routeLabels = [
+			...globalCatalogue.map(file => `~/.vibe/providers/${file.name}`), '~/.vibe/providers.json',
+			...wsCatalogue.map(file => `workspace/providers/${file.name}`), 'workspace/providers.json',
+		];
+		this._fileRoutes = mergeModelRoutes(routeLabels.map(label => routesByLabel.get(label) ?? {}));
 
 		if (mergedEntries.length === 0 && parseError) {
 			// Everything present failed to parse — surface the error, keep the cache (last good set):
@@ -948,6 +966,10 @@ class VibeDynamicProvidersService extends Disposable implements IVibeDynamicProv
 			out.push({ providerId: p.id, displayName: p.entry.name || p.id, url: spec.url, format: spec.format, ...(apiKey ? { apiKey } : {}), ...(apiKeyEnv ? { apiKeyEnv } : {}) });
 		}
 		return out;
+	}
+
+	getModelRoutes(): ModelRoutes {
+		return mergeModelRoutes([this._fileRoutes, normalizeModelRoutes(this._configurationService.getValue<unknown>(MODEL_ROUTES_SETTING))]);
 	}
 
 	getDiagnosticsTargets(): ProviderDiagnosticsTarget[] {

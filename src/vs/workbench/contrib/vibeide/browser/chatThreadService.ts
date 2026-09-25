@@ -160,7 +160,8 @@ import { decideResume, appendChunk, PartialResponse } from '../common/responseRe
 import { IVibeSessionMemoryService } from '../common/vibeSessionMemoryService.js';
 import { IVibeAgentTerritorialLockService } from './vibeAgentTerritorialLockService.js';
 import { resolveModelForPath, decodeRoutingRules } from '../common/modelRoutingByPath.js';
-import { normalizeModelRoutes, resolveModelReference } from '../common/modelRouteKeys.js';
+import { resolveModelReference } from '../common/modelRouteKeys.js';
+import { IVibeDynamicProvidersService } from './vibeDynamicProvidersService.js';
 import { IVibeMentionService } from '../common/vibeMentionService.js';
 import { IVibeSearchContextService } from '../common/vibeSearchContextService.js';
 import { IVibeAIDebuggingService } from './vibeAIDebuggingContribution.js';
@@ -1103,6 +1104,7 @@ class ChatThreadService extends Disposable implements IChatThreadService {
 		@IVibeDesignScanService private readonly _designScanService: IVibeDesignScanService,
 		@IVibeDesignContextService private readonly _designContextService: IVibeDesignContextService,
 		@IVibeTextSlopService private readonly _textSlopService: IVibeTextSlopService,
+		@IVibeDynamicProvidersService private readonly _dynamicProvidersService: IVibeDynamicProvidersService,
 	) {
 		super();
 		this.state = { allThreads: {}, currentThreadId: null as unknown as string, openTabIds: [] }; // default state
@@ -5208,11 +5210,13 @@ Output ONLY the JSON, no other text. Start with { and end with }.`;
 					const filePath = fileItem.uri.fsPath.replace(/\\/g, '/');
 					const decision = resolveModelForPath(filePath, routingDecoded.value, resolvedModelSelection.modelName);
 					if (decision.source === 'rule') {
-						// Правило могло назвать логическое имя (`@fast`) — разворачиваем его до модели.
-						const routes = normalizeModelRoutes(this._configurationService.getValue<unknown>('vibeide.model.routes'));
-						const resolution = resolveModelReference(decision.resolvedModelId, routes);
+						// Правило могло назвать логическое имя (`@fast`) — разворачиваем его до модели по таблице имён:
+						// блоки `routes` файлов провайдеров и настройка `vibeide.model.routes`.
+						const resolution = resolveModelReference(decision.resolvedModelId, this._dynamicProvidersService.getModelRoutes());
 						if (resolution.kind === 'unknown-key') {
-							vibeLog.warn('chatThread', `model-routing: правило для ${filePath} ссылается на «@${resolution.key}», которого нет в vibeide.model.routes — правило пропущено`);
+							vibeLog.warn('chatThread', `model-routing: правило для ${filePath} ссылается на «@${resolution.key}», которого нет в таблице имён — правило пропущено`);
+						} else if (resolution.kind === 'disabled') {
+							vibeLog.warn('chatThread', `model-routing: правило для ${filePath} ссылается на «@${resolution.key}», а имя запрещено (null) — правило пропущено`);
 						}
 						const routed = resolution.kind === 'model' ? this._findModelSelectionForId(resolution.reference) : undefined;
 						if (routed) {

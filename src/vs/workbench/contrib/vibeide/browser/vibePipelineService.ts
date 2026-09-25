@@ -61,7 +61,8 @@ import { readRolesFile } from '../common/pipeline/vibeRolesFile.js';
 import { IVibeideSettingsService } from '../common/vibeideSettingsService.js';
 import { getModelCapabilities } from '../common/modelCapabilities.js';
 import { nextOffPeakMoment } from '../common/modelPriceSchedule.js';
-import { normalizeModelRoutes, resolveModelReference } from '../common/modelRouteKeys.js';
+import { resolveModelReference } from '../common/modelRouteKeys.js';
+import { IVibeDynamicProvidersService } from './vibeDynamicProvidersService.js';
 import { CollectedDiff, IVibeRunDiffService } from '../common/vibeideSCMTypes.js';
 import { IVibeVerifyGateService } from './vibeVerifyGateService.js';
 
@@ -148,6 +149,7 @@ export class VibePipelineService extends Disposable implements IVibePipelineServ
 		@INotificationService private readonly _notifications: INotificationService,
 		@IVibeRunDiffService private readonly _runDiff: IVibeRunDiffService,
 		@IVibeVerifyGateService private readonly _verifyGate: IVibeVerifyGateService,
+		@IVibeDynamicProvidersService private readonly _dynamicProviders: IVibeDynamicProvidersService,
 	) {
 		super();
 	}
@@ -229,19 +231,21 @@ export class VibePipelineService extends Disposable implements IVibePipelineServ
 	}
 
 	/**
-	 * Ссылка на модель из файла пайплайна: логическое имя (`@fast`) разворачивается по
-	 * `vibeide.model.routes`, обычное имя идёт как есть. Имени, которого нет в таблице,
-	 * подстановки не будет — шаг об этом скажет.
+	 * Ссылка на модель из файла пайплайна: логическое имя (`@fast`) разворачивается по таблице имён — блоки
+	 * `routes` файлов провайдеров и настройка `vibeide.model.routes`; обычное имя идёт как есть.
+	 * Имени, которого нет или которое запрещено (`null`), подстановки не будет: шаг останавливается с объяснением,
+	 * как у VibeIDEA, — работа не той моделью дороже остановки.
 	 */
 	private _modelRefOf(reference: string | undefined, where: string): string | undefined {
 		if (!reference) {
 			return undefined;
 		}
-		const routes = normalizeModelRoutes(this._configuration.getValue<unknown>('vibeide.model.routes'));
-		const resolution = resolveModelReference(reference, routes);
+		const resolution = resolveModelReference(reference, this._dynamicProviders.getModelRoutes());
 		if (resolution.kind === 'unknown-key') {
-			vibeLog.warn('Pipeline', `${where}: логического имени «@${resolution.key}» нет в vibeide.model.routes — шаг пойдёт на модели по умолчанию`);
-			return undefined;
+			throw new Error(localize('vibeide.pipeline.unknownRoute', '{0}: логического имени «@{1}» нет ни в блоках routes файлов провайдеров, ни в vibeide.model.routes. Известные имена: {2}', where, resolution.key, resolution.known.length > 0 ? resolution.known.map(name => `@${name}`).join(', ') : 'нет'));
+		}
+		if (resolution.kind === 'disabled') {
+			throw new Error(localize('vibeide.pipeline.disabledRoute', '{0}: логическое имя «@{1}» запрещено — в таблице имён ему задан null', where, resolution.key));
 		}
 		return resolution.reference;
 	}
