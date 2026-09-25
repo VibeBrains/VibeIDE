@@ -89,6 +89,23 @@ suite('Provider layers', () => {
 		assert.strictEqual(merged[0].active, false);
 	});
 
+	test('a patch without `active` switches an inactive seed on, as in VibeIDEA; `"active": false` in the patch keeps it off', () => {
+		// The spec says an entry without `active` is active; the merge used to let the seed's `false` through instead
+		const seed = [
+			entry({ id: 'gemini-x', active: false, baseURL: 'https://g.example/v1beta', models: { static: [{ id: 'm1', active: false }, { id: 'm2', active: false }] } }),
+			entry({ id: 'quiet', active: false, baseURL: 'https://q.example/v1' }),
+		];
+		const patch = [
+			entry({ id: 'gemini-x', apiKeyEnv: 'G_KEY', models: { static: [{ id: 'm1', name: 'M1' }, { id: 'm2', active: false }] } }),
+			entry({ id: 'quiet', apiKeyEnv: 'Q_KEY', active: false }),
+		];
+		const merged = mergeProviderLayers([seed, patch]);
+		assert.deepStrictEqual(merged.map(e => ({ id: e.id, active: e.active, models: e.models?.static?.map(m => ({ id: m.id, active: m.active })) })), [
+			{ id: 'gemini-x', active: undefined, models: [{ id: 'm1', active: undefined }, { id: 'm2', active: false }] },
+			{ id: 'quiet', active: false, models: undefined },
+		]);
+	});
+
 	test('catalogue bookkeeping files are not provider definitions', () => {
 		assert.deepStrictEqual(
 			['openai.jsonc', 'zz-local-toggles.jsonc', 'versions.json', 'deprecated.json', 'bump.mjs', 'README.md']

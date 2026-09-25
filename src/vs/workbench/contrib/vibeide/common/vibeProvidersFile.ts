@@ -532,17 +532,31 @@ export function mergeProvidersLists(global: readonly VibeProviderEntry[], worksp
 	return merged;
 }
 
+/** A model patched by a later layer; like a provider, a model the patch names without `active` is ON */
+function modelOverlay(base: VibeProviderModelEntry, over: VibeProviderModelEntry): VibeProviderModelEntry {
+	const merged: VibeProviderModelEntry = { ...base, ...over };
+	if (over.active === undefined) {
+		const { active: _inherited, ...rest } = merged;
+		return rest;
+	}
+	return merged;
+}
+
 /**
  * Merge an override entry onto a base (used by both `extends` and same-id patching).
  * Top-level scalar/object fields: override wins when present. `models.static` is merged BY MODEL
  * ID — an override model patches the base model with the same id; new ids are appended; setting
- * `models.fetch` replaces the base's. `headers` and `query` merge by name, as in VibeIDEA: a patch adding
+ * `models.fetch` replaces the base's. `active` is the override's alone: absent means ON, as in VibeIDEA.
+ * `headers` and `query` merge by name, as in VibeIDEA: a patch adding
  * one header keeps the base's others. The base is never mutated.
  */
 export function mergeProviderEntry(base: VibeProviderEntry, override: VibeProviderEntry): VibeProviderEntry {
 	const merged: Record<string, unknown> = { ...base, ...override };
 	// `extends` is a resolution directive, not a persisted field — drop it from the result.
 	delete merged.extends;
+	// An entry without `active` is ON, as VibeIDEA reads it and the spec says: a user's own entry over an inactive seed
+	// comes out alive, and a patch that must keep its target off repeats `"active": false`
+	if (override.active === undefined) { delete merged.active; }
 	if (base.headers || override.headers) { merged.headers = { ...base.headers, ...override.headers }; }
 	if (base.query || override.query) { merged.query = { ...base.query, ...override.query }; }
 
@@ -551,7 +565,7 @@ export function mergeProviderEntry(base: VibeProviderEntry, override: VibeProvid
 		const overModels = override.models?.static ?? [];
 		const byId = new Map<string, VibeProviderModelEntry>();
 		for (const m of baseModels) { byId.set(m.id, m); }
-		for (const m of overModels) { byId.set(m.id, byId.has(m.id) ? { ...byId.get(m.id)!, ...m } : m); }
+		for (const m of overModels) { byId.set(m.id, byId.has(m.id) ? modelOverlay(byId.get(m.id)!, m) : m); }
 		const fetchSpec = override.models?.fetch ?? base.models?.fetch;
 		merged.models = {
 			...(fetchSpec !== undefined ? { fetch: fetchSpec } : {}),
