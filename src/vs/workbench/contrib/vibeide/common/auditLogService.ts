@@ -93,7 +93,6 @@ export interface AuditEvent {
 	| 'advisory_territorial_lock'
 	| 'circuit_breaker_opened' | 'circuit_breaker_recovered'
 	| 'subagent_spawned' | 'subagent_completed' | 'agent_route_started'
-	| 'browser_run_proposed'
 	| 'mcp_sampling_request'
 	| 'background_job_budget_exceeded'
 	| 'provider_failover_switch'

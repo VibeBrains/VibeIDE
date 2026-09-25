@@ -420,12 +420,6 @@
     "excerpt": "this._configurationService.onDidChangeConfiguration(e => {"
   },
   {
-    "file": "src\\vs\\workbench\\contrib\\vibeide\\common\\vibeBrowserAutomationService.ts",
-    "line": 199,
-    "pattern": "setTimeout-naked",
-    "excerpt": "await new Promise(r => setTimeout(r, Math.min(200, maxMs)));"
-  },
-  {
     "file": "src\\vs\\workbench\\contrib\\vibeide\\common\\vibeConstraintsService.ts",
     "line": 151,
     "pattern": "fileservice-watch-naked",

@@ -25,7 +25,7 @@
 | `vibeide/context` | `vibeide.context.*`, `rag.*`, `specContext.*`, `projectRules.*`, `autocomplete.*` |
 | `vibeide/providers` | `vibeide.mcp.*`, `mcpOAuth.*`, `providers.*`, `cost.*` |
 | `vibeide/observability` | `vibeide.otel.*`, `planEventsJournal.*`, `debug.*`, `output.*` |
-| `vibeide/tools` | `vibeide.commands.*`, `browserAutomation.*`, `backgroundJob.*`, `diffPreview.*`, `notifications.*`, `statusBar.*`, `voice.*` |
+| `vibeide/tools` | `vibeide.commands.*`, `backgroundJob.*`, `diffPreview.*`, `notifications.*`, `statusBar.*`, `voice.*` |
 | `vibeide/appearance` | `vibeide.theme.*`, `locale`, `cloud.*` |
 | `vibeide/other` | `vibeide.*` (catch-all для новых ключей до классификации) |
 

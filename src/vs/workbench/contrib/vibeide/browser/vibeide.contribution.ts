@@ -718,7 +718,6 @@ import '../common/vibeSubagentService.js';
 import './vibeProviderProxyService.js';
 
 // VibeIDE: Browser automation — Playwright consent gate + audit (Phase 3b: real runner)
-import '../common/vibeBrowserAutomationService.js';
 
 // VibeIDE: MCP token rotation — thresholds for the rotation policy (vibeide.mcp.tokenRotation.*)
 import '../common/mcpTokenRotationConfiguration.js';

@@ -509,7 +509,6 @@ export const tocData: ITOCEntry<string> = {
 					label: localize('vibeide.tools', "Tools & Commands"),
 					settings: [
 						'vibeide.commands.*',
-						'vibeide.browserAutomation.*',
 						'vibeide.backgroundJob.*',
 						'vibeide.diffPreview.*',
 						'vibeide.notifications.*',

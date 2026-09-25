@@ -247,7 +247,6 @@ scripts/vibe-otel-export.js
 scripts/vibe-perf-measure.js
 scripts/vibe-plan-merge-driver.js
 scripts/vibe-plan-pr-export.js
-scripts/vibe-playwright-runner.mjs
 scripts/vibe-product-win-exe-name.mjs
 scripts/vibe-promise-all-audit.mjs
 scripts/vibe-providers-fields.mjs
