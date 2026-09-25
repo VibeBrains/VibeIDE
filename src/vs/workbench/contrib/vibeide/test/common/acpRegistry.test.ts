@@ -5,7 +5,7 @@
 
 import assert from 'assert';
 import { ensureNoDisposablesAreLeakedInTestSuite } from '../../../../../base/test/common/utils.js';
-import { agentEntryOf, compareVersions, installPlanOf, parseAcpRegistry, platformTargetOf, registryUpdateOf } from '../../common/acp/acpRegistry.js';
+import { agentEntryOf, compareVersions, installPlanOf, licenseLinkOf, parseAcpRegistry, platformTargetOf, registryUpdateOf } from '../../common/acp/acpRegistry.js';
 
 // Shapes copied from the live registry (cdn.agentclientprotocol.com, 2026-09-23), trimmed to what is read.
 const SHA = '240a1a464f2a400ae51e9613b7f52b2abb6e7a29759001e9185291325671ccf1';
@@ -91,5 +91,13 @@ suite('acpRegistry — импорт агентов из реестра ACP', () 
 			написанаРуками: undefined,
 			числаНеСтроки: 1,
 		});
+	});
+
+	test('ссылка на лицензию открывается, только если это адрес http(s): реестр — чужие данные', () => {
+		assert.deepStrictEqual(
+			['https://github.com/x/y/blob/main/LICENSE', 'http://example.com/license', 'file:///etc/passwd', 'javascript:alert(1)', 'command:workbench.action.reloadWindow', '', undefined]
+				.map(licenseUrl => licenseLinkOf({ licenseUrl })?.toString(true)),
+			['https://github.com/x/y/blob/main/LICENSE', 'http://example.com/license', undefined, undefined, undefined, undefined, undefined],
+		);
 	});
 });

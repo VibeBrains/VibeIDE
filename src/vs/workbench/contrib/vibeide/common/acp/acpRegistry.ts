@@ -23,6 +23,7 @@
  * the main process, writing the file in the window.
  */
 
+import { URI } from '../../../../../base/common/uri.js';
 import { npmPinned, pythonPinned } from '../vibeConfigGuard.js';
 import { VibeAgentEntry } from './vibeAgentsFile.js';
 
@@ -290,4 +291,17 @@ function stringMapOf(value: unknown): Record<string, string> {
 
 function optional<K extends string>(key: K, value: string | undefined): { [P in K]?: string } {
 	return (value !== undefined ? { [key]: value } : {}) as { [P in K]?: string };
+}
+
+/** The licence link of a registry agent when it is an http(s) address; anything else is not opened — the registry is somebody else's data */
+export function licenseLinkOf(agent: Pick<IAcpRegistryAgent, 'licenseUrl'>): URI | undefined {
+	if (!agent.licenseUrl) {
+		return undefined;
+	}
+	try {
+		const uri = URI.parse(agent.licenseUrl, true);
+		return uri.scheme === 'https' || uri.scheme === 'http' ? uri : undefined;
+	} catch {
+		return undefined;
+	}
 }

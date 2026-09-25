@@ -28,7 +28,10 @@ import { IMainProcessService } from '../../../../../platform/ipc/common/mainProc
 import { INotificationService } from '../../../../../platform/notification/common/notification.js';
 import { IProgressService, ProgressLocation } from '../../../../../platform/progress/common/progress.js';
 import { IQuickInputService, IQuickPickItem } from '../../../../../platform/quickinput/common/quickInput.js';
-import { AcpInstallPlan, AcpInstallRefusal, AcpPlatformTarget, IAcpRegistryAgent, agentEntryOf, installPlanOf, parseAcpRegistry, platformTargetOf, registryUpdateOf } from '../../common/acp/acpRegistry.js';
+import { IOpenerService } from '../../../../../platform/opener/common/opener.js';
+import { Codicon } from '../../../../../base/common/codicons.js';
+import { ThemeIcon } from '../../../../../base/common/themables.js';
+import { AcpInstallPlan, AcpInstallRefusal, AcpPlatformTarget, IAcpRegistryAgent, agentEntryOf, installPlanOf, licenseLinkOf, parseAcpRegistry, platformTargetOf, registryUpdateOf } from '../../common/acp/acpRegistry.js';
 import { ACP_REGISTRY_URL_KEY } from '../../common/acp/acpRegistryConfiguration.js';
 import { IVibeAcpInstaller, VIBE_ACP_INSTALLER_CHANNEL } from '../../common/acp/acpInstallerTypes.js';
 import { IAcpAgentUpdate, IVibeAcpRegistryImportService, VIBE_ACP_ADD_FROM_REGISTRY_COMMAND_ID, VIBE_ACP_UPDATE_FROM_REGISTRY_COMMAND_ID } from '../../common/acp/vibeAcpRegistryImport.js';
@@ -61,6 +64,7 @@ class VibeAcpRegistryImportService extends Disposable implements IVibeAcpRegistr
 		@INotificationService private readonly _notifications: INotificationService,
 		@IProgressService private readonly _progress: IProgressService,
 		@IAuditLogService private readonly _auditLog: IAuditLogService,
+		@IOpenerService private readonly _opener: IOpenerService,
 	) {
 		super();
 		this._installer = ProxyChannel.toService<IVibeAcpInstaller>(mainProcessService.getChannel(VIBE_ACP_INSTALLER_CHANNEL));
@@ -69,6 +73,38 @@ class VibeAcpRegistryImportService extends Disposable implements IVibeAcpRegistr
 
 	get updates(): ReadonlyMap<string, IAcpAgentUpdate> {
 		return this._updates;
+	}
+
+	/**
+	 * The add dialog; «Лицензия» opens the licence and asks again, so reading it does not cancel the adding
+	 * A dialog shows no links, and the licence is the one thing worth reading before letting a program in
+	 */
+	private async _confirmAdd(agent: IAcpRegistryAgent, plan: Exclude<AcpInstallPlan, { kind: 'refused' }>, layer: VibeAgentLayer): Promise<boolean> {
+		const add = plan.kind === 'binary' ? localize('vibeide.acp.registry.download', "Скачать и добавить") : localize('vibeide.acp.registry.add', "Добавить");
+		const hasLicense = !!licenseLinkOf(agent);
+		for (; ;) {
+			const { result } = await this._dialog.prompt<'add' | 'license'>({
+				message: localize('vibeide.acp.registry.confirm', "Добавить агента «{0}» {1}?", agent.name, agent.version),
+				detail: confirmDetail(agent, plan, layer),
+				buttons: [
+					{ label: add, run: () => 'add' },
+					...(hasLicense ? [{ label: localize('vibeide.acp.registry.licenseButton', "Лицензия"), run: () => 'license' as const }] : []),
+				],
+				cancelButton: true,
+			});
+			if (result !== 'license') {
+				return result === 'add';
+			}
+			await this._openLicense(agent);
+		}
+	}
+
+	/** The registry's licence link, opened only when it is a web address: the registry is somebody else's data */
+	private async _openLicense(agent: IAcpRegistryAgent): Promise<void> {
+		const link = licenseLinkOf(agent);
+		if (link) {
+			await this._opener.open(link, { openExternal: true });
+		}
 	}
 
 	async checkUpdates(): Promise<void> {
@@ -95,12 +131,14 @@ class VibeAcpRegistryImportService extends Disposable implements IVibeAcpRegistr
 				label: agent.name,
 				description: [agent.version, agent.license, added ? localize('vibeide.acp.registry.added', "уже добавлен") : undefined].filter(Boolean).join(' · '),
 				detail: [agent.description, planSummary(plan, target)].filter(Boolean).join(' — '),
+				...(licenseLinkOf(agent) ? { buttons: [{ iconClass: ThemeIcon.asClassName(Codicon.law), tooltip: localize('vibeide.acp.registry.openLicense', "Открыть лицензию «{0}»", agent.license ?? agent.name) }] } : {}),
 			};
 		});
 		const picked = await this._quickInput.pick(items, {
 			placeHolder: localize('vibeide.acp.registry.pick', "Агент из реестра ACP"),
 			matchOnDescription: true,
 			matchOnDetail: true,
+			onDidTriggerItemButton: context => this._openLicense(context.item.agent),
 		});
 		if (!picked) {
 			return;
@@ -123,12 +161,7 @@ class VibeAcpRegistryImportService extends Disposable implements IVibeAcpRegistr
 			this._notifications.warn(localize('vibeide.acp.registry.noFolder', "Открытой папки нет — в проект записывать некуда."));
 			return;
 		}
-		const confirmed = await this._dialog.confirm({
-			message: localize('vibeide.acp.registry.confirm', "Добавить агента «{0}» {1}?", agent.name, agent.version),
-			detail: confirmDetail(agent, plan, layer),
-			primaryButton: plan.kind === 'binary' ? localize('vibeide.acp.registry.download', "Скачать и добавить") : localize('vibeide.acp.registry.add', "Добавить"),
-		});
-		if (!confirmed.confirmed) {
+		if (!await this._confirmAdd(agent, plan, layer)) {
 			return;
 		}
 		try {
