@@ -16,6 +16,7 @@ import { joinPath } from '../../../../base/common/resources.js';
 import { Emitter, Event } from '../../../../base/common/event.js';
 import { ILLMMessageService } from '../common/sendLLMMessageService.js';
 import { compressGenericToolOutput } from '../common/commandOutputCompressor.js';
+import { isLocalProvider } from '../common/isLocalProvider.js';
 import { nextChatTraceTurn, recordChatTrace } from './vibeChatRunTrace.js';
 import { availableTools, builtinTools, builtinToolNames, chat_userMessageContent, isABuiltinToolName } from '../common/prompt/prompts.js';
 import { TOOL_NAME_ALIASES, applyParamAliases, detectToolByParamShape } from '../common/prompt/toolAliases.js';
@@ -7342,11 +7343,11 @@ Output ONLY the JSON, no other text. Start with { and end with }.`;
 						shouldRetryLLM = true;
 						this._setStreamState(threadId, { isRunning: 'idle', interrupt: idleInterruptor });
 						// Faster retries for local models (they fail fast if not available)
-						const isLocalProvider = modelSelection && (modelSelection.providerName === 'ollama' || modelSelection.providerName === 'vLLM' || modelSelection.providerName === 'lmStudio' || modelSelection.providerName === 'openAICompatible' || modelSelection.providerName === 'liteLLM');
+						const isLocalModel = !!modelSelection && modelSelection.providerName !== 'auto' && isLocalProvider(modelSelection.providerName, this._settingsService.state.settingsOfProvider);
 						// Use shorter delays for local models: 0.5s, 1s, 2s (vs 1s, 2s, 4s for remote)
 						const initialRetryDelay = Math.max(0, Math.min(60_000, this._configurationService.getValue<number>('vibeide.chat.retryInitialDelayMs') ?? INITIAL_RETRY_DELAY));
 						const maxRetryDelay = Math.max(0, Math.min(120_000, this._configurationService.getValue<number>('vibeide.chat.retryMaxDelayMs') ?? MAX_RETRY_DELAY));
-						const baseDelay = isLocalProvider ? 500 : initialRetryDelay;
+						const baseDelay = isLocalModel ? 500 : initialRetryDelay;
 						const retryDelay = Math.min(baseDelay * Math.pow(2, nAttempts - 1), maxRetryDelay);
 						await timeout(retryDelay);
 						if (interruptedWhenIdle) {

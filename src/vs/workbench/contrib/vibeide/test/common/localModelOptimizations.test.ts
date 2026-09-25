@@ -6,6 +6,7 @@
 
 import * as assert from 'assert';
 import { isLocalProvider } from '../../common/isLocalProvider.js';
+import { withBuiltinLocality } from '../../common/vibeideSettingsService.js';
 import { chat_systemMessage, chat_systemMessage_local, gitCommitMessage_systemMessage, gitCommitMessage_systemMessage_local, ctrlKStream_systemMessage, ctrlKStream_systemMessage_local, rewriteCode_systemMessage, rewriteCode_systemMessage_local } from '../../common/prompt/prompts.js';
 import { ensureNoDisposablesAreLeakedInTestSuite } from '../../../../../base/test/common/utils.js';
 
@@ -14,6 +15,31 @@ suite('Local Model Optimizations', () => {
 	ensureNoDisposablesAreLeakedInTestSuite();
 
 	suite('isLocalProvider', () => {
+		test('the declared runsLocally beats the address; a file provider is judged by baseURL where no endpoint is left', () => {
+			// A localhost proxy to a cloud model is local by address and remote by model; electron-main gets the send-time
+			// transport of a file provider, which carries baseURL and the decision, not the seed's endpoint
+			const settingsOfProvider = {
+				liteLLM: { endpoint: 'http://localhost:4000', runsLocally: false },
+				ollama: { endpoint: 'http://gpu-box:11434', runsLocally: false },
+				'proxy-file': { baseURL: 'http://localhost:4000/v1', runsLocally: false },
+				'remote-gpu': { baseURL: 'https://gpu.example/v1', runsLocally: true },
+				'bare-transport': { baseURL: 'http://[::1]:8000/v1' },
+			} as never;
+			assert.deepStrictEqual(
+				['liteLLM', 'ollama', 'proxy-file', 'remote-gpu', 'bare-transport', 'vLLM'].map(id => isLocalProvider(id, settingsOfProvider)),
+				[false, false, false, true, true, true],
+			);
+		});
+
+		test('a file patching a built-in sets its runsLocally, and dropping the declaration drops the derived field', () => {
+			const declared = withBuiltinLocality({ liteLLM: { endpoint: 'http://localhost:4000' }, 'file-x': { endpoint: 'e' } }, { liteLLM: false, 'file-x': true });
+			const dropped = withBuiltinLocality(declared, {});
+			assert.deepStrictEqual({ declared, dropped }, {
+				declared: { liteLLM: { endpoint: 'http://localhost:4000', runsLocally: false }, 'file-x': { endpoint: 'e' } },
+				dropped: { liteLLM: { endpoint: 'http://localhost:4000' }, 'file-x': { endpoint: 'e' } },
+			});
+		});
+
 		test('should detect explicit local providers', () => {
 			const settingsOfProvider: any = {};
 

@@ -275,6 +275,11 @@ export interface VibeProviderEntry {
 	readonly query?: Readonly<Record<string, string>>;
 	readonly timeoutMs?: number;
 	/**
+	 * The provider's models run on this machine — local-model optimizations, timeouts and the privacy hint follow it
+	 * Absent: decided by the address (`isLocalAddress`); a localhost proxy to a cloud model declares `false`
+	 */
+	readonly runsLocally?: boolean;
+	/**
 	 * The endpoint accepts `prompt_cache_key` (OpenAI, xAI): IDE sends a key stable for the conversation so
 	 * that its requests reach the server holding their cache. Off unless declared — a strict OpenAI-compatible
 	 * vendor answers 400 to a field it does not know. See `common/promptCacheKey.ts`.

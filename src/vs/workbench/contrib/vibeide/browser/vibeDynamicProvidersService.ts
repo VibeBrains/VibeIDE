@@ -43,7 +43,7 @@ import type { BuiltinWireHints } from '../common/builtinWireHints.js';
 import { setExternalProviders, ExternalProviderDescriptor, VibeideStaticModelInfo, ModelLongContext } from '../common/modelCapabilities.js';
 import { IRemoteCatalogService, DynamicKeyValidation } from '../common/remoteCatalogService.js';
 import { catalogRequestOf, VibeCatalogRequest, VibeProviderEntry, VibeProviderModelCost, VibeProviderModelEntry, isKeyless, isProviderCatalogueFile, mergeProviderEntry, mergeProviderLayers, parseAuth, parseProvidersFile, promptCacheTtlOf, reasoningDialectOf, VibeProviderLongContext, VibeProviderTimeOfDay } from '../common/vibeProvidersFile.js';
-import { isLocalAddress } from '../common/isLocalProvider.js';
+import { isLocalAddress, runsLocallyOf } from '../common/isLocalProvider.js';
 import { parseEnvFile } from '../common/vibeEnvFile.js';
 import { DEFAULT_PRICE_CHANGE_SOON_DAYS, effectiveCost, nextPriceChangeMoment, parseTimeOfDay, PriceTimeOfDay, priceChangeStatus } from '../common/modelPriceSchedule.js';
 import { VIBE_CONFIG_PROVIDERS_CACHE_KEY } from '../common/storageKeys.js';
@@ -109,6 +109,8 @@ export function dynamicTransportConfigOf(
 		...(entry.headers ? { headers: { ...entry.headers } } : {}),
 		...(entry.query ? { query: { ...entry.query } } : {}),
 		...(typeof entry.timeoutMs === 'number' && entry.timeoutMs > 0 ? { timeoutMs: entry.timeoutMs } : {}),
+		// Decided here, where the entry is: at send time this config replaces the seed, and electron-main sees no endpoint
+		runsLocally: runsLocallyOf(entry),
 		...(typeof fetchSpec === 'string' ? { modelsUrl: fetchSpec } : {}),
 		...(entry.protocol ? { protocol: entry.protocol } : {}),
 		...(modelProtocols ? { modelProtocols } : {}),
@@ -1060,6 +1062,7 @@ class VibeDynamicProvidersService extends Disposable implements IVibeDynamicProv
 		const descriptors: ExternalProviderDescriptor[] = [];
 		const transportConfigs: Record<string, DynProviderTransportConfig> = {};
 		const builtinWireHints: Record<string, BuiltinWireHints> = {};
+		const builtinLocality: Record<string, boolean> = {};
 		const dynamicProviderSettings: Record<string, DynamicProviderSeed> = {};
 
 		// First pass: built-in patches (disable toggles) are order-independent; collect the active
@@ -1071,6 +1074,8 @@ class VibeDynamicProvidersService extends Disposable implements IVibeDynamicProv
 				if (p.entry.active === false) { disabledProviders.add(p.id); continue; }
 				const off = (p.entry.models?.static ?? []).filter(m => m.active === false).map(m => m.id);
 				if (off.length > 0) { disabledModels.set(p.id, new Set(off)); }
+				// A built-in whose endpoint is a local proxy to a cloud model is told so by the file, not guessed by the address
+				if (typeof p.entry.runsLocally === 'boolean') { builtinLocality[p.id] = p.entry.runsLocally; }
 				// The file's wire declarations reach the built-in too — a declaration is a contract, not a hint
 				// (the set's openai.jsonc puts GPT-6 on Responses; before, only a provider DEFINED in a file read it).
 				const modelProtocols = modelProtocolsOf(p.entry.models?.static);
@@ -1168,6 +1173,7 @@ class VibeDynamicProvidersService extends Disposable implements IVibeDynamicProv
 				_didFillInProviderSettings: keyStatus === 'valid' || keyStatus === 'unverified',
 				keyStatus,
 				keySource,
+				runsLocally: runsLocallyOf(p.entry),
 				// The card says what the status is about: a server that takes no key, or one on this machine asked without a key
 				...(keyless ? { keyless: true } : !resolvedKey && !hasOsEnvKey && localAddress ? { localWithoutKey: true } : {}),
 			};
@@ -1176,10 +1182,11 @@ class VibeDynamicProvidersService extends Disposable implements IVibeDynamicProv
 		setExternalProviders(descriptors);
 		const hasTransport = Object.keys(transportConfigs).length > 0;
 		const hasWireHints = Object.keys(builtinWireHints).length > 0;
+		const hasLocality = Object.keys(builtinLocality).length > 0;
 		const hasSeed = Object.keys(dynamicProviderSettings).length > 0;
 		const overrides: VibeProviderActiveOverrides | undefined =
-			(disabledProviders.size > 0 || disabledModels.size > 0 || dynamicModelOptions.length > 0 || hasTransport || hasWireHints || hasSeed)
-				? { disabledProviders, disabledModels, dynamicModelOptions, ...(hasTransport ? { transportConfigs } : {}), ...(hasWireHints ? { builtinWireHints } : {}), ...(hasSeed ? { dynamicProviderSettings } : {}) }
+			(disabledProviders.size > 0 || disabledModels.size > 0 || dynamicModelOptions.length > 0 || hasTransport || hasWireHints || hasLocality || hasSeed)
+				? { disabledProviders, disabledModels, dynamicModelOptions, ...(hasTransport ? { transportConfigs } : {}), ...(hasWireHints ? { builtinWireHints } : {}), ...(hasLocality ? { builtinLocality } : {}), ...(hasSeed ? { dynamicProviderSettings } : {}) }
 				: undefined;
 		this._settingsService.applyProviderActiveOverrides(overrides);
 	}

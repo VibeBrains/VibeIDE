@@ -2326,24 +2326,7 @@ class ConvertToLLMMessageService extends Disposable implements IConvertToLLMMess
 
 		// Optimize context for local models: cap at reasonable values to reduce latency
 		// Local models are slower with large contexts, so we cap them more aggressively
-		// Detect local providers: explicit local providers + localhost endpoints
-		const isExplicitLocalProvider: boolean = validProviderName === 'ollama' || validProviderName === 'vLLM' || validProviderName === 'lmStudio';
-		let isLocalhostEndpoint: boolean = false;
-		if (validProviderName === 'openAICompatible' || validProviderName === 'liteLLM') {
-			const endpoint = this.vibeideSettingsService.state.settingsOfProvider[validProviderName]?.endpoint || '';
-			if (endpoint) {
-				try {
-					// Use proper URL parsing to check hostname (consistent with sendLLMMessage.impl.ts)
-					const url = new URL(endpoint);
-					const hostname = url.hostname.toLowerCase();
-					isLocalhostEndpoint = hostname === 'localhost' || hostname === '127.0.0.1' || hostname === '0.0.0.0' || hostname === '::1';
-				} catch (e) {
-					// Invalid URL - assume non-local (safe default)
-					isLocalhostEndpoint = false;
-				}
-			}
-		}
-		const isLocalProviderForContext: boolean = isExplicitLocalProvider || isLocalhostEndpoint;
+		const isLocalProviderForContext: boolean = isLocalProvider(validProviderName, this.vibeideSettingsService.state.settingsOfProvider);
 
 		// Local models: cap retained history to the last N turn-pairs before the budget-fill pass
 		// below runs. This is a coarse pre-trim for small local context windows; the real

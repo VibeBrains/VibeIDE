@@ -358,6 +358,8 @@ export interface DynProviderTransportConfig {
 	readonly query?: Record<string, string>;
 	/** How long the server may stay silent before it starts answering, ms — the file's `timeoutMs` */
 	readonly timeoutMs?: number;
+	/** The provider's models run on this machine (`runsLocallyOf`): electron-main has no seed endpoint to judge by */
+	readonly runsLocally: boolean;
 	/** Custom models-catalog URL from `models.fetch: "<url>"`. When set, the catalog fetch hits this
 	 *  URL verbatim instead of the `<baseURL>/models` default (`catalogRequestOf`). */
 	readonly modelsUrl?: string;
@@ -395,6 +397,11 @@ export interface VibeProviderActiveOverrides {
 	readonly transportConfigs?: Record<string, DynProviderTransportConfig>;
 	/** Wire declarations of files that patch a BUILT-IN provider — see `BuiltinWireHints`. */
 	readonly builtinWireHints?: Record<string, BuiltinWireHints>;
+	/**
+	 * `runsLocally` declared by files that patch a BUILT-IN provider — a liteLLM on localhost in front of a cloud model
+	 * Merged into the built-in's settings as a derived field, which `_storeState` never persists
+	 */
+	readonly builtinLocality?: Record<string, boolean>;
 	/** First-class settings entries seeded for active dynamic providers so the Settings UI renders them
 	 *  like built-ins (provider card + «Модели» tab). Merged into `settingsOfProvider` in
 	 *  `_validatedModelState`. Derived (reapplied each load), never persisted in the settings blob. */
@@ -420,6 +427,8 @@ export type DynamicProviderSeed = {
 	keyless?: true;
 	/** A server on this machine, no key given: asked without one; the key field stays, for a server that wants one */
 	localWithoutKey?: true;
+	/** The provider's models run on this machine (`runsLocallyOf`) — what `isLocalProvider` reads first */
+	runsLocally: boolean;
 };
 let _providerActiveOverrides: VibeProviderActiveOverrides | undefined = undefined;
 
@@ -428,6 +437,29 @@ let _providerActiveOverrides: VibeProviderActiveOverrides | undefined = undefine
  *  the key value stays in electron-main. Injected by the desktop contribution; empty on web/server,
  *  where there is no OS environment to inherit from. */
 let _envApiKeyProviders: ReadonlySet<ProviderId> = new Set<ProviderId>();
+
+/** A built-in's settings without the derived `runsLocally` — it comes from a provider file and is never persisted */
+function withoutDerivedLocality<V>(value: V): V {
+	if (value && typeof value === 'object' && Object.hasOwn(value, 'runsLocally')) {
+		const { runsLocally: _derived, ...rest } = value as V & { runsLocally?: boolean };
+		return rest as V;
+	}
+	return value;
+}
+
+/** The built-ins' settings with a provider file's `runsLocally` set where declared and dropped where it no longer is — exported for tests */
+export function withBuiltinLocality<T extends object>(settingsOfProvider: T, locality: Readonly<Record<string, boolean>>): T {
+	let next: Record<string, unknown> | undefined;
+	for (const [id, value] of Object.entries(settingsOfProvider)) {
+		if (!isBuiltinProviderId(id) || !value || typeof value !== 'object') { continue; }
+		const declared = Object.hasOwn(locality, id) ? locality[id] : undefined;
+		if ((value as { runsLocally?: boolean }).runsLocally === declared) { continue; }
+		const updated: Record<string, unknown> = next ?? { ...(settingsOfProvider as Record<string, unknown>) };
+		updated[id] = declared === undefined ? withoutDerivedLocality(value) : { ...value, runsLocally: declared };
+		next = updated;
+	}
+	return (next ?? settingsOfProvider) as T;
+}
 
 const _validatedModelState = (state: Omit<VibeideSettingsState, '_modelOptions'>): VibeideSettingsState => {
 
@@ -458,6 +490,9 @@ const _validatedModelState = (state: Omit<VibeideSettingsState, '_modelOptions'>
 	if (_providerActiveOverrides?.dynamicProviderSettings) {
 		newSettingsOfProvider = { ...newSettingsOfProvider, ..._providerActiveOverrides.dynamicProviderSettings };
 	}
+
+	// A file's `runsLocally` on a built-in: set where declared, removed where the file no longer says it
+	newSettingsOfProvider = withBuiltinLocality(newSettingsOfProvider, _providerActiveOverrides?.builtinLocality ?? {});
 
 	// update model options
 	const newModelOptions: ModelOption[] = [];
@@ -814,7 +849,7 @@ class VoidSettingsService extends Disposable implements IVibeideSettingsService 
 		// its hide toggles (dynamicModelHidden).
 		const cleanedSettingsOfProvider: Record<string, unknown> = {};
 		for (const k of Object.keys(state.settingsOfProvider)) {
-			if (isBuiltinProviderId(k)) { cleanedSettingsOfProvider[k] = state.settingsOfProvider[k]; }
+			if (isBuiltinProviderId(k)) { cleanedSettingsOfProvider[k] = withoutDerivedLocality(state.settingsOfProvider[k]); }
 		}
 		const toStore = { ...state, settingsOfProvider: cleanedSettingsOfProvider };
 		const encryptedState = await this._encryptionService.encrypt(JSON.stringify(toStore));

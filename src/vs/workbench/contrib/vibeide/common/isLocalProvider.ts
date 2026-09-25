@@ -22,16 +22,30 @@ export function isLocalAddress(address: string | undefined): boolean {
 	}
 }
 
-// Detect if a provider is local (used for optimizing prompts and token budgets for local models).
-// Pure predicate with no browser dependencies — lives in common/ so pure-helper tests can import
-// it without pulling in browser-only modules (e.g. vs/base/browser/window via terminalToolService).
-export function isLocalProvider(providerName: ProviderId, settingsOfProvider: SettingsOfProvider): boolean {
-	const isExplicitLocalProvider = providerName === 'ollama' || providerName === 'vLLM' || providerName === 'lmStudio';
-	if (isExplicitLocalProvider) { return true; }
+/** A provider file entry's models run on this machine: its `runsLocally`, or by the address when it says nothing */
+export function runsLocallyOf(entry: { readonly runsLocally?: boolean; readonly baseURL?: string }): boolean {
+	return typeof entry.runsLocally === 'boolean' ? entry.runsLocally : isLocalAddress(entry.baseURL);
+}
 
-	// Localhost endpoint = local, whoever owns the id — a built-in with an endpoint field
-	// (openAICompatible / liteLLM / lmRoute) or a CONFIG provider (providers.json), whose seed
-	// carries its baseURL as `endpoint`. Restricting this to two hardcoded built-ins made
-	// config providers pointed at localhost miss every local-model optimization.
-	return isLocalAddress(settingsOfProvider[providerName]?.endpoint);
+/** What `isLocalProvider` reads from a provider's settings: the declaration first, then the address */
+interface LocalitySettings {
+	/** The provider file's `runsLocally`, or its default by address — see `runsLocallyOf` */
+	readonly runsLocally?: boolean;
+	/** A built-in's endpoint, or a file provider's base URL on its settings seed */
+	readonly endpoint?: string;
+	/** A file provider's base URL on its send-time transport, which replaces the seed in electron-main */
+	readonly baseURL?: string;
+}
+
+/**
+ * The provider's models run on this machine — what local-model optimizations, timeouts and privacy hints decide on
+ * Not the same question as «the server is on this machine» (`isLocalAddress`): a localhost proxy to a cloud model is
+ * local by address and remote by model, so the provider file's `runsLocally` has the last word
+ * Pure predicate with no browser dependencies — lives in common/ so pure-helper tests can import it
+ */
+export function isLocalProvider(providerName: ProviderId, settingsOfProvider: SettingsOfProvider): boolean {
+	const settings = (settingsOfProvider as Readonly<Record<string, LocalitySettings | undefined>>)[providerName];
+	if (typeof settings?.runsLocally === 'boolean') { return settings.runsLocally; }
+	if (providerName === 'ollama' || providerName === 'vLLM' || providerName === 'lmStudio') { return true; }
+	return isLocalAddress(settings?.endpoint || settings?.baseURL);
 }
