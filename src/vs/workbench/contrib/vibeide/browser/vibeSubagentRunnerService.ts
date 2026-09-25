@@ -38,6 +38,7 @@ import { stepMayWrite } from '../common/pipeline/vibePipelineFile.js';
 import { rebaseParamsIntoWorktree, relativeToRoot } from '../common/worktreeRebase.js';
 import { promptCacheKeyOf } from '../common/promptCacheKey.js';
 import { isLinux } from '../../../../base/common/platform.js';
+import { lastRealUserIndex } from '../common/turnContext.js';
 
 /** Under Autopilot, resource limits auto-extend rather than stop the role. This cooldown backstops a
  *  pathological tight loop (instant hops) from resetting the budget hundreds of times per second —
@@ -252,13 +253,19 @@ class VibeSubagentRunnerService extends Disposable implements IVibeSubagentRunne
 			}
 			stepsDone++;
 
-			const { messages, separateSystemMessage } = await this._convert.prepareLLMChatMessages({
+			const { messages, separateSystemMessage, turnContext } = await this._convert.prepareLLMChatMessages({
 				chatMessages: history,
 				chatMode,
 				modelSelection,
 				// Do not clobber the parent thread's context meter with this role's prompt size.
 				skipContextGuardUpdate: true,
 			});
+			// The role's next hop repeats the context this one saw, so the prefix it sends stays the one the provider cached
+			const turnIdx = turnContext === undefined ? -1 : lastRealUserIndex(history);
+			const turnMessage = turnIdx >= 0 ? history[turnIdx] : undefined;
+			if (turnMessage?.role === 'user' && turnContext !== undefined) {
+				history[turnIdx] = { ...turnMessage, turnContext };
+			}
 			const hop = await this._sendOnce({ req, messages, separateSystemMessage, chatMode, modelSelection, deadlineAtMs: limits.deadlineAtMs });
 			if (hop.kind === 'error') {
 				// A deadline firing MID-REQUEST aborts the stream and surfaces here as an error. Use the

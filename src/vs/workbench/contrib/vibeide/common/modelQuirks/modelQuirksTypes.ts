@@ -139,8 +139,9 @@ export interface ModelQuirksRule {
 	 *
 	 * On Anthropic's own API the same models also bind a block to the CONVERSATION: replayed after an
 	 * edit to `system`, `tools` or an earlier message, it answers 400 for accounts created since
-	 * 2026-08-31. Our system prompt changes between turns, so for these models the request asks the
-	 * vendor to drop such a block instead (`drop_block`, see common/wireReasoning.ts).
+	 * 2026-08-31. The per-turn facts ride with the user's message (common/turnContext.ts), yet the prefix still changes
+	 * when old history is folded or the project's rules change, so for these models the request asks the vendor to drop
+	 * such a block instead (`drop_block`, see common/wireReasoning.ts).
 	 */
 	readonly reasoningBoundToModel?: boolean;
 

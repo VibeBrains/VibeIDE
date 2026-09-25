@@ -348,7 +348,7 @@ ${MINIMALISM_RULES_PRECEDENCE}
 // ======================================================== chat (normal, gather, agent) ========================================================
 
 
-export const chat_systemMessage = ({ memoryProjects, maxTools, directoryOverviewChars, workspaceFolders, openedURIs, activeURI, persistentTerminalIDs, directoryStr, chatMode: mode, mcpTools, includeXMLToolDefinitions, relevantMemories, strictJsonToolArguments, minimalismMode, modelFamily: _modelFamily }: { workspaceFolders: string[]; directoryStr: string; openedURIs: string[]; activeURI: string | undefined; persistentTerminalIDs: string[]; chatMode: ChatMode; mcpTools: InternalToolInfo[] | undefined; includeXMLToolDefinitions: boolean; relevantMemories?: string; strictJsonToolArguments?: boolean; minimalismMode?: MinimalismMode; modelFamily?: ModelFamily; maxTools?: number; directoryOverviewChars?: number; memoryProjects?: string }) => {
+export const chat_systemMessage = ({ memoryProjects, maxTools, workspaceFolders, chatMode: mode, mcpTools, includeXMLToolDefinitions, strictJsonToolArguments, minimalismMode, modelFamily: _modelFamily }: { workspaceFolders: string[]; chatMode: ChatMode; mcpTools: InternalToolInfo[] | undefined; includeXMLToolDefinitions: boolean; strictJsonToolArguments?: boolean; minimalismMode?: MinimalismMode; modelFamily?: ModelFamily; maxTools?: number; memoryProjects?: string }) => {
 	const header = (`You are an expert coding ${mode === 'agent' ? 'agent' : 'assistant'} running inside VibeIDE whose job is \
 ${mode === 'agent' ? `to help the user develop, run, and make changes to their codebase.`
 			: mode === 'gather' ? `to search, understand, and reference files in the user's codebase.`
@@ -371,33 +371,8 @@ ${workspaceFolders.join('\n') || 'NO FOLDERS OPEN'}${memoryProjects ? `
 - Shared memory (VibeMemory) projects of these folders:
 ${memoryProjects}` : ''}
 
-- Active file:
-${activeURI}
-
-- Open files:
-${openedURIs.join('\n') || 'NO OPENED FILES'}${''/* separator */}${mode === 'agent' && persistentTerminalIDs.length !== 0 ? `
-
-- Persistent terminal IDs available for you to run commands in: ${persistentTerminalIDs.join(', ')}` : ''}
+- ${TURN_CONTEXT_NOTE}
 </system_info>`);
-
-
-	// Truncate directoryStr if too long (optimize for token budget)
-	// Further reduced for better TTFS - directory info can be fetched via tools if needed
-	// Budget for the file-tree overview: the per-model `maxPromptDirectoryChars`, else the global
-	// `vibeide.prompt.directoryOverviewChars` passed in by the caller, else the historical default.
-	// Non-agent modes stay slightly tighter — they explore less and pay the same tokens.
-	const DEFAULT_DIRSTR_LENGTH = mode === 'agent' ? 10_000 : 8_000;
-	const MAX_DIRSTR_LENGTH = directoryOverviewChars && directoryOverviewChars > 0
-		? (mode === 'agent' ? directoryOverviewChars : Math.round(directoryOverviewChars * 0.8))
-		: DEFAULT_DIRSTR_LENGTH;
-	const truncatedDirStr = directoryStr.length > MAX_DIRSTR_LENGTH
-		? directoryStr.substring(0, MAX_DIRSTR_LENGTH) + '\n... (truncated - use tools to explore more)'
-		: directoryStr;
-
-	const fsInfo = (`Here is an overview of the user's file system:
-<files_overview>
-${truncatedDirStr}
-</files_overview>`);
 
 
 	const toolDefinitions = includeXMLToolDefinitions ? systemToolsXMLPrompt(mode, mcpTools, maxTools) : null;
@@ -439,7 +414,7 @@ ${truncatedDirStr}
 	}
 
 	// Shorter code block instruction
-	details.push(`Code: Include language, file path if known. Today: ${new Date().toDateString()}.`);
+	details.push('Code: Include language, file path if known.');
 
 	// Bullets, NOT numbers. Numbered instructions that mention tool names
 	// (`4. ... Use read_file, edit_file, search_for_files, run_command`) make
@@ -450,12 +425,6 @@ ${truncatedDirStr}
 	// numbering anywhere near tool name mentions in the system prompt.
 	const importantDetails = (`Important notes:
 ${details.map((d) => `- ${d}`).join('\n\n')}`);
-
-	// Add project memories if available
-	const memoriesSection = relevantMemories ? (`<project_memories>
-Here are relevant memories from this project that may help you understand context, decisions, and preferences:
-${relevantMemories}
-</project_memories>`) : null;
 
 	// return answer
 	const ansStrs: string[] = [];
@@ -477,18 +446,13 @@ ${toolDefinitions}
 	if (minimalism) {
 		ansStrs.push(minimalism);
 	}
-	if (memoriesSection) {
-		ansStrs.push(memoriesSection);
-	}
-	ansStrs.push(fsInfo);
-
 	const fullSystemMsgStr = ansStrs.join('\n\n');
 	return fullSystemMsgStr;
 };
 
 // Minimal chat system message for local models (drastically reduced)
 // Used for local models to minimize token usage and latency
-export const chat_systemMessage_local = ({ memoryProjects, maxTools, directoryOverviewChars, workspaceFolders, openedURIs, activeURI, chatMode: mode, includeXMLToolDefinitions, relevantMemories, mcpTools, strictJsonToolArguments, minimalismMode, modelFamily: _modelFamily }: { workspaceFolders: string[]; directoryStr: string; openedURIs: string[]; activeURI: string | undefined; persistentTerminalIDs: string[]; chatMode: ChatMode; mcpTools: InternalToolInfo[] | undefined; includeXMLToolDefinitions: boolean; relevantMemories?: string; strictJsonToolArguments?: boolean; minimalismMode?: MinimalismMode; modelFamily?: ModelFamily; maxTools?: number; directoryOverviewChars?: number; memoryProjects?: string }) => {
+export const chat_systemMessage_local = ({ memoryProjects, maxTools, workspaceFolders, chatMode: mode, includeXMLToolDefinitions, mcpTools, strictJsonToolArguments, minimalismMode, modelFamily: _modelFamily }: { workspaceFolders: string[]; chatMode: ChatMode; mcpTools: InternalToolInfo[] | undefined; includeXMLToolDefinitions: boolean; strictJsonToolArguments?: boolean; minimalismMode?: MinimalismMode; modelFamily?: ModelFamily; maxTools?: number; memoryProjects?: string }) => {
 	const header = mode === 'agent'
 		? 'Coding agent. Use tools for actions.'
 		: mode === 'gather'
@@ -497,7 +461,7 @@ export const chat_systemMessage_local = ({ memoryProjects, maxTools, directoryOv
 				? 'Planning assistant. Read codebase, produce structured plan. NO file edits or commands.'
 				: 'Code assistant.';
 
-	const sysInfo = `System: ${os}\nWorkspace: ${workspaceFolders.join(', ') || 'none'}\nActive: ${activeURI || 'none'}\nOpen: ${openedURIs.slice(0, 3).join(', ') || 'none'}${openedURIs.length > 3 ? '...' : ''}${memoryProjects ? `\nMemory projects:\n${memoryProjects}` : ''}`;
+	const sysInfo = `System: ${os}\nWorkspace: ${workspaceFolders.join(', ') || 'none'}${memoryProjects ? `\nMemory projects:\n${memoryProjects}` : ''}\n${TURN_CONTEXT_NOTE}`;
 
 	const toolDefinitions = includeXMLToolDefinitions ? systemToolsXMLPrompt(mode, mcpTools, maxTools) : null;
 
@@ -520,21 +484,60 @@ export const chat_systemMessage_local = ({ memoryProjects, maxTools, directoryOv
 
 	const importantDetails = details.length > 0 ? `\n${details.join('\n')}` : '';
 
-	const memoriesSection = relevantMemories ? `\n\n<memories>\n${relevantMemories.slice(0, 500)}${relevantMemories.length > 500 ? '...' : ''}\n</memories>` : '';
-
 	const ansStrs: string[] = [header, sysInfo];
 	if (toolDefinitions) {
 		ansStrs.push(`\n<tools>\n${toolDefinitions}\n</tools>`);
 	}
 	ansStrs.push(importantDetails);
-	if (memoriesSection) {
-		ansStrs.push(memoriesSection);
-	}
 
 	const fullSystemMsgStr = ansStrs.join('\n\n');
 	return fullSystemMsgStr;
 };
 
+
+/** The system prompt says where the per-turn facts went, so the model does not look for them there */
+const TURN_CONTEXT_NOTE = 'The active file, open files, date and file tree are not here: each user message may start with a <turn_context> block describing the editor at the moment it was written — the latest one is current.';
+
+/**
+ * What changes from turn to turn, as a block at the start of the user's message
+ *
+ * The system prompt is the conversation's cached prefix: an active file or a date inside it changed that prefix on every
+ * switch of the editor tab, and the provider's cache — and Claude's signed thinking, bound to the exact prefix — went
+ * with it. Here the block belongs to one message and is stored with it, so a later request repeats it byte for byte and
+ * the conversation only grows at its end
+ */
+export const chat_turnContext = ({ chatMode: mode, activeURI, openedURIs, persistentTerminalIDs, directoryStr, directoryOverviewChars, relevantMemories, activatedRules, local }: { chatMode: ChatMode; activeURI: string | undefined; openedURIs: string[]; persistentTerminalIDs: string[]; directoryStr: string | undefined; directoryOverviewChars?: number; relevantMemories?: string; activatedRules?: string; local?: boolean }): string => {
+	const lines: string[] = [];
+	if (!local) {
+		lines.push(`- Date: ${new Date().toDateString()}`);
+	}
+	lines.push(`- Active file: ${activeURI || 'none'}`);
+	const open = local ? openedURIs.slice(0, 3) : openedURIs;
+	lines.push(`- Open files:${open.length > 0 ? `\n${open.join('\n')}${local && openedURIs.length > 3 ? '\n...' : ''}` : ' none'}`);
+	if (mode === 'agent' && persistentTerminalIDs.length > 0) {
+		lines.push(`- Persistent terminal IDs available for you to run commands in: ${persistentTerminalIDs.join(', ')}`);
+	}
+	const parts = [lines.join('\n')];
+	if (relevantMemories) {
+		const memories = local && relevantMemories.length > 500 ? `${relevantMemories.slice(0, 500)}...` : relevantMemories;
+		parts.push(`<project_memories>\nRelevant memories from this project — context, decisions and preferences:\n${memories}\n</project_memories>`);
+	}
+	if (activatedRules) {
+		parts.push(`<activated_rules>\nProject rules that apply to this request — follow them as the standing <project_rules>:\n${activatedRules}\n</activated_rules>`);
+	}
+	if (directoryStr && !local) {
+		// Budget for the file-tree overview: the per-model `maxPromptDirectoryChars`, else the global
+		// `vibeide.prompt.directoryOverviewChars` passed in by the caller, else the historical default.
+		// Non-agent modes stay slightly tighter — they explore less and pay the same tokens.
+		const defaultLength = mode === 'agent' ? 10_000 : 8_000;
+		const maxLength = directoryOverviewChars && directoryOverviewChars > 0
+			? (mode === 'agent' ? directoryOverviewChars : Math.round(directoryOverviewChars * 0.8))
+			: defaultLength;
+		const tree = directoryStr.length > maxLength ? `${directoryStr.substring(0, maxLength)}\n... (truncated - use tools to explore more)` : directoryStr;
+		parts.push(`<files_overview>\n${tree}\n</files_overview>`);
+	}
+	return `<turn_context>\n${parts.join('\n\n')}\n</turn_context>`;
+};
 
 // // log all prompts
 // for (const chatMode of ['agent', 'gather', 'normal'] satisfies ChatMode[]) {

@@ -17,6 +17,7 @@ import { Emitter, Event } from '../../../../base/common/event.js';
 import { ILLMMessageService } from '../common/sendLLMMessageService.js';
 import { compressGenericToolOutput } from '../common/commandOutputCompressor.js';
 import { isLocalProvider } from '../common/isLocalProvider.js';
+import { lastRealUserIndex } from '../common/turnContext.js';
 import { nextChatTraceTurn, recordChatTrace } from './vibeChatRunTrace.js';
 import { availableTools, builtinTools, builtinToolNames, chat_userMessageContent, isABuiltinToolName } from '../common/prompt/prompts.js';
 import { TOOL_NAME_ALIASES, applyParamAliases, detectToolByParamShape } from '../common/prompt/toolAliases.js';
@@ -5982,6 +5983,7 @@ Output ONLY the JSON, no other text. Start with { and end with }.`;
 				});
 				messages = prepResult.messages;
 				separateSystemMessage = prepResult.separateSystemMessage;
+				this._storeTurnContext(threadId, prepResult.turnContext);
 
 				// Compute token count and context size
 				const tokenResult = this._computeTokenCount(messages);
@@ -6142,6 +6144,7 @@ Output ONLY the JSON, no other text. Start with { and end with }.`;
 								});
 								messages = prepResult.messages;
 								separateSystemMessage = prepResult.separateSystemMessage;
+								this._storeTurnContext(threadId, prepResult.turnContext);
 
 								// Compute token count
 								const tokenResult = this._computeTokenCount(messages);
@@ -8659,6 +8662,20 @@ Output ONLY the JSON, no other text. Start with { and end with }.`;
 	}
 
 
+
+	/**
+	 * Keep the context a request built for the last real user message on that message — see common/turnContext.ts
+	 * A later request repeats it instead of rebuilding it from the editor as it is then, and the prefix stays cached
+	 */
+	private _storeTurnContext(threadId: string, turnContext: string | undefined): void {
+		if (turnContext === undefined) { return; }
+		const messages = this.state.allThreads[threadId]?.messages;
+		const idx = messages ? lastRealUserIndex(messages) : -1;
+		const message = idx >= 0 ? messages?.[idx] : undefined;
+		if (message?.role === 'user' && message.turnContext === undefined) {
+			this._editMessageInThread(threadId, idx, { ...message, turnContext });
+		}
+	}
 
 	private _editMessageInThread(threadId: string, messageIdx: number, newMessage: ChatMessage,) {
 		const { allThreads } = this.state;

@@ -284,6 +284,12 @@ export type ChatMessage =
 		// language detection) — otherwise consecutive nudges slide the keep-window past fresh tool
 		// results and the model re-issues identical calls in circles (observed sonnet stall loop).
 		isSyntheticNudge?: boolean;
+		/**
+		 * What the model saw ahead of this message: the per-turn context block (`<turn_context>` — active file, open files,
+		 * date, rules this request switched on, retrieval, skill bodies). Computed once, when the message is first sent,
+		 * and repeated byte for byte on every later request, so the conversation prefix only grows — see common/turnContext.ts
+		 */
+		turnContext?: string;
 		state: {
 			stagingSelections: StagingSelectionItem[];
 			isBeingEdited: boolean;

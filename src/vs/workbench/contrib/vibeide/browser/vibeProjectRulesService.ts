@@ -77,6 +77,12 @@ export interface IVibeProjectRulesService {
 	 * Returns empty string if no rules files found.
 	 */
 	getCombinedRules(activation?: { userText?: string; files?: readonly string[] }): string;
+	/**
+	 * The rules split by how long they hold, for the agent chat: `standing` — rules that apply always plus the index of
+	 * every conditional one, the same whatever the request (it goes into the cached system prompt); `activated` — bodies
+	 * of the conditional rules this request switched on (they go with the user's message, `<turn_context>`)
+	 */
+	getRulesForTurn(activation: { userText?: string; files?: readonly string[] }): { readonly standing: string; readonly activated: string };
 
 	/** Get list of loaded rule sources (for UI preview / settings panel) */
 	getLoadedSources(): LoadedRuleSource[];
@@ -253,6 +259,55 @@ export class VibeProjectRulesService extends Disposable implements IVibeProjectR
 		// contrib reloads on workspace change + the reload command refreshes).
 		if (!activation) { return this._cachedCombined; }
 		return this._combineSources(this._cachedSources, activation);
+	}
+
+	getRulesForTurn(activation: { userText?: string; files?: readonly string[] }): { readonly standing: string; readonly activated: string } {
+		const standing: string[] = [];
+		const activated: string[] = [];
+		const indexed: LoadedRuleSource[] = [];
+		for (const { source, body } of this._injectableSources(this._cachedSources)) {
+			const block = `[Source: ${source.relativePath}${source.wasRedacted ? ' (secrets redacted)' : ''}]\n${body}`;
+			const rule = { alwaysApply: source.alwaysApply, triggers: source.triggers ?? [], globs: source.globs ?? [] };
+			if (decideRuleActivation(rule, {}) === 'inject') {
+				standing.push(block);
+				continue;
+			}
+			// Listed whether or not it fires now: the list is the same on every turn, the body rides with the message
+			indexed.push(source);
+			if (decideRuleActivation(rule, activation) === 'inject') {
+				activated.push(block);
+			}
+		}
+		const parts: string[] = [];
+		if (standing.length > 0) { parts.push(standing.join('\n\n')); }
+		if (indexed.length > 0) {
+			const list = indexed.map(s => `- ${ruleNameFromPath(s.relativePath)}${s.description ? ` — ${s.description}` : ''}`).join('\n');
+			parts.push(`[Conditional project rules — the ones that apply to a request come with it in <activated_rules>; any of them loads with @rule:<name>]\n${list}`);
+		}
+		return { standing: this._capped(parts.join('\n\n').trim()), activated: activated.join('\n\n') };
+	}
+
+	/** Sources that carry a rule: enabled, not empty after comments and headings, not a duplicate of an earlier one */
+	private _injectableSources(sources: readonly LoadedRuleSource[]): { readonly source: LoadedRuleSource; readonly body: string }[] {
+		const disabled = new Set((this._config.getValue<string[]>(DISABLED_SOURCES_KEY) ?? []).map(normalizeRuleKey));
+		const seen = new Set<string>();
+		const out: { source: LoadedRuleSource; body: string }[] = [];
+		for (const source of sources) {
+			if (disabled.has(normalizeRuleKey(source.relativePath))) { continue; }
+			const body = source.content.replace(/<!--[\s\S]*?-->/g, '').trim();
+			if (body.length === 0 || body.replace(/^#{1,6}\s.*$/gm, '').trim().length === 0 || seen.has(body)) { continue; }
+			seen.add(body);
+			out.push({ source, body });
+		}
+		return out;
+	}
+
+	/** Honor vibeide.projectRules.maxCombinedChars — a hard cap on injected rules; 0 or less disables it */
+	private _capped(combined: string): string {
+		const maxChars = this._config.getValue<number>(MAX_COMBINED_CHARS_KEY) ?? DEFAULT_MAX_COMBINED_CHARS;
+		return maxChars > 0 && combined.length > maxChars
+			? combined.slice(0, maxChars).trimEnd() + '\n…[project rules truncated to maxCombinedChars]'
+			: combined;
 	}
 
 	/**

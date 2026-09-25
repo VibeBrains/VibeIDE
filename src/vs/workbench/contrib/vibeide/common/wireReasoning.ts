@@ -52,8 +52,9 @@ export type ClaudeThinkingOptions = {
  * Anthropic's thinking options for one request.
  *
  * @param dropStaleBlocks the model binds a thinking block to the conversation it was produced in (quirk
- * `reasoningBoundToModel`). Our system prompt changes between turns, so a replayed block would answer 400
- * on accounts where the vendor enforces the binding; the request asks to drop such a block instead.
+ * `reasoningBoundToModel`). The prefix still changes when old history is folded into a summary or the project's rules
+ * change mid-conversation, and a replayed block would answer 400 on accounts where the vendor enforces the binding;
+ * the request asks to drop such a block instead.
  */
 export function claudeThinkingOptions(reasoning: SendableReasoningInfo, display: ClaudeThinkingDisplay, dropStaleBlocks: boolean): ClaudeThinkingOptions {
 	const blockBinding: ClaudeBlockBinding | undefined = dropStaleBlocks ? { prefixMismatchBehavior: 'drop_block' } : undefined;

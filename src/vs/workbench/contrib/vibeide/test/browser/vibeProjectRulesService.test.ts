@@ -97,4 +97,41 @@ suite('VibeProjectRulesService — правило пакета доходит д
 			текст: true,
 		});
 	});
+
+	// The system prompt is the cached prefix: a rule switched on by this request must not change it, it rides with the message
+	test('правила хода: постоянные и список условных — в системный промпт, сработавшие условные — к сообщению', async () => {
+		const fileService = disposables.add(new FileService(new NullLogService()));
+		disposables.add(fileService.registerProvider(Schemas.file, disposables.add(new InMemoryFileSystemProvider())));
+		const write = (path: string, text: string) => fileService.writeFile(URI.file(`/ws/${path}`), VSBuffer.fromString(text));
+		await write('.vibe/rules.md', '# Правила\n\nОтвечай по-русски.\n');
+		await write('.vibe/rules/deploy.mdc', '---\ndescription: Выкладка\ntriggers: "деплой"\n---\nПеред деплоем — `// ЛИМОН` в журнал.\n');
+		await write('.vibe/rules/review.mdc', '---\ndescription: Ревью\nalwaysApply: false\n---\nПроверяй тесты.\n');
+
+		const service = disposables.add(new VibeProjectRulesService(
+			new NullLogService(),
+			fileService,
+			new TestContextService(testWorkspace(URI.file('/ws'))),
+			new PassThroughPromptGuard(),
+			new TestConfigurationService(),
+		));
+		await service.reloadRules();
+		const touchingSrc = service.getRulesForTurn({ userText: 'Сделай деплой на стенд' });
+		const elsewhere = service.getRulesForTurn({ userText: 'Поправь README' });
+
+		assert.deepStrictEqual({
+			постоянныеОдинаковы: touchingSrc.standing === elsewhere.standing,
+			постоянноеВнутри: touchingSrc.standing.includes('Отвечай по-русски.'),
+			условныеВСписке: touchingSrc.standing.includes('[Conditional project rules') && touchingSrc.standing.includes('review'),
+			телоУсловногоНеВСистемном: touchingSrc.standing.includes('// ЛИМОН'),
+			сработавшееКСообщению: touchingSrc.activated.includes('[Source: .vibe/rules/deploy.mdc]') && touchingSrc.activated.includes('// ЛИМОН'),
+			несработавшегоНет: elsewhere.activated,
+		}, {
+			постоянныеОдинаковы: true,
+			постоянноеВнутри: true,
+			условныеВСписке: true,
+			телоУсловногоНеВСистемном: false,
+			сработавшееКСообщению: true,
+			несработавшегоНет: '',
+		});
+	});
 });

@@ -62,7 +62,7 @@ function uint8ArrayToBase64(data: Uint8Array): string {
 	}
 }
 import { getIsReasoningEnabledState, getReservedOutputTokenSpace, getModelCapabilities } from '../common/modelCapabilities.js';
-import { reParsedToolXMLString, chat_systemMessage, chat_systemMessage_local, systemToolsXMLPrompt } from '../common/prompt/prompts.js';
+import { reParsedToolXMLString, chat_systemMessage, chat_systemMessage_local, chat_turnContext, systemToolsXMLPrompt } from '../common/prompt/prompts.js';
 import { detectModelFamily } from '../common/prompt/modelFamily.js';
 import { computeLastExchangePinSet } from '../common/prompt/lastExchangePin.js';
 import { isPinnedContextMessage } from '../common/prompt/pinnedContext.js';
@@ -83,6 +83,7 @@ import { autoFallbackProviderIds, ChatMode, FeatureName, ModelSelection, Provide
 import { ILLMMessageService } from '../common/sendLLMMessageService.js';
 import { hash } from '../../../../base/common/hash.js';
 import { isLocalProvider } from '../common/isLocalProvider.js';
+import { lastRealUserIndex, withoutRepeatedFilesOverview } from '../common/turnContext.js';
 import { IDirectoryStrService } from '../common/directoryStrService.js';
 import { ITerminalToolService } from './terminalToolService.js';
 import { IVibeideModelService } from '../common/vibeideModelService.js';
@@ -1371,7 +1372,7 @@ export interface IConvertToLLMMessageService {
 	/** Build a composition breakdown of the prompt for the selected model (powers the Context Report command). Read-only — sends nothing. */
 	buildContextBreakdown(modelSelection: ModelSelection | null): Promise<ContextBreakdown>;
 	prepareLLMSimpleMessages: (opts: { simpleMessages: SimpleLLMMessage[]; systemMessage: string; modelSelection: ModelSelection | null; featureName: FeatureName }) => { messages: LLMChatMessage[]; separateSystemMessage: string | undefined };
-	prepareLLMChatMessages: (opts: { chatMessages: ChatMessage[]; chatMode: ChatMode; modelSelection: ModelSelection | null; repoIndexerPromise?: Promise<{ results: string[]; metrics: QueryMetrics } | null>; skipContextGuardUpdate?: boolean }) => Promise<{ messages: LLMChatMessage[]; separateSystemMessage: string | undefined }>;
+	prepareLLMChatMessages: (opts: { chatMessages: ChatMessage[]; chatMode: ChatMode; modelSelection: ModelSelection | null; repoIndexerPromise?: Promise<{ results: string[]; metrics: QueryMetrics } | null>; skipContextGuardUpdate?: boolean }) => Promise<{ messages: LLMChatMessage[]; separateSystemMessage: string | undefined; turnContext?: string }>;
 	prepareFIMMessage(opts: { messages: LLMFIMMessage; modelSelection: ModelSelection | null; featureName: FeatureName; languageId?: string }): { prefix: string; suffix: string; stopTokens: string[] };
 	startRepoIndexerQuery: (chatMessages: ChatMessage[], chatMode: ChatMode) => Promise<{ results: string[]; metrics: QueryMetrics } | null>;
 	/** Feed back a provider-reported prompt token count so the token-budget estimator can self-calibrate per (provider×model). No-op until a prompt has been built for that model this session. */
@@ -1572,9 +1573,10 @@ class ConvertToLLMMessageService extends Disposable implements IConvertToLLMMess
 	}
 
 	// Get combined AI instructions from settings, .vibe/rules.md, and AGENTS.md (via open models)
-	private _getCombinedAIInstructions(activation?: { userText?: string; files?: readonly string[] }): string {
+	// `rules` — the standing part of the agent chat's rules (`getRulesForTurn`); absent — all rules, as Ctrl+K and Autocomplete take them
+	private _getCombinedAIInstructions(rules?: string): string {
 		const globalAIInstructions = this.vibeideSettingsService.state.globalSettings.aiInstructions;
-		const vibeRulesFileContent = this._getVibeRulesFileContents(activation);
+		const vibeRulesFileContent = rules ?? this._getVibeRulesFileContents();
 
 		const ans: string[] = [];
 		if (globalAIInstructions) { ans.push(globalAIInstructions); }
@@ -1646,18 +1648,16 @@ class ConvertToLLMMessageService extends Disposable implements IConvertToLLMMess
 
 	private _generateChatMessagesSystemMessage = async (chatMode: ChatMode, specialToolFormat: 'openai-style' | 'anthropic-style' | 'gemini-style' | undefined, providerName?: string, modelName?: string) => {
 		const workspaceFolders = this.workspaceContextService.getWorkspace().folders.map(f => f.uri.fsPath);
-
-		const openedURIs = this.modelService.getModels().filter(m => m.isAttachedToEditor()).map(m => m.uri.fsPath) || [];
-		const activeURI = this.editorService.activeEditor?.resource?.fsPath;
-
 		const preferJsonToolArguments = this.configurationService.getValue<boolean>('vibeide.agent.preferJsonToolArguments') ?? false;
 
-		// Create cache key from relevant factors. modelFamily is folded in so that
-		// future family-specific prompt branches don't bleed across providers.
+		// Only what holds for the whole conversation is in the key and in the prompt: the active file, open files, date and
+		// file tree ride with the user's message (`_turnContextFor`), so a tab switch no longer rebuilds the cached prefix.
+		// modelFamily is folded in so that future family-specific prompt branches don't bleed across providers.
 		const minimalismMode = this.vibeideSettingsService.state.globalSettings.minimalismMode ?? 'lite';
 		// Part of the key: a folder the memory server has just named must not keep a prompt built without it.
 		const memoryProjects = await this._memoryProjects(workspaceFolders);
-		const cacheKey = `${chatMode}|${specialToolFormat}|${providerName ?? ''}|${modelName ?? ''}|${workspaceFolders.join(',')}|${openedURIs.join(',')}|${activeURI || ''}|pj:${preferJsonToolArguments}|min:${minimalismMode}|mem:${memoryProjects ?? ''}`;
+		const mcpTools = this.mcpService.getMCPTools();
+		const cacheKey = `${chatMode}|${specialToolFormat}|${providerName ?? ''}|${modelName ?? ''}|${workspaceFolders.join(',')}|pj:${preferJsonToolArguments}|min:${minimalismMode}|mem:${memoryProjects ?? ''}|mcp:${mcpTools?.map(t => t.name).join(',') ?? ''}`;
 
 		// Check cache
 		const cached = this._systemMessageCache.get(cacheKey);
@@ -1666,12 +1666,6 @@ class ConvertToLLMMessageService extends Disposable implements IConvertToLLMMess
 			return cached.message;
 		}
 
-		const directoryStr = await this.directoryStrService.getAllDirectoriesStr({
-			cutOffMessage: chatMode === 'agent' || chatMode === 'gather' || chatMode === 'plan' ?
-				`...Directories string cut off, use tools to read more...`
-				: `...Directories string cut off, ask user for more if necessary...`
-		});
-
 		// Native function-calling models (specialToolFormat set) receive tools via
 		// the SDK's `tools:` field — duplicating them in the system prompt as XML
 		// invites the model to hallucinate by-index references ("MCP tool 1"). Only
@@ -1679,48 +1673,10 @@ class ConvertToLLMMessageService extends Disposable implements IConvertToLLMMess
 		const includeXMLToolDefinitions = !specialToolFormat;
 		const modelFamily = detectModelFamily(providerName, modelName, specialToolFormat);
 
-		const mcpTools = this.mcpService.getMCPTools();
-
-		const persistentTerminalIDs = this.terminalToolService.listPersistentTerminalIds();
-
-		// Get relevant memories for the current context (use active file and recent user messages as query)
-		let relevantMemories: string | undefined;
-		if (this.memoriesService.isEnabled()) {
-			try {
-				// Build query from active file and opened files for relevance
-				const queryParts: string[] = [];
-				if (activeURI) {
-					const fileName = activeURI.split('/').pop() || '';
-					queryParts.push(fileName);
-				}
-				openedURIs.forEach(uri => {
-					const fileName = uri.split('/').pop() || '';
-					queryParts.push(fileName);
-				});
-				const query = queryParts.join(' ') || 'project context';
-
-				const memories = await this.memoriesService.getRelevantMemories(query, 5);
-				if (memories.length > 0) {
-					const memoryLines = memories.map(m => {
-						const typeLabel = m.entry.type === 'decision' ? 'Decision' :
-							m.entry.type === 'preference' ? 'Preference' :
-								m.entry.type === 'recentFile' ? 'Recent File' : 'Context';
-						return `- [${typeLabel}] ${m.entry.key}: ${m.entry.value}`;
-					});
-					relevantMemories = memoryLines.join('\n');
-				}
-			} catch (error) {
-				// Memories unavailable, continue without them
-				vibeLog.debug('convertToLLMMessage', '[ConvertToLLMMessage] Failed to get memories:', error);
-			}
-		}
-
-		// Volume budgets for this model: how many tools it is handed and how much of the file-tree
-		// overview it is shown. Both default to "as before" — an unset budget must never quietly
-		// start trimming a frontier model. `providerName`/`modelName` are already part of the cache
-		// key above, so a per-model budget cannot leak into another model's cached prompt.
-		const budgets = this._promptBudgets(providerName, modelName);
-		const systemMessage = chat_systemMessage({ workspaceFolders, openedURIs, directoryStr, activeURI, persistentTerminalIDs, chatMode, mcpTools, includeXMLToolDefinitions, relevantMemories, strictJsonToolArguments: preferJsonToolArguments, minimalismMode, modelFamily, memoryProjects, ...budgets });
+		// The tool budget of this model; `providerName`/`modelName` are part of the cache key, so it cannot leak into another
+		// model's cached prompt.
+		const { maxTools } = this._promptBudgets(providerName, modelName);
+		const systemMessage = chat_systemMessage({ workspaceFolders, chatMode, mcpTools, includeXMLToolDefinitions, strictJsonToolArguments: preferJsonToolArguments, minimalismMode, modelFamily, memoryProjects, maxTools });
 
 		// Cache the result
 		this._systemMessageCache.set(cacheKey, { message: systemMessage, timestamp: now });
@@ -1737,12 +1693,64 @@ class ConvertToLLMMessageService extends Disposable implements IConvertToLLMMess
 		return systemMessage;
 	};
 
+	/** Memories the memory service finds relevant to the files in view; `undefined` when it is off or finds nothing */
+	private async _relevantMemories(activeURI: string | undefined, openedURIs: readonly string[]): Promise<string | undefined> {
+		if (!this.memoriesService.isEnabled()) {
+			return undefined;
+		}
+		try {
+			const queryParts = [activeURI, ...openedURIs].filter((uri): uri is string => !!uri).map(uri => uri.split('/').pop() || '');
+			const memories = await this.memoriesService.getRelevantMemories(queryParts.join(' ') || 'project context', 5);
+			if (memories.length === 0) {
+				return undefined;
+			}
+			return memories.map(m => {
+				const typeLabel = m.entry.type === 'decision' ? 'Decision' :
+					m.entry.type === 'preference' ? 'Preference' :
+						m.entry.type === 'recentFile' ? 'Recent File' : 'Context';
+				return `- [${typeLabel}] ${m.entry.key}: ${m.entry.value}`;
+			}).join('\n');
+		} catch (error) {
+			vibeLog.debug('convertToLLMMessage', '[ConvertToLLMMessage] Failed to get memories:', error);
+			return undefined;
+		}
+	}
 
-
+	/**
+	 * The editor as it is now, for the message about to be sent: active file, open files, date, terminals, memories,
+	 * the rules this request switched on, and the file tree when it changed since an earlier message carried one
+	 */
+	private async _turnContextFor(chatMode: ChatMode, local: boolean, activatedRules: string, history: readonly ChatMessage[], providerName: string, modelName: string): Promise<string> {
+		const openedURIs = local
+			? this.editorService.editors.map(e => e.resource?.fsPath || '').filter(Boolean)
+			: this.modelService.getModels().filter(m => m.isAttachedToEditor()).map(m => m.uri.fsPath);
+		const activeURI = this.editorService.activeEditor?.resource?.fsPath;
+		const directoryStr = local ? undefined : await this.directoryStrService.getAllDirectoriesStr({
+			cutOffMessage: chatMode === 'agent' || chatMode === 'gather' || chatMode === 'plan' ?
+				`...Directories string cut off, use tools to read more...`
+				: `...Directories string cut off, ask user for more if necessary...`
+		});
+		const block = chat_turnContext({
+			chatMode,
+			activeURI,
+			openedURIs,
+			persistentTerminalIDs: this.terminalToolService.listPersistentTerminalIds(),
+			directoryStr,
+			directoryOverviewChars: this._promptBudgets(providerName, modelName).directoryOverviewChars,
+			relevantMemories: await this._relevantMemories(activeURI, openedURIs),
+			activatedRules,
+			local,
+		});
+		return withoutRepeatedFilesOverview(block, history.map(m => m.role === 'user' ? m.turnContext : undefined));
+	}
 
 	// --- LLM Chat messages ---
 
-	private _chatMessagesToSimpleMessages(chatMessages: ChatMessage[]): SimpleLLMMessage[] {
+	/**
+	 * `pending` — the context of the message being sent now, not stored on it yet; every earlier message repeats its own
+	 * stored block, so the conversation prefix stays what the provider cached
+	 */
+	private _chatMessagesToSimpleMessages(chatMessages: ChatMessage[], pending?: { readonly message: ChatMessage; readonly turnContext: string }): SimpleLLMMessage[] {
 		const simpleLLMMessages: SimpleLLMMessage[] = [];
 
 		for (const m of chatMessages) {
@@ -1769,9 +1777,10 @@ class ConvertToLLMMessageService extends Disposable implements IConvertToLLMMess
 				});
 			}
 			else if (m.role === 'user') {
+				const turnContext = pending?.message === m ? pending.turnContext : m.turnContext;
 				simpleLLMMessages.push({
 					role: m.role,
-					content: m.content,
+					content: turnContext ? `${turnContext}\n\n${m.content}` : m.content,
 					images: m.images,
 					pinned: m.pinned,
 					isSyntheticNudge: m.isSyntheticNudge,
@@ -1909,7 +1918,8 @@ class ConvertToLLMMessageService extends Disposable implements IConvertToLLMMess
 			modelContextWindow = caps.contextWindow ?? 0;
 		}
 
-		// System frame (workspace, directory tree, environment, memories) + (for XML models) tool defs.
+		// System frame (workspace, environment) + (for XML models) tool defs. The file tree, memories and the editor's state
+		// ride in each message's <turn_context> and fall into the conversation share, measured as the remainder.
 		const fullSystem = await this._generateChatMessagesSystemMessage('agent', specialToolFormat, sel?.providerName, sel?.modelName);
 		// Native function-calling models receive tools via the SDK, NOT in the prompt. We still
 		// estimate the XML tool-schema size to show how heavy the tool surface is for this model.
@@ -1998,54 +2008,16 @@ class ConvertToLLMMessageService extends Disposable implements IConvertToLLMMess
 		if (disableSystemMessage) {
 			systemMessage = '';
 		} else if (isLocal) {
-			// Use minimal local template for local models
+			// Minimal local template; the per-turn facts ride with the user's message (`_turnContextFor`), as for cloud models
 			const workspaceFolders = this.workspaceContextService.getWorkspace().folders.map(f => f.uri.fsPath);
-			const openedURIs = this.editorService.editors.map(e => e.resource?.fsPath || '').filter(Boolean);
-			const activeURI = this.editorService.activeEditor?.resource?.fsPath;
-			const directoryStr = await this.directoryStrService.getAllDirectoriesStr({
-				cutOffMessage: chatMode === 'agent' || chatMode === 'gather' || chatMode === 'plan' ?
-					`...Directories string cut off, use tools to read more...`
-					: `...Directories string cut off, ask user for more if necessary...`
-			});
 			// Same rationale as the cloud path: avoid dual-channel tool exposure
 			// when the model can call tools natively. Local models typically
 			// have specialToolFormat===undefined and keep the XML block.
 			const includeXMLToolDefinitions = !specialToolFormat;
 			const modelFamily = detectModelFamily(validProviderName, modelName, specialToolFormat);
 			const mcpTools = this.mcpService.getMCPTools();
-			const persistentTerminalIDs = this.terminalToolService.listPersistentTerminalIds();
-
-			// Get relevant memories for the current context
-			let relevantMemories: string | undefined;
-			if (this.memoriesService.isEnabled()) {
-				try {
-					const queryParts: string[] = [];
-					if (activeURI) {
-						const fileName = activeURI.split('/').pop() || '';
-						queryParts.push(fileName);
-					}
-					openedURIs.forEach(uri => {
-						const fileName = uri.split('/').pop() || '';
-						queryParts.push(fileName);
-					});
-					const query = queryParts.join(' ') || 'project context';
-					const memories = await this.memoriesService.getRelevantMemories(query, 5);
-					if (memories.length > 0) {
-						const memoryLines = memories.map(m => {
-							const typeLabel = m.entry.type === 'decision' ? 'Decision' :
-								m.entry.type === 'preference' ? 'Preference' :
-									m.entry.type === 'recentFile' ? 'Recent File' : 'Context';
-							return `- [${typeLabel}] ${m.entry.key}: ${m.entry.value}`;
-						});
-						relevantMemories = memoryLines.join('\n');
-					}
-				} catch (error) {
-					vibeLog.debug('convertToLLMMessage', '[ConvertToLLMMessage] Failed to get memories:', error);
-				}
-			}
-
 			const memoryProjects = await this._memoryProjects(workspaceFolders);
-			systemMessage = chat_systemMessage_local({ memoryProjects, workspaceFolders, openedURIs, directoryStr, activeURI, persistentTerminalIDs, chatMode, mcpTools, includeXMLToolDefinitions, relevantMemories, strictJsonToolArguments: preferJsonToolArguments, minimalismMode: this.vibeideSettingsService.state.globalSettings.minimalismMode ?? 'lite', modelFamily , ...this._promptBudgets(providerName, modelName) });
+			systemMessage = chat_systemMessage_local({ memoryProjects, workspaceFolders, chatMode, mcpTools, includeXMLToolDefinitions, strictJsonToolArguments: preferJsonToolArguments, minimalismMode: this.vibeideSettingsService.state.globalSettings.minimalismMode ?? 'lite', modelFamily, maxTools: this._promptBudgets(providerName, modelName).maxTools });
 		} else {
 			// Use full system message for cloud models
 			systemMessage = await this._generateChatMessagesSystemMessage(chatMode, specialToolFormat, validProviderName, modelName);
@@ -2274,10 +2246,11 @@ class ConvertToLLMMessageService extends Disposable implements IConvertToLLMMess
 		// Prompt-caching: implicitSkills + langDirective derive from the LAST user message and
 		// change every turn — they ride in the user turn (userTurnPrefix below), NOT in the
 		// system-bound aiInstructions, so the system prefix stays byte-stable across turns.
-		const aiInstructions = [this._getCombinedAIInstructions({ userText: lastUserTextForSkills, files: ruleContextFiles }), skillsDiscovery].filter(s => s.trim().length > 0).join('\n\n');
+		// Standing rules go into the cached system prompt, the rules this request switched on ride with the message
+		const turnRules = this.projectRulesService.getRulesForTurn({ userText: lastUserTextForSkills, files: ruleContextFiles });
+		const aiInstructions = [this._getCombinedAIInstructions(turnRules.standing), skillsDiscovery].filter(s => s.trim().length > 0).join('\n\n');
 		const isReasoningEnabled = getIsReasoningEnabledState('Chat', validProviderName, modelName, modelSelectionOptions, overridesOfModel);
 		const reservedOutputTokenSpace = getReservedOutputTokenSpace(validProviderName, modelName, { isReasoningEnabled, overridesOfModel });
-		let llmMessages = this._chatMessagesToSimpleMessages(chatMessages);
 
 		// R.5 — `@rule:NAME` / `/rule:NAME` loads a specific (possibly conditional / agent-requested)
 		// rule body ON DEMAND, prepended to the user turn alongside any /skill: bodies (same
@@ -2300,23 +2273,21 @@ class ConvertToLLMMessageService extends Disposable implements IConvertToLLMMess
 			? `The user invoked @rule. Follow the rule body below as authoritative for this request.\n\n${invokedRuleBlocks.join('\n\n')}`
 			: '';
 
-		// Prepend the per-turn dynamic blocks into the last user message's content. This is the
-		// load-bearing step that makes /skill:NAME and @rule:NAME actually take effect, and the
-		// cache-friendly home for everything that varies per turn (repo retrieval, implicit skill
-		// hints, language directive) — see knowledge/roadmap/tokenEconomy.md (A).
+		// The per-turn context of the last real user message: the editor as it is now plus the dynamic blocks — repo
+		// retrieval, knowledge notes, /skill and @rule bodies, implicit skill hints, language directive. This is the
+		// load-bearing step that makes /skill:NAME and @rule:NAME take effect (the body must live in the user's turn to
+		// bind to the request) and the cache-friendly home for everything that varies per turn — see
+		// knowledge/roadmap/tokenEconomy.md (A). Computed once and stored with the message: a later request, an agent's
+		// next tool round included, repeats it byte for byte instead of rebuilding it from the editor as it is then.
 		const userTurnPrefix = [repoContextUserBlock, knowledgeNotesUserBlock, commandInvocationPrefix, explicitSkillsUserPrefix, ruleInvocationPrefix, implicitSkills.trim(), langDirective.trim()].filter(s => s.length > 0).join('\n\n');
-		if (userTurnPrefix.length > 0) {
-			for (let i = llmMessages.length - 1; i >= 0; i--) {
-				const m = llmMessages[i];
-				// Bind skill/rule bodies to the last REAL user turn — prefixing a synthetic nudge
-				// would associate the invocation with system boilerplate instead of the request.
-				if (m.role === 'user' && !m.isSyntheticNudge) {
-					const original = typeof m.content === 'string' ? m.content : '';
-					(m as { content: string }).content = `${userTurnPrefix}\n\n${original}`;
-					break;
-				}
-			}
+		const lastUserIdx = lastRealUserIndex(chatMessages);
+		const lastUser = lastUserIdx >= 0 ? chatMessages[lastUserIdx] : undefined;
+		let newTurnContext: string | undefined;
+		if (lastUser?.role === 'user' && lastUser.turnContext === undefined) {
+			const editorContext = disableSystemMessage ? '' : await this._turnContextFor(chatMode, isLocal, turnRules.activated, chatMessages.slice(0, lastUserIdx), validProviderName, modelName);
+			newTurnContext = [editorContext, userTurnPrefix].filter(s => s.length > 0).join('\n\n');
 		}
+		let llmMessages = this._chatMessagesToSimpleMessages(chatMessages, lastUser && newTurnContext !== undefined ? { message: lastUser, turnContext: newTurnContext } : undefined);
 
 		// Smart context truncation: Prioritize recent messages and user selections
 		const estimateTokens = (text: string) => Math.ceil(text.length / 4);
@@ -2759,7 +2730,8 @@ class ConvertToLLMMessageService extends Disposable implements IConvertToLLMMess
 			vibeLog.warn('promptDump', 'dump failed', { err: String(e) });
 		}
 
-		return { messages, separateSystemMessage };
+		// Only a block made now is handed back: the caller stores it on the message, the stored ones are already there
+		return { messages, separateSystemMessage, ...(newTurnContext !== undefined ? { turnContext: newTurnContext } : {}) };
 	};
 
 
