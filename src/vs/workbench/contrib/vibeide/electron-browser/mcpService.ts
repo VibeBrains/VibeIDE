@@ -191,11 +191,13 @@ class MCPService extends Disposable implements IMCPService {
 	/** Форма по полям схемы: строка, число, булево и перечисление — большего спека не допускает. */
 	private async _askHuman(ask: McpInputAsk, form: ElicitationForm): Promise<ElicitationAnswer> {
 		const title = `${ask.serverName} → ${ask.toolName}`;
+		// The chat takes focus while the turn runs; a question that closed on blur would be read as the person's refusal
+		const ignoreFocusLost = true;
 		if (form.fields.length === 0) {
 			// Просьба без полей — это вопрос «да или нет» по самому сообщению.
 			const confirmed = await this._quickInput.pick(
 				[{ label: localize('vibeide.mcp.elicit.yes', 'Разрешить') }, { label: localize('vibeide.mcp.elicit.no', 'Отказать') }],
-				{ title, placeHolder: form.message });
+				{ title, placeHolder: form.message, ignoreFocusLost });
 			return confirmed?.label === localize('vibeide.mcp.elicit.yes', 'Разрешить') ? { action: 'accept', content: {} } : { action: 'decline' };
 		}
 		const content: Record<string, unknown> = {};
@@ -203,13 +205,13 @@ class MCPService extends Disposable implements IMCPService {
 			const prompt = field.description ? `${field.label} — ${field.description}` : field.label;
 			let raw: string | undefined;
 			if (field.type === 'boolean') {
-				const picked = await this._quickInput.pick([{ label: 'true' }, { label: 'false' }], { title, placeHolder: prompt });
+				const picked = await this._quickInput.pick([{ label: 'true' }, { label: 'false' }], { title, placeHolder: prompt, ignoreFocusLost });
 				raw = picked?.label;
 			} else if (field.type === 'enum' && field.options?.length) {
-				const picked = await this._quickInput.pick(field.options.map(option => ({ label: option })), { title, placeHolder: prompt });
+				const picked = await this._quickInput.pick(field.options.map(option => ({ label: option })), { title, placeHolder: prompt, ignoreFocusLost });
 				raw = picked?.label;
 			} else {
-				raw = await this._quickInput.input({ title, prompt: form.message, placeHolder: prompt });
+				raw = await this._quickInput.input({ title, prompt: form.message, placeHolder: prompt, ignoreFocusLost });
 			}
 			if (raw === undefined) { return { action: 'cancel' }; }
 			// Необязательное поле, оставленное пустым, не уезжает вовсе: пустая строка — это ответ

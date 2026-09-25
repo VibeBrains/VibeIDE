@@ -45,9 +45,11 @@ export interface VibeMemoryEngine {
 }
 
 /**
- * The engine folder as VibeMemory's own CLI finds it: `VIBEMEMORY_DIR`, else `~/.vibememory`
+ * The engine folder: `VIBEMEMORY_DIR`, else `~/.vibememory`, as VibeMemory's own CLI names it
  * An empty variable counts as unset, as it does for the shell and for the CLI
  * A relative value is taken from the home folder, the folder the memory server is started in
+ * The CLI takes it from its current folder, which the IDE's own process does not share with anyone,
+ * so the programs get the resolved absolute path and never resolve it again
  */
 export function vibeMemoryEngine(home: URI, override: string | undefined): VibeMemoryEngine {
 	if (!override) {

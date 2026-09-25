@@ -822,7 +822,10 @@ export class MCPChannel extends Disposable implements IServerChannel {
 				}
 				errorMessage = `${codeDescription}. Full response:\n${JSON.stringify(err, null, 2)}`;
 			}
-			// Check if it's an MCP error with a code
+			// Our own refusals (MRTR, output schema) are plain Errors: JSON.stringify gives «{}» for them
+			else if (err instanceof Error) {
+				errorMessage = err.message;
+			}
 			else if (typeof err === 'string') {
 				// String error
 				errorMessage = err;
