@@ -53,6 +53,20 @@ function anthropicStream(model: string): string {
 			{ type: 'message_stop' },
 		], true);
 	}
+	if (model.endsWith('-unsigned')) {
+		// Kimi, MiMo and DeepSeek on their own /v1/messages: thinking with no signature, then a tool call
+		return sse([
+			anthropicStart(model),
+			{ type: 'content_block_start', index: 0, content_block: { type: 'thinking', thinking: '' } },
+			{ type: 'content_block_delta', index: 0, delta: { type: 'thinking_delta', thinking: 'Сначала прочту файл.' } },
+			{ type: 'content_block_stop', index: 0 },
+			{ type: 'content_block_start', index: 1, content_block: { type: 'tool_use', id: 'toolu_u', name: 'read_file', input: {} } },
+			{ type: 'content_block_delta', index: 1, delta: { type: 'input_json_delta', partial_json: '{"uri": "/a.ts"}' } },
+			{ type: 'content_block_stop', index: 1 },
+			{ type: 'message_delta', delta: { stop_reason: 'tool_use', stop_sequence: null }, usage: { output_tokens: 5 } },
+			{ type: 'message_stop' },
+		], true);
+	}
 	if (model.endsWith('-cut')) {
 		return sse([
 			anthropicStart(model),
@@ -451,13 +465,48 @@ suite('aiSdkAdapter — встроенные провайдеры против �
 			setExternalProviders([]);
 			quirks.__resetForTests();
 		}
+		// The same reasoning in a history shaped for chat completions — how a Kimi model profile shapes it by default
+		setExternalProviders([{ id: 'test-anthropic-file', source: 'file' }]);
+		quirks.__setCatalogForTests({ version: 1, rules: [{ match: 'kimi-k3', mirrorReasoningContent: true }] });
+		try {
+			await send({
+				providerName: 'test-anthropic-file' as SendChatParams_Internal['providerName'],
+				modelName: 'kimi-k3',
+				settingsOfProvider: settingsWith({ 'test-anthropic-file': { baseURL: `http://127.0.0.1:${port}/v1`, apiKey: 'k', protocol: 'anthropic' } }),
+				messages: [
+					{ role: 'user', content: 'Прочти файл' },
+					{ role: 'assistant', content: '', reasoning_content: 'строкой', tool_calls: [{ id: 'call_1', type: 'function', function: { name: 'read_file', arguments: '{"uri":"/a.ts"}' } }] } as unknown as LLMChatMessage,
+					{ role: 'tool', tool_call_id: 'call_1', content: 'a' } as unknown as LLMChatMessage,
+				],
+			});
+		} finally {
+			setExternalProviders([]);
+			quirks.__resetForTests();
+		}
 		const thinkingOf = (body: WireBody | undefined) => ((body?.messages as { content?: unknown }[] | undefined)?.[1]?.content as { type: string }[] | undefined ?? [])
 			.filter(block => block.type === 'thinking');
-		assert.deepStrictEqual(requests.filter(r => r.path === '/v1/messages').slice(-3).map(r => thinkingOf(r.body)), [
+		assert.deepStrictEqual(requests.filter(r => r.path === '/v1/messages').slice(-4).map(r => thinkingOf(r.body)), [
 			[{ type: 'thinking', thinking: 'без подписи' }, { type: 'thinking', thinking: 'с подписью', signature: 'sig-1' }],
 			[{ type: 'thinking', thinking: 'с подписью', signature: 'sig-1' }],
 			[],
+			[{ type: 'thinking', thinking: 'строкой' }],
 		]);
+	});
+
+	test('провод Anthropic: неподписанное рассуждение ответа сохраняется блоком для возврата', async () => {
+		setExternalProviders([{ id: 'test-anthropic-file', source: 'file' }]);
+		let outcome: Outcome;
+		try {
+			outcome = await send({
+				providerName: 'test-anthropic-file' as SendChatParams_Internal['providerName'],
+				modelName: 'kimi-k3-unsigned',
+				settingsOfProvider: settingsWith({ 'test-anthropic-file': { baseURL: `http://127.0.0.1:${port}/v1`, apiKey: 'k', protocol: 'anthropic' } }),
+				messages: [{ role: 'user', content: 'Прочти файл' }],
+			});
+		} finally {
+			setExternalProviders([]);
+		}
+		assert.deepStrictEqual(outcome.final?.anthropicReasoning, [{ type: 'thinking', thinking: 'Сначала прочту файл.' }]);
 	});
 
 	test('провайдер из файла через главный процесс: возможности модели доезжают, диалект OpenRouter пишет рассуждение объектом', async () => {

@@ -910,6 +910,11 @@ function systemPromptOf(separateSystemMessage: string | undefined, messages: rea
 	return parts.length > 0 ? parts.join('\n\n') : undefined;
 }
 
+/** The message already carries its thinking as Anthropic blocks: the text copy of the same reasoning must not go twice */
+function hasThinkingBlocks(content: unknown): boolean {
+	return Array.isArray(content) && content.some(part => part?.type === 'thinking' || part?.type === 'redacted_thinking');
+}
+
 const convertMessagesToModelMessages = (messages: LLMChatMessage[], modelName: string, providerName: string, anthropicWire: boolean): ModelMessage[] => {
 	const toolNameLookup = buildToolNameLookup(messages);
 	const lastIdx = messages.length - 1;
@@ -1001,8 +1006,14 @@ const convertMessagesToModelMessages = (messages: LLMChatMessage[], modelName: s
 			const reasoningPayload: string | undefined = msg.reasoning_content || msg.reasoning;
 			let reasoningText = '';
 			if (typeof reasoningPayload === 'string' && reasoningPayload.length > 0) {
-				parts.push({ type: 'reasoning', text: reasoningPayload });
 				reasoningText = reasoningPayload;
+				if (!anthropicWire) {
+					parts.push({ type: 'reasoning', text: reasoningPayload });
+				} else if (!hasThinkingBlocks(msg.content) && replaysThinkingBlock(false, thinkingReplay)) {
+					// History shaped for chat completions carries the reasoning as text (a model profile, not the wire, picks the
+					// shape). The SDK drops a reasoning part without a signature, so it rides with an empty one, removed by the fetch
+					parts.push({ type: 'reasoning', text: reasoningPayload, providerOptions: { anthropic: { signature: '' } } });
+				}
 			} else if (forceEmptyReasoningSlot) {
 				// DeepSeek family hard requirement: every assistant turn must carry a
 				// reasoning slot, even empty. Without it the provider returns HTTP 400
