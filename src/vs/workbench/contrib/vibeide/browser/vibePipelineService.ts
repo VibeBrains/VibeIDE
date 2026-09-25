@@ -14,7 +14,7 @@
  * without spawning agents.
  */
 
-import { Sequencer } from '../../../../base/common/async.js';
+import { IntervalTimer, Sequencer } from '../../../../base/common/async.js';
 import { toAction } from '../../../../base/common/actions.js';
 import { Disposable, DisposableStore, toDisposable } from '../../../../base/common/lifecycle.js';
 import { generateUuid } from '../../../../base/common/uuid.js';
@@ -65,6 +65,9 @@ import { resolveModelReference } from '../common/modelRouteKeys.js';
 import { IVibeDynamicProvidersService } from './vibeDynamicProvidersService.js';
 import { CollectedDiff, IVibeRunDiffService } from '../common/vibeideSCMTypes.js';
 import { IVibeVerifyGateService } from './vibeVerifyGateService.js';
+import { VSBuffer } from '../../../../base/common/buffer.js';
+import { resolveRuntimeStatePath } from '../common/vibeRuntimeStateLocation.js';
+import { compactPipelineRunJournal, parsePipelineRunJournal, pipelineShapeOf, PipelineRunRecord, ResumableRun, resumableRunOf, serializePipelineRun } from '../common/pipeline/pipelineRunJournal.js';
 
 const CONFIG_REVIEWER_SEES_SUMMARY = 'vibeide.pipeline.reviewerSeesStepSummary';
 
@@ -107,9 +110,26 @@ export interface IVibePipelineService {
 	readonly onProgress: Event<PipelineProgress>;
 	/** Pipelines declared in `.vibe/pipelines.json`, plus any warnings worth showing the user. */
 	list(): Promise<{ pipelines: readonly VibePipeline[]; warnings: readonly string[] }>;
-	/** Run one pipeline to the end (or to the first failure). Cancelling the token stops every step under way. */
-	run(pipelineId: string, parentThreadId: string, token?: CancellationToken): Promise<PipelineRunResult>;
+	/**
+	 * The interrupted run of this pipeline a person may continue — «Стоп», a failed step, or a window that closed mid-run —
+	 * or `undefined` when the latest run finished, nothing of it finished, or the pipeline's steps changed since
+	 */
+	interruptedRun(pipelineId: string): Promise<ResumableRun | undefined>;
+	/**
+	 * Run one pipeline to the end (or to the first failure). Cancelling the token stops every step under way.
+	 * `resume` — continue that interrupted run: its finished steps are not run again, their outcomes go to the steps after them
+	 */
+	run(pipelineId: string, parentThreadId: string, token?: CancellationToken, resume?: { readonly runId: string }): Promise<PipelineRunResult>;
 }
+
+/** The journal of pipeline runs, beside the agents' own in `.vibe/local` */
+const PIPELINE_JOURNAL_FILE = 'pipeline-runs.jsonl';
+/** A live run signs its record this often; three missed beats mean its window is gone, not busy — the agents' ledger cadence */
+const PIPELINE_HEARTBEAT_MS = 30_000;
+const PIPELINE_STALE_AFTER_MS = 3 * PIPELINE_HEARTBEAT_MS;
+/** Kept in the journal: the newest runs within a month, as the agents' ledger keeps */
+const PIPELINE_JOURNAL_MAX_RECORDS = 200;
+const PIPELINE_JOURNAL_RETENTION_DAYS = 30;
 
 /** What every step of one run shares. */
 interface PipelineRunContext {
@@ -152,6 +172,46 @@ export class VibePipelineService extends Disposable implements IVibePipelineServ
 		@IVibeDynamicProvidersService private readonly _dynamicProviders: IVibeDynamicProvidersService,
 	) {
 		super();
+	}
+
+	/** This window's mark on the runs it owns: a `running` record of another window gone quiet is an interrupted run */
+	private readonly _epoch = generateUuid();
+	/** Journal writes one at a time: two runs of one window must not read the same file and each drop the other's line */
+	private readonly _journalWrites = new Sequencer();
+
+	private async _journalPath(): Promise<URI | undefined> {
+		return resolveRuntimeStatePath(this._fileService, this._workspace.getWorkspace().folders[0]?.uri, PIPELINE_JOURNAL_FILE);
+	}
+
+	private async _readJournal(path: URI): Promise<PipelineRunRecord[]> {
+		try {
+			return parsePipelineRunJournal((await this._fileService.readFile(path)).value.toString());
+		} catch {
+			return [];
+		}
+	}
+
+	/** Put the run's latest state in the journal; a failed write is logged, never a reason to stop the run */
+	private _recordRun(record: PipelineRunRecord): Promise<void> {
+		return this._journalWrites.queue(async () => {
+			const path = await this._journalPath();
+			if (!path) {
+				return;
+			}
+			try {
+				const others = (await this._readJournal(path)).filter(r => r.runId !== record.runId);
+				const kept = compactPipelineRunJournal([...others, record], Date.now(), PIPELINE_JOURNAL_MAX_RECORDS, PIPELINE_JOURNAL_RETENTION_DAYS);
+				await this._fileService.writeFile(path, VSBuffer.fromString(kept.map(serializePipelineRun).join('')), { atomic: { postfix: '.vibe-tmp' } });
+			} catch (err) {
+				vibeLog.warn('Pipeline', `журнал прогонов не записан: ${err instanceof Error ? err.message : String(err)}`);
+			}
+		});
+	}
+
+	async interruptedRun(pipelineId: string): Promise<ResumableRun | undefined> {
+		const pipeline = (await this.list()).pipelines.find(p => p.id === pipelineId);
+		const path = pipeline ? await this._journalPath() : undefined;
+		return pipeline && path ? resumableRunOf(await this._readJournal(path), pipeline, this._epoch, Date.now(), PIPELINE_STALE_AFTER_MS) : undefined;
 	}
 
 	/**
@@ -294,7 +354,7 @@ export class VibePipelineService extends Disposable implements IVibePipelineServ
 		return { by: step.reviewWith!, verdict, notes: review.result.summary, sawWorkerSummary };
 	}
 
-	async run(pipelineId: string, parentThreadId: string, token?: CancellationToken): Promise<PipelineRunResult> {
+	async run(pipelineId: string, parentThreadId: string, token?: CancellationToken, resume?: { readonly runId: string }): Promise<PipelineRunResult> {
 		const { pipelines } = await this.list();
 		const pipeline = pipelines.find(p => p.id === pipelineId);
 		if (!pipeline) {
@@ -315,7 +375,28 @@ export class VibePipelineService extends Disposable implements IVibePipelineServ
 		const judged = groups.slice(1).some(group => pipeline.steps.slice(group.start, group.end + 1).some(wantsRunDiff));
 		const baseline = judged ? await this._runDiff.pin(runId, 'base') : undefined;
 
+		// Continuing an interrupted run: its finished steps are taken as they ended, the rest run. Checked again here —
+		// the journal may have moved since the person was asked
+		const resumed = resume ? await this.interruptedRun(pipelineId) : undefined;
+		if (resume && resumed?.record.runId !== resume.runId) {
+			throw new Error(localize('vibeide.pipeline.resumeGone', 'Прерванный прогон пайплайна «{0}» продолжить нельзя: он уже продолжен, завершён или пайплайн с тех пор изменился. Запустите его заново.', pipelineId));
+		}
+		const finished = new Map<number, PipelineStepOutcome>((resumed?.record.outcomes ?? []).filter(o => o.status === 'success').map(o => [o.step - 1, o]));
+		if (resumed) {
+			vibeLog.info('Pipeline', `${pipelineId}: продолжение прогона ${resumed.record.runId} с шага ${resumed.fromStep + 1}, уже сделано шагов: ${finished.size}`);
+		}
+
 		const outcomes: PipelineStepOutcome[] = [];
+		const startedAt = Date.now();
+		const journal = (status: PipelineRunRecord['status'], finishedAt?: number): Promise<void> => this._recordRun({
+			runId, pipelineId, shape: pipelineShapeOf(pipeline), totalSteps: pipeline.steps.length, status, epoch: this._epoch,
+			startedAt, heartbeatAt: Date.now(), ...(finishedAt ? { finishedAt } : {}),
+			// What an interruption of THIS run leaves to continue from: every step that finished, those taken over included
+			outcomes: [...outcomes, ...[...finished.values()].filter(saved => !outcomes.some(o => o.step === saved.step))].sort((a, b) => a.step - b.step),
+		});
+		await journal('running');
+		const heartbeat = new IntervalTimer();
+		heartbeat.cancelAndSet(() => void journal('running'), PIPELINE_HEARTBEAT_MS);
 		// NOT registered on the service: `run` is called repeatedly, and a source registered per
 		// call would accumulate for the lifetime of the window. It is disposed in `finally` below.
 		const cancellation = new CancellationTokenSource(token);
@@ -339,18 +420,24 @@ export class VibePipelineService extends Disposable implements IVibePipelineServ
 				this._subagents.disposeSubagent(subagentId);
 			}
 		});
+		let stopped = false;
 		try {
 			for (const group of groups) {
 				if (cancellation.token.isCancellationRequested) { break; }
-				outcomes.push(...await this._runGroup(ctx, pipeline, group, [...outcomes]));
+				outcomes.push(...await this._runGroup(ctx, pipeline, group, [...outcomes], finished));
+				await journal('running');
 			}
 		} finally {
+			stopped = cancellation.token.isCancellationRequested;
+			heartbeat.dispose();
 			stopListener.dispose();
 			cancellation.dispose();
 			if (ctx.pinned) {
 				await this._runDiff.release(runId);
 			}
 		}
+		const everyStepSucceeded = outcomes.length === pipeline.steps.length && outcomes.every(o => o.status === 'success');
+		await journal(stopped ? 'stopped' : everyStepSucceeded ? 'completed' : 'failed', Date.now());
 
 		return {
 			pipelineId,
@@ -363,7 +450,7 @@ export class VibePipelineService extends Disposable implements IVibePipelineServ
 	 * One group: a single step, or a wave whose steps start together from the same `before` — what was
 	 * known before the wave — and are recorded in file order, whichever finishes first.
 	 */
-	private async _runGroup(ctx: PipelineRunContext, pipeline: VibePipeline, group: StepGroup, before: readonly PipelineStepOutcome[]): Promise<PipelineStepOutcome[]> {
+	private async _runGroup(ctx: PipelineRunContext, pipeline: VibePipeline, group: StepGroup, before: readonly PipelineStepOutcome[], finished: ReadonlyMap<number, PipelineStepOutcome>): Promise<PipelineStepOutcome[]> {
 		const members: { readonly index: number; readonly step: VibePipelineStep }[] = [];
 		for (let index = group.start; index <= group.end; index++) {
 			members.push({ index, step: pipeline.steps[index] });
@@ -371,7 +458,14 @@ export class VibePipelineService extends Disposable implements IVibePipelineServ
 		const results: PipelineStepOutcome[] = new Array(members.length);
 		const runnable: number[] = [];
 		members.forEach((member, k) => {
-			if (shouldRunStep(member.step, before)) {
+			const done = finished.get(member.index);
+			if (done) {
+				// Finished in the interrupted run this one continues: taken as it ended, not run again — a wave runs only
+				// its unfinished members, as in VibeIDEA
+				vibeLog.info('Pipeline', `${ctx.pipelineId}: шаг ${member.index + 1} (${member.step.role}) уже сделан в прерванном прогоне — пропущен`);
+				this._onProgress.fire({ pipelineId: ctx.pipelineId, stepIndex: member.index, totalSteps: ctx.totalSteps, role: member.step.role, state: 'skipped', ...(group.wave ? { wave: group.wave } : {}) });
+				results[k] = done;
+			} else if (shouldRunStep(member.step, before)) {
 				runnable.push(k);
 			} else {
 				// Recorded rather than dropped: a reader of the result must see WHY the tail did not
@@ -690,6 +784,22 @@ registerAction2(class VibeRunPipeline extends Action2 {
 		const pipelineId = picked.id;
 		const totalSteps = pipelines.find(p => p.id === pipelineId)?.steps.length ?? 0;
 
+		// An interrupted run is offered, not taken: the files may have moved on since, and whether the finished steps still
+		// stand is the person's call — as VibeIDEA asks it
+		let resume: { readonly runId: string } | undefined;
+		const interrupted = await pipelineService.interruptedRun(pipelineId);
+		if (interrupted) {
+			const why = interrupted.reason === 'stopped' ? localize('vibeide.pipeline.resume.stopped', 'остановлен кнопкой «Стоп»')
+				: interrupted.reason === 'failed' ? localize('vibeide.pipeline.resume.failed', 'шаг не удался')
+					: localize('vibeide.pipeline.resume.orphaned', 'окно закрылось посреди прогона');
+			const choice = await quickInput.pick([
+				{ id: 'resume', label: localize('vibeide.pipeline.resume.continue', 'Продолжить с шага {0}', interrupted.fromStep + 1), detail: localize('vibeide.pipeline.resume.detail', 'Сделанные шаги ({0} из {1}) не повторяются, их итоги и файлы получат следующие шаги. Файлы с тех пор могли измениться.', interrupted.done.size, interrupted.record.totalSteps) },
+				{ id: 'restart', label: localize('vibeide.pipeline.resume.restart', 'Запустить заново') },
+			], { placeHolder: localize('vibeide.pipeline.resume.ask', 'Прошлый прогон «{0}» прерван: {1}.', pipelineId, why) });
+			if (!choice) { return; }
+			resume = choice.id === 'resume' ? { runId: interrupted.record.runId } : undefined;
+		}
+
 		const parentThreadId = chatThreads.getCurrentThread().id;
 		// The run is visible while it lasts and can be stopped: a wave of three agents working at once
 		// is not something to leave running with no way to call it off.
@@ -717,7 +827,7 @@ registerAction2(class VibeRunPipeline extends Action2 {
 			}
 		}));
 		try {
-			const result = await pipelineService.run(pipelineId, parentThreadId, cancellation.token);
+			const result = await pipelineService.run(pipelineId, parentThreadId, cancellation.token, resume);
 			const done = result.outcomes.filter(o => o.status === 'success').length;
 			const failed = result.outcomes.filter(o => o.status !== 'success');
 			notifications.notify({
