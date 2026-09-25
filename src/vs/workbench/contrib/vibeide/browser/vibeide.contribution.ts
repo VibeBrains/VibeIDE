@@ -691,6 +691,7 @@ import './designReview/vibeDesignScanService.js';
 import './designContext/vibeDesignContextService.js';
 // VibeIDE: Text-slop detector — the shared catalogue with the project's .vibe/slop.json (agent tool, design copy rule)
 import './vibeTextSlopService.js';
+import './vibeTextSlopAction.js';
 
 // VibeIDE: Provider dashboard (cost history)
 import './vibeSpendLedgerService.js';

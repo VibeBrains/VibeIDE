@@ -18,6 +18,10 @@ import { ILLMMessageService } from '../common/sendLLMMessageService.js';
 import { compressGenericToolOutput } from '../common/commandOutputCompressor.js';
 import { isLocalProvider } from '../common/isLocalProvider.js';
 import { lastRealUserIndex } from '../common/turnContext.js';
+import { EndOfLinePreference } from '../../../../editor/common/model.js';
+import { DEFAULT_SLOP_GATE_ATTEMPTS, decideSlopGate, prosePaths, SLOP_GATE_ATTEMPTS_KEY, SLOP_GATE_MODE_KEY, slopGateModeOf } from '../common/textSlop/slopGatePolicy.js';
+import { renderSlopReport } from '../common/textSlop/slopRender.js';
+import { SlopReport } from '../common/textSlop/textSlop.js';
 import { nextChatTraceTurn, recordChatTrace } from './vibeChatRunTrace.js';
 import { availableTools, builtinTools, builtinToolNames, chat_userMessageContent, isABuiltinToolName } from '../common/prompt/prompts.js';
 import { TOOL_NAME_ALIASES, applyParamAliases, detectToolByParamShape } from '../common/prompt/toolAliases.js';
@@ -113,6 +117,10 @@ const DESIGN_HOOK_MODE_KEY = 'vibeide.design.hook.mode';
 const DESIGN_HOOK_ATTEMPTS_KEY = 'vibeide.design.hook.maxAttempts';
 /** How many findings the hook's chat note lists before pointing at `design_review` for the rest. */
 const DESIGN_HOOK_NOTE_LIMIT = 6;
+/** Findings of one file a slop-gate bounce hands the agent — VibeIDEA's number */
+const SLOP_GATE_FINDINGS_PER_FILE = 15;
+/** A prose file above this size is not checked by the gate, as the tool refuses it: the detector runs in the window */
+const SLOP_GATE_MAX_SIZE = 1024 * 1024;
 /** Widths the hook measures — the same pair the tool uses, so their counts cannot disagree. */
 const DESIGN_HOOK_VIEWPORTS: readonly ViewportLabel[] = ['desktop', 'mobile'];
 import { isContinuationRequest, buildScoutGoal, hasAgentWorkSinceLastUserMessage, DEFAULT_MAX_WORDS_BEYOND_PHRASE } from '../common/scoutTrigger.js';
@@ -5337,6 +5345,7 @@ Output ONLY the JSON, no other text. Start with { and end with }.`;
 		// interface could actually have moved (a service edit cannot change pixels).
 		const touchedPathsThisRun: string[] = [];
 		let designHookAttempts = 0;
+		let slopGateAttempts = 0;
 		// TURN-CHECKS state: every tool the run called (not just the mutating ones), so the
 		// forbidden-action check can compare the calls against the allowed list.
 		const calledToolsThisRun: string[] = [];
@@ -5407,6 +5416,7 @@ Output ONLY the JSON, no other text. Start with { and end with }.`;
 			if (!verdict || verdict.failures.length === 0) {
 				return;
 			}
+			await this._slopGate(threadId, touchedPathsThisRun, slopGateAttempts, false);
 			const list = verdict.failures.map(f => `• ${f.detail}`).join('\n');
 			const note = verdict.decision === 'notify-complete'
 				? `⚠️ ПРОВЕРКИ ХОДА: ход завершён, но кое-что стоит посмотреть.\n\n${list}`
@@ -7588,6 +7598,15 @@ Output ONLY the JSON, no other text. Start with { and end with }.`;
 						// decision === 'quiet' → hook off, page unreachable, or nothing to report.
 					}
 
+					// The prose this turn wrote goes through the neural-slop detector, as in VibeIDEA (`vibeide.agent.slop.*`).
+					if (await this._slopGate(threadId, touchedPathsThisRun, slopGateAttempts, true) === 'bounced') {
+						slopGateAttempts += 1;
+						traceAgentStep({ threadId, kind: 'nudge' });
+						shouldSendAnotherMessage = true;
+						this._setStreamState(threadId, { isRunning: 'idle', interrupt: 'not_needed' });
+						continue;
+					}
+
 					// Run-end via explicit completion: finalize the plan (status/lease/.plan.md) so an
 					// executing plan doesn't stay stuck after the model declares done.
 					this._finalizePlanIfComplete(threadId);
@@ -8662,6 +8681,80 @@ Output ONLY the JSON, no other text. Start with { and end with }.`;
 	}
 
 
+
+	/**
+	 * The turn gate of the neural-slop detector: the prose files the turn wrote are checked, and a text that fails is named
+	 * in the chat (`notify`) or goes back to the agent with its findings (`enforce`) — see common/textSlop/slopGatePolicy.ts
+	 * A clean text gets no message in any mode; a text the detector could not check is said to be unchecked, never clean.
+	 * Files come from the agent's own edits, which `.vibe/ignore` already gates, so nothing here reads past it.
+	 * @param canBounce false on an exit where the model stopped calling tools: there is nothing to send it back to
+	 */
+	private async _slopGate(threadId: string, touchedPaths: readonly string[], attemptsUsed: number, canBounce: boolean): Promise<'bounced' | 'done'> {
+		const mode = slopGateModeOf(this._configurationService.getValue<unknown>(SLOP_GATE_MODE_KEY));
+		const prose = mode === 'off' ? [] : prosePaths(touchedPaths);
+		if (prose.length === 0) {
+			return 'done';
+		}
+		const failing: { readonly path: string; readonly report: SlopReport; readonly warnings: readonly string[] }[] = [];
+		const unchecked: string[] = [];
+		for (const path of prose) {
+			const uri = this._uriOfTouchedPath(path);
+			const text = uri ? await this._proseTextOf(uri) : undefined;
+			const check = text === undefined ? undefined : await this._textSlopService.check(text, uri ? this._workspaceContextService.getWorkspaceFolder(uri)?.uri : undefined);
+			if (!check) {
+				unchecked.push(path);
+			} else if (!check.report.passed) {
+				failing.push({ path, report: check.report, warnings: check.warnings });
+			}
+		}
+		const maxAttempts = Math.max(1, Math.min(5, this._configurationService.getValue<number>(SLOP_GATE_ATTEMPTS_KEY) ?? DEFAULT_SLOP_GATE_ATTEMPTS));
+		const decision = decideSlopGate({ mode, anyFailed: failing.length > 0, attemptsUsed, maxAttempts, canBounce });
+		const uncheckedNote = unchecked.length > 0
+			? localize('vibeide.slopGate.unchecked', "\n\nНе проверено (не прочитать, больше 1 МБ или детектор не уложился в срок): {0}", unchecked.join(', '))
+			: '';
+		const summaryLines = failing.map(f => localize('vibeide.slopGate.file', "• {0} — {1}/100 ({2})", f.path, Math.round(f.report.score * 10) / 10, [...new Set(f.report.findings.map(x => x.rule))].slice(0, 6).join(', '))).join('\n');
+		if (decision === 'bounce') {
+			const details = failing.map(f => `### ${f.path}\n${renderSlopReport(f.report, f.warnings, SLOP_GATE_FINDINGS_PER_FILE)}`).join('\n\n');
+			const corrective = localize('vibeide.slopGate.corrective', "⛔ НЕЙРОСЛОП: текст, записанный в этом ходе, не прошёл проверку — попытка {0} из {1}. Перепиши найденное и продолжай инструментами.\n\n{2}\n\nНе добавляй фактов, чисел, имён и источников, которых нет в исходном тексте, и не меняй смысл. Порядок правки — в навыке anti-slop.", attemptsUsed + 1, maxAttempts, details);
+			this._addMessageToThread(threadId, { role: 'user', content: corrective, displayContent: corrective, selections: null, isSyntheticNudge: true, state: defaultMessageState });
+			return 'bounced';
+		}
+		if (decision === 'report') {
+			const note = localize('vibeide.slopGate.notify', "✍️ НЕЙРОСЛОП: текст, записанный в этом ходе, не прошёл проверку.\n\n{0}\n\nНаходки целиком — инструментом vibe_text_slop_check или действием редактора «Нейрослоп в тексте».{1}", summaryLines, uncheckedNote);
+			this._addMessageToThread(threadId, { role: 'assistant', displayContent: note, reasoning: '', anthropicReasoning: null });
+		} else if (decision === 'stop') {
+			const note = localize('vibeide.slopGate.stop', "⛔ НЕЙРОСЛОП: текст не прошёл проверку и после {0} попыток. Дальше решаете вы.\n\n{1}{2}", maxAttempts, summaryLines, uncheckedNote);
+			this._addMessageToThread(threadId, { role: 'assistant', displayContent: note, reasoning: '', anthropicReasoning: null });
+		} else if (unchecked.length > 0 && failing.length === 0) {
+			// «Not checked» must never read as «clean»
+			const note = localize('vibeide.slopGate.onlyUnchecked', "✍️ НЕЙРОСЛОП: текст, записанный в этом ходе, не проверен.{0}", uncheckedNote);
+			this._addMessageToThread(threadId, { role: 'assistant', displayContent: note, reasoning: '', anthropicReasoning: null });
+		}
+		return 'done';
+	}
+
+	/** A path an edit tool was given: absolute as is, relative from the first workspace folder */
+	private _uriOfTouchedPath(path: string): URI | undefined {
+		if (/^([a-zA-Z]:[\\/]|\/)/.test(path)) {
+			return URI.file(path);
+		}
+		const root = this._workspaceContextService.getWorkspace().folders[0]?.uri;
+		return root ? URI.joinPath(root, path) : undefined;
+	}
+
+	/** The text of a prose file as the person sees it — an open editor with its unsaved edits first; too large or unreadable — undefined */
+	private async _proseTextOf(uri: URI): Promise<string | undefined> {
+		const model = this._vibeideModelService.getModel(uri).model;
+		if (model) {
+			const text = model.getValue(EndOfLinePreference.LF);
+			return text.length > SLOP_GATE_MAX_SIZE ? undefined : text;
+		}
+		try {
+			return (await this._fileService.readFile(uri, { limits: { size: SLOP_GATE_MAX_SIZE } })).value.toString();
+		} catch {
+			return undefined;
+		}
+	}
 
 	/**
 	 * Keep the context a request built for the last real user message on that message — see common/turnContext.ts

@@ -66,6 +66,24 @@ Registry.as<IConfigurationRegistry>(ConfigurationExtensions.Configuration).regis
 			maximum: 5,
 			description: localize('vibeide.design.hook.maxAttempts', 'Сколько раз DESIGN-HOOK в режиме `enforceFloor` вернёт агента на доработку при находках класса «пол», прежде чем просто добавить заметку и закрыть ход (защита от цикла на неустранимом дефекте). Диапазон 1–5, дефолт 2.'),
 		},
+		'vibeide.agent.slop.mode': {
+			type: 'string',
+			enum: ['off', 'notify', 'enforce'],
+			enumDescriptions: [
+				localize('vibeide.agent.slop.mode.off', 'Выкл — проза, написанная агентом, не проверяется; детектор работает только когда его позовут инструментом `vibe_text_slop_check` или действием редактора «Нейрослоп в тексте».'),
+				localize('vibeide.agent.slop.mode.notify', 'Сообщать (дефолт) — после хода, записавшего прозу (`.md`, `.mdx`, `.markdown`, `.txt`, `.rst`, `.adoc`), эти файлы проверяются, и не прошедшие называются в чате с баллом и правилами. Ход завершается в любом случае.'),
+				localize('vibeide.agent.slop.mode.enforce', 'Возвращать на правку — не прошедший текст возвращается агенту с находками: переписать, не добавляя фактов, чисел и имён, которых не было, и не меняя смысла. После исчерпания попыток — заметка, дальше решаете вы. Каждая попытка — оплачиваемый ход.'),
+			],
+			default: 'notify',
+			description: localize('vibeide.agent.slop.mode', 'Гейт хода по тексту: детектор нейрослопа после хода, записавшего прозу. Правила — встроенный каталог и `.vibe/slop.json` проекта; проход — балл от 90 (или `passScore` проекта) и ни одной находки тяжелее `minor`. Так же работает VibeIDEA.'),
+		},
+		'vibeide.agent.slop.maxAttempts': {
+			type: 'number',
+			default: 2,
+			minimum: 1,
+			maximum: 5,
+			description: localize('vibeide.agent.slop.maxAttempts', 'Сколько раз гейт хода по тексту в режиме `enforce` вернёт агента переписать текст, прежде чем оставить заметку и закрыть ход. Диапазон 1–5, дефолт 2.'),
+		},
 		'vibeide.agent.verifyGate.mode': {
 			type: 'string',
 			enum: ['off', 'warn', 'enforce'],

@@ -443,7 +443,8 @@
   },
   "lint-staged": {
     "**/*.md": [
-      "echo \"[lint-staged] markdown changes detected — link check at PR-time\""
+      "echo \"[lint-staged] markdown changes detected — link check at PR-time\"",
+      "bash -c 'npx tsx scripts/vibe-slop-ratchet.ts'"
     ],
     ".vibe/skills/**/SKILL.md": [
       "node scripts/vibe-skills-validate.js --staged"

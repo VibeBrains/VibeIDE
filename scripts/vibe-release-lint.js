@@ -13,6 +13,8 @@
  *   3. No empty sections.
  *   4. The "Поддержать проект" donation block is present at the very end.
  *   5. The donation block contains the QR <img> link.
+ *   6. No neural slop: the text passes the product's own detector (scripts/vibe-text-slop.ts) with the house style of
+ *      the repository's texts (scripts/slopHouseStyle.json) — the order of a rewrite is in the anti-slop skill.
  *
  * Usage:
  *   node scripts/vibe-release-lint.js path/to/release-notes.md
@@ -27,6 +29,8 @@
 'use strict';
 
 const fs = require('fs');
+const path = require('path');
+const { spawnSync } = require('child_process');
 
 const ALLOWED_HEADERS = new Set([
 	'## 🐛 Исправления',
@@ -134,9 +138,25 @@ function lint(text) {
 	return errors;
 }
 
+/**
+ * The product's neural-slop detector over the notes, with the house style of the repository's texts
+ * @param {string} text @returns {string[]} errors
+ */
+function lintSlop(text) {
+	const root = path.join(__dirname, '..');
+	const result = spawnSync('npx', ['tsx', path.join(root, 'scripts', 'vibe-text-slop.ts'), '--overrides', path.join(root, 'scripts', 'slopHouseStyle.json'), '-'], { input: text, encoding: 'utf-8', cwd: root });
+	if (result.status === 0) {
+		return [];
+	}
+	const report = (result.stdout || '').trim();
+	return result.status === 1
+		? [`Neural slop in the notes (order of a rewrite — the anti-slop skill):\n${report}`]
+		: [`The neural-slop check could not run: ${(result.stderr || '').trim() || result.error}`];
+}
+
 function main() {
 	const text = readNotes();
-	const errors = lint(text);
+	const errors = [...lint(text), ...lintSlop(text)];
 	if (errors.length === 0) {
 		console.log('vibe release-lint: ok');
 		return;
