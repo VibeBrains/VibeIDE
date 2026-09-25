@@ -16,6 +16,7 @@ import { fimComplete } from '@mistralai/mistralai/funcs/fimComplete.js';
 import { LLMRuntimeOptions, OllamaModelResponse } from '../../common/sendLLMMessageTypes.js';
 import { displayInfoOfProviderName, FeatureName, ProviderId, ProviderName, SettingsOfProvider } from '../../common/vibeideSettingsTypes.js';
 import { getModelCapabilities, defaultProviderSettings } from '../../common/modelCapabilities.js';
+import { isLocalAddress, isLocalProvider as isLocalProviderOf } from '../../common/isLocalProvider.js';
 import { hash } from '../../../../../base/common/hash.js';
 import { ensureSystemCADispatcher, resetSystemCADispatcher } from './systemCAFetch.js';
 import { sendViaAISdk } from './aiSdkAdapter.js';
@@ -62,22 +63,7 @@ const buildOpenAICacheKey = (providerName: ProviderId, settingsOfProvider: Setti
  * we cache clients to reuse connections. Cloud providers always get new instances.
  */
 const getOpenAICompatibleClient = async ({ settingsOfProvider, providerName, includeInPayload, runtimeOptions }: { settingsOfProvider: SettingsOfProvider; providerName: ProviderId; includeInPayload?: Record<string, unknown>; runtimeOptions?: LLMRuntimeOptions }): Promise<OpenAI> => {
-	// Detect if this is a local provider
-	const isExplicitLocalProvider = providerName === 'ollama' || providerName === 'vLLM' || providerName === 'lmStudio';
-	let isLocalhostEndpoint = false;
-	if (providerName === 'openAICompatible' || providerName === 'liteLLM' || providerName === 'lmRoute') {
-		const endpoint = settingsOfProvider[providerName]?.endpoint || '';
-		if (endpoint) {
-			try {
-				const url = new URL(endpoint);
-				const hostname = url.hostname.toLowerCase();
-				isLocalhostEndpoint = hostname === 'localhost' || hostname === '127.0.0.1' || hostname === '0.0.0.0' || hostname === '::1';
-			} catch (e) {
-				isLocalhostEndpoint = false;
-			}
-		}
-	}
-	const isLocalProvider = isExplicitLocalProvider || isLocalhostEndpoint;
+	const isLocalProvider = isLocalProviderOf(providerName, settingsOfProvider);
 
 	// Only cache for local providers
 	if (isLocalProvider) {
@@ -188,23 +174,8 @@ const newOpenAICompatibleSDK = async ({ settingsOfProvider, providerName, includ
 	// The OpenAI SDK handles HTTP keep-alive and connection pooling internally
 
 	// Detect local providers: explicit local providers + localhost endpoints
-	const isExplicitLocalProvider = providerName === 'ollama' || providerName === 'vLLM' || providerName === 'lmStudio';
-	let isLocalhostEndpoint = false;
-	if (providerName === 'openAICompatible' || providerName === 'liteLLM' || providerName === 'lmRoute') {
-		const endpoint = settingsOfProvider[providerName]?.endpoint || '';
-		if (endpoint) {
-			try {
-				// Use proper URL parsing to check hostname (not substring matching)
-				const url = new URL(endpoint);
-				const hostname = url.hostname.toLowerCase();
-				isLocalhostEndpoint = hostname === 'localhost' || hostname === '127.0.0.1' || hostname === '0.0.0.0' || hostname === '::1';
-			} catch (e) {
-				// Invalid URL - assume non-local (safe default)
-				isLocalhostEndpoint = false;
-			}
-		}
-	}
-	const isLocalProvider = isExplicitLocalProvider || isLocalhostEndpoint;
+	const isLocalhostEndpoint = isLocalAddress(settingsOfProvider[providerName]?.endpoint);
+	const isLocalProvider = isLocalProviderOf(providerName, settingsOfProvider);
 	// Aggregator providers: extra hop client→aggregator→upstream adds latency,
 	// reasoning models on big context can take 2–3 minutes to first byte.
 	const isAggregatorProvider = providerName === 'openRouter'
@@ -296,24 +267,8 @@ const _sendOpenAICompatibleFIM = async ({ messages: { prefix, suffix, stopTokens
 	} = getModelCapabilities(providerName, modelName_, overridesOfModel);
 
 	// Detect if this is a local provider for streaming optimization
-	// Note: vLLM and lmStudio don't support FIM, so we only check for ollama here
-	const isExplicitLocalProvider = providerName === 'ollama';
-	let isLocalhostEndpoint = false;
-	if (providerName === 'openAICompatible' || providerName === 'liteLLM' || providerName === 'lmRoute') {
-		const endpoint = settingsOfProvider[providerName]?.endpoint || '';
-		if (endpoint) {
-			try {
-				// Use proper URL parsing to check hostname (not substring matching)
-				const url = new URL(endpoint);
-				const hostname = url.hostname.toLowerCase();
-				isLocalhostEndpoint = hostname === 'localhost' || hostname === '127.0.0.1' || hostname === '0.0.0.0' || hostname === '::1';
-			} catch (e) {
-				// Invalid URL - assume non-local (safe default)
-				isLocalhostEndpoint = false;
-			}
-		}
-	}
-	const isLocalProvider = isExplicitLocalProvider || isLocalhostEndpoint;
+	const isLocalhostEndpoint = isLocalAddress(settingsOfProvider[providerName]?.endpoint);
+	const isLocalProvider = isLocalProviderOf(providerName, settingsOfProvider);
 
 	// Check FIM support - only allow if model explicitly supports it OR if it's a provider that supports FIM
 	// Providers with FIM support (that use this function):

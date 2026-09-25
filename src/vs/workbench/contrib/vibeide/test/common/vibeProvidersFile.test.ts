@@ -76,9 +76,11 @@ suite('vibeProvidersFile — .vibe/providers.json format', () => {
 			assert.deepStrictEqual(normalizeAuth(undefined), { type: 'bearer' });
 			assert.deepStrictEqual(normalizeAuth('bearer'), { type: 'bearer' });
 		});
-		test('passes through explicit header/query forms', () => {
-			assert.deepStrictEqual(normalizeAuth({ type: 'header', name: 'x-api-key' }), { type: 'header', name: 'x-api-key' });
-			assert.deepStrictEqual(normalizeAuth({ type: 'query', name: 'key' }), { type: 'query', name: 'key' });
+		test('passes through explicit header/query forms; a missing name is the wire default, a non-string one is invalid', () => {
+			assert.deepStrictEqual(
+				[{ type: 'header', name: 'x-api-key' }, { type: 'query', name: 'key' }, { type: 'header' }, { type: 'query' }, { type: 'header', name: 7 }].map(parseAuth),
+				[{ type: 'header', name: 'x-api-key' }, { type: 'query', name: 'key' }, { type: 'header' }, { type: 'query' }, 'invalid'],
+			);
 		});
 		// `none` used to fall through to bearer in silence, so a keyless local server was treated as one missing its key.
 		test('reads "none" in both forms; an unreadable value is named invalid and still falls back to bearer', () => {
@@ -125,6 +127,17 @@ suite('vibeProvidersFile — .vibe/providers.json format', () => {
 			const merged = mergeProviderEntry(base, { id: 'openRouter', timeoutMs: 240000 });
 			assert.strictEqual(merged.baseURL, 'https://openrouter.ai/api/v1'); // inherited
 			assert.strictEqual(merged.timeoutMs, 240000); // overridden
+		});
+
+		test('headers and query merge by name, as in VibeIDEA: a patch adding one keeps the base\'s others', () => {
+			const merged = mergeProviderEntry(
+				{ ...base, headers: { 'X-Team': 'a', 'X-Tier': 'free' }, query: { 'api-version': '1' } },
+				{ id: 'openRouter', headers: { 'X-Tier': 'pro' }, query: { region: 'eu' } },
+			);
+			assert.deepStrictEqual({ headers: merged.headers, query: merged.query }, {
+				headers: { 'X-Team': 'a', 'X-Tier': 'pro' },
+				query: { 'api-version': '1', region: 'eu' },
+			});
 		});
 
 		test('models merge BY ID — patch matching, append new, base ids kept', () => {

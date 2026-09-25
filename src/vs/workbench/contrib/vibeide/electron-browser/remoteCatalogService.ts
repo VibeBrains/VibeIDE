@@ -27,8 +27,16 @@ import { IMainProcessService } from '../../../../platform/ipc/common/mainProcess
 import { IRemoteCatalogService, RemoteModelInfo, DynamicKeyValidation } from '../common/remoteCatalogService.js';
 import { normaliseCatalogCost } from '../common/catalogPricing.js';
 import { floatingRefOf } from '../common/catalogAliases.js';
+import { catalogRequestOf, VibeCatalogRequest } from '../common/vibeProvidersFile.js';
+import { isLocalAddress } from '../common/isLocalProvider.js';
 
 /** Cached catalog entry with TTL. */
+/** One model of Gemini's catalogue, as `GET /models` lists it */
+interface GeminiCatalogModel {
+	name?: string;
+	supportedGenerationMethods?: string[];
+}
+
 interface CachedCatalog {
 	models: RemoteModelInfo[];
 	timestamp: number;
@@ -210,22 +218,41 @@ export class RemoteCatalogService implements IRemoteCatalogService {
 		}).filter(m => m.id.length > 0);
 	}
 
-	async fetchDynamicWithStatus(baseURL: string, apiKey: string | undefined, modelsUrl?: string): Promise<DynamicKeyValidation> {
-		const base = baseURL.replace(/\/+$/, '');
-		const url = modelsUrl?.trim() ? modelsUrl.trim() : (base.endsWith('/v1') ? `${base}/models` : `${base}/v1/models`);
-		const headers: IHeaders = {};
-		if (apiKey?.trim()) { headers['Authorization'] = `Bearer ${apiKey.trim()}`; }
+	/**
+	 * A catalogue in either shape catalogues come in: OpenAI's `{ data: [{ id }] }` or Gemini's `{ models: [{ name }] }`
+	 * A file provider may speak either wire, and VibeIDEA reads both the same way
+	 */
+	private parseCatalogModels(data: { data?: Record<string, unknown>[]; models?: GeminiCatalogModel[] }): RemoteModelInfo[] {
+		return Array.isArray(data.models) && !Array.isArray(data.data) ? this.parseGeminiModels(data.models) : this.parseOpenAICompatibleModels(data);
+	}
+
+	/** Gemini's catalogue: `models/<id>` names, and only the models that generate content */
+	private parseGeminiModels(models: readonly GeminiCatalogModel[]): RemoteModelInfo[] {
+		const out: RemoteModelInfo[] = [];
+		for (const m of models) {
+			const name = m.name || '';
+			if (!name || !m.supportedGenerationMethods?.includes('generateContent')) {
+				continue;
+			}
+			const id = name.startsWith('models/') ? name.slice('models/'.length) : name;
+			out.push({ id, name: id });
+		}
+		return out;
+	}
+
+	async fetchDynamicWithStatus(request: VibeCatalogRequest): Promise<DynamicKeyValidation> {
 		try {
 			// 'probe' (electron-main channel) returns the raw HTTP status without throwing on non-2xx, so
 			// we can tell 401/403 (invalid key) apart from a network/server failure.
 			const ipc = this.mainProcessService.getChannel('vibeide-channel-remoteCatalogFetch');
-			const res = await ipc.call<{ status: number; body: string | null }>('probe', { url, headers });
+			const res = await ipc.call<{ status: number; body: string | null }>('probe', { url: request.url, headers: { ...request.headers } });
 			const status = res?.status ?? 0;
 			if (status === 401 || status === 403) { return { status: 'unauthorized', models: [] }; }
+			// No catalogue at that address: the server is up, and the key is neither proven nor disproven
+			if (status === 404) { return { status: 'absent', models: [] }; }
 			if (status >= 200 && status < 300 && typeof res?.body === 'string' && res.body.trim()) {
 				try {
-					const data = JSON.parse(res.body) as { data?: Record<string, unknown>[] };
-					return { status: 'ok', models: this.parseOpenAICompatibleModels(data) };
+					return { status: 'ok', models: this.parseCatalogModels(JSON.parse(res.body)) };
 				} catch {
 					return { status: 'error', models: [] };
 				}
@@ -237,22 +264,18 @@ export class RemoteCatalogService implements IRemoteCatalogService {
 	}
 
 	private async fetchFromProvider(providerName: ProviderName): Promise<RemoteModelInfo[]> {
-		// Dynamic providers (.vibe/providers.json) aren't in settingsOfProvider. Resolve their
-		// baseURL + key from the transient transport overlay and fetch the standard OpenAI-compatible
-		// /v1/models — same generic handler the built-in openai-compat providers use. No baseURL, or no
-		// key on a server that wants one → nothing to fetch; a server declared keyless is asked without one.
+		// Dynamic providers (.vibe/providers.json) aren't in settingsOfProvider. Their catalogue request is built from
+		// the transient transport overlay by the same rule as the key probe (`catalogRequestOf`). No key on a server
+		// that wants one → nothing to fetch; a server declared keyless, or one on this machine, is asked without one.
 		const dyn = this.settingsService.getDynamicTransportConfigs()[providerName as unknown as string];
 		if (dyn?.baseURL) {
-			if (!dyn.keyless && !dyn.apiKey?.trim()) {
+			const key = dyn.keyless ? undefined : dyn.apiKey?.trim() || undefined;
+			if (!key && !dyn.keyless && !isLocalAddress(dyn.baseURL)) {
 				return [];
 			}
-			// `models.fetch: "<url>"` overrides the endpoint; otherwise derive it from baseURL.
-			const base = dyn.baseURL.replace(/\/+$/, '');
-			const modelsUrl = dyn.modelsUrl?.trim()
-				? dyn.modelsUrl.trim()
-				: (base.endsWith('/v1') ? `${base}/models` : `${base}/v1/models`);
+			const request = catalogRequestOf({ baseURL: dyn.baseURL, protocol: dyn.protocol, auth: dyn.auth, headers: dyn.headers, query: dyn.query, modelsUrl: dyn.modelsUrl }, key);
 			try {
-				return await this.fetchOpenAICompatibleModelsCatalog(modelsUrl, dyn.apiKey);
+				return this.parseCatalogModels(await this.getJson(request.url, { ...request.headers }, 'dynamicProviderModels'));
 			} catch (error) {
 				const now = Date.now();
 				const last = this.lastErrLogAt.get(providerName) ?? 0;
@@ -432,17 +455,8 @@ export class RemoteCatalogService implements IRemoteCatalogService {
 		}
 		try {
 			const url = `https://generativelanguage.googleapis.com/v1beta/models?key=${encodeURIComponent(apiKey)}`;
-			const data = await this.getJson<{ models?: { name?: string; supportedGenerationMethods?: string[] }[] }>(url, {}, 'geminiModels');
-			const out: RemoteModelInfo[] = [];
-			for (const m of data.models || []) {
-				const name = m.name || '';
-				if (!name || !m.supportedGenerationMethods?.includes('generateContent')) {
-					continue;
-				}
-				const id = name.startsWith('models/') ? name.slice('models/'.length) : name;
-				out.push({ id, name: id });
-			}
-			return out;
+			const data = await this.getJson<{ models?: GeminiCatalogModel[] }>(url, {}, 'geminiModels');
+			return this.parseGeminiModels(data.models || []);
 		} catch {
 			return [];
 		}

@@ -150,7 +150,8 @@ suite('aiSdkAdapter — встроенные провайдеры против �
 			req.on('end', () => {
 				const body = raw ? JSON.parse(raw) as WireBody : undefined;
 				requests.push({ path: req.url ?? '', headers: req.headers, body });
-				respond(req.url ?? '', body, res);
+				// Routed by path alone: a file provider's query parameters ride on the address
+				respond((req.url ?? '').split('?')[0], body, res);
 			});
 		});
 		await new Promise<void>(resolve => server.listen(0, '127.0.0.1', () => resolve()));
@@ -480,6 +481,66 @@ suite('aiSdkAdapter — встроенные провайдеры против �
 			[...wires.map(wire => seen(wire.path, 0)), seen('/compat/v1/chat/completions', 1)],
 			[keyless, keyless, keyless, keyless, { authorization: 'Bearer k', xApiKey: undefined, xGoogApiKey: undefined, team: undefined }],
 		);
+	});
+
+	test('ключ провайдера из файла: написанное — как написано, без auth — родной заголовок провода, без ключа — ничего', async () => {
+		// One vendor may serve one key over two wires and read it from each wire's own header (OpenCode does): the SDK
+		// puts nothing of its own, the key goes where `keyPlacement` puts it for THIS request's wire.
+		const canary = 'sk-canary-from-env';
+		const savedKey = process.env.OPENAI_API_KEY;
+		process.env.OPENAI_API_KEY = canary;
+		const via = (id: string, transport: Record<string, unknown>) => send({
+			providerName: id as SendChatParams_Internal['providerName'],
+			modelName: 'local-model',
+			settingsOfProvider: settingsWith({ [id]: transport }),
+			messages: [{ role: 'user', content: 'Привет' }],
+		});
+		const wires = [
+			{ protocol: 'openai', base: '/compat/v1', path: '/compat/v1/chat/completions' },
+			{ protocol: 'openai-responses', base: '/v1', path: '/v1/responses' },
+			{ protocol: 'anthropic', base: '/v1', path: '/v1/messages' },
+			{ protocol: 'gemini', base: '/v1beta', path: '/v1beta/models/' },
+		];
+		try {
+			for (const wire of wires) {
+				await via('file-native', { baseURL: `http://127.0.0.1:${port}${wire.base}`, protocol: wire.protocol, apiKey: 'k' });
+			}
+			await via('file-bearer', { baseURL: `http://127.0.0.1:${port}/v1`, protocol: 'anthropic', apiKey: 'k', auth: 'bearer' });
+			await via('file-header', { baseURL: `http://127.0.0.1:${port}/v1`, protocol: 'anthropic', apiKey: 'k', auth: { type: 'header', name: 'api-key' } });
+			await via('file-query', { baseURL: `http://127.0.0.1:${port}/compat/v1`, protocol: 'openai', apiKey: 'k', auth: { type: 'query', name: 'code' }, query: { 'api-version': '2025-01-01' } });
+			await via('file-no-key', { baseURL: `http://127.0.0.1:${port}/compat/v1`, protocol: 'openai' });
+		} finally {
+			if (savedKey === undefined) { delete process.env.OPENAI_API_KEY; } else { process.env.OPENAI_API_KEY = savedKey; }
+		}
+		const seen = (path: string, nth: number) => {
+			const request = requests.filter(r => r.path.startsWith(path))[nth];
+			return {
+				query: request?.path.split('?')[1],
+				authorization: request?.headers['authorization'],
+				xApiKey: request?.headers['x-api-key'],
+				xGoogApiKey: request?.headers['x-goog-api-key'],
+				apiKey: request?.headers['api-key'],
+			};
+		};
+		const only = (headers: { authorization?: string; xApiKey?: string; xGoogApiKey?: string; apiKey?: string }, query?: string) =>
+			({ query, authorization: undefined, xApiKey: undefined, xGoogApiKey: undefined, apiKey: undefined, ...headers });
+		assert.deepStrictEqual([
+			...wires.map(wire => seen(wire.path, 0)),
+			seen('/v1/messages', 1),
+			seen('/v1/messages', 2),
+			seen('/compat/v1/chat/completions', 1),
+			seen('/compat/v1/chat/completions', 2),
+		], [
+			only({ authorization: 'Bearer k' }),
+			only({ authorization: 'Bearer k' }),
+			only({ xApiKey: 'k' }),
+			// `alt=sse` is the Gemini SDK's own: a streamed answer is asked for in the address
+			only({ xGoogApiKey: 'k' }, 'alt=sse'),
+			only({ authorization: 'Bearer k' }),
+			only({ apiKey: 'k' }),
+			only({}, 'api-version=2025-01-01&code=k'),
+			only({}),
+		]);
 	});
 
 	test('Google: пауза из RetryInfo становится retry-after, далёкая пауза не повторяется на месте и названа лимитом', async () => {

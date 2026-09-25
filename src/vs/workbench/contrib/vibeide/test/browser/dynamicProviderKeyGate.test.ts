@@ -20,7 +20,8 @@ suite('dynamic provider key gate', () => {
 	const ok: DynamicKeyValidation = { status: 'ok', models: [] };
 	const unauthorized: DynamicKeyValidation = { status: 'unauthorized', models: [] };
 	const unreachable: DynamicKeyValidation = { status: 'error', models: [] };
-	const base: DynamicKeyGateInput = { keyless: false, hasBrowserKey: false, hasOsEnvKey: false, staticOnly: false, validation: undefined };
+	const noCatalogue: DynamicKeyValidation = { status: 'absent', models: [] };
+	const base: DynamicKeyGateInput = { keyless: false, localAddress: false, hasBrowserKey: false, hasOsEnvKey: false, staticOnly: false, validation: undefined };
 
 	test('a keyless server is probed like a key: its answer decides, a key in the environment changes nothing', () => {
 		const cases: Array<Partial<DynamicKeyGateInput>> = [
@@ -47,5 +48,33 @@ suite('dynamic provider key gate', () => {
 			{ keyStatus: 'valid', offer: 'catalog' },
 			{ keyStatus: 'invalid', offer: 'none' },
 		]);
+	});
+
+	test('a server on this machine without a key is asked without one; a key or a key in the environment still counts', () => {
+		const cases: Array<Partial<DynamicKeyGateInput>> = [
+			{ localAddress: true },
+			{ localAddress: true, validation: ok },
+			{ localAddress: true, validation: unauthorized },
+			{ localAddress: true, validation: unreachable },
+			{ localAddress: true, staticOnly: true },
+			{ localAddress: true, hasOsEnvKey: true },
+			{ localAddress: true, hasBrowserKey: true, validation: unauthorized },
+		];
+		assert.deepStrictEqual(cases.map(c => dynamicKeyGate({ ...base, ...c })), [
+			{ keyStatus: 'pending', offer: 'none' },
+			{ keyStatus: 'valid', offer: 'catalog' },
+			{ keyStatus: 'invalid', offer: 'none' },
+			{ keyStatus: 'error', offer: 'none' },
+			{ keyStatus: 'unverified', offer: 'static' },
+			{ keyStatus: 'unverified', offer: 'static' },
+			{ keyStatus: 'invalid', offer: 'none' },
+		]);
+	});
+
+	test('no catalogue at the address (404) offers the file list and leaves the key unverified', () => {
+		assert.deepStrictEqual(
+			[{ hasBrowserKey: true }, { keyless: true }, { localAddress: true }].map(c => dynamicKeyGate({ ...base, ...c, validation: noCatalogue })),
+			[{ keyStatus: 'unverified', offer: 'static' }, { keyStatus: 'unverified', offer: 'static' }, { keyStatus: 'unverified', offer: 'static' }],
+		);
 	});
 });

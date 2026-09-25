@@ -1229,10 +1229,13 @@ export const SettingsForProvider = ({ providerName, showProviderTitle, showProvi
 	// Dynamic providers (.vibe/providers.json) carry key validation status + source on their seeded
 	// entry — surfaced below the key field so the user sees whether the key actually works.
 	const isDynamicProvider = !(providerNames as readonly string[]).includes(providerName as string);
-	const dynSeed = isDynamicProvider ? (vibeSettingsState.settingsOfProvider as Record<string, { keyStatus?: string; keySource?: string; keyless?: boolean } | undefined>)[providerName] : undefined;
+	const dynSeed = isDynamicProvider ? (vibeSettingsState.settingsOfProvider as Record<string, { keyStatus?: string; keySource?: string; keyless?: boolean; localWithoutKey?: boolean } | undefined>)[providerName] : undefined;
 	const dynKeyStatus = dynSeed?.keyStatus;
 	const dynKeySource = (dynSeed?.keySource ?? 'none') as keyof typeof providersS.dynKeySrc;
 	const dynKeyless = dynSeed?.keyless === true;
+	// A server on this machine asked without a key: its answer is the status, and the key field stays for one that wants a key
+	const dynLocalWithoutKey = dynSeed?.localWithoutKey === true;
+	const dynServerStatusTexts = dynKeyless ? providersS.dynKeyless : dynLocalWithoutKey ? providersS.dynLocalWithoutKey : undefined;
 
 	const settingNames = customSettingNamesOfProvider(providerName);
 	// A server declared keyless never receives a key, so a key field could only take one and ignore it.
@@ -1276,8 +1279,8 @@ export const SettingsForProvider = ({ providerName, showProviderTitle, showProvi
 					subTextMd={null}
 				/> : null}
 
-			{isDynamicProvider && dynKeyStatus && dynKeyless ? (() => {
-					const text = providersS.dynKeyless[dynKeyStatus as keyof typeof providersS.dynKeyless] ?? providersS.dynKeyless.none;
+			{isDynamicProvider && dynKeyStatus && dynServerStatusTexts ? (() => {
+					const text = dynServerStatusTexts[dynKeyStatus as keyof typeof dynServerStatusTexts] ?? dynServerStatusTexts.none;
 					const color = dynKeyStatus === 'valid' ? 'text-emerald-400'
 						: dynKeyStatus === 'invalid' ? 'text-red-400'
 							: dynKeyStatus === 'error' ? 'text-amber-400'
@@ -1285,7 +1288,7 @@ export const SettingsForProvider = ({ providerName, showProviderTitle, showProvi
 					return <div className={`text-xs mt-1 pl-2 ${color}`}>{text}</div>;
 				})() : null}
 
-			{isDynamicProvider && dynKeyStatus && !dynKeyless ? (() => {
+			{isDynamicProvider && dynKeyStatus && !dynServerStatusTexts ? (() => {
 					const srcSuffix = (dynKeyStatus !== 'none' && dynKeyStatus !== 'pending')
 						? ` · ${providersS.dynKeySrcPrefix}: ${providersS.dynKeySrc[dynKeySource] ?? providersS.dynKeySrc.none}`
 						: '';

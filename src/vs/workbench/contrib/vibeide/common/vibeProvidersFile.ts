@@ -84,12 +84,13 @@ export type VibeProviderProtocol = 'openai' | 'openai-responses' | 'anthropic' |
 /**
  * Auth shorthand `"bearer"` / `"none"` or the explicit object form. `header`/`query` carry the field name
  * `none` is a server that takes no key: nothing is sent, whatever key sources the entry declares
+ * A missing `name` takes the wire's default — see `keyPlacement`
  */
 export type VibeProviderAuth =
 	| { readonly type: 'bearer' }
 	| { readonly type: 'none' }
-	| { readonly type: 'header'; readonly name: string }
-	| { readonly type: 'query'; readonly name: string };
+	| { readonly type: 'header'; readonly name?: string }
+	| { readonly type: 'query'; readonly name?: string };
 
 export type VibeModelToolFormat = 'openai' | 'anthropic' | 'gemini' | 'none';
 export type VibeModelSystemMessage = 'system' | 'developer' | 'separated' | false;
@@ -314,14 +315,17 @@ const isObject = (v: unknown): v is Record<string, unknown> => !!v && typeof v =
 
 /**
  * The `auth` field in its object form, or `'invalid'` for a value no product reads
- * Absent means bearer. Values are case-sensitive, as VibeIDEA reads them
+ * Absent reads as bearer here; where the key goes when no layer wrote `auth` is the wire's call — `keyPlacement`
+ * Values are case-sensitive, as VibeIDEA reads them
  */
 export function parseAuth(auth: unknown): VibeProviderAuth | 'invalid' {
 	if (auth === undefined || auth === 'bearer') { return { type: 'bearer' }; }
 	if (auth === 'none') { return { type: 'none' }; }
 	if (isObject(auth)) {
 		if (auth.type === 'bearer' || auth.type === 'none') { return { type: auth.type }; }
-		if (auth.type === 'header' || auth.type === 'query') { return auth as VibeProviderAuth; }
+		if ((auth.type === 'header' || auth.type === 'query') && (auth.name === undefined || typeof auth.name === 'string')) {
+			return typeof auth.name === 'string' ? { type: auth.type, name: auth.name } : { type: auth.type };
+		}
 	}
 	return 'invalid';
 }
@@ -338,6 +342,103 @@ export function normalizeAuth(auth: VibeProviderEntry['auth']): VibeProviderAuth
 /** The entry declares a server that takes no key (`"auth": "none"`) */
 export function isKeyless(entry: Pick<VibeProviderEntry, 'auth'>): boolean {
 	return normalizeAuth(entry.auth).type === 'none';
+}
+
+/** Where a key goes on one request: headers and query parameters, both empty when nothing is sent */
+export interface VibeKeyPlacement {
+	readonly headers: Readonly<Record<string, string>>;
+	readonly query: Readonly<Record<string, string>>;
+}
+
+const NO_PLACEMENT: VibeKeyPlacement = { headers: {}, query: {} };
+
+/** The wire's own key header; the OpenAI wires have none of their own and take a Bearer */
+function nativeKeyHeaderOf(wire: VibeProviderProtocol): string | undefined {
+	return wire === 'anthropic' ? 'x-api-key' : wire === 'gemini' ? 'x-goog-api-key' : undefined;
+}
+
+/** Header name of `{ "type": "header" }` without `name` on a wire without a key header of its own */
+const DEFAULT_KEY_HEADER = 'x-api-key';
+
+/** Parameter name of `{ "type": "query" }` without `name` — the one Gemini documents */
+const DEFAULT_KEY_PARAM = 'key';
+
+/**
+ * Where a provider's key goes on a request — one rule for every wire and for the model catalogue
+ *
+ * The shared set's contract with VibeIDEA (`testVectors/providerAuth.json`, `providers/README.md`):
+ * What a file declares is sent as declared, and `bearer` is `Authorization: Bearer` on any wire
+ * What no layer declares goes the wire's own way: `x-api-key` on anthropic, `x-goog-api-key` on gemini, Bearer on OpenAI
+ * One vendor may serve one key over two wires and read it from each wire's own header (OpenCode does)
+ *
+ * @param declared the `auth` as the merged layers wrote it; `undefined` — no layer did, the wire decides
+ * @param wire the protocol of the REQUEST: a model may speak another wire than its provider
+ */
+export function keyPlacement(declared: VibeProviderEntry['auth'], key: string | undefined, wire: VibeProviderProtocol): VibeKeyPlacement {
+	if (!key) { return NO_PLACEMENT; }
+	const native = nativeKeyHeaderOf(wire);
+	if (declared === undefined) {
+		return native ? { headers: { [native]: key }, query: {} } : { headers: { Authorization: `Bearer ${key}` }, query: {} };
+	}
+	const auth = normalizeAuth(declared);
+	switch (auth.type) {
+		case 'none': return NO_PLACEMENT;
+		case 'query': return { headers: {}, query: { [auth.name || DEFAULT_KEY_PARAM]: key } };
+		case 'header': return { headers: { [auth.name || native || DEFAULT_KEY_HEADER]: key }, query: {} };
+		// `bearer`, and anything unrecognised — the loader warns about it
+		default: return { headers: { Authorization: `Bearer ${key}` }, query: {} };
+	}
+}
+
+/** `url` with `params` appended, after its own query string when it has one */
+export function withQueryParams(url: string, params: Readonly<Record<string, string>>): string {
+	const pairs = Object.entries(params).map(([name, value]) => `${encodeURIComponent(name)}=${encodeURIComponent(value)}`);
+	if (pairs.length === 0) { return url; }
+	return `${url}${url.includes('?') ? '&' : '?'}${pairs.join('&')}`;
+}
+
+/** A declared protocol as a wire; anything the format does not know is the OpenAI-compatible default */
+export function wireOfProtocol(protocol: string | undefined): VibeProviderProtocol {
+	return protocol === 'anthropic' || protocol === 'gemini' || protocol === 'openai-responses' ? protocol : 'openai';
+}
+
+/** What a model-catalogue request of a file provider needs from the provider */
+export interface VibeCatalogSource {
+	readonly baseURL: string;
+	/** The provider's `protocol` as written; the catalogue is asked over this wire */
+	readonly protocol?: string;
+	readonly auth?: VibeProviderEntry['auth'];
+	readonly headers?: Readonly<Record<string, string>>;
+	readonly query?: Readonly<Record<string, string>>;
+	/** `models.fetch` as a string: the catalogue's own address */
+	readonly modelsUrl?: string;
+}
+
+/** One model-catalogue request, ready to send */
+export interface VibeCatalogRequest {
+	readonly url: string;
+	readonly headers: Readonly<Record<string, string>>;
+}
+
+/** Anthropic answers any request without it with an error, `/v1/models` included */
+const ANTHROPIC_VERSION_HEADER = 'anthropic-version';
+const ANTHROPIC_API_VERSION = '2023-06-01';
+
+/**
+ * The model-catalogue request of a file provider — asked the way its chat is asked
+ * The address is `<baseURL>/models`, the path appended as is, like the chat's; `models.fetch` as a string replaces it
+ * The file's `headers` and `query` go along, and the key goes where `keyPlacement` puts it on the provider's wire
+ */
+export function catalogRequestOf(source: VibeCatalogSource, key: string | undefined): VibeCatalogRequest {
+	const wire = wireOfProtocol(source.protocol);
+	const placement = keyPlacement(source.auth, key, wire);
+	const address = source.modelsUrl?.trim() || `${source.baseURL.replace(/\/+$/, '')}/models`;
+	const headers: Record<string, string> = { ...source.headers, ...placement.headers };
+	const declaresVersion = Object.keys(headers).some(name => name.toLowerCase() === ANTHROPIC_VERSION_HEADER);
+	if (wire === 'anthropic' && !declaresVersion) {
+		headers[ANTHROPIC_VERSION_HEADER] = ANTHROPIC_API_VERSION;
+	}
+	return { url: withQueryParams(address, { ...source.query, ...placement.query }), headers };
 }
 
 /**
@@ -435,12 +536,15 @@ export function mergeProvidersLists(global: readonly VibeProviderEntry[], worksp
  * Merge an override entry onto a base (used by both `extends` and same-id patching).
  * Top-level scalar/object fields: override wins when present. `models.static` is merged BY MODEL
  * ID — an override model patches the base model with the same id; new ids are appended; setting
- * `models.fetch` replaces the base's. The base is never mutated.
+ * `models.fetch` replaces the base's. `headers` and `query` merge by name, as in VibeIDEA: a patch adding
+ * one header keeps the base's others. The base is never mutated.
  */
 export function mergeProviderEntry(base: VibeProviderEntry, override: VibeProviderEntry): VibeProviderEntry {
 	const merged: Record<string, unknown> = { ...base, ...override };
 	// `extends` is a resolution directive, not a persisted field — drop it from the result.
 	delete merged.extends;
+	if (base.headers || override.headers) { merged.headers = { ...base.headers, ...override.headers }; }
+	if (base.query || override.query) { merged.query = { ...base.query, ...override.query }; }
 
 	if (base.models || override.models) {
 		const baseModels = base.models?.static ?? [];

@@ -15,7 +15,7 @@ import { IConfigurationService } from '../../../../platform/configuration/common
 import { IMetricsService } from './metricsService.js';
 import { vibeLog } from './vibeLog.js';
 import { defaultProviderSettings, getModelCapabilities, isFloatingModel, ModelOverrides, VibeideStaticModelInfo } from './modelCapabilities.js';
-import type { VibeReasoningDialect } from './vibeProvidersFile.js';
+import type { VibeProviderEntry, VibeReasoningDialect } from './vibeProvidersFile.js';
 import { VOID_SETTINGS_STORAGE_KEY } from './storageKeys.js';
 import type { BuiltinWireHints } from './builtinWireHints.js';
 import { autoFallbackProviderIds, defaultSettingsOfProvider, FeatureName, isBuiltinProviderId, ProviderId, ProviderName, ModelSelectionOfFeature, SettingsOfProvider, SettingName, providerNames, ModelSelection, modelSelectionsEqual, featureNames, VibeideStatefulModelInfo, GlobalSettings, GlobalSettingName, defaultGlobalSettings, ModelSelectionOptions, OptionsOfModelSelection, ChatMode, OverridesOfModel, defaultOverridesOfModel, MCPUserStateOfName as MCPUserStateOfName, MCPUserState, MinimalismMode } from './vibeideSettingsTypes.js';
@@ -349,8 +349,17 @@ export interface DynProviderTransportConfig {
 	 * `apiKey` and `apiKeyEnv` are then absent — the renderer does not hand the send path a key it must not use
 	 */
 	readonly keyless?: true;
+	/**
+	 * The file's `auth` as the merged layers wrote it — absent when no layer did
+	 * Where the key goes is decided per request, by its wire (`keyPlacement`): absent means the wire's own header
+	 */
+	readonly auth?: VibeProviderEntry['auth'];
+	/** Static query parameters of the file, sent with every request and the catalogue request */
+	readonly query?: Record<string, string>;
+	/** How long the server may stay silent before it starts answering, ms — the file's `timeoutMs` */
+	readonly timeoutMs?: number;
 	/** Custom models-catalog URL from `models.fetch: "<url>"`. When set, the catalog fetch hits this
-	 *  URL verbatim instead of the `<baseURL>/v1/models` default. */
+	 *  URL verbatim instead of the `<baseURL>/models` default (`catalogRequestOf`). */
 	readonly modelsUrl?: string;
 	/** Wire protocol declared in the file (`openai` | `anthropic` | `gemini`). Feeds the SDK pick in
 	 *  aiSdkAdapter with priority override → FILE → models.dev catalog → openai-compat fallback. */
@@ -401,14 +410,16 @@ export type DynamicProviderSeed = {
 	_didFillInProviderSettings: boolean;
 	/** Key validation status shown in the provider card. `valid` = the models endpoint authenticated;
 	 *  `invalid` = 401/403; `error` = network/server; `pending` = probe in flight; `unverified` =
-	 *  static-only (`fetch:false`, no probe); `none` = no key resolved.
-	 *  For a `keyless` provider the same values read as the SERVER's answer to a probe sent without a key:
-	 *  `invalid` then means the server wants a key after all. */
+	 *  the file's list without a check (`fetch:false`, an OS-env key, or no catalogue at the address); `none` = no key resolved.
+	 *  For a `keyless` or `localWithoutKey` provider the same values read as the SERVER's answer to a probe sent
+	 *  without a key: `invalid` then means the server wants a key after all. */
 	keyStatus?: 'valid' | 'invalid' | 'error' | 'pending' | 'unverified' | 'none';
 	/** Where the resolved key came from — surfaced in the card so the user knows what's in effect. */
 	keySource?: 'gui' | 'env' | 'ref' | 'none';
 	/** `"auth": "none"` — the card hides the key field, which could only be ignored, and says no key is needed. */
 	keyless?: true;
+	/** A server on this machine, no key given: asked without one; the key field stays, for a server that wants one */
+	localWithoutKey?: true;
 };
 let _providerActiveOverrides: VibeProviderActiveOverrides | undefined = undefined;
 

@@ -14,6 +14,7 @@ import { ProviderId, ProviderName } from './vibeideSettingsTypes.js';
 // живёт в common, поэтому контракт не может уехать даже в browser.
 
 import { ModelCost } from './modelCapabilities.js';
+import { VibeCatalogRequest } from './vibeProvidersFile.js';
 
 export interface RemoteModelInfo {
 	id: string;
@@ -36,8 +37,11 @@ export interface RemoteModelInfo {
 	preview?: boolean;
 }
 
-/** Result of validating a dynamic provider's key by probing its models endpoint. */
-export type DynamicKeyValidation = { status: 'ok' | 'unauthorized' | 'error'; models: RemoteModelInfo[] };
+/**
+ * Result of validating a dynamic provider's key by probing its models endpoint
+ * `absent` — the server answered 404: there is no catalogue at that address, which says nothing about the key
+ */
+export type DynamicKeyValidation = { status: 'ok' | 'unauthorized' | 'absent' | 'error'; models: RemoteModelInfo[] };
 
 /**
  * Service for fetching and caching remote provider model catalogs
@@ -45,10 +49,12 @@ export type DynamicKeyValidation = { status: 'ok' | 'unauthorized' | 'error'; mo
 export interface IRemoteCatalogService {
 	readonly _serviceBrand: undefined;
 
-	/** Validate a dynamic provider's key by probing `modelsUrl` (or `<baseURL>/v1/models`): returns the
-	 *  HTTP outcome (ok / unauthorized / error) plus the parsed model list on success. Used to gate
-	 *  dynamic-provider models on a working key instead of mere key presence. */
-	fetchDynamicWithStatus(baseURL: string, apiKey: string | undefined, modelsUrl?: string): Promise<DynamicKeyValidation>;
+	/**
+	 * Validate a dynamic provider's key by sending its catalogue request (`catalogRequestOf`)
+	 * Returns the HTTP outcome plus the parsed model list on success
+	 * Used to gate dynamic-provider models on a working key instead of mere key presence
+	 */
+	fetchDynamicWithStatus(request: VibeCatalogRequest): Promise<DynamicKeyValidation>;
 
 	/**
 	 * Fetch models from a remote provider's catalog

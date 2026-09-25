@@ -42,7 +42,8 @@ import { IVibeideSettingsService, VibeProviderActiveOverrides, ModelOption, DynP
 import type { BuiltinWireHints } from '../common/builtinWireHints.js';
 import { setExternalProviders, ExternalProviderDescriptor, VibeideStaticModelInfo, ModelLongContext } from '../common/modelCapabilities.js';
 import { IRemoteCatalogService, DynamicKeyValidation } from '../common/remoteCatalogService.js';
-import { VibeProviderEntry, VibeProviderModelCost, VibeProviderModelEntry, isKeyless, isProviderCatalogueFile, mergeProviderEntry, mergeProviderLayers, parseAuth, parseProvidersFile, promptCacheTtlOf, reasoningDialectOf, VibeProviderLongContext, VibeProviderTimeOfDay } from '../common/vibeProvidersFile.js';
+import { catalogRequestOf, VibeCatalogRequest, VibeProviderEntry, VibeProviderModelCost, VibeProviderModelEntry, isKeyless, isProviderCatalogueFile, mergeProviderEntry, mergeProviderLayers, parseAuth, parseProvidersFile, promptCacheTtlOf, reasoningDialectOf, VibeProviderLongContext, VibeProviderTimeOfDay } from '../common/vibeProvidersFile.js';
+import { isLocalAddress } from '../common/isLocalProvider.js';
 import { parseEnvFile } from '../common/vibeEnvFile.js';
 import { DEFAULT_PRICE_CHANGE_SOON_DAYS, effectiveCost, nextPriceChangeMoment, parseTimeOfDay, PriceTimeOfDay, priceChangeStatus } from '../common/modelPriceSchedule.js';
 import { VIBE_CONFIG_PROVIDERS_CACHE_KEY } from '../common/storageKeys.js';
@@ -104,7 +105,10 @@ export function dynamicTransportConfigOf(
 			...(resolvedKey ? { apiKey: resolvedKey } : {}),
 			...(entry.apiKeyEnv ? { apiKeyEnv: entry.apiKeyEnv } : {}),
 		}),
+		...(entry.auth !== undefined ? { auth: entry.auth } : {}),
 		...(entry.headers ? { headers: { ...entry.headers } } : {}),
+		...(entry.query ? { query: { ...entry.query } } : {}),
+		...(typeof entry.timeoutMs === 'number' && entry.timeoutMs > 0 ? { timeoutMs: entry.timeoutMs } : {}),
 		...(typeof fetchSpec === 'string' ? { modelsUrl: fetchSpec } : {}),
 		...(entry.protocol ? { protocol: entry.protocol } : {}),
 		...(modelProtocols ? { modelProtocols } : {}),
@@ -232,6 +236,8 @@ export function sortStaticModels(models: readonly VibeProviderModelEntry[]): Vib
 export interface DynamicKeyGateInput {
 	/** `"auth": "none"`: the server takes no key, so the probe goes without one */
 	readonly keyless: boolean;
+	/** The server is on this machine (`isLocalAddress`): a key is optional, and without one the probe goes without it */
+	readonly localAddress: boolean;
 	/** A key the renderer can see: typed in the card, `apiKeyRef`, `.vibe/.env` */
 	readonly hasBrowserKey: boolean;
 	/** The OS variable named by `apiKeyEnv` is set; its value stays in electron-main */
@@ -252,11 +258,19 @@ export interface DynamicKeyGate {
  * Models are gated on a WORKING credential, not on mere presence (PRODUCT invariants 4, 8, 10)
  *
  * A keyless server stands where a key would: it is probed, and its answer decides, as a key's would
+ * A server on this machine without a key is probed the same way, as VibeIDEA lets it in: a forgotten `"none"` on a seeded
+ * Ollama must not leave it without models in silence, and a local proxy that wants a key says so with its 401
  * The OS-env route cannot be probed from here, so it offers the file's list unverified
+ * A 404 means there is no catalogue at that address — the file's list is offered, the key stays unverified
  */
 export function dynamicKeyGate(input: DynamicKeyGateInput): DynamicKeyGate {
 	if (!input.keyless && !input.hasBrowserKey) {
-		return input.hasOsEnvKey ? { keyStatus: 'unverified', offer: 'static' } : { keyStatus: 'none', offer: 'none' };
+		if (input.hasOsEnvKey) {
+			return { keyStatus: 'unverified', offer: 'static' };
+		}
+		if (!input.localAddress) {
+			return { keyStatus: 'none', offer: 'none' };
+		}
 	}
 	if (input.staticOnly) {
 		return { keyStatus: 'unverified', offer: 'static' };
@@ -265,10 +279,12 @@ export function dynamicKeyGate(input: DynamicKeyGateInput): DynamicKeyGate {
 	if (!validation) {
 		return { keyStatus: 'pending', offer: 'none' };
 	}
-	if (validation.status === 'ok') {
-		return { keyStatus: 'valid', offer: 'catalog' };
+	switch (validation.status) {
+		case 'ok': return { keyStatus: 'valid', offer: 'catalog' };
+		case 'absent': return { keyStatus: 'unverified', offer: 'static' };
+		case 'unauthorized': return { keyStatus: 'invalid', offer: 'none' };
+		default: return { keyStatus: 'error', offer: 'none' };
 	}
-	return { keyStatus: validation.status === 'unauthorized' ? 'invalid' : 'error', offer: 'none' };
 }
 
 /** How a file entry relates to the built-in provider set. */
@@ -301,12 +317,14 @@ export interface ProviderDiagnosticsTarget {
 	readonly apiKeyEnv?: string;
 	/** Renderer-visible key for probing (undefined for OS-env-only providers). */
 	readonly apiKey?: string;
-	/** Custom models URL when `models.fetch` is a string. */
-	readonly modelsUrl?: string;
+	/** The catalogue request, built as the key probe builds it (`catalogRequestOf`); absent without a base URL */
+	readonly catalogRequest?: VibeCatalogRequest;
 	/** `false` => static-only (no catalog probe). */
 	readonly modelsFetch: boolean;
 	/** `"auth": "none"` — probed without a key, and a 401/403 means the server wants one after all */
 	readonly keyless: boolean;
+	/** A server on this machine with no key given: probed without one, and a 401/403 means it wants one */
+	readonly localWithoutKey: boolean;
 }
 
 /**
@@ -832,8 +850,14 @@ class VibeDynamicProvidersService extends Disposable implements IVibeDynamicProv
 				}
 			}
 			// An unreadable `auth` used to become bearer in silence — `"auth": "None"` looked written and did nothing.
-			if (parseAuth(resolved.auth) === 'invalid') {
+			const auth = parseAuth(resolved.auth);
+			if (auth === 'invalid') {
 				warnings.push(`«${entry.id}»: auth ${JSON.stringify(resolved.auth)} не разобран — ключ уйдёт заголовком Authorization: Bearer; допустимо "bearer", "none" или { "type": "header" | "query", "name": … }`);
+			}
+			// The one combination the rule makes certain to fail: Google answers an API key sent as a Bearer with an OAuth error.
+			const speaksGemini = resolved.protocol === 'gemini' || (resolved.models?.static ?? []).some(m => m.protocol === 'gemini');
+			if (kind !== 'override' && resolved.auth !== undefined && auth !== 'invalid' && auth.type === 'bearer' && speaksGemini) {
+				warnings.push(`«${entry.id}»: "auth": "bearer" на протоколе gemini — ключ уйдёт заголовком Authorization: Bearer, а Google на API-ключ так отвечает ошибкой OAuth; уберите auth, и ключ уйдёт родным x-goog-api-key`);
 			}
 			// A built-in patch keeps the built-in's own transport, so `auth` changes nothing there.
 			if (kind !== 'override' && isKeyless(resolved) && (resolved.apiKeyEnv || resolved.apiKeyRef)) {
@@ -866,7 +890,7 @@ class VibeDynamicProvidersService extends Disposable implements IVibeDynamicProv
 		// once and built-in disables take effect without waiting — preserves Phase 1 behavior / no regress.
 		this._buildAndApply(state.providers, undefined);
 		this._onDidChange.fire();
-		// Then enrich asynchronously: fetch <baseURL>/v1/models for connected providers and re-apply with
+		// Then enrich asynchronously: fetch <baseURL>/models for connected providers and re-apply with
 		// the live catalog (models no longer have to be hardcoded in the file). Stale fetches are dropped.
 		void this._enrichWithCatalog(state.providers, gen);
 	}
@@ -933,29 +957,32 @@ class VibeDynamicProvidersService extends Disposable implements IVibeDynamicProv
 			const keySource = this._resolveKeySource(p);
 			const hasOsEnv = !!p.entry.apiKeyEnv;
 			const keyless = isKeyless(p.entry);
-			// "Active" = key resolvable in the renderer OR an OS-env key resolved in main OR no key needed.
-			if (keySource === 'none' && !hasOsEnv && !keyless) { continue; }
+			const localAddress = isLocalAddress(p.entry.baseURL);
+			// "Active" = key resolvable in the renderer OR an OS-env key resolved in main OR no key needed or required.
+			if (keySource === 'none' && !hasOsEnv && !keyless && !localAddress) { continue; }
 			const fetchSpec = p.entry.models?.fetch;
+			// A keyless server is probed as it is asked at send time — with no key at all.
+			const apiKey = keyless ? undefined : this._resolveBrowserKey(p);
 			out.push({
 				id: p.id,
 				displayName: p.entry.name || p.id,
 				baseURL: p.entry.baseURL,
 				protocol: p.entry.protocol,
 				keySource,
-				// A keyless server is probed as it is asked at send time — with no key at all.
-				...(keyless ? {} : { apiKeyEnv: p.entry.apiKeyEnv, apiKey: this._resolveBrowserKey(p) }),
-				modelsUrl: typeof fetchSpec === 'string' ? fetchSpec : undefined,
+				...(keyless ? {} : { apiKeyEnv: p.entry.apiKeyEnv, apiKey }),
+				...(p.entry.baseURL ? { catalogRequest: this._catalogRequestOf(p, apiKey) } : {}),
 				modelsFetch: fetchSpec !== false,
 				keyless,
+				localWithoutKey: !keyless && !apiKey && localAddress,
 			});
 		}
 		return out;
 	}
 
 	/**
-	 * Fetch the live model catalog (<baseURL>/v1/models) for every connected dynamic provider and
+	 * Fetch the live model catalog (<baseURL>/models) for every connected dynamic provider and
 	 * re-apply the overlay so the picker shows catalog models instead of only the file's static list.
-	 * Connected = a resolvable browser key, or a server declared keyless, which is probed without one.
+	 * Connected = a resolvable browser key, or a server declared keyless or on this machine, which is probed without one.
 	 * Bails if a newer reload superseded this run.
 	 */
 	private async _enrichWithCatalog(providers: readonly ResolvedProviderEntry[], gen: number): Promise<void> {
@@ -963,7 +990,7 @@ class VibeDynamicProvidersService extends Disposable implements IVibeDynamicProv
 		// models endpoint to BOTH validate the key (401/403 = invalid) and fetch the live model list.
 		const connected = providers.filter(p =>
 			p.kind !== 'override' && p.entry.active !== false && !!p.entry.baseURL
-			&& p.entry.models?.fetch !== false && (isKeyless(p.entry) || !!this._resolveBrowserKey(p)));
+			&& p.entry.models?.fetch !== false && (isKeyless(p.entry) || isLocalAddress(p.entry.baseURL) || !!this._resolveBrowserKey(p)));
 		if (connected.length === 0) { return; }
 
 		const validationByProvider = new Map<string, DynamicKeyValidation>();
@@ -980,10 +1007,15 @@ class VibeDynamicProvidersService extends Disposable implements IVibeDynamicProv
 
 	/** One probe of a provider's models endpoint — with its key, or with none for a keyless server */
 	private _probe(p: ResolvedProviderEntry): Promise<DynamicKeyValidation> {
-		const fetchSpec = p.entry.models?.fetch;
-		const modelsUrl = typeof fetchSpec === 'string' ? fetchSpec : undefined;
 		const apiKey = isKeyless(p.entry) ? undefined : this._resolveBrowserKey(p);
-		return this._remoteCatalogService.fetchDynamicWithStatus(p.entry.baseURL!, apiKey, modelsUrl);
+		return this._remoteCatalogService.fetchDynamicWithStatus(this._catalogRequestOf(p, apiKey));
+	}
+
+	/** The catalogue request of a provider with a base URL — asked the way its chat is asked */
+	private _catalogRequestOf(p: ResolvedProviderEntry, apiKey: string | undefined): VibeCatalogRequest {
+		const fetchSpec = p.entry.models?.fetch;
+		const { baseURL, protocol, auth, headers, query } = p.entry;
+		return catalogRequestOf({ baseURL: baseURL!, protocol, auth, headers, query, modelsUrl: typeof fetchSpec === 'string' ? fetchSpec : undefined }, apiKey);
 	}
 
 	/**
@@ -1061,6 +1093,7 @@ class VibeDynamicProvidersService extends Disposable implements IVibeDynamicProv
 		for (const p of activeDynamic) {
 			const resolvedKey = this._resolveBrowserKey(p);
 			const keyless = isKeyless(p.entry);
+			const localAddress = isLocalAddress(p.entry.baseURL);
 
 			// Register this provider as openai-compatible; file `static` caps become per-model overrides on
 			// the recognized baseline (vision/reasoning/tool-format come from the knowledge base by name).
@@ -1100,10 +1133,12 @@ class VibeDynamicProvidersService extends Disposable implements IVibeDynamicProv
 			const pushStatic = () => { for (const m of sortStaticModels([...staticById.values()])) { pushModel(m.id, m.name || m.id, 'manual'); } };
 
 			const validation = validationByProvider?.get(p.id);
+			const hasOsEnvKey = this._hasOsEnvKey(p);
 			const { keyStatus, offer } = dynamicKeyGate({
 				keyless,
+				localAddress,
 				hasBrowserKey: !!resolvedKey,
-				hasOsEnvKey: this._hasOsEnvKey(p),
+				hasOsEnvKey,
 				staticOnly: p.entry.models?.fetch === false,
 				validation,
 			});
@@ -1133,7 +1168,8 @@ class VibeDynamicProvidersService extends Disposable implements IVibeDynamicProv
 				_didFillInProviderSettings: keyStatus === 'valid' || keyStatus === 'unverified',
 				keyStatus,
 				keySource,
-				...(keyless ? { keyless: true } : {}),
+				// The card says what the status is about: a server that takes no key, or one on this machine asked without a key
+				...(keyless ? { keyless: true } : !resolvedKey && !hasOsEnvKey && localAddress ? { localWithoutKey: true } : {}),
 			};
 		}
 		// Register all active dynamic providers in the unified caps registry (replace-all each apply).

@@ -15,6 +15,7 @@ import { sendLLMMessageToProviderImplementation, dynamicProviderImplementation }
 import { setLLMProxyConfig } from './systemCAFetch.js';
 import { getModelQuirks } from '../modelQuirks/modelQuirksService.js';
 import { withoutThoughtSignatures } from '../../common/thoughtSignature.js';
+import { isLocalProvider } from '../../common/isLocalProvider.js';
 
 /**
  * Register dynamic providers (.vibe/providers.json) into THIS process's caps registry. The renderer's
@@ -142,7 +143,7 @@ export const sendLLMMessage = async ({
 			const technical = errorMessage.startsWith('APIConnectionError:')
 				? ` (${errorMessage.replace(/^APIConnectionError:\s*/, '').trim()})`
 				: '';
-			const isLocalProviderName = providerName === 'ollama' || providerName === 'vLLM' || providerName === 'lmStudio';
+			const isLocalProviderName = providerName !== 'auto' && isLocalProvider(providerName, settingsOfProvider);
 			const causeHint = /SELF_SIGNED_CERT_IN_CHAIN|UNABLE_TO_VERIFY_LEAF_SIGNATURE|CERT_HAS_EXPIRED|UNABLE_TO_GET_ISSUER_CERT/i.test(technical)
 				? ' Looks like a TLS chain issue — likely a corporate proxy/AV doing TLS interception. Set NODE_EXTRA_CA_CERTS to your corporate root CA, or contact IT.'
 				: isLocalProviderName

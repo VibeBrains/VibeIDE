@@ -953,7 +953,7 @@ export const providersS = {
 	dynKeyInvalid: 'Ключ недействителен (ошибка авторизации)',
 	dynKeyError: 'Не удалось проверить ключ (сеть или сервер)',
 	dynKeyPending: 'Проверка ключа…',
-	dynKeyUnverified: 'Ключ не проверяется (static-список)',
+	dynKeyUnverified: 'Ключ не проверен — модели из списка файла',
 	dynKeyNone: 'Ключ не задан',
 	dynKeySrcPrefix: 'источник',
 	dynKeySrc: { gui: 'введён в IDE', env: '.vibe/.env', ref: 'apiKeyRef', none: '—' } satisfies Record<string, string>,
@@ -963,8 +963,17 @@ export const providersS = {
 		invalid: 'Сервер требует ключ, а в файле "auth": "none"',
 		error: 'Сервер не отвечает — запущен ли он? Проверка повторяется сама',
 		pending: 'Ключ не нужен — проверка сервера…',
-		unverified: 'Ключ не нужен (static-список, сервер не опрашивается)',
+		unverified: 'Ключ не нужен — модели из списка файла',
 		none: 'Ключ не нужен',
+	} satisfies Record<string, string>,
+	// A server on this machine with no key given: it is asked without one, and its answer is the status.
+	dynLocalWithoutKey: {
+		valid: 'Ключ не задан — локальный сервер ответил без него',
+		invalid: 'Локальный сервер требует ключ — задайте его',
+		error: 'Локальный сервер не отвечает — запущен ли он? Проверка повторяется сама',
+		pending: 'Ключ не задан — проверка локального сервера…',
+		unverified: 'Ключ не задан — модели из списка файла',
+		none: 'Ключ не задан',
 	} satisfies Record<string, string>,
 	warnOllama: 'Установите модель Ollama — мы её подхватим автоматически.',
 	warnAddModel: (providerTitle: string) =>

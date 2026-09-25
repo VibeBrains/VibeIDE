@@ -14,6 +14,8 @@ import { createOpenAICompatible, type MetadataExtractor } from '@ai-sdk/openai-c
 import { createAnthropic } from '@ai-sdk/anthropic';
 import { createOpenAI } from '@ai-sdk/openai';
 import { createGoogleGenerativeAI } from '@ai-sdk/google';
+import { keyPlacement, VibeProviderEntry, VibeProviderProtocol, withQueryParams } from '../../common/vibeProvidersFile.js';
+import type { DynProviderTransportConfig } from '../../common/vibeideSettingsService.js';
 import { API_PROTOCOL_TO_SDK_NPM, ApiProtocolOverride, builtinWireSdkNpm, getIsReasoningEnabledState, getModelCapabilities, getProviderCapabilities, getReservedOutputTokenSpace, getSendableReasoningInfo, sdkNpmOfFileProtocol } from '../../common/modelCapabilities.js';
 
 // Module-level memo for SDK-selection diagnostic logs. Keys are
@@ -302,12 +304,13 @@ const headersToRecord = (headers: Headers): Record<string, string> => {
 const REFUSAL_BODY_PEEK_CHARS = 4_000;
 
 /**
- * Stands in for the key of a server declared `"auth": "none"`
- * Every SDK insists on some key: given `undefined` it reads OPENAI_API_KEY, ANTHROPIC_API_KEY or
- * GOOGLE_GENERATIVE_AI_API_KEY and sends the user's real key to a server that asked for none, and given `''` it sends an
- * empty `Bearer `. So the SDK gets this marker, and `makeCustomFetch` drops every header that carries it
+ * Stands in for the key of a provider from a file — the SDK never gets the key itself
+ * Every SDK insists on some key and puts it in its own header, while the file decides where the key goes (`keyPlacement`)
+ * Given `undefined` an SDK reads OPENAI_API_KEY, ANTHROPIC_API_KEY or GOOGLE_GENERATIVE_AI_API_KEY and sends the user's
+ * real key to a server that asked for none; given `''` it sends an empty `Bearer `
+ * So the SDK gets this marker, `makeCustomFetch` drops every header that carries it and places the key itself
  */
-const KEYLESS_KEY_MARKER = 'vibeide-keyless-no-key';
+const FILE_KEY_MARKER = 'vibeide-file-provider-key';
 
 /**
  * The request headers without any whose value carries `marker`
@@ -323,10 +326,46 @@ const headersWithout = (headers: HeadersInit | undefined, marker: string): Recor
 	return kept;
 };
 
+/** The request's address with `params` appended; a `Request` object is left as it is — the SDKs pass a string */
+const withQueryOnInput = (input: RequestInfo | URL, params: Readonly<Record<string, string>>): RequestInfo | URL => {
+	if (Object.keys(params).length === 0) {
+		return input;
+	}
+	return typeof input === 'string' ? withQueryParams(input, params) : input instanceof URL ? new URL(withQueryParams(input.href, params)) : input;
+};
+
+/**
+ * The request headers without the SDK's key, with the key where `keyPlacement` put it
+ * Header names are case-insensitive: a key header replaces a same-named one of the file instead of going out twice
+ */
+const withFileKeyHeaders = (headers: HeadersInit | undefined, keyHeaders: Readonly<Record<string, string>>): Record<string, string> => {
+	const kept = headersWithout(headers, FILE_KEY_MARKER);
+	const placed = new Set(Object.keys(keyHeaders).map(name => name.toLowerCase()));
+	for (const name of Object.keys(kept)) {
+		if (placed.has(name.toLowerCase())) {
+			delete kept[name];
+		}
+	}
+	return { ...kept, ...keyHeaders };
+};
+
+/** The wire a request speaks, by the SDK chosen for it — what decides the default place of a file provider's key */
+function wireOfSdkNpm(sdkNpm: string | undefined): VibeProviderProtocol {
+	switch (sdkNpm) {
+		case '@ai-sdk/anthropic': return 'anthropic';
+		case '@ai-sdk/google': return 'gemini';
+		case '@ai-sdk/openai#responses': return 'openai-responses';
+		default: return 'openai';
+	}
+}
+
 const makeCustomFetch = (opts: {
 	providerName: string;
-	/** Headers carrying this marker are removed before the request leaves — see `KEYLESS_KEY_MARKER` */
-	dropHeadersCarrying?: string;
+	/**
+	 * A provider from a file: headers carrying `FILE_KEY_MARKER` are removed, and the key goes where `keyPlacement` put it
+	 * The file's own query parameters ride along on every request
+	 */
+	fileKey?: { readonly headers: Readonly<Record<string, string>>; readonly query: Readonly<Record<string, string>> };
 	onQuota?: (snapshot: ProviderQuotaSnapshot) => void;
 	/** The model named in the answer — a proxy or a failover target may serve a different one. */
 	onAnsweredModel?: (model: string, fingerprint: string | undefined) => void;
@@ -339,8 +378,9 @@ const makeCustomFetch = (opts: {
 	onDiagnostics?: (diagnostics: ProviderRefusalDiagnostics) => void;
 }): typeof globalThis.fetch => async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
 	const requestsInWindow = requestRateWindow.record(opts.providerName, Date.now());
-	const undiciInput = input as unknown as UndiciFetchParams[0];
-	const outgoing = opts.dropHeadersCarrying ? { ...init, headers: headersWithout(init?.headers, opts.dropHeadersCarrying) } : init;
+	const fileKey = opts.fileKey;
+	const undiciInput = (fileKey ? withQueryOnInput(input, fileKey.query) : input) as unknown as UndiciFetchParams[0];
+	const outgoing = fileKey ? { ...init, headers: withFileKeyHeaders(init?.headers, fileKey.headers) } : init;
 	const undiciInit = { ...(outgoing as unknown as UndiciFetchParams[1]), dispatcher: ensureSystemCADispatcher() };
 	const response = await (undiciFetch(undiciInput, undiciInit) as unknown as Promise<Response>);
 	// Cloned HERE, before the diagnostics tap below starts consuming the stream: `clone()` throws
@@ -535,8 +575,19 @@ type ResolvedEndpoint = {
 	apiKey: string;
 	headers?: Record<string, string>;
 	queryParams?: Record<string, string>;
-	/** `apiKey` is `KEYLESS_KEY_MARKER`, and the header carrying it must not leave — `"auth": "none"` */
-	keyless?: true;
+	/**
+	 * A provider from a file: `apiKey` is `FILE_KEY_MARKER`, and the key is placed per request by `keyPlacement` once the
+	 * request's wire is known — a model may speak another wire than its provider
+	 */
+	fileKey?: {
+		/** The file's `auth` as the merged layers wrote it; absent — the wire's own header */
+		readonly auth: VibeProviderEntry['auth'];
+		/** No key at all sends nothing: no placeholder, no key from the environment */
+		readonly key: string | undefined;
+		readonly query?: Readonly<Record<string, string>>;
+	};
+	/** How long the server may stay silent before it starts answering — the file's `timeoutMs` */
+	timeoutMs?: number;
 };
 
 const ANTHROPIC_DEFAULT_BASE_URL = 'https://api.anthropic.com/v1';
@@ -745,7 +796,7 @@ const resolveEndpoint = async (
 			// (electron-main has reliable process.env). Empty baseURL → caller's guard surfaces a clear
 			// error (PRODUCT invariant 3). Mirror of the openai-compatible fallthrough in
 			// `newOpenAICompatibleSDK` (sendLLMMessage.impl.ts), but for the AI-SDK path.
-			const cfg = (settingsOfProvider as unknown as Record<string, { baseURL?: string; apiKey?: string; apiKeyEnv?: string; headers?: Record<string, string>; keyless?: boolean } | undefined>)[providerName as string];
+			const cfg = (settingsOfProvider as unknown as Record<string, DynProviderTransportConfig | undefined>)[providerName as string];
 			const headers = (cfg?.headers && typeof cfg.headers === 'object') ? cfg.headers : undefined;
 			if (headers) {
 				for (const [hName, hValue] of Object.entries(headers)) {
@@ -753,11 +804,16 @@ const resolveEndpoint = async (
 					if (typeof hValue === 'string') { assertHttpHeaderSafe(`Dynamic provider "${providerName}" header "${hName}" value`, hValue); }
 				}
 			}
-			if (cfg?.keyless) {
-				return { baseURL: cfg.baseURL ?? '', apiKey: KEYLESS_KEY_MARKER, headers, keyless: true };
-			}
-			const apiKey = cfg?.apiKey || (cfg?.apiKeyEnv ? (process.env[cfg.apiKeyEnv] ?? '') : '') || 'noop';
-			return { baseURL: cfg?.baseURL ?? '', apiKey, headers };
+			// A keyless server gets no key; any other one gets the key it has, or nothing — never a placeholder
+			const key = cfg?.keyless ? undefined : cfg?.apiKey || (cfg?.apiKeyEnv ? process.env[cfg.apiKeyEnv] : undefined) || undefined;
+			if (key) { assertHttpHeaderSafe(`Dynamic provider "${providerName}" API key`, key); }
+			return {
+				baseURL: cfg?.baseURL ?? '',
+				apiKey: FILE_KEY_MARKER,
+				headers,
+				fileKey: { auth: cfg?.auth, key, ...(cfg?.query ? { query: cfg.query } : {}) },
+				...(cfg?.timeoutMs ? { timeoutMs: cfg.timeoutMs } : {}),
+			};
 		}
 	}
 };
@@ -1399,9 +1455,22 @@ export const sendViaAISdk = async (params: SendChatParams_Internal): Promise<voi
 	// Kept for the failure paths: without it an "empty response" cannot be told apart from a
 	// refusal the provider hid in the body of an HTTP 200 (modelStalls.md #001).
 	let lastDiagnostics: ProviderRefusalDiagnostics | undefined;
+	// The key of a provider from a file goes where the file and THIS request's wire say — the wire is known only here
+	const fileKey = resolved.fileKey;
+	const fileKeyPlacement = fileKey ? keyPlacement(fileKey.auth, fileKey.key, wireOfSdkNpm(sdkNpm)) : undefined;
+	if (fileKeyPlacement) {
+		try {
+			for (const name of Object.keys(fileKeyPlacement.headers)) {
+				assertHttpHeaderSafe(`Dynamic provider "${providerName}" key header name "${name}"`, name);
+			}
+		} catch (e) {
+			onError({ message: e instanceof Error ? e.message : String(e), fullError: e instanceof Error ? e : null });
+			return;
+		}
+	}
 	const callFetch = makeCustomFetch({
 		providerName,
-		...(resolved.keyless ? { dropHeadersCarrying: KEYLESS_KEY_MARKER } : {}),
+		...(fileKey && fileKeyPlacement ? { fileKey: { headers: fileKeyPlacement.headers, query: { ...fileKey.query, ...fileKeyPlacement.query } } } : {}),
 		onQuota: snapshot => { lastQuota = snapshot; },
 		onAnsweredModel: (model, fingerprint) => { lastAnsweredModel = model; lastSystemFingerprint = fingerprint; },
 		onOrchestrationTokens: tokens => { lastOrchestrationTokens = tokens; },
@@ -1577,11 +1646,12 @@ export const sendViaAISdk = async (params: SendChatParams_Internal): Promise<voi
 	// How long the model may stay silent before its first visible token — the phase the idle timer below
 	// does not cover (a reasoning model thinking). Not a cap on the answer: once content flows, only a
 	// stall ends the stream. Local servers answer fast or not at all; aggregators add a hop.
-	const firstContentLimitMs = isLocalProvider(providerName, settingsOfProvider)
+	// The file's own `timeoutMs` is the author's word for this server and beats the defaults by kind
+	const firstContentLimitMs = resolved.timeoutMs ?? (isLocalProvider(providerName, settingsOfProvider)
 		? runtimeOptions?.timeoutMs?.local ?? 30_000
 		: AGGREGATOR_PROVIDERS.has(providerName) || !isBuiltinProvider(providerName)
 			? runtimeOptions?.timeoutMs?.aggregator ?? 180_000
-			: runtimeOptions?.timeoutMs?.cloud ?? 180_000;
+			: runtimeOptions?.timeoutMs?.cloud ?? 180_000);
 
 	const abortController = new AbortController();
 	let timeoutFired = false;

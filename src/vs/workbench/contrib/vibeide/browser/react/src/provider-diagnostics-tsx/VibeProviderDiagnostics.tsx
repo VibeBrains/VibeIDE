@@ -41,7 +41,7 @@ interface ProviderRow {
 	name: string;
 	kind: 'builtin' | 'dynamic';
 	baseURL?: string;
-	keySource: string;            // 'gui' | 'env' | 'ref' | 'os-env' | 'secure' | 'keyless' | 'none'
+	keySource: string;            // 'gui' | 'env' | 'ref' | 'os-env' | 'secure' | 'keyless' | 'local' | 'none'
 	dyn?: ProviderDiagnosticsTarget;
 	layers: { config: LayerResult; network: LayerResult; auth: LayerResult; models: LayerResult };
 	latencyMs?: number;
@@ -67,6 +67,7 @@ const KEY_SOURCE_LABEL: Record<string, string> = {
 	'os-env': 'OS env (в main)',
 	secure: 'защищённое хранилище',
 	keyless: 'не нужен (auth: none)',
+	local: 'не задан (локальный сервер)',
 	none: 'нет ключа',
 };
 
@@ -113,7 +114,7 @@ export const VibeProviderDiagnostics: React.FC = () => {
 		const out: ProviderRow[] = [];
 		// Dynamic providers (.vibe/providers.json) — only the active ones (have a key, or need none).
 		for (const t of dynProviders.getDiagnosticsTargets()) {
-			const keySource = t.keyless ? 'keyless' : (t.apiKeyEnv && !t.apiKey) ? 'os-env' : t.keySource;
+			const keySource = t.keyless ? 'keyless' : t.localWithoutKey ? 'local' : (t.apiKeyEnv && !t.apiKey) ? 'os-env' : t.keySource;
 			out.push({ id: t.id, name: t.displayName, kind: 'dynamic', baseURL: t.baseURL, keySource, dyn: t, layers: idleLayers(), checking: false });
 		}
 		// Built-in providers — only those with an actual API key. NOT `_didFillInProviderSettings`:
@@ -145,7 +146,7 @@ export const VibeProviderDiagnostics: React.FC = () => {
 		try {
 			if (row.kind === 'dynamic') {
 				const t = row.dyn!;
-				if (!t.baseURL) {
+				if (!t.baseURL || !t.catalogRequest) {
 					layers.config = { status: 'fail', detail: 'нет baseURL' };
 					layers.network = layers.auth = layers.models = { status: 'skip' };
 					return { ...row, layers, checking: false };
@@ -157,11 +158,13 @@ export const VibeProviderDiagnostics: React.FC = () => {
 					return { ...row, layers, checking: false };
 				}
 				const start = performance.now();
-				const res = await catalog.fetchDynamicWithStatus(t.baseURL, t.apiKey, t.modelsUrl);
+				const res = await catalog.fetchDynamicWithStatus(t.catalogRequest);
 				latencyMs = Math.round(performance.now() - start);
 				if (res.status === 'ok') {
 					layers.network = { status: 'ok' };
-					layers.auth = t.keyless ? { status: 'skip', detail: 'ключ не нужен' } : { status: 'ok' };
+					layers.auth = t.keyless ? { status: 'skip', detail: 'ключ не нужен' }
+						: t.localWithoutKey ? { status: 'skip', detail: 'ключ не задан — сервер ответил без него' }
+							: { status: 'ok' };
 					modelCount = res.models.length;
 					layers.models = { status: modelCount > 0 ? 'ok' : 'warn', detail: `${modelCount} моделей` };
 					markModelPresence(res.models);
@@ -169,12 +172,18 @@ export const VibeProviderDiagnostics: React.FC = () => {
 					layers.network = { status: 'ok' };
 					if (t.keyless) {
 						layers.auth = { status: 'fail', detail: 'сервер требует ключ, а в файле auth: "none"' };
+					} else if (t.localWithoutKey) {
+						layers.auth = { status: 'fail', detail: 'локальный сервер требует ключ — задайте его' };
 					} else if (!t.apiKey && t.apiKeyEnv) {
 						layers.auth = { status: 'warn', detail: 'ключ в OS env — проверится при отправке' };
 					} else {
 						layers.auth = { status: 'fail', detail: 'ключ отклонён (401/403)' };
 					}
 					layers.models = { status: 'skip' };
+				} else if (res.status === 'absent') {
+					layers.network = { status: 'ok' };
+					layers.auth = { status: 'warn', detail: 'каталога по этому адресу нет (404) — ключ не проверен' };
+					layers.models = { status: 'warn', detail: 'модели из списка файла' };
 				} else {
 					layers.network = { status: 'fail', detail: 'недоступен / ошибка сервера' };
 					layers.auth = { status: 'skip' };

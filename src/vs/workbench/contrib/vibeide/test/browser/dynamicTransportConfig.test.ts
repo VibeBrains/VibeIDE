@@ -19,15 +19,17 @@ suite('dynamic provider transport config', () => {
 
 	const caps: { [modelId: string]: Partial<VibeideStaticModelInfo> } = { 'm1': { contextWindow: 32_000 } };
 
-	test('carries the model caps and the dialect; a keyless server carries no key at all', () => {
+	test('carries the model caps, the dialect, auth, query and timeout; a keyless server carries no key at all', () => {
 		assert.deepStrictEqual([
 			dynamicTransportConfigOf({ id: 'router', baseURL: 'https://r.example/v1', apiKeyEnv: 'R_KEY', reasoningDialect: 'openrouter' }, 'sk-1', caps),
 			dynamicTransportConfigOf({ id: 'local', baseURL: 'http://localhost:8000/v1', auth: 'none', apiKeyEnv: 'IGNORED' }, 'sk-2', {}),
 			dynamicTransportConfigOf({ id: 'typo', baseURL: 'https://t.example/v1', reasoningDialect: 'OpenRouter' as never }, undefined, {}),
+			dynamicTransportConfigOf({ id: 'gw', baseURL: 'https://gw.example/v1', auth: { type: 'query', name: 'code' }, query: { 'api-version': 'x' }, timeoutMs: 90_000 }, 'sk-3', {}),
 		], [
 			{ baseURL: 'https://r.example/v1', apiKey: 'sk-1', apiKeyEnv: 'R_KEY', reasoningDialect: 'openrouter', modelCapOverrides: caps },
-			{ baseURL: 'http://localhost:8000/v1', keyless: true },
+			{ baseURL: 'http://localhost:8000/v1', keyless: true, auth: 'none' },
 			{ baseURL: 'https://t.example/v1' },
+			{ baseURL: 'https://gw.example/v1', apiKey: 'sk-3', auth: { type: 'query', name: 'code' }, query: { 'api-version': 'x' }, timeoutMs: 90_000 },
 		]);
 	});
 });
