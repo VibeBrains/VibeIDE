@@ -5412,11 +5412,12 @@ Output ONLY the JSON, no other text. Start with { and end with }.`;
 		 * the latched breakers are the same either way.
 		 */
 		const reportTurnChecksOnFinalExit = async (closingText: string): Promise<void> => {
+			// The prose the turn wrote is judged whatever the turn checks found — here only as a note, nothing to send back to
+			await this._slopGate(threadId, touchedPathsThisRun, slopGateAttempts, false);
 			const verdict = await evaluateTurnChecksNow(closingText);
 			if (!verdict || verdict.failures.length === 0) {
 				return;
 			}
-			await this._slopGate(threadId, touchedPathsThisRun, slopGateAttempts, false);
 			const list = verdict.failures.map(f => `• ${f.detail}`).join('\n');
 			const note = verdict.decision === 'notify-complete'
 				? `⚠️ ПРОВЕРКИ ХОДА: ход завершён, но кое-что стоит посмотреть.\n\n${list}`
@@ -7877,6 +7878,8 @@ Output ONLY the JSON, no other text. Start with { and end with }.`;
 						&& this._configurationService.getValue<boolean>('vibeide.agent.implicitCompleteAfterFirstNudge') !== false
 						&& looksLikeCompletionText(info.fullText)) {
 						vibeLog.warn('chatThread', `[autopilot] early implicit vibe_complete: terminal completion prose after ${autoContinueOnTextCount} forced nudge(s) — ending cleanly instead of nudging the full budget.`);
+						// A completion like the other two: the turn checks and the prose gate report here too — this exit used to skip them
+						await reportTurnChecksOnFinalExit(info.fullText);
 						this._finalizePlanIfComplete(threadId);
 						this._setStreamState(threadId, { isRunning: undefined });
 						return;
