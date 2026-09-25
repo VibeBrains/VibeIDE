@@ -12,7 +12,8 @@ import { createDecorator } from '../../../../platform/instantiation/common/insta
 import { IStorageService, StorageScope, StorageTarget } from '../../../../platform/storage/common/storage.js';
 
 import { URI, UriComponents } from '../../../../base/common/uri.js';
-import { joinPath } from '../../../../base/common/resources.js';
+import { basename } from '../../../../base/common/resources.js';
+import { resolveAgentPath } from '../common/agentPathResolution.js';
 import { Emitter, Event } from '../../../../base/common/event.js';
 import { ILLMMessageService } from '../common/sendLLMMessageService.js';
 import { compressGenericToolOutput } from '../common/commandOutputCompressor.js';
@@ -53,6 +54,7 @@ import { traceAgentStep } from '../common/agentTurnTrace.js';
 import { CancellationToken } from '../../../../base/common/cancellation.js';
 import { ILanguageFeaturesService } from '../../../../editor/common/services/languageFeatures.js';
 import { ChatMessage, ChatImageAttachment, ChatPDFAttachment, CheckpointEntry, CodespanLocationLink, StagingSelectionItem, ToolMessage, PlanMessage, PlanStep, StepStatus, ReviewMessage, PendingInjection, ReviewChecklist, ReviewChecklistItem, EditBatch, EditBatchItem, normalizePendingInjections, ScoutLead, ScoutMessage } from '../common/chatThreadServiceTypes.js';
+import { refusedToolMessage, withRefusalKind } from '../common/toolRefusal.js';
 import { trimThreadMessages, capToolResultSizes } from '../common/chatThreadTrim.js';
 import { Position } from '../../../../editor/common/core/position.js';
 import { IMetricsService } from '../common/metricsService.js';
@@ -1220,6 +1222,10 @@ class ChatThreadService extends Disposable implements IChatThreadService {
 	// should probably re-use code from void/src/vs/base/common/marshalling.ts instead. but this is simple enough
 	private _convertThreadDataFromStorage(threadsStr: string): ChatThreads {
 		return JSON.parse(threadsStr, (key, value) => {
+			// A guard's refusal stored as `tool_error` with empty params before the `refused` kind: its card would read a URI off it
+			if (value && typeof value === 'object' && value.role === 'tool') {
+				return withRefusalKind(value);
+			}
 			if (value && typeof value === 'object' && value.$mid === 1) { // $mid is the MarshalledId. $mid === 1 means it is a URI
 				// `URI.revive` is the cheaper restore path — no full parse, just
 				// re-establishes the prototype/methods on the existing object shape.
@@ -2173,7 +2179,7 @@ class ChatThreadService extends Disposable implements IChatThreadService {
 		const lastMsg = thread.messages[thread.messages.length - 1];
 
 		let params: ToolCallParams<ToolName>;
-		if (lastMsg.role === 'tool' && lastMsg.type !== 'invalid_params') {
+		if (lastMsg.role === 'tool' && lastMsg.type !== 'invalid_params' && lastMsg.type !== 'refused') {
 			params = lastMsg.params;
 		}
 		else { return; }
@@ -3275,11 +3281,8 @@ class ChatThreadService extends Disposable implements IChatThreadService {
 			try { return URI.revive(raw as UriComponents); } catch { return undefined; }
 		}
 		if (typeof raw === 'string' && raw.length) {
-			try {
-				if (/^[a-z][a-z0-9+.-]*:\/\//i.test(raw)) { return URI.parse(raw); }
-				const isAbsolute = raw.startsWith('/') || /^[A-Za-z]:[\\/]/.test(raw);
-				return isAbsolute ? URI.file(raw) : joinPath(root, raw);
-			} catch { return undefined; }
+			// The tools' own resolution, so the drift check and the edit name the same file
+			try { return resolveAgentPath(raw, [{ uri: root, name: basename(root) }]); } catch { return undefined; }
 		}
 		return undefined;
 	}
@@ -4247,8 +4250,8 @@ Output ONLY the JSON, no other text. Start with { and end with }.`;
 				// Check if read_file was called for this URI in recent messages
 				for (const message of thread.messages) {
 					if (message.role === 'tool' && message.name === 'read_file') {
-						// Check if message has params (not invalid_params type)
-						if (message.type !== 'invalid_params') {
+						// Only a validated call carries params: an invalid or a refused one has none to read
+						if (message.type !== 'invalid_params' && message.type !== 'refused') {
 							const readParams = message.params as BuiltinToolCallParams['read_file'];
 							if (readParams && readParams.uri.fsPath === uri.fsPath) {
 								fileWasRead = true;
@@ -4393,17 +4396,7 @@ Output ONLY the JSON, no other text. Start with { and end with }.`;
 				? ''
 				: ` Available built-in tools: ${builtinToolNames.join(', ')}. Available MCP tools: ${mcpTools.map(t => t.name).join(', ') || '(none)'}.`;
 			const message = `The arguments provided to the tool are invalid: ${reason}${inventoryNote}`;
-			this._addMessageToThread(threadId, {
-				role: 'tool',
-				type: 'tool_error',
-				params: {},
-				rawParams: opts.unvalidatedToolParams,
-				result: message,
-				name: requestedToolName,
-				content: message,
-				id: toolId,
-				mcpServerName,
-			});
+			this._addMessageToThread(threadId, refusedToolMessage({ name: requestedToolName, id: toolId, why: message, rawParams: opts.unvalidatedToolParams, mcpServerName }));
 			return {};
 		}
 		// Shape-based tool-name correction (BEFORE alias resolution). Aggregator-
@@ -4527,17 +4520,7 @@ Output ONLY the JSON, no other text. Start with { and end with }.`;
 				breakerLimit: isThrash ? thrashBreakerLimit : invalidParamsBreakerLimit,
 				mode: isThrash ? 'thrash' : 'same-shape',
 			});
-			this._addMessageToThread(threadId, {
-				role: 'tool',
-				type: 'tool_error',
-				params: {},
-				rawParams: opts.unvalidatedToolParams,
-				result: breakerMsg,
-				name: toolName,
-				content: breakerMsg,
-				id: toolId,
-				mcpServerName,
-			});
+			this._addMessageToThread(threadId, refusedToolMessage({ name: toolName, id: toolId, why: breakerMsg, rawParams: opts.unvalidatedToolParams, mcpServerName }));
 			this._setStreamState(threadId, {
 				isRunning: undefined,
 				error: { message: breakerMsg, fullError: null },
@@ -8145,17 +8128,7 @@ Output ONLY the JSON, no other text. Start with { and end with }.`;
 							if (antiLoopBlocks > antiLoopMaxBlocks) {
 								const abortMsg = localize('vibeide.antiLoop.aborted', 'Прогон агента остановлен: модель повторяла один и тот же tool-call (`{0}` и др.), игнорируя результаты — {1} заблокированных повторов. Обычно это значит, что задача сформулирована неоднозначно или модель застряла. Переформулируйте запрос, сузьте область или переключите модель.', toolCall.name, String(antiLoopBlocks));
 								this._notificationService.warn(abortMsg);
-								this._addMessageToThread(threadId, {
-									role: 'tool',
-									type: 'tool_error',
-									params: {},
-									rawParams: {},
-									result: abortMsg,
-									name: toolCall.name,
-									content: abortMsg,
-									id: toolCall.id,
-									mcpServerName: undefined,
-								});
+								this._addMessageToThread(threadId, refusedToolMessage({ name: toolCall.name, id: toolCall.id, why: abortMsg, rawParams: {}, mcpServerName: undefined }));
 								this._agentActivityLog.logError(`Anti-loop: aborting loop after ${antiLoopBlocks} blocked repetitions`);
 								this._setStreamState(threadId, { isRunning: undefined });
 								return;
@@ -8168,17 +8141,7 @@ Output ONLY the JSON, no other text. Start with { and end with }.`;
 							const hint = escalate
 								? `STOP — you have called \`${toolCall.name}\` with these EXACT arguments ${priorSameCount} times in a row and it is now blocked: it will NOT execute again and the result will NOT change. Do NOT repeat it. Pick ONE now: (a) use the result you already have, (b) call a DIFFERENT tool — or the same tool with MEANINGFULLY different arguments, or (c) give your final answer. Repeating this identical call only wastes the turn.`
 								: `Anti-loop guard: you have already called \`${toolCall.name}\` with these exact arguments ${priorSameCount} time(s) in this turn, so this call was NOT executed again — the result will not change. Use the result you already obtained, or move on to the next step / give your final answer. If you actually meant a DIFFERENT target (another folder, file, command or query), change the arguments to match it instead of repeating these. Do not repeat this call.`;
-							this._addMessageToThread(threadId, {
-								role: 'tool',
-								type: 'tool_error',
-								params: {},
-								rawParams: {},
-								result: hint,
-								name: toolCall.name,
-								content: hint,
-								id: toolCall.id,
-								mcpServerName: undefined,
-							});
+							this._addMessageToThread(threadId, refusedToolMessage({ name: toolCall.name, id: toolCall.id, why: hint, rawParams: {}, mcpServerName: undefined }));
 							this._agentActivityLog.logError(`Anti-loop: blocked repeated ${toolCall.name} (×${priorSameCount} identical args)`);
 							shouldSendAnotherMessage = true;
 							this._setStreamState(threadId, { isRunning: 'idle', interrupt: 'not_needed' });
@@ -8213,7 +8176,7 @@ Output ONLY the JSON, no other text. Start with { and end with }.`;
 						const lastMsg = thread?.messages[thread.messages.length - 1];
 						let curCount = consecutiveToolErrorsByModel.get(modelKey) ?? 0;
 						if (lastMsg?.role === 'tool') {
-							if (lastMsg.type === 'tool_error' || lastMsg.type === 'invalid_params') {
+							if (lastMsg.type === 'tool_error' || lastMsg.type === 'invalid_params' || lastMsg.type === 'refused') {
 								curCount += 1;
 								consecutiveToolErrorsByModel.set(modelKey, curCount);
 							} else if (lastMsg.type === 'success') {
@@ -8246,7 +8209,7 @@ Output ONLY the JSON, no other text. Start with { and end with }.`;
 									this._agentActivityLog.logError(`Re-probe override-clear failed for ${modelKey}: ${getErrorMessage(e)}`);
 									probeActiveThisCall = undefined;
 								}
-							} else if (lastMsg.type === 'tool_error' || lastMsg.type === 'invalid_params') {
+							} else if (lastMsg.type === 'tool_error' || lastMsg.type === 'invalid_params' || lastMsg.type === 'refused') {
 								successCountForDowngradedModel.set(modelKey, 0);
 								probeActiveThisCall = undefined;
 								this._agentActivityLog.logError(`Re-probe failed: ${modelKey} → keeping XML override`);
@@ -8273,7 +8236,7 @@ Output ONLY the JSON, no other text. Start with { and end with }.`;
 							&& curCount >= autoDowngradeThreshold
 							&& !downgradedModelsThisSession.has(modelKey)
 							&& lastMsg?.role === 'tool'
-							&& (lastMsg.type === 'tool_error' || lastMsg.type === 'invalid_params')
+							&& (lastMsg.type === 'tool_error' || lastMsg.type === 'invalid_params' || lastMsg.type === 'refused')
 							// Only downgrade for the numeric-tool-name quirk — the one failure mode XML naming
 							// genuinely fixes. Other reasons are transient/self-correcting on native FC (opencode
 							// just retries through them); shoving capable models like deepseek-v4-pro into XML for
@@ -8331,17 +8294,7 @@ Output ONLY the JSON, no other text. Start with { and end with }.`;
 						if (curCount >= maxConsecutiveToolErrors) {
 							const abortMsg = `Agent loop aborted: ${maxConsecutiveToolErrors} consecutive tool failures on ${resolvedModelSelection.modelName} (${resolvedModelSelection.providerName}). Even after auto-downgrade to XML-fallback the model couldn't recover. Switch to a different model (Claude, GPT, Gemini, DeepSeek) or simplify the request.`;
 							this._notificationService.warn(abortMsg);
-							this._addMessageToThread(threadId, {
-								role: 'tool',
-								type: 'tool_error',
-								params: {},
-								rawParams: {},
-								result: abortMsg,
-								name: 'invalid' as ToolName,
-								content: abortMsg,
-								id: generateUuid(),
-								mcpServerName: undefined,
-							});
+							this._addMessageToThread(threadId, refusedToolMessage({ name: 'invalid' as ToolName, id: generateUuid(), why: abortMsg, rawParams: {}, mcpServerName: undefined }));
 							this._setStreamState(threadId, { isRunning: undefined });
 							return;
 						}
@@ -8378,7 +8331,7 @@ Output ONLY the JSON, no other text. Start with { and end with }.`;
 							const lastMsg = thread.messages[thread.messages.length - 1];
 							if (lastMsg && lastMsg.role === 'tool') {
 								const toolMsg = lastMsg as ToolMessage<ToolName>;
-								if (toolMsg.type === 'tool_error') {
+								if (toolMsg.type === 'tool_error' || toolMsg.type === 'refused') {
 									// PERFORMANCE: Use returned step info instead of re-looking up
 									const updatedStep = this._markStepCompletedInternal(threadId, activePlanTracking.currentStep, false, toolMsg.result || 'Tool execution failed');
 									if (updatedStep) {

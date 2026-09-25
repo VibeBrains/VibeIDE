@@ -19,6 +19,9 @@ export type ToolMessage<T extends ToolName> = {
 } & (
 		// in order of events:
 		| { type: 'invalid_params'; result: null; name: T }
+		// The call never ran: a guard refused it (anti-loop, circuit breaker) or the tool name was unknown.
+		// It carries no params — none were validated — so nothing may read a path or a URI off it
+		| { type: 'refused'; result: string; name: T }
 
 		| { type: 'tool_request'; result: null; name: T; params: ToolCallParams<T> }  // params were validated, awaiting user
 

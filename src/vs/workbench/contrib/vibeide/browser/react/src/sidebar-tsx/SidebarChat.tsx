@@ -43,6 +43,7 @@ import { acceptAllBg, acceptBorder, buttonFontSize, buttonTextColor, rejectAllBg
 import { builtinToolNames, isABuiltinToolName, MAX_TERMINAL_INACTIVE_TIME } from '../../../../common/prompt/prompts.js';
 import { stripUnclaimedToolTags } from '../../../../common/xmlToolNormalize.js';
 import { RawToolCallObj } from '../../../../common/sendLLMMessageTypes.js';
+import { resolveAgentPath } from '../../../../common/agentPathResolution.js';
 import ErrorBoundary from './ErrorBoundary.js';
 import { ToolApprovalTypeSwitch } from '../vibe-settings-tsx/Settings.js';
 import { chatDiffCountLabel, chatFilesWithChangesLabel, chatModeDetail, chatModeDisplayName, chatS } from '../vibe-settings-tsx/vibeSettingsRu.js';
@@ -3353,6 +3354,21 @@ const InvalidTool = ({ toolName, message, mcpServerName }: { toolName: ToolName;
 	return <ToolHeaderWrapper {...componentParams} />;
 };
 
+/**
+ * A call that never ran: a guard refused it or the tool name was unknown
+ * No params were validated, so the card shows only why — no path, no diff, no buttons
+ */
+const RefusedTool = ({ toolName, message, mcpServerName }: { toolName: ToolName; message: string; mcpServerName: string | undefined }) => {
+	const title = getTitle({ name: toolName, type: 'refused', mcpServerName });
+	const componentParams: ToolHeaderParams = { title, desc1: 'Не выполнен', isError: true, icon: null };
+	componentParams.children = <ToolChildrenWrapper>
+		<CodeChildren className='bg-vibe-bg-3'>
+			{message}
+		</CodeChildren>
+	</ToolChildrenWrapper>;
+	return <ToolHeaderWrapper {...componentParams} />;
+};
+
 const CanceledTool = ({ toolName, mcpServerName }: { toolName: ToolName; mcpServerName: string | undefined }) => {
 	const accessor = useAccessor();
 	const title = getTitle({ name: toolName, type: 'rejected', mcpServerName });
@@ -3365,10 +3381,10 @@ const CanceledTool = ({ toolName, mcpServerName }: { toolName: ToolName; mcpServ
 
 
 const CommandTool = ({ toolMessage, type, threadId }: { threadId: string } & ({
-	toolMessage: Exclude<ToolMessage<'run_command'>, { type: 'invalid_params' }>;
+	toolMessage: Exclude<ToolMessage<'run_command'>, { type: 'invalid_params' | 'refused' }>;
 	type: 'run_command';
 } | {
-	toolMessage: Exclude<ToolMessage<'run_persistent_command'>, { type: 'invalid_params' }>;
+	toolMessage: Exclude<ToolMessage<'run_persistent_command'>, { type: 'invalid_params' | 'refused' }>;
 	type: | 'run_persistent_command';
 })) => {
 	const accessor = useAccessor();
@@ -3467,7 +3483,7 @@ const CommandTool = ({ toolMessage, type, threadId }: { threadId: string } & ({
 	</>;
 };
 
-type WrapperProps<T extends ToolName> = { toolMessage: Exclude<ToolMessage<T>, { type: 'invalid_params' }>; messageIdx: number; threadId: string };
+type WrapperProps<T extends ToolName> = { toolMessage: Exclude<ToolMessage<T>, { type: 'invalid_params' | 'refused' }>; messageIdx: number; threadId: string };
 
 /** An MCP App rendered under its tool result; the host owns the webview and the protocol. */
 const McpAppFrame = ({ data, callId }: { data: IVibeMcpAppData; callId: string }) => {
@@ -5084,6 +5100,11 @@ const _ChatBubble = React.memo(({ threadId, chatMessage, currCheckpointIdx, isCo
 				<InvalidTool toolName={chatMessage.name} message={chatMessage.content} mcpServerName={chatMessage.mcpServerName} />
 			</div>;
 		}
+		if (chatMessage.type === 'refused') {
+			return <div className={`${isCheckpointGhost ? 'opacity-50' : ''}`}>
+				<RefusedTool toolName={chatMessage.name} message={chatMessage.content} mcpServerName={chatMessage.mcpServerName} />
+			</div>;
+		}
 
 		const toolName = chatMessage.name;
 		const isBuiltInTool = isABuiltinToolName(toolName);
@@ -5525,7 +5546,15 @@ const EditToolSoFar = ({ toolCallSoFar, }: { toolCallSoFar: RawToolCallObj }) =>
 
 	const accessor = useAccessor();
 
-	const uri = toolCallSoFar.rawParams.uri ? URI.file(toolCallSoFar.rawParams.uri) : undefined;
+	// Resolved against the workspace the way the tool will resolve it: `URI.file` made `NOTES.md` a file at the disk root
+	const rawUri = toolCallSoFar.rawParams.uri;
+	let uri: URI | undefined;
+	try {
+		uri = rawUri ? resolveAgentPath(rawUri, accessor.get('IWorkspaceContextService').getWorkspace().folders) : undefined;
+	} catch {
+		// A half-streamed scheme does not parse yet; the preview has nothing to open until it does
+		uri = undefined;
+	}
 
 	const title = titleOfBuiltinToolName[toolCallSoFar.name]?.proposed ?? toolCallSoFar.name;
 
