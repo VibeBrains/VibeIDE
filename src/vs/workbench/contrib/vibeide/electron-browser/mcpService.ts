@@ -23,7 +23,7 @@ import { localize } from '../../../../nls.js';
 import { builtinTools, InternalToolInfo } from '../common/prompt/prompts.js';
 import { vibeLog } from '../common/vibeLog.js';
 import { URI } from '../../../../base/common/uri.js';
-import { Disposable } from '../../../../base/common/lifecycle.js';
+import { Disposable, DisposableStore, MutableDisposable } from '../../../../base/common/lifecycle.js';
 import { registerSingleton, InstantiationType } from '../../../../platform/instantiation/common/extensions.js';
 import { IFileService } from '../../../../platform/files/common/files.js';
 import { IPathService } from '../../../services/path/common/pathService.js';
@@ -51,8 +51,8 @@ import { McpToolDefinitions, McpToolDrift, McpToolPinsStore, describeDefinitions
 import { MCP_REQUIRE_TOOL_REAPPROVAL_KEY } from '../common/mcpToolPinsConfiguration.js';
 import { scanMcpConfig, ConfigGuardFinding } from '../common/vibeConfigGuard.js';
 import { IMCPService, MCPServiceState } from '../common/mcpService.js';
-import { FoundMemoryServer, VIBE_MEMORY_SERVER_NAME, vibeMemoryServerPathSegments, withDiscoveredMemoryServer } from '../common/vibeMemoryServerDiscovery.js';
-import { MEMORY_PROJECT_RESOLVE_TOOL, MemoryProjectAnswer, parseProjectResolveAnswer } from '../common/vibeMemoryProject.js';
+import { FoundMemoryServer, FoundTeamServer, teamServerOfSidecar, VIBE_MEMORY_SERVER_NAME, VIBE_MEMORY_TEAM_SERVER_PREFIX, VIBE_MEMORY_TEAM_SIDECAR, VIBE_MEMORY_TOKENS_SEGMENTS, vibeMemoryHelperPathSegments, vibeMemoryServerPathSegments, withDiscoveredMemoryServer, withDiscoveredTeamServers } from '../common/vibeMemoryServerDiscovery.js';
+import { MEMORY_PROJECT_RESOLVE_TOOL, MemoryProjectAnswer, parseProjectResolveAnswer, TeamMemoryProject } from '../common/vibeMemoryProject.js';
 import { joinPath } from '../../../../base/common/resources.js';
 import { isWindows } from '../../../../base/common/platform.js';
 
@@ -69,6 +69,12 @@ const MCP_CONFIG_SAMPLE_STRING = JSON.stringify(MCP_CONFIG_SAMPLE, null, 2);
  * packages/opencode/src/mcp/index.ts.
  */
 const sanitizeMcpIdentifier = (s: string): string => s.replace(/[^a-zA-Z0-9_-]/g, '_');
+
+/**
+ * The longest tool name providers accept. A server whose `<server>_<tool>` runs past it is refused whole, not cut:
+ * two cut names can meet, and a request carrying one long name is refused by the provider for every tool at once
+ */
+const MODEL_TOOL_NAME_MAX = 64;
 
 
 // export interface MCPCallToolOfToolName {
@@ -382,6 +388,41 @@ class MCPService extends Disposable implements IMCPService {
 		this._onDidChangeState.fire();
 	}
 
+	private readonly _longNameWarned = new Set<string>();
+
+	/** Once per server per session: the list is rebuilt on every request, and a repeated notification goes unread */
+	private _warnToolNameTooLong(serverName: string, toolName: string): void {
+		if (this._longNameWarned.has(serverName)) { return; }
+		this._longNameWarned.add(serverName);
+		this._notificationService.warn(localize('vibeide.mcp.toolNameTooLong', "Инструменты MCP-сервера «{0}» не предложены модели: имя «{0}_{1}» длиннее {2} символов, а провайдеры такие отклоняют. Сократите имя сервера в mcp.json.", serverName, toolName, MODEL_TOOL_NAME_MAX));
+	}
+
+	/**
+	 * Projects of each team's memory, by server; kept until the server list is rebuilt
+	 * The host cannot see this disk, so it answers with the projects the token may use, not with a folder's project
+	 */
+	private readonly _teamProjectsOfServer = new Map<string, MemoryProjectAnswer>();
+
+	public async resolveTeamMemoryProjects(folder: string): Promise<readonly TeamMemoryProject[]> {
+		const out: TeamMemoryProject[] = [];
+		for (const [serverName, server] of Object.entries(this.state.mcpServerOfName)) {
+			if (!serverName.startsWith(VIBE_MEMORY_TEAM_SERVER_PREFIX) || server?.status !== 'success' || !server.tools.some(t => t.name === MEMORY_PROJECT_RESOLVE_TOOL)) {
+				continue;
+			}
+			let answer = this._teamProjectsOfServer.get(serverName);
+			if (!answer) {
+				const params: MCPToolCallParams = { serverName, toolName: MEMORY_PROJECT_RESOLVE_TOOL, params: { directory: folder } };
+				const result = await raceTimeout(this.channel.call<RawMCPToolCall | undefined>('callTool', params), MEMORY_PROJECT_RESOLVE_TIMEOUT_MS);
+				answer = result?.event === 'text' ? parseProjectResolveAnswer(result.text) : undefined;
+				if (answer) { this._teamProjectsOfServer.set(serverName, answer); }
+			}
+			if (answer) {
+				out.push({ serverName, toolPrefix: `${sanitizeMcpIdentifier(serverName)}_`, answer });
+			}
+		}
+		return out;
+	}
+
 	/** Answers of `project_resolve` by folder; only real answers are kept, so a slow server is asked again. */
 	private readonly _memoryProjectOfFolder = new Map<string, MemoryProjectAnswer>();
 
@@ -452,6 +493,7 @@ class MCPService extends Disposable implements IMCPService {
 
 
 	private async _addMCPConfigFileWatcher(): Promise<void> {
+		void this._watchTeamTokens();
 		const mcpConfigUri = await this._getMCPConfigFilePath();
 		this._register(
 			this.fileService.watch(mcpConfigUri)
@@ -489,6 +531,11 @@ class MCPService extends Disposable implements IMCPService {
 		for (const serverName in this.state.mcpServerOfName) {
 			const server = this.state.mcpServerOfName[serverName];
 			const sanitizedServer = sanitizeMcpIdentifier(serverName);
+			const tooLong = server.tools?.find(tool => `${sanitizedServer}_${sanitizeMcpIdentifier(tool.name)}`.length > MODEL_TOOL_NAME_MAX);
+			if (tooLong) {
+				this._warnToolNameTooLong(serverName, tooLong.name);
+				continue;
+			}
 			server.tools?.forEach(tool => {
 				// An app-only tool exists for the app's buttons; offering it to the model would break the spec's promise.
 				if (!isMcpToolVisibleToModel(tool)) { return; }
@@ -649,6 +696,76 @@ class MCPService extends Disposable implements IMCPService {
 		}
 	}
 
+	/**
+	 * Teams this machine was connected to: their sidecars in `~/.vibememory/tokens/*`, and the helper that prints
+	 * a team's header. The token files are never opened here. A skipped sidecar is one log line with the reason
+	 */
+	private async _findTeamServers(): Promise<{ readonly teams: readonly FoundTeamServer[]; readonly helper: string | undefined }> {
+		try {
+			const home = await this.pathService.userHome();
+			const tokens = joinPath(home, ...VIBE_MEMORY_TOKENS_SEGMENTS);
+			if (!await this.fileService.exists(tokens)) {
+				return { teams: [], helper: undefined };
+			}
+			const helper = joinPath(home, ...vibeMemoryHelperPathSegments(isWindows));
+			if (!await this.fileService.exists(helper)) {
+				vibeLog.warn('mcp', 'VibeMemory: есть подключённые команды, но нет помощника vibememory — память команды недоступна');
+				return { teams: [], helper: undefined };
+			}
+			const folder = await this.fileService.resolve(tokens);
+			const teams: FoundTeamServer[] = [];
+			for (const child of folder.children ?? []) {
+				const sidecar = joinPath(child.resource, VIBE_MEMORY_TEAM_SIDECAR);
+				if (!child.isDirectory || !await this.fileService.exists(sidecar)) {
+					continue;
+				}
+				const found = teamServerOfSidecar(child.name, (await this.fileService.readFile(sidecar)).value.toString());
+				if ('skipped' in found) {
+					vibeLog.warn('mcp', `VibeMemory: команда пропущена — ${found.skipped}`);
+				} else {
+					teams.push(found);
+				}
+			}
+			return { teams, helper: helper.fsPath };
+		} catch (err) {
+			vibeLog.warn('mcp', 'VibeMemory: не удалось прочитать подключённые команды', err);
+			return { teams: [], helper: undefined };
+		}
+	}
+
+	/**
+	 * `connect` and `disconnect` take effect without a restart: the tokens folder is watched, or, before the first
+	 * team, the VibeMemory folder until the tokens folder appears
+	 */
+	private readonly _teamTokensWatcher = this._register(new MutableDisposable<DisposableStore>());
+
+	private async _watchTeamTokens(): Promise<void> {
+		const home = await this.pathService.userHome();
+		const tokens = joinPath(home, ...VIBE_MEMORY_TOKENS_SEGMENTS);
+		const hasTokens = await this.fileService.exists(tokens);
+		const target = hasTokens ? tokens : joinPath(home, VIBE_MEMORY_TOKENS_SEGMENTS[0]);
+		if (!hasTokens && !await this.fileService.exists(target)) {
+			this._teamTokensWatcher.clear();
+			return;
+		}
+		const store = new DisposableStore();
+		if (hasTokens) {
+			// A sidecar lies two levels down, and only a plain watch goes deep; the folder is small
+			store.add(this.fileService.watch(tokens, { recursive: true, excludes: [] }));
+			store.add(this.fileService.onDidFilesChange(e => {
+				if (e.affects(tokens)) { this._scheduleMcpConfigRefresh.schedule(); }
+			}));
+		} else {
+			const watcher = store.add(this.fileService.createWatcher(target, { recursive: false, excludes: [] }));
+			store.add(watcher.onDidChange(e => {
+				if (!e.affects(tokens)) { return; }
+				void this._watchTeamTokens();
+				this._scheduleMcpConfigRefresh.schedule();
+			}));
+		}
+		this._teamTokensWatcher.value = store;
+	}
+
 	private async _refreshMCPServers(): Promise<void> {
 
 		this._setHasError(undefined);
@@ -661,6 +778,11 @@ class MCPService extends Disposable implements IMCPService {
 		// The family's shared memory joins by itself when VibeMemory is installed; a user entry with the
 		// same name wins. Added before Config Guard, so the discovered entry is scanned like any other.
 		newConfigFileJSON.mcpServers = withDiscoveredMemoryServer(newConfigFileJSON.mcpServers, await this._findMemoryServer());
+		// Team memory over HTTPS: one server per team this machine was connected to, the header from VibeMemory's helper.
+		// Discovered entries stay out of `_serverEntries`, so a guest agent never gets them (acpMcpExport.ts)
+		const teams = await this._findTeamServers();
+		newConfigFileJSON.mcpServers = withDiscoveredTeamServers(newConfigFileJSON.mcpServers, teams.teams, teams.helper);
+		this._teamProjectsOfServer.clear();
 
 		// On/off is kept for every configured server, a blocked one included: unblocked, it comes back as it was.
 		const configuredNames = Object.keys(newConfigFileJSON.mcpServers);

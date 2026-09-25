@@ -60,3 +60,41 @@ export function transportRequestInit(headers: Readonly<Record<string, string>> |
 	const clean = Object.entries(headers ?? {}).filter(([, value]) => typeof value === 'string');
 	return clean.length > 0 ? { requestInit: { headers: Object.fromEntries(clean) } } : {};
 }
+
+/**
+ * The headers a `headersHelper` printed: a JSON object of strings and nothing else
+ * `undefined` for anything else — the output may carry a token, so it is never echoed into an error or a log
+ */
+export function helperHeadersOf(stdout: string): Record<string, string> | undefined {
+	let parsed: unknown;
+	try {
+		parsed = JSON.parse(stdout);
+	} catch {
+		return undefined;
+	}
+	if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+		return undefined;
+	}
+	const headers: Record<string, string> = {};
+	for (const [name, value] of Object.entries(parsed)) {
+		if (typeof value !== 'string') {
+			return undefined;
+		}
+		headers[name] = value;
+	}
+	return Object.keys(headers).length > 0 ? headers : undefined;
+}
+
+/**
+ * What a 401 from a server whose header comes from a helper means: the token was revoked or re-issued
+ * For a team's memory the fix is in the VibeMemory cabinet, not in the server — said so, instead of a bare status
+ */
+export function describeUnauthorizedHelper(serverName: string, error: unknown): string | undefined {
+	const text = error instanceof Error ? error.message : String(error ?? '');
+	if (!/\b401\b|unauthori[sz]ed/i.test(text)) {
+		return undefined;
+	}
+	return serverName.startsWith('vibememory-')
+		? `Сервер памяти команды отклонил токен (401): его отозвали или выпустили заново. Возьмите в кабинете VibeMemory новый код для агента и выполните vibememory connect --agent vibeide.`
+		: `Сервер «${serverName}» отклонил заголовок, выданный помощником headersHelper (401): токен устарел или отозван.`;
+}

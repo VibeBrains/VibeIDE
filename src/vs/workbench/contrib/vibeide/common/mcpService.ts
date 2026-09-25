@@ -9,7 +9,7 @@ import { createDecorator } from '../../../../platform/instantiation/common/insta
 import { Event } from '../../../../base/common/event.js';
 import { MCPServerOfName, MCPToolCallParams, RawMCPToolCall } from './mcpServiceTypes.js';
 import { MCP } from '../../mcp/common/modelContextProtocol.js';
-import { MemoryProjectAnswer } from './vibeMemoryProject.js';
+import { MemoryProjectAnswer, TeamMemoryProject } from './vibeMemoryProject.js';
 import { InternalToolInfo } from './prompt/prompts.js';
 import { ConfigGuardFinding } from './vibeConfigGuard.js';
 import { McpToolDrift } from './mcpToolPins.js';
@@ -46,6 +46,12 @@ export interface IMCPService {
 	 * Undefined when the server is absent, lacks the tool, or does not answer in time.
 	 */
 	resolveMemoryProject(folder: string): Promise<MemoryProjectAnswer | undefined>;
+
+	/**
+	 * Projects of each connected team's memory: the host cannot see this disk and names the projects the token may use.
+	 * Empty when no team server runs or none answers in time
+	 */
+	resolveTeamMemoryProjects(folder: string): Promise<readonly TeamMemoryProject[]>;
 
 	/** MCP Apps: the `ui://` resource a tool's result renders, or undefined when apps are off or the tool has none. */
 	getAppResourceUri(serverName: string, modelToolName: string): string | undefined;

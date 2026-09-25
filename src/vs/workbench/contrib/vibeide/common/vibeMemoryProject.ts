@@ -20,7 +20,16 @@ export const MEMORY_PROJECT_RESOLVE_TOOL = 'project_resolve';
 
 export type MemoryProjectAnswer =
 	| { readonly project: string }
-	| { readonly project: null; readonly why: string };
+	/** `projects` — what a team's host offers instead: it cannot see this disk, so the model must name one */
+	| { readonly project: null; readonly why: string; readonly projects?: readonly string[] };
+
+/** A team's memory server and what its `project_resolve` answered */
+export interface TeamMemoryProject {
+	readonly serverName: string;
+	/** How the model sees the server's tools: `<server>_` */
+	readonly toolPrefix: string;
+	readonly answer: MemoryProjectAnswer;
+}
 
 /** The server's JSON answer; undefined when it is not one — a guessed name is worse than none. */
 export function parseProjectResolveAnswer(text: string): MemoryProjectAnswer | undefined {
@@ -33,12 +42,13 @@ export function parseProjectResolveAnswer(text: string): MemoryProjectAnswer | u
 	if (typeof parsed !== 'object' || parsed === null || !('project' in parsed)) {
 		return undefined;
 	}
-	const { project, why } = parsed as { project: unknown; why?: unknown };
+	const { project, why, projects } = parsed as { project: unknown; why?: unknown; projects?: unknown };
 	if (typeof project === 'string' && project.length > 0) {
 		return { project };
 	}
 	if (project === null) {
-		return { project: null, why: typeof why === 'string' ? why : 'no project in the store' };
+		const offered = Array.isArray(projects) ? projects.filter((name): name is string => typeof name === 'string' && name.length > 0) : [];
+		return { project: null, why: typeof why === 'string' ? why : 'no project in the store', ...(offered.length > 0 ? { projects: offered } : {}) };
 	}
 	return undefined;
 }
@@ -52,6 +62,22 @@ export function memoryProjectPromptLines(entries: readonly { readonly folder: st
 		return answer.project !== null
 			? [`- ${folder}: VibeMemory project "${answer.project}" — pass project: "${answer.project}" to memory tools that write.`]
 			: [`- ${folder}: no VibeMemory project (${answer.why}) — do not write to memory for this folder.`];
+	});
+	return lines.length > 0 ? lines.join('\n') : undefined;
+}
+
+/**
+ * Prompt lines for the teams' memory; undefined when no team answered
+ * A team's host sees no folder, so every write names its project, and only one the token may use
+ */
+export function teamMemoryPromptLines(teams: readonly TeamMemoryProject[]): string | undefined {
+	const lines = teams.map(({ serverName, toolPrefix, answer }) => {
+		if (answer.project !== null) {
+			return `- ${serverName} (tools ${toolPrefix}*): team memory, project "${answer.project}" — pass project: "${answer.project}" to tools that write.`;
+		}
+		return answer.projects && answer.projects.length > 0
+			? `- ${serverName} (tools ${toolPrefix}*): team memory; it cannot see this disk — pass project explicitly on every write, one of: ${answer.projects.map(name => `"${name}"`).join(', ')}.`
+			: `- ${serverName} (tools ${toolPrefix}*): team memory with no project this token may write to (${answer.why}) — do not write to it.`;
 	});
 	return lines.length > 0 ? lines.join('\n') : undefined;
 }

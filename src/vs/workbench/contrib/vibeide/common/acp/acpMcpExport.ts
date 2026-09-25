@@ -81,6 +81,11 @@ export function buildAcpMcpServers(input: AcpMcpExportInput): AcpMcpExportResult
 			continue;
 		}
 		if (entry.url) {
+			if (entry.headersHelper) {
+				// The helper's header is a credential issued to this IDE; a guest would get the server without it and fail
+				skipped.push({ name, reason: 'заголовок сервера выдаёт помощник headersHelper — этот доступ выдан IDE, а не гостю' });
+				continue;
+			}
 			if (entry.type === 'sse') {
 				// SSE в ACP объявлен устаревшим; гость вправе его не поддерживать, а тихо уехавший
 				// неподдержанный транспорт выглядит у него как неработающий сервер.

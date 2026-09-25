@@ -18,6 +18,7 @@ suite('acpMcpExport — какие MCP-серверы получает гост�
 		guarded: { command: '/bin/mcp-jira', tools: ['search'] },
 		broken: { args: ['--stdio'] },
 		off: { command: '/bin/mcp-off' },
+		team: { url: 'https://vibememory.ru/mcp', type: 'http' as const, headersHelper: { command: '/home/me/.vibememory/bin/vibememory', args: ['mcp-headers', 'acme', 'vibeide'] } },
 	};
 
 	test('уезжает только названное, и в той форме, какую ждёт ACP', () => {
@@ -39,7 +40,7 @@ suite('acpMcpExport — какие MCP-серверы получает гост�
 	test('каждый пропуск назван причиной', () => {
 		const result = buildAcpMcpServers({
 			entries,
-			allowed: ['guarded', 'legacy', 'broken', 'off', 'нет-такого'],
+			allowed: ['guarded', 'legacy', 'broken', 'off', 'нет-такого', 'team'],
 			isEnabled: name => name !== 'off',
 		});
 		assert.deepStrictEqual({
@@ -48,10 +49,13 @@ suite('acpMcpExport — какие MCP-серверы получает гост�
 			// Сервер со списком разрешённых инструментов не уезжает: на гостя наш список не
 			// действует, и экспорт снял бы ограничение, которое человек написал руками.
 			проОграничение: result.skipped.find(s => s.name === 'guarded')?.reason.includes('ограничение'),
+			// The helper's header is a credential issued to the IDE: the guest would get the server without it
+			проПомощника: result.skipped.find(s => s.name === 'team')?.reason.includes('headersHelper'),
 		}, {
 			servers: 0,
-			причины: ['guarded', 'legacy', 'broken', 'off', 'нет-такого'],
+			причины: ['guarded', 'legacy', 'broken', 'off', 'нет-такого', 'team'],
 			проОграничение: true,
+			проПомощника: true,
 		});
 	});
 

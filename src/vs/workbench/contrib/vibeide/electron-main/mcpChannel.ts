@@ -21,7 +21,7 @@ import { MCPConfigFileEntryJSON, MCPServer, MCPTool, RawMCPToolCall, MCPToolErro
 import { MCP } from '../../mcp/common/modelContextProtocol.js';
 import { mcpAppsClientCapabilities } from '../common/mcpApps.js';
 import { KnownMCPServer, MCPServerAction, mcpServerFingerprint, reconcileMCPServers, WantedMCPServer } from '../common/mcpReconcile.js';
-import { mergeServerEnv, transportRequestInit } from '../common/mcpServerEnv.js';
+import { describeUnauthorizedHelper, helperHeadersOf, mergeServerEnv, transportRequestInit } from '../common/mcpServerEnv.js';
 import { McpCacheableMeta, parseCacheableMeta, refreshDelayMs } from '../common/mcpCacheableResult.js';
 import { describeUnansweredInput, parseInputRequired, withInputResponses } from '../common/mcpMultiRoundTrip.js';
 import { describeProtocolMismatch, MAX_INPUT_ROUNDS, McpInputAnswer, McpInputAsk, planInputRequests } from '../common/mcpElicitation.js';
@@ -31,6 +31,10 @@ import { filterToolsWithValidHeaders } from '../common/mcpHeaderAnnotation.js';
 const INPUT_REQUEST_TIMEOUT_MS = 5 * 60 * 1000;
 /** How long quitting the app waits for MCP clients to close before it goes on without them. */
 const CLOSE_ON_SHUTDOWN_TIMEOUT_MS = 3000;
+/** How long a `headersHelper` may take; VibeMemory's reads a file and prints a line */
+const HEADERS_HELPER_TIMEOUT_MS = 10_000;
+/** A header object is a few hundred bytes; anything past this is not one */
+const HEADERS_HELPER_MAX_OUTPUT = 64 * 1024;
 
 const getClientConfig = (serverName: string) => {
 	return {
@@ -298,12 +302,12 @@ export class MCPChannel extends Disposable implements IServerChannel {
 		this._fireState(name, loading, launched.mcpServer);
 	}
 
-	/** VibeIDE: Track URLs used by active MCP servers to detect port conflicts */
-	private readonly _activeUrls = new Set<string>();
+	/** The launches of connected servers, by `mcpServerFingerprint` — what a second entry must not repeat */
+	private readonly _activeLaunches = new Map<string, string>();
 
 	/**
 	 * VibeIDE: Validate MCP server config before connecting.
-	 * Blocks dangerous commands, non-allowlisted remote URLs, and port conflicts.
+	 * Blocks dangerous commands, non-allowlisted remote URLs, and a second entry repeating a running launch.
 	 */
 	private _validateMCPServer(server: MCPConfigFileEntryJSON, serverName: string): void {
 		// Block dangerous shell commands in stdio MCP servers
@@ -328,39 +332,56 @@ export class MCPChannel extends Disposable implements IServerChannel {
 				if (!isLocalhost && !isHttps) {
 					throw new Error(`[VibeIDE MCP] Security: MCP server "${serverName}" uses an insecure non-HTTPS URL: "${urlStr}". Only HTTPS or localhost URLs are allowed.`);
 				}
-
-				// VibeIDE: Port conflict detection — check if another MCP server already uses this URL
-				const urlKey = `${parsed.hostname}:${parsed.port || (parsed.protocol === 'https:' ? '443' : '80')}`;
-				if (this._activeUrls.has(urlKey)) {
-					throw new Error(`[VibeIDE MCP] Port conflict: MCP server "${serverName}" tries to connect to ${urlKey} which is already used by another active MCP server. Use different ports.`);
-				}
 			} catch (e) {
 				if ((e as Error).message.startsWith('[VibeIDE MCP]')) { throw e; }
 				throw new Error(`[VibeIDE MCP] Invalid URL for MCP server "${serverName}": ${urlStr}`);
 			}
 		}
-	}
 
-	private _registerActiveUrl(server: MCPConfigFileEntryJSON): void {
-		if (server.url) {
-			try {
-				const urlStr = typeof server.url === 'string' ? server.url : server.url.toString();
-				const parsed = new URL(urlStr);
-				const urlKey = `${parsed.hostname}:${parsed.port || (parsed.protocol === 'https:' ? '443' : '80')}`;
-				this._activeUrls.add(urlKey);
-			} catch { /* ignore */ }
+		// The same launch under two names would run one server twice and offer every tool twice. A shared address is
+		// not a duplicate: every team's memory lives at one host, told apart by its header
+		const owner = this._activeLaunches.get(mcpServerFingerprint(server, false));
+		if (owner !== undefined && owner !== serverName) {
+			throw new Error(`[VibeIDE MCP] Сервер «${serverName}» повторяет запуск сервера «${owner}» — один сервер работал бы дважды. Оставьте одну из записей.`);
 		}
 	}
 
-	private _unregisterActiveUrl(server: MCPConfigFileEntryJSON): void {
-		if (server.url) {
-			try {
-				const urlStr = typeof server.url === 'string' ? server.url : server.url.toString();
-				const parsed = new URL(urlStr);
-				const urlKey = `${parsed.hostname}:${parsed.port || (parsed.protocol === 'https:' ? '443' : '80')}`;
-				this._activeUrls.delete(urlKey);
-			} catch { /* ignore */ }
+	private _registerActiveLaunch(server: MCPConfigFileEntryJSON, serverName: string): void {
+		this._activeLaunches.set(mcpServerFingerprint(server, false), serverName);
+	}
+
+	private _unregisterActiveLaunch(server: MCPConfigFileEntryJSON, serverName: string): void {
+		const key = mcpServerFingerprint(server, false);
+		if (this._activeLaunches.get(key) === serverName) {
+			this._activeLaunches.delete(key);
 		}
+	}
+
+	/**
+	 * The headers of an HTTP server: the entry's own, then what its `headersHelper` prints, run without a shell
+	 * The output may be a token, so neither it nor the helper's stderr reaches an error message or the log
+	 */
+	private async _headersOf(server: MCPConfigFileEntryJSON, serverName: string): Promise<Record<string, string> | undefined> {
+		const helper = server.headersHelper;
+		if (!helper) {
+			return server.headers;
+		}
+		const { execFile } = await import('child_process');
+		const stdout = await new Promise<string>((resolve, reject) => {
+			execFile(helper.command, helper.args ?? [], { timeout: HEADERS_HELPER_TIMEOUT_MS, windowsHide: true, maxBuffer: HEADERS_HELPER_MAX_OUTPUT }, (err, out) => {
+				if (err) {
+					const why = err.killed ? 'не уложился в срок' : `завершился с кодом ${err.code ?? 'неизвестно'}`;
+					reject(new Error(`[VibeIDE MCP] Помощник заголовков сервера «${serverName}» ${why}`));
+					return;
+				}
+				resolve(String(out));
+			});
+		});
+		const headers = helperHeadersOf(stdout);
+		if (!headers) {
+			throw new Error(`[VibeIDE MCP] Помощник заголовков сервера «${serverName}» напечатал не JSON-объект строк`);
+		}
+		return { ...(server.headers ?? {}), ...headers };
 	}
 
 	private async _createClientUnsafe(server: MCPConfigFileEntryJSON, serverName: string, appsEnabled: boolean): Promise<{ client: import('@modelcontextprotocol/sdk/client/index.js').Client; mcpServer: MCPServerNonError }> {
@@ -389,6 +410,7 @@ export class MCPChannel extends Disposable implements IServerChannel {
 					throw new Error(`Invalid URL for server ${serverName}: ${server.url}. ${urlErr instanceof Error ? urlErr.message : String(urlErr)}`);
 				}
 				const urlString = url.toString();
+				const headers = await this._headersOf(server, serverName);
 				// Determine transport type: explicit type, or infer from URL path
 				let transportType = server.type;
 				// If no explicit type, check if URL path suggests SSE (e.g., contains '/sse')
@@ -399,7 +421,7 @@ export class MCPChannel extends Disposable implements IServerChannel {
 				// If type is explicitly 'sse' or inferred as SSE, use SSE directly
 				if (transportType === 'sse') {
 					try {
-						transport = new SSEClientTransport(url, transportRequestInit(server.headers));
+						transport = new SSEClientTransport(url, transportRequestInit(headers));
 						await client.connect(transport);
 						vibeLog.info('mcpChannel', `Connected via SSE to ${serverName}`);
 						const { tools } = await this._listTools(client, serverName);
@@ -415,7 +437,7 @@ export class MCPChannel extends Disposable implements IServerChannel {
 				// If type is explicitly 'http', only try HTTP
 				else if (transportType === 'http') {
 					try {
-						transport = new StreamableHTTPClientTransport(url, transportRequestInit(server.headers));
+						transport = new StreamableHTTPClientTransport(url, transportRequestInit(headers));
 						await client.connect(transport);
 						vibeLog.info('mcpChannel', `Connected via HTTP to ${serverName}`);
 						const { tools } = await this._listTools(client, serverName);
@@ -431,7 +453,7 @@ export class MCPChannel extends Disposable implements IServerChannel {
 				// If type is not specified, try HTTP first, fall back to SSE
 				else {
 					try {
-						transport = new StreamableHTTPClientTransport(url, transportRequestInit(server.headers));
+						transport = new StreamableHTTPClientTransport(url, transportRequestInit(headers));
 						await client.connect(transport);
 						vibeLog.info('mcpChannel', `Connected via HTTP to ${serverName}`);
 						const { tools } = await this._listTools(client, serverName);
@@ -442,7 +464,7 @@ export class MCPChannel extends Disposable implements IServerChannel {
 						};
 					} catch (httpErr) {
 						vibeLog.warn('mcpChannel', `HTTP failed for ${serverName}, trying SSE…`, httpErr);
-						transport = new SSEClientTransport(url, transportRequestInit(server.headers));
+						transport = new SSEClientTransport(url, transportRequestInit(headers));
 						await client.connect(transport);
 						const { tools } = await this._listTools(client, serverName);
 						vibeLog.info('mcpChannel', `Connected via SSE to ${serverName}`);
@@ -586,15 +608,16 @@ export class MCPChannel extends Disposable implements IServerChannel {
 		const fingerprint = mcpServerFingerprint(entry, appsEnabled);
 		try {
 			const { client, mcpServer } = await this._createClientUnsafe(entry, serverName, appsEnabled);
-			// VibeIDE: Register URL after successful connection for port conflict tracking
-			this._registerActiveUrl(entry);
+			this._registerActiveLaunch(entry, serverName);
 			return { entry, fingerprint, client, mcpServer };
 		} catch (err) {
 			vibeLog.error('mcpChannel', `❌ Failed to connect to server "${serverName}":`, err);
 			// Отказ из-за ревизии протокола приходит из недр SDK английской строкой, по которой не понять
 			// ни причины, ни что делать. Случай настоящий: сервер ревизии 2026-07-28 отвергается на рукопожатии.
 			const mismatch = describeProtocolMismatch(err);
-			const failed: MCPServerError = { status: 'error', error: mismatch ?? (err + ''), command: displayCommandOf(entry) };
+			// A 401 to a helper's header is a revoked token, and the fix is where the token is issued
+			const unauthorized = entry.headersHelper ? describeUnauthorizedHelper(serverName, err) : undefined;
+			const failed: MCPServerError = { status: 'error', error: mismatch ?? unauthorized ?? (err + ''), command: displayCommandOf(entry) };
 			return { entry, fingerprint, mcpServer: failed };
 		}
 	}
@@ -623,8 +646,7 @@ export class MCPChannel extends Disposable implements IServerChannel {
 		} catch (err) {
 			vibeLog.warn('mcpChannel', `MCP server "${serverName}": closing the client failed`, err);
 		}
-		// VibeIDE: Unregister URL on close for port conflict tracking
-		this._unregisterActiveUrl(info.entry);
+		this._unregisterActiveLaunch(info.entry, serverName);
 		vibeLog.info('mcpChannel', `Closed MCP server ${serverName}`);
 	}
 

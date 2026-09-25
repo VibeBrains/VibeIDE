@@ -91,7 +91,7 @@ import { URI } from '../../../../base/common/uri.js';
 import { EndOfLinePreference } from '../../../../editor/common/model.js';
 import { ToolName } from '../common/toolsServiceTypes.js';
 import { IMCPService } from '../common/mcpService.js';
-import { memoryProjectPromptLines } from '../common/vibeMemoryProject.js';
+import { memoryProjectPromptLines, teamMemoryPromptLines } from '../common/vibeMemoryProject.js';
 import { IRepoIndexerService, QueryMetrics } from './repoIndexerService.js';
 import { IVibeDocsGraphService } from './vibeDocsGraphService.js';
 import { IMemoriesService } from '../common/memoriesService.js';
@@ -1640,10 +1640,15 @@ class ConvertToLLMMessageService extends Disposable implements IConvertToLLMMess
 		}
 	}
 
-	/** VibeMemory project lines for the open folders; the memory server is the only authority on the name. */
+	/**
+	 * VibeMemory project lines for the open folders, then the teams' memory; each server is the only authority on names
+	 * A team's host sees no folder: it is asked once, with the first folder, and answers with the projects its token may use
+	 */
 	private async _memoryProjects(workspaceFolders: readonly string[]): Promise<string | undefined> {
 		const answers = await Promise.all(workspaceFolders.map(async folder => ({ folder, answer: await this.mcpService.resolveMemoryProject(folder) })));
-		return memoryProjectPromptLines(answers);
+		const teams = workspaceFolders.length > 0 ? await this.mcpService.resolveTeamMemoryProjects(workspaceFolders[0]) : [];
+		const lines = [memoryProjectPromptLines(answers), teamMemoryPromptLines(teams)].filter((part): part is string => !!part);
+		return lines.length > 0 ? lines.join('\n') : undefined;
 	}
 
 	private _generateChatMessagesSystemMessage = async (chatMode: ChatMode, specialToolFormat: 'openai-style' | 'anthropic-style' | 'gemini-style' | undefined, providerName?: string, modelName?: string) => {

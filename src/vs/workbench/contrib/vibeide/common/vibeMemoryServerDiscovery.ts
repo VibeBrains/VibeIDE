@@ -55,3 +55,93 @@ export function withDiscoveredMemoryServer(
 		[VIBE_MEMORY_SERVER_NAME]: { command: found.command, args: ['--agent', 'vibeide'], cwd: found.homeDir },
 	};
 }
+
+/**
+ * Team memory over HTTPS, one server per team the machine was connected to (VibeMemory `vibememory connect`).
+ *
+ * `connect` leaves `~/.vibememory/tokens/<team>/` with the token itself, a ready `mcp.json` fragment and a sidecar
+ * without the token. Only the sidecar is read: the fragment carries the token in plain text, and copying it into our
+ * configuration is exactly what the helper exists to avoid. The header is asked of `vibememory mcp-headers` each time
+ * the client connects, so a token re-issued in the cabinet is picked up by a reconnect, not by an edit.
+ */
+
+/** Team servers are named `vibememory-<team>`, as VibeMemory names them in its own fragment */
+export const VIBE_MEMORY_TEAM_SERVER_PREFIX = 'vibememory-';
+
+/** Where `connect` puts a team's files: `~/.vibememory/tokens/<team>/` */
+export const VIBE_MEMORY_TOKENS_SEGMENTS: readonly string[] = ['.vibememory', 'tokens'];
+
+/** The sidecar this agent reads in a team's folder */
+export const VIBE_MEMORY_TEAM_SIDECAR = 'vibeide.json';
+
+/** `~/.vibememory/bin/vibememory`, with `.exe` on Windows — the helper that prints a team's header */
+export function vibeMemoryHelperPathSegments(windows: boolean): readonly string[] {
+	return ['.vibememory', 'bin', windows ? 'vibememory.exe' : 'vibememory'];
+}
+
+/** A team this machine is connected to, as its sidecar says */
+export interface FoundTeamServer {
+	readonly team: string;
+	readonly url: string;
+	/** The token's id: a reconnect in the cabinet issues a new one, and the running client must ask the helper again */
+	readonly tokenId?: string;
+}
+
+/** VibeMemory's rule for a team's name: lowercase Latin letters, digits and hyphens, up to 63 */
+const TEAM_NAME = /^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/;
+
+/**
+ * A team from its folder name and its sidecar text; a reason instead when the sidecar is not one to trust
+ * The address must be https — plain http only to this machine, which is how a local test server is reached
+ */
+export function teamServerOfSidecar(folder: string, text: string): FoundTeamServer | { readonly skipped: string } {
+	if (!TEAM_NAME.test(folder)) {
+		return { skipped: `имя команды «${folder}» не по правилу VibeMemory` };
+	}
+	let sidecar: { team?: unknown; agent?: unknown; mcpUrl?: unknown; tokenId?: unknown };
+	try {
+		sidecar = JSON.parse(text);
+	} catch {
+		return { skipped: `${folder}/${VIBE_MEMORY_TEAM_SIDECAR} — не JSON` };
+	}
+	if (sidecar?.agent !== 'vibeide') {
+		return { skipped: `${folder}/${VIBE_MEMORY_TEAM_SIDECAR} выдан не этому агенту` };
+	}
+	if (sidecar.team !== undefined && sidecar.team !== folder) {
+		return { skipped: `${folder}/${VIBE_MEMORY_TEAM_SIDECAR} называет другую команду` };
+	}
+	let url: URL;
+	try {
+		url = new URL(String(sidecar.mcpUrl ?? ''));
+	} catch {
+		return { skipped: `у команды «${folder}» нет адреса сервера (mcpUrl)` };
+	}
+	const loopback = url.hostname === 'localhost' || url.hostname === '127.0.0.1' || url.hostname === '[::1]';
+	if (url.protocol !== 'https:' && !(url.protocol === 'http:' && loopback)) {
+		return { skipped: `адрес сервера команды «${folder}» не https` };
+	}
+	return { team: folder, url: url.toString(), ...(typeof sidecar.tokenId === 'string' && sidecar.tokenId ? { tokenId: sidecar.tokenId } : {}) };
+}
+
+/**
+ * The server map with a server for each team added: HTTP, the header from the helper, never a literal token
+ * A user entry with the same name wins, as for the local memory server
+ */
+export function withDiscoveredTeamServers(
+	servers: Readonly<Record<string, MCPConfigFileEntryJSON>>,
+	teams: readonly FoundTeamServer[],
+	helperCommand: string | undefined,
+): Record<string, MCPConfigFileEntryJSON> {
+	const out = { ...servers };
+	if (!helperCommand) {
+		return out;
+	}
+	for (const { team, url, tokenId } of teams) {
+		const name = `${VIBE_MEMORY_TEAM_SERVER_PREFIX}${team}`;
+		if (Object.prototype.hasOwnProperty.call(out, name)) {
+			continue;
+		}
+		out[name] = { type: 'http', url, headersHelper: { command: helperCommand, args: ['mcp-headers', team, 'vibeide'], ...(tokenId ? { revision: tokenId } : {}) } };
+	}
+	return out;
+}

@@ -158,6 +158,22 @@ export interface MCPConfigFileEntryJSON {
 	 */
 	type?: 'http' | 'sse';
 	headers?: Record<string, string>;
+	/**
+	 * A program that prints the request headers as a JSON object of strings, run each time the client connects.
+	 *
+	 * A token written into `headers` lies in `mcp.json` in plain text, and that file goes to backups and sync.
+	 * The helper's answer lives only in the memory of the running client: it reaches no file, no log and no guest
+	 * agent. Its headers go over the literal ones. The command is an absolute path, run without a shell
+	 */
+	headersHelper?: {
+		command: string;
+		args?: string[];
+		/**
+		 * Changes whenever the credential behind the helper is re-issued. The helper is run on connect only, so a new
+		 * value is what makes a running client reconnect and ask again
+		 */
+		revision?: string;
+	};
 
 	/**
 	 * Tools of this server the agent may see and call, by their names on the server. Absent — all of them.

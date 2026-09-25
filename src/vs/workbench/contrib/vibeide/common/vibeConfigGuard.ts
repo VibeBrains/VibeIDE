@@ -450,6 +450,20 @@ export function scanMcpConfig(servers: Record<string, MCPConfigFileEntryJSON> | 
 		const cmd = typeof raw.command === 'string' ? raw.command : '';
 		const args = Array.isArray(raw.args) ? raw.args.filter((a): a is string => typeof a === 'string') : [];
 		findings.push(...scanLaunchCommand({ rulePrefix: 'mcp', name, label: `MCP-сервер «${name}»` }, cmd, args, raw.env));
+		// The helper is a program the IDE runs on every connect: it is judged like a server's own command
+		const helper = raw.headersHelper;
+		if (helper && typeof helper.command === 'string') {
+			const helperArgs = Array.isArray(helper.args) ? helper.args.filter((a): a is string => typeof a === 'string') : [];
+			findings.push(...scanLaunchCommand({ rulePrefix: 'mcp', name, label: `Помощник заголовков MCP-сервера «${name}»` }, helper.command, helperArgs, undefined));
+		}
+		for (const [header, value] of Object.entries(raw.headers ?? {})) {
+			if (typeof value === 'string' && isEmbeddedSecret(header, value)) {
+				findings.push({
+					ruleId: 'mcp-header-secret', severity: 'high', subject: name,
+					message: `MCP-сервер «${name}»: заголовок ${header} несёт секрет открытым текстом, а mcp.json уходит в резервные копии и синхронизацию. Возьмите заголовок у программы — поле headersHelper.`,
+				});
+			}
+		}
 
 		const url = typeof raw.url === 'string' ? raw.url : (raw.url ? String(raw.url) : '');
 		if (url) {
