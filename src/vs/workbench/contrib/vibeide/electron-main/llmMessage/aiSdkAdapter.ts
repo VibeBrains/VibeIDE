@@ -34,7 +34,7 @@ import { TOOL_NAME_ALIASES, applyParamAliases } from '../../common/prompt/toolAl
 import { lenientJsonParseObject } from '../../common/lenientJson.js';
 import { getModelSdkNpm } from './modelsDevCatalog.js';
 import { buildContextOverflowError, buildEmptyResponseError, isContextOverflow, LLMChatMessage, LLMFinishNotice, LLMTokenUsage, ProviderRefusalDiagnostics, RawToolCallObj, RawToolParamsObj } from '../../common/sendLLMMessageTypes.js';
-import { claudeThinkingOptions, DEFAULT_CLAUDE_THINKING_DISPLAY, googleThinkingConfig, openAIReasoningEffort } from '../../common/wireReasoning.js';
+import { claudeThinkingOptions, compatibleClaudeThinkingOptions, DEFAULT_CLAUDE_THINKING_DISPLAY, googleThinkingConfig, openAIReasoningEffort } from '../../common/wireReasoning.js';
 import { AnthropicReasoningCollector, finishNoticeOf } from '../../common/llmStreamFinish.js';
 import { googleRetryDelaySecondsOf } from '../../common/googleRetryInfo.js';
 import { stripUnknownContentBlocks } from '../../common/anthropicStrictBlocks.js';
@@ -349,6 +349,16 @@ const withFileKeyHeaders = (headers: HeadersInit | undefined, keyHeaders: Readon
 	return { ...kept, ...keyHeaders };
 };
 
+/** A JSON request body with `patch` merged over its top level; a body that is not a JSON object goes as it is */
+const withBodyPatch = (body: string, patch: Readonly<Record<string, unknown>>): string => {
+	try {
+		const parsed: unknown = JSON.parse(body);
+		return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? JSON.stringify({ ...parsed, ...patch }) : body;
+	} catch {
+		return body;
+	}
+};
+
 /** The wire a request speaks, by the SDK chosen for it — what decides the default place of a file provider's key */
 function wireOfSdkNpm(sdkNpm: string | undefined): VibeProviderProtocol {
 	switch (sdkNpm) {
@@ -366,6 +376,11 @@ const makeCustomFetch = (opts: {
 	 * The file's own query parameters ride along on every request
 	 */
 	fileKey?: { readonly headers: Readonly<Record<string, string>>; readonly query: Readonly<Record<string, string>> };
+	/**
+	 * Fields merged into the JSON body — a file model's `extraBody` and its «off» on a wire whose SDK takes no
+	 * body transform (Anthropic); the OpenAI-compatible wire gets the same through `transformRequestBody`
+	 */
+	bodyPatch?: Readonly<Record<string, unknown>>;
 	onQuota?: (snapshot: ProviderQuotaSnapshot) => void;
 	/** The model named in the answer — a proxy or a failover target may serve a different one. */
 	onAnsweredModel?: (model: string, fingerprint: string | undefined) => void;
@@ -380,7 +395,8 @@ const makeCustomFetch = (opts: {
 	const requestsInWindow = requestRateWindow.record(opts.providerName, Date.now());
 	const fileKey = opts.fileKey;
 	const undiciInput = (fileKey ? withQueryOnInput(input, fileKey.query) : input) as unknown as UndiciFetchParams[0];
-	const outgoing = fileKey ? { ...init, headers: withFileKeyHeaders(init?.headers, fileKey.headers) } : init;
+	const keyed = fileKey ? { ...init, headers: withFileKeyHeaders(init?.headers, fileKey.headers) } : init;
+	const outgoing = opts.bodyPatch && typeof keyed?.body === 'string' ? { ...keyed, body: withBodyPatch(keyed.body, opts.bodyPatch) } : keyed;
 	const undiciInit = { ...(outgoing as unknown as UndiciFetchParams[1]), dispatcher: ensureSystemCADispatcher() };
 	const response = await (undiciFetch(undiciInput, undiciInit) as unknown as Promise<Response>);
 	// Cloned HERE, before the diagnostics tap below starts consuming the stream: `clone()` throws
@@ -1484,9 +1500,17 @@ export const sendViaAISdk = async (params: SendChatParams_Internal): Promise<voi
 			return;
 		}
 	}
+	// A file model on the Anthropic wire: its `extraBody` and its own «off» (MiMo: `thinking: {type: "disabled"}`) are a
+	// contract with that route, and @ai-sdk/anthropic takes no body transform — they go in through the fetch door.
+	// Built-ins are left alone: their caps were written for the OpenAI-compatible body.
+	const anthropicBodyPatch = anthropicWire && !isBuiltinProvider(providerName) ? {
+		...(additionalOpenAIPayload as Record<string, unknown> | undefined ?? {}),
+		...(reasoningOff && reasoningCapabilities?.reasoningOffPayload ? reasoningCapabilities.reasoningOffPayload : {}),
+	} : undefined;
 	const callFetch = makeCustomFetch({
 		providerName,
 		...(fileKey && fileKeyPlacement ? { fileKey: { headers: fileKeyPlacement.headers, query: { ...fileKey.query, ...fileKeyPlacement.query } } } : {}),
+		...(anthropicBodyPatch && Object.keys(anthropicBodyPatch).length > 0 ? { bodyPatch: anthropicBodyPatch } : {}),
 		onQuota: snapshot => { lastQuota = snapshot; },
 		onAnsweredModel: (model, fingerprint) => { lastAnsweredModel = model; lastSystemFingerprint = fingerprint; },
 		onOrchestrationTokens: tokens => { lastOrchestrationTokens = tokens; },
@@ -1881,9 +1905,12 @@ export const sendViaAISdk = async (params: SendChatParams_Internal): Promise<voi
 	// OpenAI-compatible wire got its share in the body above (`openAICompatExtraBody`).
 	const providerOptions: Record<string, JSONObject> = {};
 	if (anthropicWire && providerName === 'anthropic') {
-		// Anthropic's own API only: compatible upstreams (MiniMax, Kimi, MiMo) spell thinking their own way,
-		// and `adaptive` sent there could turn a working route into a 400.
 		providerOptions.anthropic = claudeThinkingOptions(reasoningInfo, runtimeOptions?.claudeThinkingDisplay ?? DEFAULT_CLAUDE_THINKING_DISPLAY, quirks.reasoningBoundToModel === true);
+	} else if (anthropicWire && reasoningCapabilities && reasoningCapabilities.supportsReasoning) {
+		// Another route on the same wire (OpenCode Zen, a gateway, a provider from a file): thinking goes when the model
+		// declares reasoning, in the spelling the MODEL takes — adaptive for Claude 5, a token budget for the rest
+		const effortWords = reasoningCapabilities.reasoningSlider?.type === 'effort_slider' ? reasoningCapabilities.reasoningSlider.values : undefined;
+		providerOptions.anthropic = compatibleClaudeThinkingOptions(reasoningInfo, runtimeOptions?.claudeThinkingDisplay ?? DEFAULT_CLAUDE_THINKING_DISPLAY, quirks.adaptiveThinking === true, effortWords);
 	}
 	if (openAIWire) {
 		const reasoningEffort = openAIReasoningEffort(reasoningInfo, reasoningOff, reasoningCapabilities ? reasoningCapabilities.reasoningOffEffort : undefined);

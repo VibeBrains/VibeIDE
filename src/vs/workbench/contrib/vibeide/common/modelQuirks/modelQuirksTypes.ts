@@ -145,6 +145,16 @@ export interface ModelQuirksRule {
 	readonly reasoningBoundToModel?: boolean;
 
 	/**
+	 * The model thinks in Anthropic's adaptive mode: `thinking: {type: "adaptive"}` plus an effort word
+	 *
+	 * The spelling is the model's, not the route's: a thinking budget answers 400 on Opus 4.7/4.8 and the 5 line, the
+	 * adaptive mode answers 400 on older models. Anthropic's own API knows it from the slider; a compatible route
+	 * (OpenCode Zen, a gateway) serving Claude on `/v1/messages` knows it from this flag. Without it such a route gets
+	 * `enabled` with a token budget — the spelling every other Anthropic-compatible vendor takes. VibeIDEA: ADAPTIVE_THINKING
+	 */
+	readonly adaptiveThinking?: boolean;
+
+	/**
 	 * The vendor signs its reasoning and requires the signature back on the next turn's function call
 	 * (Gemini 3: «MUST always resend all thought blocks»). Only these models receive `thoughtSignature` in
 	 * the history; for every other model it is stripped — an unknown field in a tool block can be a 400.
@@ -287,6 +297,7 @@ export function validateCatalog(raw: unknown): ModelQuirksCatalog {
 			...readEnum(rr, 'forceToolCallFormat', ['native', 'xml', 'auto']),
 			...readBool(rr, 'forcedToolChoiceUnsupported'),
 			...readBool(rr, 'reasoningBoundToModel'),
+			...readBool(rr, 'adaptiveThinking'),
 			...readBool(rr, 'roundtripThoughtSignature'),
 			...readString(rr, 'note'),
 		};
@@ -368,6 +379,7 @@ export function applyUserOverride(catalogQuirks: ResolvedModelQuirks, userOverri
 		...readEnum(oo, 'forceToolCallFormat', ['native', 'xml', 'auto']),
 		...readBool(oo, 'forcedToolChoiceUnsupported'),
 		...readBool(oo, 'reasoningBoundToModel'),
+		...readBool(oo, 'adaptiveThinking'),
 		...readBool(oo, 'roundtripThoughtSignature'),
 	};
 	return sanitized;

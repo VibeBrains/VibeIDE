@@ -63,6 +63,9 @@ suite('ModelQuirks — настоящий каталог resources/model-quirks.
 		['gemini-3-pro-preview', { roundtripThoughtSignature: true }],
 		['mimo-v2-pro', null],
 		['hy3-preview', null],
+		// Claude 5 thinks in the adaptive mode; a compatible route (OpenCode Zen) learns it from the catalogue (25.09.2026)
+		['claude-sonnet-5', { adaptiveThinking: true }],
+		['claude-opus-4-7', { adaptiveThinking: true }],
 	];
 
 	for (const [modelId, expected] of cases) {

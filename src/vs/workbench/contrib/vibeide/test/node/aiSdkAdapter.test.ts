@@ -387,6 +387,39 @@ suite('aiSdkAdapter — встроенные провайдеры против �
 		);
 	});
 
+	test('провод Anthropic у провайдера из файла: мышление по форме модели, «выключено» и extraBody модели доходят', async () => {
+		// Only Anthropic's own route used to get thinking: a compatible route with a reasoning model ran on the vendor
+		// default and its «off» never went anywhere — the Anthropic SDK takes no body transform.
+		const effort = { type: 'effort_slider' as const, values: ['low', 'medium', 'high'], default: 'high' };
+		setExternalProviders([{
+			id: 'test-anthropic-file', source: 'file', modelCapOverrides: {
+				'minimax-m3': {
+					reasoningCapabilities: { supportsReasoning: true, canTurnOffReasoning: true, canIOReasoning: true, reasoningSlider: effort, reasoningOffPayload: { thinking: { type: 'disabled' } } },
+					additionalOpenAIPayload: { service_tier: 'flex' },
+				},
+			},
+		}]);
+		try {
+			const via = (modelName: string, modelSelectionOptions: SendChatParams_Internal['modelSelectionOptions']) => send({
+				providerName: 'test-anthropic-file' as SendChatParams_Internal['providerName'],
+				modelName,
+				settingsOfProvider: settingsWith({ 'test-anthropic-file': { baseURL: `http://127.0.0.1:${port}/v1`, apiKey: 'k', protocol: 'anthropic' } }),
+				messages: [{ role: 'user', content: 'Привет' }],
+				modelSelectionOptions,
+			});
+			await via('minimax-m3', { reasoningEnabled: true, reasoningEffort: 'high' });
+			await via('minimax-m3', { reasoningEnabled: false });
+		} finally {
+			setExternalProviders([]);
+		}
+		// The adaptive spelling for Claude 5 is decided by the quirk catalogue, checked in modelQuirksCatalog.test.ts
+		const bodies = requests.filter(r => r.path === '/v1/messages').slice(-2).map(r => r.body);
+		assert.deepStrictEqual(bodies.map(b => ({ thinking: b?.thinking, serviceTier: b?.service_tier })), [
+			{ thinking: { type: 'enabled', budget_tokens: 24000 }, serviceTier: 'flex' },
+			{ thinking: { type: 'disabled' }, serviceTier: 'flex' },
+		]);
+	});
+
 	test('провайдер из файла через главный процесс: возможности модели доезжают, диалект OpenRouter пишет рассуждение объектом', async () => {
 		// Shaped as the window sends it — the transport config under the provider's id, nothing registered by hand:
 		// the file's model caps used to ride on the settings seed, which this config replaces, and never arrived.

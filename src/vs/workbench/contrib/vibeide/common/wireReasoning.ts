@@ -72,6 +72,36 @@ export function claudeThinkingOptions(reasoning: SendableReasoningInfo, display:
 	return blockBinding ? { thinking: { blockBinding } } : {};
 }
 
+/** Thinking budget per level for a route whose model thinks with a budget — VibeIDEA's numbers, `ReasoningMode.budgetTokens` */
+const COMPATIBLE_THINKING_BUDGET = { low: 2_000, medium: 8_000, high: 24_000 } as const;
+
+/**
+ * Thinking options for a route on the Anthropic wire that is not Anthropic's own API — OpenCode Zen, a gateway, MiniMax
+ * or MiMo on their `/v1/messages`, a provider from a file
+ *
+ * The spelling follows the model, as in VibeIDEA: a model with the `adaptiveThinking` quirk (Claude 5) gets the adaptive
+ * mode with the effort word, any other one `enabled` with a token budget. A budget slider gives its value; an effort
+ * slider gives a budget by the position of the chosen word — first is low, last is high, the rest medium, since a
+ * vendor's words need not be ours. Reasoning off, or a model that declares none, names no thinking at all: an «off» of
+ * its own goes in the body (`reasoning.off`), and inventing one would be guessing at the vendor's format
+ */
+export function compatibleClaudeThinkingOptions(reasoning: SendableReasoningInfo, display: ClaudeThinkingDisplay, adaptive: boolean, effortWords: readonly string[] | undefined): ClaudeThinkingOptions {
+	if (!reasoning?.isReasoningEnabled) {
+		return {};
+	}
+	if (adaptive) {
+		const effort = reasoning.type === 'effort_slider_value' ? CLAUDE_EFFORTS.find(level => level === reasoning.reasoningEffort) : undefined;
+		return { thinking: { type: 'adaptive', display }, ...(effort ? { effort } : {}) };
+	}
+	if (reasoning.type === 'budget_slider_value') {
+		return { thinking: { type: 'enabled', budgetTokens: reasoning.reasoningBudget } };
+	}
+	const words = effortWords ?? [];
+	const at = words.indexOf(reasoning.reasoningEffort ?? '');
+	const level = at < 0 || words.length < 2 ? 'medium' : at === 0 ? 'low' : at === words.length - 1 ? 'high' : 'medium';
+	return { thinking: { type: 'enabled', budgetTokens: COMPATIBLE_THINKING_BUDGET[level] } };
+}
+
 /**
  * The reasoning effort for @ai-sdk/openai, on chat completions and Responses alike.
  *

@@ -246,6 +246,48 @@
 			"source": "platform.claude.com/docs/en/models/opus-5-5/migration-guide (breaking changes 2 и 3)",
 			"observedAt": "2026-09-23",
 			"note": "Claude Opus 5.5: те же два механизма, что у Fable 5.1. 1) Принудительный вызов инструмента снят — tool_choice any/tool отвечает 400 на Messages, Batches и подсчёте токенов; auto и none не затронуты. 2) Рассуждение привязано и к модели, и к разговору: блоки Opus 5.5 читают только Fable 5.1 и Mythos 5.1, а у аккаунтов, созданных с 31.08.2026, блок, повторённый после правки system, tools или прошлых сообщений, отвечает 400. Наш системный промпт меняется между ходами (активный файл, открытые файлы, дерево, дата), поэтому для моделей с этой пометкой запрос несёт thinking.block_binding.prefix_mismatch_behavior: drop_block (бета thinking-binding-controls-2026-08-01): недействительный блок отбрасывается вместо отказа. Правильное лечение — стабильный префикс, пункт roadmap DIGEST-0923. Матчится и по датированным id (claude-opus-5-5-…); opus-5 сюда не попадает — у него дефис не на том месте. Живьём не проверено — ключа Anthropic нет."
+		},
+		{
+			"match": "claude-opus-5",
+			"adaptiveThinking": true,
+			"source": "platform.claude.com/docs/en/build-with-claude/adaptive-thinking; правило ADAPTIVE_THINKING VibeIDEA (ModelQuirks.kt)",
+			"observedAt": "2026-09-25",
+			"note": "Мышление Claude этой линейки — адаптивный режим с усилием, бюджет токенов отвечает 400. Нужно маршрутам на проводе Anthropic, которые не встроенный anthropic: OpenCode Zen, шлюз, провайдер из файла; встроенный знает форму по ползунку. Матчится и по датированным id и по id с префиксом агрегатора. Живьём не проверено — ключей нет."
+		},
+		{
+			"match": "claude-sonnet-5",
+			"adaptiveThinking": true,
+			"source": "platform.claude.com/docs/en/build-with-claude/adaptive-thinking; правило ADAPTIVE_THINKING VibeIDEA (ModelQuirks.kt)",
+			"observedAt": "2026-09-25",
+			"note": "Мышление Claude этой линейки — адаптивный режим с усилием, бюджет токенов отвечает 400. Нужно маршрутам на проводе Anthropic, которые не встроенный anthropic: OpenCode Zen, шлюз, провайдер из файла; встроенный знает форму по ползунку. Матчится и по датированным id и по id с префиксом агрегатора. Живьём не проверено — ключей нет."
+		},
+		{
+			"match": "claude-fable-5",
+			"adaptiveThinking": true,
+			"source": "platform.claude.com/docs/en/build-with-claude/adaptive-thinking; правило ADAPTIVE_THINKING VibeIDEA (ModelQuirks.kt)",
+			"observedAt": "2026-09-25",
+			"note": "Мышление Claude этой линейки — адаптивный режим с усилием, бюджет токенов отвечает 400. Нужно маршрутам на проводе Anthropic, которые не встроенный anthropic: OpenCode Zen, шлюз, провайдер из файла; встроенный знает форму по ползунку. Матчится и по датированным id и по id с префиксом агрегатора. Живьём не проверено — ключей нет."
+		},
+		{
+			"match": "claude-mythos-5",
+			"adaptiveThinking": true,
+			"source": "platform.claude.com/docs/en/build-with-claude/adaptive-thinking; правило ADAPTIVE_THINKING VibeIDEA (ModelQuirks.kt)",
+			"observedAt": "2026-09-25",
+			"note": "Мышление Claude этой линейки — адаптивный режим с усилием, бюджет токенов отвечает 400. Нужно маршрутам на проводе Anthropic, которые не встроенный anthropic: OpenCode Zen, шлюз, провайдер из файла; встроенный знает форму по ползунку. Матчится и по датированным id и по id с префиксом агрегатора. Живьём не проверено — ключей нет."
+		},
+		{
+			"match": "claude-opus-4-7",
+			"adaptiveThinking": true,
+			"source": "platform.claude.com/docs/en/build-with-claude/adaptive-thinking; правило ADAPTIVE_THINKING VibeIDEA (ModelQuirks.kt)",
+			"observedAt": "2026-09-25",
+			"note": "Мышление Claude этой линейки — адаптивный режим с усилием, бюджет токенов отвечает 400. Нужно маршрутам на проводе Anthropic, которые не встроенный anthropic: OpenCode Zen, шлюз, провайдер из файла; встроенный знает форму по ползунку. Матчится и по датированным id и по id с префиксом агрегатора. Живьём не проверено — ключей нет."
+		},
+		{
+			"match": "claude-opus-4-8",
+			"adaptiveThinking": true,
+			"source": "platform.claude.com/docs/en/build-with-claude/adaptive-thinking; правило ADAPTIVE_THINKING VibeIDEA (ModelQuirks.kt)",
+			"observedAt": "2026-09-25",
+			"note": "Мышление Claude этой линейки — адаптивный режим с усилием, бюджет токенов отвечает 400. Нужно маршрутам на проводе Anthropic, которые не встроенный anthropic: OpenCode Zen, шлюз, провайдер из файла; встроенный знает форму по ползунку. Матчится и по датированным id и по id с префиксом агрегатора. Живьём не проверено — ключей нет."
 		}
 	]
 }
