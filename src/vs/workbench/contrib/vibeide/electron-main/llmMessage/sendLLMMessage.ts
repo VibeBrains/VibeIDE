@@ -8,7 +8,7 @@ import { vibeLog } from '../../common/vibeLog.js';
 import { SendLLMMessageParams, OnText, OnFinalMessage, OnError } from '../../common/sendLLMMessageTypes.js';
 import { IMetricsService } from '../../common/metricsService.js';
 import { displayInfoOfProviderName, FeatureName, providerNames } from '../../common/vibeideSettingsTypes.js';
-import { setExternalProviders, ExternalProviderDescriptor, VibeideStaticModelInfo } from '../../common/modelCapabilities.js';
+import { setExternalProviders, setBuiltinModelPatches, BuiltinModelPatch, ExternalProviderDescriptor, VibeideStaticModelInfo } from '../../common/modelCapabilities.js';
 import type { VibeReasoningDialect } from '../../common/vibeProvidersFile.js';
 import { traceSendEvent } from '../../common/llmSendTrace.js';
 import { sendLLMMessageToProviderImplementation, dynamicProviderImplementation } from './sendLLMMessage.impl.js';
@@ -38,6 +38,13 @@ const syncExternalProvidersFromSettings = (settingsOfProvider: SendLLMMessagePar
 		});
 	}
 	setExternalProviders(descriptors);
+	// A file patching a built-in brings its models' price and cache lifetime on the built-in's own entry (wire hints)
+	const patches: Record<string, Readonly<Record<string, BuiltinModelPatch>>> = {};
+	for (const id of Object.keys(entries)) {
+		const modelPatches = _builtinProviderSet.has(id) ? (entries[id] as { modelPatches?: Readonly<Record<string, BuiltinModelPatch>> } | undefined)?.modelPatches : undefined;
+		if (modelPatches) { patches[id] = modelPatches; }
+	}
+	setBuiltinModelPatches(patches);
 };
 
 

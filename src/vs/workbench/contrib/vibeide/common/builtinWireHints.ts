@@ -3,6 +3,8 @@
  *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
 
+import type { BuiltinModelPatch } from './modelCapabilities.js';
+
 /**
  * What a provider file patching a BUILT-IN provider (same `id`) declares about the wire, merged into that
  * built-in's settings at send time — the same fields a provider defined in a file gets.
@@ -14,6 +16,8 @@
 export interface BuiltinWireHints {
 	readonly modelProtocols?: Readonly<Record<string, string>>;
 	readonly promptCacheKey?: boolean;
+	/** Price and cache lifetime of the file's `static` models — electron-main registers them (`setBuiltinModelPatches`) */
+	readonly modelPatches?: Readonly<Record<string, BuiltinModelPatch>>;
 }
 
 /**

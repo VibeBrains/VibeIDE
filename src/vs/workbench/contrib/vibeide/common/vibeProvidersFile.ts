@@ -36,7 +36,10 @@ export interface VibeProviderModelCost {
 	readonly input?: number;
 	readonly output?: number;
 	readonly cacheRead?: number;
+	/** A cache write with the vendor's default lifetime (five minutes at Anthropic). */
 	readonly cacheWrite?: number;
+	/** A cache write that lives an hour — billed for a model with `cacheTtl: "1h"`; absent — twice `input`. */
+	readonly cacheWrite1h?: number;
 	/** Surcharge on a long prompt, when the vendor announces one — see `VibeProviderLongContext`. */
 	readonly longContext?: VibeProviderLongContext;
 	/** Price by the hour: the rates above are PEAK rates — see `VibeProviderTimeOfDay`. */

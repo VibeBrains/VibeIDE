@@ -168,7 +168,13 @@ export type ModelCost = {
 	input: number;
 	output: number;
 	cache_read?: number;
+	/** A cache write with the vendor's default lifetime — five minutes at Anthropic */
 	cache_write?: number;
+	/**
+	 * A cache write that lives an hour (`cacheTtl: "1h"`) — dearer than the five-minute one: Opus 5.5 $8 against $5
+	 * `getModelCapabilities` puts it in `cache_write` for a model declared with the hour; absent — twice the input rate
+	 */
+	cache_write_1h?: number;
 	/** Surcharge on a long prompt: past `over_input_tokens` the whole request is priced with the multipliers. */
 	long_context?: ModelLongContext;
 	/** Price by the hour: the rates above are peak rates, multiplied by `offPeakFactor` outside the peak. */
@@ -2583,6 +2589,29 @@ export type ExternalProviderDescriptor = {
 
 const _externalProviders = new Map<string, { info: VoidStaticProviderInfo; source: 'file' | 'network' }>();
 
+/**
+ * What a provider file patching a BUILT-IN provider declares for its models: the vendor's price and the cache lifetime
+ * Price-list data, not behaviour: tool format, context and reasoning stay the built-in's, as its key and endpoint do
+ */
+export type BuiltinModelPatch = Pick<Partial<VibeideStaticModelInfo>, 'cost' | 'promptCacheTtl'>;
+
+/** provider id → lowercase model id → patch; replaced whole on each load of the files */
+const _builtinModelPatches = new Map<string, ReadonlyMap<string, BuiltinModelPatch>>();
+
+/** Replace the patches the provider files declare for built-in providers' models (both processes call it) */
+export const setBuiltinModelPatches = (patches: Readonly<Record<string, Readonly<Record<string, BuiltinModelPatch>>>>): void => {
+	_builtinModelPatches.clear();
+	for (const [providerId, models] of Object.entries(patches)) {
+		_builtinModelPatches.set(providerId, new Map(Object.entries(models).map(([modelId, patch]) => [modelId.toLowerCase(), patch])));
+	}
+};
+
+/** The rate of a cache write for a model whose cache lives an hour: its declared hour rate, or twice the input */
+function withHourCacheWrite(cost: ModelCost | undefined, ttl: '5m' | '1h' | undefined): ModelCost | undefined {
+	if (!cost || ttl !== '1h') { return cost; }
+	return { ...cost, cache_write: cost.cache_write_1h ?? cost.input * 2 };
+}
+
 const buildExternalProviderInfo = (d: ExternalProviderDescriptor): VoidStaticProviderInfo => {
 	const modelOptions: { [key: string]: VibeideStaticModelInfo } = {};
 	for (const [modelId, partial] of Object.entries(d.modelCapOverrides ?? {})) {
@@ -2671,7 +2700,9 @@ export const getModelCapabilities = (
 ): ResolvedModelCapabilities => {
 	const resolved = resolveModelCapabilities(providerName, modelName, overridesOfModel, catalogInfo);
 	const scheduled = effectiveCost(resolved.cost, resolved.costSchedule?.validUntil, resolved.costSchedule?.after, Date.now());
-	return scheduled && scheduled !== resolved.cost ? { ...resolved, cost: scheduled } : resolved;
+	// Every request of a model declared with an hour of cache life writes at the hour rate — the one the ledger must bill
+	const cost = withHourCacheWrite(scheduled, resolved.promptCacheTtl);
+	return cost && cost !== resolved.cost ? { ...resolved, cost } : resolved;
 };
 
 const resolveModelCapabilities = (
@@ -2695,6 +2726,8 @@ const resolveModelCapabilities = (
 	const lowercaseModelName = modelName.toLowerCase();
 
 	const { modelOptions, modelOptionsFallback } = resolved.info;
+	// A provider file patching this built-in: its price and cache lifetime win over the built-in's and the catalogue's
+	const filePatch = resolved.source === 'builtin' ? _builtinModelPatches.get(providerName)?.get(lowercaseModelName) : undefined;
 
 	// Get any override settings for this model. Auto-detected overrides expire
 	// after AUTO_DOWNGRADE_TTL_MS — past that point the model gets a fresh
@@ -2728,16 +2761,16 @@ const resolveModelCapabilities = (
 	for (const modelName_ in modelOptions) {
 		const lowercaseModelName_ = modelName_.toLowerCase();
 		if (lowercaseModelName === lowercaseModelName_) {
-			return { ...modelOptions[modelName], ...catalogFields(catalogInfo), ...overridesNorm, modelName, recognizedModelName: modelName, isUnrecognizedModel: false };
+			return { ...modelOptions[modelName], ...catalogFields(catalogInfo), ...filePatch, ...overridesNorm, modelName, recognizedModelName: modelName, isUnrecognizedModel: false };
 		}
 	}
 
 	const result = modelOptionsFallback(modelName);
 	if (result) {
-		return { ...result, ...catalogFields(catalogInfo), ...overridesNorm, modelName: result.modelName, isUnrecognizedModel: false };
+		return { ...result, ...catalogFields(catalogInfo), ...filePatch, ...overridesNorm, modelName: result.modelName, isUnrecognizedModel: false };
 	}
 
-	return { modelName, ...defaultModelOptions, ...catalogFields(catalogInfo), ...overridesNorm, isUnrecognizedModel: true };
+	return { modelName, ...defaultModelOptions, ...catalogFields(catalogInfo), ...filePatch, ...overridesNorm, isUnrecognizedModel: true };
 };
 
 /**

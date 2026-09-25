@@ -40,7 +40,7 @@ import { scanProviderConfig, scanEnvFileSecrets, ConfigGuardFinding } from '../c
 import { builtinProviderIdOf, isBuiltinProviderId, VibeideStatefulModelInfo, apiKeyEnvVarOfProvider, ProviderName } from '../common/vibeideSettingsTypes.js';
 import { IVibeideSettingsService, VibeProviderActiveOverrides, ModelOption, DynProviderTransportConfig, DynamicProviderSeed } from '../common/vibeideSettingsService.js';
 import type { BuiltinWireHints } from '../common/builtinWireHints.js';
-import { setExternalProviders, ExternalProviderDescriptor, VibeideStaticModelInfo, ModelLongContext } from '../common/modelCapabilities.js';
+import { setExternalProviders, setBuiltinModelPatches, BuiltinModelPatch, ExternalProviderDescriptor, VibeideStaticModelInfo, ModelLongContext } from '../common/modelCapabilities.js';
 import { IRemoteCatalogService, DynamicKeyValidation } from '../common/remoteCatalogService.js';
 import { catalogRequestOf, VibeCatalogRequest, VibeProviderEntry, VibeProviderModelCost, VibeProviderModelEntry, isKeyless, isProviderCatalogueFile, mergeProviderEntry, mergeProviderLayers, parseAuth, parseProvidersFile, promptCacheTtlOf, reasoningDialectOf, VibeProviderLongContext, VibeProviderTimeOfDay } from '../common/vibeProvidersFile.js';
 import { isLocalAddress, runsLocallyOf } from '../common/isLocalProvider.js';
@@ -157,6 +157,21 @@ function timeOfDayOf(raw: VibeProviderTimeOfDay | undefined): { time_of_day?: Pr
 	return parsed && parsed !== 'invalid' ? { time_of_day: parsed } : {};
 }
 
+/**
+ * The price and cache lifetime a file declares for a BUILT-IN provider's `static` models — exported for tests
+ * `undefined` when no model declares either: nothing to patch
+ */
+export function builtinModelPatchesOf(models: readonly VibeProviderModelEntry[] | undefined): Record<string, BuiltinModelPatch> | undefined {
+	const patches: Record<string, BuiltinModelPatch> = {};
+	for (const m of models ?? []) {
+		const { cost, promptCacheTtl } = modelEntryToCaps(m);
+		if (cost || promptCacheTtl) {
+			patches[m.id] = { ...(cost ? { cost } : {}), ...(promptCacheTtl ? { promptCacheTtl } : {}) };
+		}
+	}
+	return Object.keys(patches).length > 0 ? patches : undefined;
+}
+
 export function modelEntryToCaps(m: VibeProviderModelEntry): Partial<VibeideStaticModelInfo> {
 	const c: Record<string, unknown> = {};
 	if (typeof m.contextWindow === 'number') { c.contextWindow = m.contextWindow; }
@@ -179,6 +194,7 @@ export function modelEntryToCaps(m: VibeProviderModelEntry): Partial<VibeideStat
 			input: cost.input ?? 0, output: cost.output ?? 0,
 			...(cost.cacheRead !== undefined ? { cache_read: cost.cacheRead } : {}),
 			...(cost.cacheWrite !== undefined ? { cache_write: cost.cacheWrite } : {}),
+			...(cost.cacheWrite1h !== undefined ? { cache_write_1h: cost.cacheWrite1h } : {}),
 			...longContextOf(cost.longContext),
 			...timeOfDayOf(cost.timeOfDay),
 		};
@@ -1085,6 +1101,7 @@ class VibeDynamicProvidersService extends Disposable implements IVibeDynamicProv
 		const transportConfigs: Record<string, DynProviderTransportConfig> = {};
 		const builtinWireHints: Record<string, BuiltinWireHints> = {};
 		const builtinLocality: Record<string, boolean> = {};
+		const builtinModelPatches: Record<string, Record<string, BuiltinModelPatch>> = {};
 		const dynamicProviderSettings: Record<string, DynamicProviderSeed> = {};
 
 		// First pass: built-in patches (disable toggles) are order-independent; collect the active
@@ -1101,10 +1118,14 @@ class VibeDynamicProvidersService extends Disposable implements IVibeDynamicProv
 				// The file's wire declarations reach the built-in too — a declaration is a contract, not a hint
 				// (the set's openai.jsonc puts GPT-6 on Responses; before, only a provider DEFINED in a file read it).
 				const modelProtocols = modelProtocolsOf(p.entry.models?.static);
-				if (modelProtocols || p.entry.promptCacheKey === true) {
+				// The vendor's price and the cache lifetime of its models reach the built-in too; behaviour stays the built-in's
+				const modelPatches = builtinModelPatchesOf(p.entry.models?.static);
+				if (modelPatches) { builtinModelPatches[p.id] = modelPatches; }
+				if (modelProtocols || p.entry.promptCacheKey === true || modelPatches) {
 					builtinWireHints[p.id] = {
 						...(modelProtocols ? { modelProtocols } : {}),
 						...(p.entry.promptCacheKey === true ? { promptCacheKey: true } : {}),
+						...(modelPatches ? { modelPatches } : {}),
 					};
 				}
 				continue;
@@ -1202,6 +1223,7 @@ class VibeDynamicProvidersService extends Disposable implements IVibeDynamicProv
 		}
 		// Register all active dynamic providers in the unified caps registry (replace-all each apply).
 		setExternalProviders(descriptors);
+		setBuiltinModelPatches(builtinModelPatches);
 		const hasTransport = Object.keys(transportConfigs).length > 0;
 		const hasWireHints = Object.keys(builtinWireHints).length > 0;
 		const hasLocality = Object.keys(builtinLocality).length > 0;
