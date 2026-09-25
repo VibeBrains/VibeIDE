@@ -692,14 +692,20 @@ export class MCPChannel extends Disposable implements IServerChannel {
 		// Конверт MRTR — не результат инструмента: в нём нет ни content, ни structuredContent. Сервер задал вопрос —
 		// спрашиваем человека и повторяем тот же вызов с ответами (SEP-2322). Модель в этом не участвует:
 		// вопрос адресован человеку, и пересказывать его моделью значило бы платить за ход и портить формулировку.
-		let callParams = params;
-		let response = await client.callTool({ name: toolName, arguments: callParams });
+		// Ответы и состояние повтора — поля запроса рядом с name и arguments, а не аргументы инструмента
+		const request = { name: toolName, arguments: params };
+		let response = await client.callTool(request);
 		for (let round = 0; round < MAX_INPUT_ROUNDS; round++) {
 			const inputRequired = parseInputRequired(response);
 			if (!inputRequired) { break; }
 			const methods = inputRequired.inputRequests.map(r => r.method).join(', ') || '(метод не назван)';
 			vibeLog.info('mcpChannel', `MCP server "${serverName}": инструмент ${toolName} просит ввод — ${methods} (круг ${round + 1})`);
 
+			// Без просьб сервер сбрасывает нагрузку: повтор сразу, с одним состоянием, человека не спрашиваем
+			if (inputRequired.inputRequests.length === 0) {
+				response = await client.callTool(withInputResponses(request, {}, inputRequired.requestState) as typeof request);
+				continue;
+			}
 			const plan = planInputRequests(inputRequired.inputRequests);
 			// Хоть одна просьба, на которую мы не умеем ответить, — и повтор всё равно не состоится.
 			// Спрашивать человека ради заведомо неполного ответа значит тратить его время заранее впустую.
@@ -721,8 +727,7 @@ export class MCPChannel extends Disposable implements IServerChannel {
 				throw new Error(`Инструмент «${toolName}» не выполнен: сервер просил ввод, но ${answer.reason}.`);
 			}
 			// `requestState` уезжает дословно и с ДРУГИМ id запроса — это требование спеки; новый id даёт сам SDK.
-			callParams = withInputResponses(callParams, answer.responses, inputRequired.requestState);
-			response = await client.callTool({ name: toolName, arguments: callParams });
+			response = await client.callTool(withInputResponses(request, answer.responses, inputRequired.requestState) as typeof request);
 		}
 		// Круги кончились, а сервер всё просит: продолжать значило бы держать человека в бесконечном допросе.
 		const stillAsking = parseInputRequired(response);

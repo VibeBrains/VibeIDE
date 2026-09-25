@@ -18,7 +18,8 @@ import { renderSlopReport } from '../src/vs/workbench/contrib/vibeide/common/tex
 const args = process.argv.slice(2);
 const overridesAt = args.indexOf('--overrides');
 const overridesFile = overridesAt >= 0 ? args[overridesAt + 1] : undefined;
-const target = args.filter((_, i) => i !== overridesAt && i !== overridesAt + 1)[0];
+// Without --overrides its index is -1, and `i !== overridesAt + 1` would drop the file argument itself
+const target = args.filter((_, i) => overridesAt < 0 || (i !== overridesAt && i !== overridesAt + 1))[0];
 if (!target) {
 	console.error('Использование: vibe-text-slop.ts [--overrides <файл>] <файл | ->');
 	process.exit(2);

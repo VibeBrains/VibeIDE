@@ -69,17 +69,26 @@ export function parseInputRequired(result: unknown): McpInputRequired | undefine
 }
 
 /**
- * Параметры повторного вызова: те же самые плюс ответы и состояние сервера.
+ * Параметры повторного вызова: параметры ИСХОДНОГО запроса плюс ответы и состояние сервера.
  *
- * Состояние копируется ссылкой намеренно — его нельзя ни разобрать, ни пересобрать, а попытка
- * «нормализовать» его была бы именно тем, что спека запрещает.
+ * Ответы и состояние — поля запроса (`InputResponseRequestParams`), а не аргументы инструмента: они лежат в `params`
+ * рядом с `name` и `arguments`. Внутри `arguments` их не видит сервер, читающий спеку, а инструмент со схемой
+ * `additionalProperties: false` отвергает вызов.
+ *
+ * Строится от исходного запроса, а не от прошлого повтора: состояние прошлого круга уходить не должно, если сервер
+ * его больше не прислал. Состояния нет — поля нет; ответов нет (сервер сбрасывал нагрузку) — нет и их.
+ * Состояние копируется ссылкой намеренно — его нельзя ни разобрать, ни пересобрать.
  */
 export function withInputResponses(
 	originalParams: Record<string, unknown>,
 	inputResponses: Record<string, unknown>,
 	requestState: unknown,
 ): Record<string, unknown> {
-	return { ...originalParams, inputResponses, requestState };
+	return {
+		...originalParams,
+		...(Object.keys(inputResponses).length > 0 ? { inputResponses } : {}),
+		...(requestState !== undefined ? { requestState } : {}),
+	};
 }
 
 /** Чем закончилась просьба, если отвечать на неё нечем: текст для модели, а не молчаливый сбой. */

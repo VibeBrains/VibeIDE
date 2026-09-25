@@ -30,9 +30,18 @@ suite('mcpMultiRoundTrip — сервер просит ввод повтором
 	});
 
 	/** Состояние сервера возвращается дословно: разбирать или пересобирать его спека запрещает. */
-	test('повтор несёт те же параметры, ответы и нетронутое состояние', () => {
-		const retry = withInputResponses({ name: 'deploy', arguments: { env: 'prod' } }, { ask: { value: 'staging' } }, state);
-		assert.deepStrictEqual(retry, { name: 'deploy', arguments: { env: 'prod' }, inputResponses: { ask: { value: 'staging' } }, requestState: state });
+	test('повтор: ответы и состояние в params рядом с arguments; нет состояния или ответов — нет и поля', () => {
+		const request = { name: 'deploy', arguments: { env: 'prod' } };
+		const retry = withInputResponses(request, { ask: { value: 'staging' } }, state);
+		assert.deepStrictEqual([
+			retry,
+			withInputResponses(request, { ask: { value: 'staging' } }, undefined),
+			withInputResponses(request, {}, state),
+		], [
+			{ name: 'deploy', arguments: { env: 'prod' }, inputResponses: { ask: { value: 'staging' } }, requestState: state },
+			{ name: 'deploy', arguments: { env: 'prod' }, inputResponses: { ask: { value: 'staging' } } },
+			{ name: 'deploy', arguments: { env: 'prod' }, requestState: state },
+		]);
 		assert.strictEqual(retry.requestState, state);
 	});
 
