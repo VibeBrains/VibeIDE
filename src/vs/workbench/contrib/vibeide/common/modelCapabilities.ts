@@ -841,7 +841,7 @@ const anthropicModelOptions = {
 	'claude-opus-5-5': {
 		contextWindow: 1_000_000,
 		reservedOutputTokenSpace: 64_000,
-		// Five-minute cache writes cost 1.25x input; the one-hour rate ($8) has no field in ModelCost.
+		// The one-hour write ($8) is left to the fallback: twice the input, which is Anthropic's own multiplier.
 		cost: { input: 4.00, cache_read: 0.20, cache_write: 5.00, output: 20.00 },
 		downloadable: false,
 		supportsFIM: false,
@@ -855,6 +855,41 @@ const anthropicModelOptions = {
 			reasoningReservedOutputTokenSpace: 64_000,
 			// The vendor default is medium, one level below Opus 5.
 			reasoningSlider: { type: 'effort_slider', values: ['low', 'medium', 'high', 'xhigh', 'max'], default: 'medium' },
+		},
+	},
+	// Fable and Mythos share one price and one shape; Mythos is served by invitation and resolves to these entries.
+	// Thinking is always on: both `disabled` and a budget answer 400 (thinking-troubleshooting, checked 25.09.2026).
+	'claude-fable-5-1': {
+		contextWindow: 1_000_000,
+		reservedOutputTokenSpace: 64_000,
+		// A cache read costs 0.025x input on 5.1, a quarter of the usual 0.1x.
+		cost: { input: 10.00, cache_read: 0.25, cache_write: 12.50, output: 50.00 },
+		downloadable: false,
+		supportsFIM: false,
+		specialToolFormat: 'anthropic-style',
+		supportsSystemMessage: 'separated',
+		reasoningCapabilities: {
+			supportsReasoning: true,
+			canTurnOffReasoning: false,
+			canIOReasoning: true,
+			reasoningReservedOutputTokenSpace: 64_000,
+			reasoningSlider: { type: 'effort_slider', values: ['low', 'medium', 'high', 'xhigh', 'max'], default: 'high' },
+		},
+	},
+	'claude-fable-5': {
+		contextWindow: 1_000_000,
+		reservedOutputTokenSpace: 64_000,
+		cost: { input: 10.00, cache_read: 1.00, cache_write: 12.50, output: 50.00 },
+		downloadable: false,
+		supportsFIM: false,
+		specialToolFormat: 'anthropic-style',
+		supportsSystemMessage: 'separated',
+		reasoningCapabilities: {
+			supportsReasoning: true,
+			canTurnOffReasoning: false,
+			canIOReasoning: true,
+			reasoningReservedOutputTokenSpace: 64_000,
+			reasoningSlider: { type: 'effort_slider', values: ['low', 'medium', 'high', 'xhigh', 'max'], default: 'high' },
 		},
 	},
 	'claude-opus-5': {
@@ -894,7 +929,7 @@ const anthropicModelOptions = {
 	'claude-opus-4-5-20251101': {
 		contextWindow: 200_000,
 		reservedOutputTokenSpace: 8_192,
-		cost: { input: 15.00, cache_read: 1.50, cache_write: 18.75, output: 30.00 }, // TODO: Verify pricing
+		cost: { input: 5.00, cache_read: 0.50, cache_write: 6.25, output: 25.00 },
 		downloadable: false,
 		supportsFIM: false,
 		specialToolFormat: 'anthropic-style',
@@ -910,7 +945,7 @@ const anthropicModelOptions = {
 	'claude-sonnet-4-5-20250929': {
 		contextWindow: 200_000,
 		reservedOutputTokenSpace: 8_192,
-		cost: { input: 3.00, cache_read: 0.30, cache_write: 3.75, output: 6.00 }, // TODO: Verify pricing
+		cost: { input: 3.00, cache_read: 0.30, cache_write: 3.75, output: 15.00 },
 		downloadable: false,
 		supportsFIM: false,
 		specialToolFormat: 'anthropic-style',
@@ -926,7 +961,7 @@ const anthropicModelOptions = {
 	'claude-haiku-4-5-20251001': {
 		contextWindow: 200_000,
 		reservedOutputTokenSpace: 8_192,
-		cost: { input: 0.80, cache_read: 0.08, cache_write: 1.00, output: 4.00 }, // TODO: Verify pricing
+		cost: { input: 1.00, cache_read: 0.10, cache_write: 1.25, output: 5.00 },
 		downloadable: false,
 		supportsFIM: false,
 		specialToolFormat: 'anthropic-style',
@@ -936,7 +971,7 @@ const anthropicModelOptions = {
 	'claude-opus-4-1-20250805': {
 		contextWindow: 200_000,
 		reservedOutputTokenSpace: 8_192,
-		cost: { input: 15.00, cache_read: 1.50, cache_write: 18.75, output: 30.00 }, // TODO: Verify pricing
+		cost: { input: 15.00, cache_read: 1.50, cache_write: 18.75, output: 75.00 },
 		downloadable: false,
 		supportsFIM: false,
 		specialToolFormat: 'anthropic-style',
@@ -971,7 +1006,7 @@ const anthropicModelOptions = {
 	'claude-opus-4-20250514': {
 		contextWindow: 200_000,
 		reservedOutputTokenSpace: 8_192,
-		cost: { input: 15.00, cache_read: 1.50, cache_write: 18.75, output: 30.00 },
+		cost: { input: 15.00, cache_read: 1.50, cache_write: 18.75, output: 75.00 },
 		downloadable: false,
 		supportsFIM: false,
 		specialToolFormat: 'anthropic-style',
@@ -988,7 +1023,7 @@ const anthropicModelOptions = {
 	'claude-sonnet-4-20250514': {
 		contextWindow: 200_000,
 		reservedOutputTokenSpace: 8_192,
-		cost: { input: 3.00, cache_read: 0.30, cache_write: 3.75, output: 6.00 },
+		cost: { input: 3.00, cache_read: 0.30, cache_write: 3.75, output: 15.00 },
 		downloadable: false,
 		supportsFIM: false,
 		specialToolFormat: 'anthropic-style',
@@ -1061,6 +1096,8 @@ function firstMatchingProfile<K extends string>(modelName: string, profiles: Rea
  */
 const anthropicFallbackProfiles: ReadonlyArray<readonly [RegExp, keyof typeof anthropicModelOptions]> = [
 	// Claude 5 and Opus 4.7+ think adaptively: a level instead of a budget.
+	[/(fable|mythos)-?5[-.]1/, 'claude-fable-5-1'],
+	[/(fable|mythos)-?5/, 'claude-fable-5'],
 	[/opus-?5[-.]5/, 'claude-opus-5-5'],
 	[/opus-?5|opus.*4[-.][78]/, 'claude-opus-5'],
 	[/sonnet-?5/, 'claude-sonnet-5'],

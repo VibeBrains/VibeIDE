@@ -25,6 +25,10 @@ suite('builtin model profiles — имя на проводе, профиль, п
 
 	test('имя модели уходит тем, что выбрано; профиль — по первому совпадению от частного к общему', () => {
 		assert.deepStrictEqual([
+			resolved('anthropic', 'claude-fable-5-1'),
+			resolved('anthropic', 'claude-mythos-5-1'),
+			resolved('anthropic', 'claude-fable-5'),
+			resolved('anthropic', 'claude-mythos-5'),
 			resolved('anthropic', 'claude-opus-5-5'),
 			resolved('anthropic', 'claude-opus-5-5-20260915'),
 			resolved('anthropic', 'claude-opus-5'),
@@ -44,6 +48,10 @@ suite('builtin model profiles — имя на проводе, профиль, п
 			resolved('xAI', 'grok-4-fast'),
 			resolved('xAI', 'grok-3-mini-fast-beta'),
 		], [
+			'claude-fable-5-1 ← claude-fable-5-1',
+			'claude-mythos-5-1 ← claude-fable-5-1',
+			'claude-fable-5 ← claude-fable-5',
+			'claude-mythos-5 ← claude-fable-5',
 			'claude-opus-5-5 ← claude-opus-5-5',
 			'claude-opus-5-5-20260915 ← claude-opus-5-5',
 			'claude-opus-5 ← claude-opus-5',
@@ -85,6 +93,23 @@ suite('builtin model profiles — имя на проводе, профиль, п
 			{ cost: { input: 5, cache_read: 0.5, cache_write: 6.25, output: 25 }, output: 64_000, levels: 'low/medium/high/xhigh/max', default: 'high', canTurnOff: false, off: undefined },
 			{ cost: { input: 2, cache_read: 0.2, cache_write: 2.5, output: 10, long_context: longContext }, output: 128_000, levels: 'low/medium/high/xhigh/max', default: 'medium', canTurnOff: true, off: 'none' },
 			{ cost: { input: 10, cache_read: 1, cache_write: 12.5, output: 50, long_context: longContext }, output: 128_000, levels: 'low/medium/high/xhigh/max', default: 'medium', canTurnOff: false, off: undefined },
+		]);
+	});
+
+	test('Fable и Mythos, прежние Claude: цены со страницы вендора, мышление Fable не выключается', () => {
+		const card = (modelName: string) => {
+			const caps = getModelCapabilities('anthropic', modelName, undefined);
+			const reasoning = caps.reasoningCapabilities || undefined;
+			const slider = reasoning?.reasoningSlider?.type === 'effort_slider' ? reasoning.reasoningSlider : undefined;
+			return { model: modelName, cost: caps.cost, default: slider?.default, canTurnOff: reasoning?.canTurnOffReasoning };
+		};
+		assert.deepStrictEqual(['claude-fable-5-1', 'claude-mythos-5', 'claude-opus-4-5', 'claude-opus-4-1', 'claude-sonnet-4-5', 'claude-haiku-4-5'].map(card), [
+			{ model: 'claude-fable-5-1', cost: { input: 10, cache_read: 0.25, cache_write: 12.5, output: 50 }, default: 'high', canTurnOff: false },
+			{ model: 'claude-mythos-5', cost: { input: 10, cache_read: 1, cache_write: 12.5, output: 50 }, default: 'high', canTurnOff: false },
+			{ model: 'claude-opus-4-5', cost: { input: 5, cache_read: 0.5, cache_write: 6.25, output: 25 }, default: undefined, canTurnOff: true },
+			{ model: 'claude-opus-4-1', cost: { input: 15, cache_read: 1.5, cache_write: 18.75, output: 75 }, default: undefined, canTurnOff: true },
+			{ model: 'claude-sonnet-4-5', cost: { input: 3, cache_read: 0.3, cache_write: 3.75, output: 15 }, default: undefined, canTurnOff: true },
+			{ model: 'claude-haiku-4-5', cost: { input: 1, cache_read: 0.1, cache_write: 1.25, output: 5 }, default: undefined, canTurnOff: undefined },
 		]);
 	});
 
