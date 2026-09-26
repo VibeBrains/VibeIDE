@@ -506,7 +506,7 @@ export type ThreadStreamState = {
 		error?: {
 			message: string;
 			fullError: Error | null;
-			recoverable?: 'dismissPlan' | 'forceReset' | 'switchModel' | 'retry';
+			recoverable?: 'dismissPlan' | 'forceReset' | 'switchModel' | 'retry' | 'retryOtherModel';
 			/**
 			 * What the provider itself reported about the refusal. Carried into the state — not just
 			 * the debug log — so the error card can answer "quota or unstable stream?" without the
@@ -722,6 +722,8 @@ export interface IChatThreadService {
 
 	// Recover from a stalled stream: discard the partial assistant output and re-send the last user message.
 	retryStalledStream(threadId: string): Promise<void>;
+	/** The last request again, on the model the person picked after a vendor's safety refusal. */
+	retryOnModel(threadId: string, selection: ModelSelection): Promise<void>;
 	// Same as retryStalledStream, but arms one-shot auto-collection of the stall diagnostics report.
 	retryStalledStreamWithDiagnostics(threadId: string): Promise<void>;
 	// Plain-data snapshot (provider/model/timeout/last error) for the stall diagnostics report.
@@ -3904,6 +3906,12 @@ Output ONLY the JSON, no other text. Start with { and end with }.`;
 		});
 	}
 
+	async retryOnModel(threadId: string, selection: ModelSelection): Promise<void> {
+		// The chat's model is the person's choice from now on, not a one-turn detour: the next message goes there too
+		await this._settingsService.setModelSelectionOfFeature('Chat', selection);
+		await this.retryStalledStream(threadId);
+	}
+
 	async emergencyStopAllAgents(): Promise<number> {
 		let n = 0;
 		for (const threadId of Object.keys(this.streamState)) {
@@ -6804,8 +6812,13 @@ Output ONLY the JSON, no other text. Start with { and end with }.`;
 						// (onFinalMessage below). Type widened to include `recoverable`
 						// since the source `error` parameter (from LLMMessageService
 						// onError contract) doesn't expose that field.
-						type StreamError = { message: string; fullError: Error | null; recoverable?: 'dismissPlan' | 'forceReset' | 'switchModel' | 'retry' };
+						type StreamError = { message: string; fullError: Error | null; recoverable?: 'dismissPlan' | 'forceReset' | 'switchModel' | 'retry' | 'retryOtherModel' };
 						let effectiveError: StreamError | undefined = error as StreamError | undefined;
+						// The vendor's safety filter declined: the same model will decline again, another one may answer.
+						// Offered, never done on our own — the model on the wire stays the one the person chose
+						if (error?.safetyRefusal) {
+							effectiveError = { message: error.message, fullError: error.fullError ?? null, recoverable: 'retryOtherModel' };
+						}
 						// Parse via shared helper — single source of truth with the four
 						// emission sites that build the message via `buildEmptyResponseError`.
 						// If anyone changes the template, only sendLLMMessageTypes.ts needs

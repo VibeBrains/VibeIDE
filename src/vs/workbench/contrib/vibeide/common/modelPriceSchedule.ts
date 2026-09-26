@@ -184,6 +184,8 @@ export interface PriceTimeOfDay {
 	readonly windows: readonly { readonly from: number; readonly to: number }[];
 	/** UTC day numbers the windows apply on; empty — every day. */
 	readonly days: readonly number[];
+	/** UTC dates `YYYY-MM-DD` off-peak all day. */
+	readonly offPeakDates: ReadonlySet<string>;
 	readonly offPeakFactor: number;
 }
 
@@ -240,16 +242,32 @@ export function parseTimeOfDay(raw: VibeProviderTimeOfDay | undefined): PriceTim
 			days.push(number);
 		}
 	}
+	const offPeakDates = new Set<string>();
+	if (raw.offPeakDates !== undefined) {
+		if (!Array.isArray(raw.offPeakDates)) {
+			return 'invalid';
+		}
+		for (const date of raw.offPeakDates) {
+			// A calendar date that really exists: `2026-02-30` would never match and hide a typo
+			if (typeof date !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(date) || new Date(`${date}T00:00:00Z`).toISOString().slice(0, 10) !== date) {
+				return 'invalid';
+			}
+			offPeakDates.add(date);
+		}
+	}
 	const factor = raw.offPeakFactor;
 	if (windows.length === 0 || typeof factor !== 'number' || !Number.isFinite(factor) || factor <= 0) {
 		return 'invalid';
 	}
-	return factor === 1 ? undefined : { windows, days, offPeakFactor: factor };
+	return factor === 1 ? undefined : { windows, days, offPeakDates, offPeakFactor: factor };
 }
 
 /** Whether `at` falls inside a peak window. */
 export function isPeakAt(schedule: PriceTimeOfDay, at: number): boolean {
 	const date = new Date(at);
+	if (schedule.offPeakDates.has(date.toISOString().slice(0, 10))) {
+		return false;
+	}
 	if (schedule.days.length > 0 && !schedule.days.includes(date.getUTCDay())) {
 		return false;
 	}

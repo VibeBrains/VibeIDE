@@ -59,6 +59,11 @@ export interface VibeProviderTimeOfDay {
 	readonly peakUtc?: readonly string[];
 	/** Three-letter English days (`mon` … `sun`) the windows apply on; absent — every day. */
 	readonly peakDays?: readonly string[];
+	/**
+	 * UTC dates `YYYY-MM-DD` that are off-peak all day, whatever the windows say: DeepSeek's peak excludes
+	 * Chinese public holidays, and no weekly rule can name them
+	 */
+	readonly offPeakDates?: readonly string[];
 	/** Multiplier on every rate outside the peak, e.g. `0.5`. */
 	readonly offPeakFactor?: number;
 }

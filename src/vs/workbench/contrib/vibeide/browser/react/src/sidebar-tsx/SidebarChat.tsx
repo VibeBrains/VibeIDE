@@ -6487,11 +6487,12 @@ export const SidebarChat = () => {
 
 		// Error block.
 		if (latestError !== undefined) {
-			const _err = latestError as { message: string; fullError: Error | null; recoverable?: 'dismissPlan' | 'forceReset' | 'switchModel' | 'retry'; diagnostics?: ProviderRefusalDiagnostics };
+			const _err = latestError as { message: string; fullError: Error | null; recoverable?: 'dismissPlan' | 'forceReset' | 'switchModel' | 'retry' | 'retryOtherModel'; diagnostics?: ProviderRefusalDiagnostics };
 			const isPendingPlanGate = _err.recoverable === 'dismissPlan';
 			const isForceReset = _err.recoverable === 'forceReset';
 			const isSwitchModel = _err.recoverable === 'switchModel';
 			const isRetry = _err.recoverable === 'retry';
+			const isRetryOtherModel = _err.recoverable === 'retryOtherModel';
 			items.push({
 				key: 'error-block',
 				render: () => <div className='px-2 my-1 message-enter space-y-2'>
@@ -6529,6 +6530,13 @@ export const SidebarChat = () => {
 							className='text-sm my-1 mx-3'
 							onClick={() => { commandService.executeCommand(VIBEIDE_OPEN_SETTINGS_ACTION_ID); }}
 							text='Открыть настройки и выбрать другую модель'
+						/>
+					) : isRetryOtherModel ? (
+						// The vendor's safety filter declined: the same model will decline again, another may answer
+						<WarningBox
+							className='text-sm my-1 mx-3'
+							onClick={() => { commandService.executeCommand('vibeide.chat.retryOnAnotherModel', currentThread.id); }}
+							text='Повторить на другой модели'
 						/>
 					) : isRetry ? (
 						// Hard-stall terminal error (no tokens within the watchdog window). Primary

@@ -197,5 +197,5 @@ export function timeOfDayFromOverrides(base: ModelCost, rawOverrides: unknown): 
 		windows.push({ from, to });
 	}
 	if (factor === undefined || !peak || windows.length === 0) { return undefined; }
-	return { peak, schedule: { windows, days: days ?? [], offPeakFactor: roundFactor(1 / factor) } };
+	return { peak, schedule: { windows, days: days ?? [], offPeakDates: new Set<string>(), offPeakFactor: roundFactor(1 / factor) } };
 }

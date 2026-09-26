@@ -256,7 +256,11 @@ export type ProviderRefusalDiagnostics = {
 	observedAt: number;
 };
 
-export type OnError = (p: { message: string; fullError: Error | null; diagnostics?: ProviderRefusalDiagnostics }) => void;
+/**
+ * `safetyRefusal` — the vendor's safety filter declined the request (Anthropic `stop_reason: "refusal"`). A field and
+ * not a phrase in the message: the chat offers another model by it, and nothing may decide by the text
+ */
+export type OnError = (p: { message: string; fullError: Error | null; diagnostics?: ProviderRefusalDiagnostics; safetyRefusal?: { readonly category?: string } }) => void;
 export type OnAbort = () => void;
 export type AbortRef = { current: (() => void) | null };
 

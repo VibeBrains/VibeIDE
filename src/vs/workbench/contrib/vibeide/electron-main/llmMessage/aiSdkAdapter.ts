@@ -1873,7 +1873,7 @@ export const sendViaAISdk = async (params: SendChatParams_Internal): Promise<voi
 		const diagnostics = lastDiagnostics ? { diagnostics: lastDiagnostics } : {};
 		if (!fullTextSoFar && !fullReasoningSoFar && !toolName) {
 			if (notice?.kind === 'refusal') {
-				onError({ message: refusalMessage(modelName, notice.category, notice.explanation), fullError: null, ...diagnostics });
+				onError({ message: refusalMessage(modelName, notice.category, notice.explanation), fullError: null, ...diagnostics, safetyRefusal: { ...(notice.category ? { category: notice.category } : {}) } });
 				return;
 			}
 			// Context-overflow signals can surface in the vendor's own reason (z.ai emits

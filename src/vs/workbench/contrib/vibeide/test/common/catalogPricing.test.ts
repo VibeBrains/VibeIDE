@@ -96,7 +96,7 @@ suite('catalogPricing — aggregators quote per token, we speak per million', ()
 		const cost = normaliseCatalogCost('0.00000015', '0.0000006', { cacheRead: '0.000000003', overrides });
 		assert.deepStrictEqual(cost, {
 			input: perMillionFromPerToken('0.0000003'), output: perMillionFromPerToken('0.0000012'), cache_read: perMillionFromPerToken('0.000000006'),
-			time_of_day: { windows: [{ from: 60, to: 240 }, { from: 360, to: 600 }], days: [1, 2, 3, 4, 5], offPeakFactor: 0.5 },
+			time_of_day: { windows: [{ from: 60, to: 240 }, { from: 360, to: 600 }], days: [1, 2, 3, 4, 5], offPeakDates: new Set(), offPeakFactor: 0.5 },
 		});
 	});
 

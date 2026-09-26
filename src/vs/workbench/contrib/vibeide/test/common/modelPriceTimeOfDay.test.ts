@@ -30,8 +30,8 @@ suite('modelPriceSchedule — цена по часу', () => {
 			parseTimeOfDay({ peakUtc: [], offPeakFactor: 0.5 }),
 			parseTimeOfDay({ peakUtc: ['24:00-02:00'], offPeakFactor: 0.5 }),
 		], [
-			{ windows: [{ from: 60, to: 240 }, { from: 360, to: 600 }], days: [1, 2, 3, 4, 5], offPeakFactor: 0.5 },
-			{ windows: [{ from: 1320, to: 120 }, { from: 1200, to: 0 }], days: [], offPeakFactor: 0.8 },
+			{ windows: [{ from: 60, to: 240 }, { from: 360, to: 600 }], days: [1, 2, 3, 4, 5], offPeakDates: new Set(), offPeakFactor: 0.5 },
+			{ windows: [{ from: 1320, to: 120 }, { from: 1200, to: 0 }], days: [], offPeakDates: new Set(), offPeakFactor: 0.8 },
 			undefined,
 			undefined,
 			'invalid',
@@ -39,6 +39,18 @@ suite('modelPriceSchedule — цена по часу', () => {
 			'invalid',
 			'invalid',
 		]);
+	});
+
+	test('праздник вне пика целиком; несуществующая дата роняет блок', () => {
+		// 2026-10-01 — четверг, праздник КНР: будний пиковый час, но день объявлен внепиковым
+		const withHolidays = parseTimeOfDay({ peakUtc: ['01:00-04:00', '06:00-10:00'], peakDays: ['mon', 'tue', 'wed', 'thu', 'fri'], offPeakDates: ['2026-10-01'], offPeakFactor: 0.5 }) as PriceTimeOfDay;
+		assert.deepStrictEqual([
+			isPeakAt(withHolidays, at('2026-10-01T02:00:00Z')),
+			isPeakAt(withHolidays, at('2026-10-08T02:00:00Z')),
+			nextOffPeakMoment(withHolidays, at('2026-09-30T09:00:00Z')),
+			parseTimeOfDay({ peakUtc: ['01:00-04:00'], offPeakDates: ['2026-02-30'], offPeakFactor: 0.5 }),
+			parseTimeOfDay({ peakUtc: ['01:00-04:00'], offPeakDates: '2026-10-01' as unknown as string[], offPeakFactor: 0.5 }),
+		], [false, true, at('2026-09-30T10:00:00Z'), 'invalid', 'invalid']);
 	});
 
 	test('пик, множитель и ближайшее дешёвое время', () => {

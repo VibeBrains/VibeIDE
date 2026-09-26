@@ -530,6 +530,7 @@ import './vibeMemorySnapshotAction.js';
 
 // VibeIDE: Dismiss pending plan in current chat (escape hatch for stuck plan-gate)
 import './vibeDismissPlanAction.js';
+import './vibeRetryOnAnotherModelAction.js';
 import './vibeForceResetChatStateAction.js';
 import './vibeChatHistoryActions.js';
 import './vibeChatPinAction.js';
