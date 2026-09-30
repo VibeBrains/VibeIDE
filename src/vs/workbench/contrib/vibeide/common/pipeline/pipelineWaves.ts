@@ -40,6 +40,12 @@ export interface WaveRules {
 	readonly roleMayWrite: (role: string) => boolean;
 	/** The `qa` write boundary: `.vibe/roles.json` when the project declares one, the built-in list otherwise. */
 	readonly qaWritePaths: readonly string[];
+	/**
+	 * Writing roles run each in a git worktree of its own (`vibeide.subagent.worktree`). Two writers of a wave then never
+	 * touch the same folder, and overlapping `paths` are no reason to refuse: what is left is merging their branches,
+	 * where a conflict stays with the person — as with Codex worktrees, nothing is merged behind anyone's back
+	 */
+	readonly writersIsolated: boolean;
 }
 
 export interface WaveCheck {
@@ -104,8 +110,13 @@ export function checkWaves(steps: readonly VibePipelineStep[], rules: WaveRules)
 			for (let j = i + 1; j < writers.length; j++) {
 				const first = scopeOf(writers[i], rules);
 				const second = scopeOf(writers[j], rules);
-				if (!provablyDisjoint(first, second)) {
-					problems.push(`волна «${label}»: «${writers[i].role}» (${describeScope(first)}) и «${writers[j].role}» (${describeScope(second)}) могут писать в одно место — дайте каждому paths с раздельными каталогами в начале`);
+				if (provablyDisjoint(first, second)) {
+					continue;
+				}
+				if (rules.writersIsolated) {
+					warnings.push(`волна «${label}»: «${writers[i].role}» (${describeScope(first)}) и «${writers[j].role}» (${describeScope(second)}) могут писать в одно место — каждый пишет в своём дереве git, но сведение их веток может дать конфликт, и такая ветка останется вам`);
+				} else {
+					problems.push(`волна «${label}»: «${writers[i].role}» (${describeScope(first)}) и «${writers[j].role}» (${describeScope(second)}) могут писать в одно место — дайте каждому paths с раздельными каталогами в начале или включите vibeide.subagent.worktree`);
 				}
 			}
 		}

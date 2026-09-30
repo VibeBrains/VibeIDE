@@ -63,6 +63,12 @@ export interface VibeAgentRegistryOrigin {
 /** Which file an agent comes from. The project file travels with the repository; the machine file stays here. */
 export type VibeAgentLayer = 'project' | 'machine';
 
+/**
+ * Where a listed agent comes from: one of our two files, or JetBrains' `~/.jetbrains/acp.json`, which is read and never
+ * written — VibeIDEA and the JetBrains IDEs install and update agents there, and a copy of theirs would go stale
+ */
+export type VibeAgentSource = VibeAgentLayer | 'jetbrains';
+
 export interface VibeAgentsFile {
 	readonly version: number;
 	readonly agents: readonly VibeAgentEntry[];
@@ -159,16 +165,59 @@ function validateEntry(item: unknown, index: number, seen: ReadonlySet<string>):
 }
 
 /**
- * Agents of the machine file and of the project file, as one list. The project entry wins over a
- * machine entry with the same id — the team's choice is stronger than one machine's — and comes first;
- * machine-only agents follow in their own order. Each agent is returned with the layer it came from,
- * because adding and updating write back to that same file.
+ * `~/.jetbrains/acp.json` — the agents a JetBrains IDE or VibeIDEA runs over ACP
+ *
+ * Format: `{ "agent_servers": { "<display name>": { "command", "args"?, "env"? } } }`
+ * (blog.jetbrains.com/idea/2026/08/how-to-use-ai-agents-in-intellij-idea-with-acp)
+ * The key is a display name, so the id is derived from it: lower case, anything but letters and digits a dash
+ * A broken entry is skipped with a complaint, as in our own file
  */
-export function mergeAgentLayers(machine: readonly VibeAgentEntry[], project: readonly VibeAgentEntry[]): readonly { readonly agent: VibeAgentEntry; readonly layer: VibeAgentLayer }[] {
+export function parseJetBrainsAcpFile(text: string | undefined): VibeAgentsParseResult {
+	if (!text || !text.trim()) {
+		return EMPTY;
+	}
+	const parsed = safeParseConfigJson<Record<string, unknown>>(text);
+	if (!parsed.ok) {
+		return { agents: [], problems: [`файл не разобран как JSON (${parsed.reason})`] };
+	}
+	const servers = parsed.value['agent_servers'];
+	if (!servers || typeof servers !== 'object' || Array.isArray(servers)) {
+		return { agents: [], problems: ['в файле нет объекта "agent_servers"'] };
+	}
+	const agents: VibeAgentEntry[] = [];
+	const problems: string[] = [];
+	const seen = new Set<string>();
+	for (const [name, item] of Object.entries(servers as Record<string, unknown>)) {
+		const id = name.toLowerCase().replace(/[^\p{L}\p{N}]+/gu, '-').replace(/^-+|-+$/g, '');
+		if (!id) {
+			problems.push(`агент «${name}»: из имени не получается id`);
+			continue;
+		}
+		const entry = validateEntry(item && typeof item === 'object' && !Array.isArray(item) ? { ...(item as Record<string, unknown>), id, name } : item, agents.length + problems.length, seen);
+		if (typeof entry === 'string') {
+			problems.push(entry);
+			continue;
+		}
+		seen.add(entry.id);
+		agents.push(entry);
+	}
+	return { agents, problems };
+}
+
+/**
+ * Agents of the three sources as one list. The project entry wins over a machine entry with the same id — the team's
+ * choice is stronger than one machine's — and the machine entry wins over JetBrains', our own file over another
+ * product's. Project agents come first, then machine-only, then JetBrains-only, each in its own order. Each agent is
+ * returned with its source, because adding and updating write back to that same file, and JetBrains' file is not ours.
+ */
+export function mergeAgentLayers(machine: readonly VibeAgentEntry[], project: readonly VibeAgentEntry[], jetbrains: readonly VibeAgentEntry[] = []): readonly { readonly agent: VibeAgentEntry; readonly layer: VibeAgentSource }[] {
 	const projectIds = new Set(project.map(agent => agent.id));
+	const machineOnly = machine.filter(agent => !projectIds.has(agent.id));
+	const ours = new Set([...projectIds, ...machineOnly.map(agent => agent.id)]);
 	return [
 		...project.map(agent => ({ agent, layer: 'project' as const })),
-		...machine.filter(agent => !projectIds.has(agent.id)).map(agent => ({ agent, layer: 'machine' as const })),
+		...machineOnly.map(agent => ({ agent, layer: 'machine' as const })),
+		...jetbrains.filter(agent => !ours.has(agent.id)).map(agent => ({ agent, layer: 'jetbrains' as const })),
 	];
 }
 

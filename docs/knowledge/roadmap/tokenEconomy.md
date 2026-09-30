@@ -162,3 +162,11 @@ ls/docker имеют ИЗВЕСТНУЮ форму, чей шум режется
 **Применение:** любой изолированный LLM-цикл со своим контекстом (субагенты, будущие headless-раннеры) обязан ставить `skipContextGuardUpdate: true` — иначе его промпт перетирает индикатор контекста пользовательского треда. Два независимых канала утечки субагента в main: (1) session-бюджет → флаг `excludeFromSessionBudget` в `sendLLMMessage` (§D); (2) контекст-метр → флаг `skipContextGuardUpdate` в `prepareLLMChatMessages` (§E). Оба — на своих чокпоинтах.
 
 **Отображение контекста роли:** НЕ отдельный статус-бар-метр (YAGNI), а инлайн в живом индикаторе «🧩 Роль «X» работает… (~48k / 400k)». Телеметрия: `SubagentRunRequest.onProgress` (per-hop из раннера) → `entry.liveTokensUsed`/`tokenQuota` + `onStatusChanged` → хук `useSubagentActivity`.
+
+## [архитектура] Диагностика кэша Anthropic: причину промаха называет вендор (30.09.2026)
+
+**Контекст:** наши проверки префикса видят только свою сторону запроса. Почему кэш не прочитался по мнению сервера — другой вопрос.
+
+**Суть:** запрос к собственному API Anthropic несёт `diagnostics.previous_message_id` — id прошлого ответа того же разговора (ключ — `promptCacheKeyOf`, хранится в памяти: отпечатки вендор держит минуты). `message_start` ответа приносит `diagnostics.cache_miss_reason`: `model_changed`, `system_changed`, `tools_changed`, `messages_changed` с `cache_missed_input_tokens`, либо `previous_message_not_found` / `unavailable`. Поле SDK не знает — оно едет телом через ту же дверь `bodyPatch`, что и `between_tools`; `message_start` читает наблюдатель потока (`common/anthropicCacheDiagnostics.ts`).
+
+**Применение:** в чат — только изменение запроса, стоившее кэшированных токенов; истёкший отпечаток и первый ход — в журнал. Bedrock, Vertex и совместимые маршруты поле не обещают — туда оно не шлётся. Живьём не проверено: ключа Anthropic нет. Источник: platform.claude.com/docs/en/build-with-claude/cache-diagnostics.

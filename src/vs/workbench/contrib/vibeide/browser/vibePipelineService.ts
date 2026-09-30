@@ -140,6 +140,8 @@ interface PipelineRunContext {
 	readonly totalSteps: number;
 	/** The `qa` write boundary, read once for the whole run. */
 	readonly qaWritePaths: readonly string[];
+	/** Writing roles of a wave run each in a worktree of its own — read once for the whole run */
+	readonly writersIsolated: boolean;
 	readonly token: CancellationToken;
 	/** Cancel the whole run from inside a step — «Отменить прогон» of an off-peak wait. */
 	readonly cancel: () => void;
@@ -268,6 +270,15 @@ export class VibePipelineService extends Disposable implements IVibePipelineServ
 	}
 
 	async list(): Promise<{ pipelines: readonly VibePipeline[]; warnings: readonly string[] }> {
+		return this._list(this._writersIsolated());
+	}
+
+	/** Whether writing roles run each in a worktree of its own — then two writers of a wave may overlap */
+	private _writersIsolated(): boolean {
+		return this._configuration.getValue<boolean>('vibeide.subagent.worktree') === true;
+	}
+
+	private async _list(writersIsolated: boolean): Promise<{ pipelines: readonly VibePipeline[]; warnings: readonly string[] }> {
 		const uri = this._fileUri();
 		if (!uri) { return { pipelines: [], warnings: [] }; }
 		let text: string;
@@ -286,7 +297,7 @@ export class VibePipelineService extends Disposable implements IVibePipelineServ
 		// Whether two steps of a wave may write at once depends on where `qa` writes, and that is the
 		// project's `.vibe/roles.json` — the same file a run reads.
 		const roles = await readRolesFile(this._fileService, this._workspace);
-		const parsed = applyWaveRules(parsePipelineFile(result.value), { roleMayWrite, qaWritePaths: roles.qaWritePaths ?? QA_DEFAULT_WRITE_PATHS });
+		const parsed = applyWaveRules(parsePipelineFile(result.value), { roleMayWrite, qaWritePaths: roles.qaWritePaths ?? QA_DEFAULT_WRITE_PATHS, writersIsolated });
 		return { pipelines: parsed.file.pipelines, warnings: parsed.warnings };
 	}
 
@@ -355,7 +366,10 @@ export class VibePipelineService extends Disposable implements IVibePipelineServ
 	}
 
 	async run(pipelineId: string, parentThreadId: string, token?: CancellationToken, resume?: { readonly runId: string }): Promise<PipelineRunResult> {
-		const { pipelines } = await this.list();
+		// Read once for the whole run: the wave check admitted overlapping writers on it, and every writer of a wave is
+		// then isolated explicitly — turning the setting off mid-run must not send them into the shared folder
+		const writersIsolated = this._writersIsolated();
+		const { pipelines } = await this._list(writersIsolated);
 		const pipeline = pipelines.find(p => p.id === pipelineId);
 		if (!pipeline) {
 			throw new Error(localize('vibeide.pipeline.notFound', 'Пайплайн «{0}» не найден в .vibe/pipelines.json', pipelineId));
@@ -406,6 +420,7 @@ export class VibePipelineService extends Disposable implements IVibePipelineServ
 			runId,
 			totalSteps: pipeline.steps.length,
 			qaWritePaths: roles.qaWritePaths ?? QA_DEFAULT_WRITE_PATHS,
+			writersIsolated,
 			token: cancellation.token,
 			cancel: () => cancellation.cancel(),
 			live: new Set<string>(),
@@ -621,6 +636,8 @@ export class VibePipelineService extends Disposable implements IVibePipelineServ
 						},
 					} : {}),
 					...(step.role === 'qa' ? { qaWritePaths: ctx.qaWritePaths } : {}),
+					// A writer of a wave admitted on isolation keeps it even if the setting changes mid-run
+					...(wave !== undefined && ctx.writersIsolated && roleMayWrite(step.role) ? { useWorktree: true } : {}),
 					...(cascadeDraft ? { cascadeDraft: true } : {}),
 					...(escalatedFrom ? { escalatedFrom } : {}),
 					// A continuation already holds its task message; the diff rides only on a fresh one.

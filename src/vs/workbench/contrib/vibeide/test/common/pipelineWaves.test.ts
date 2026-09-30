@@ -19,7 +19,8 @@ suite('pipelineWaves', () => {
 
 	ensureNoDisposablesAreLeakedInTestSuite();
 
-	const rules: WaveRules = { roleMayWrite, qaWritePaths: QA_DEFAULT_WRITE_PATHS };
+	// No worktree isolation — the rule VibeIDEA has; isolation is VibeIDE's own and has its test below
+	const rules: WaveRules = { roleMayWrite, qaWritePaths: QA_DEFAULT_WRITE_PATHS, writersIsolated: false };
 	const step = (role: string, wave?: string, paths?: string[], extra: Partial<VibePipelineStep> = {}): VibePipelineStep => ({
 		role, task: 't', ...(wave ? { wave } : {}), ...(paths ? { paths } : {}), ...extra,
 	});
@@ -43,7 +44,15 @@ suite('pipelineWaves', () => {
 
 	test('writers whose places nest are refused, and the refusal names both', () => {
 		const check = checkWaves([step('backend-dev', 'build', ['src/**']), step('frontend-dev', 'build', ['src/ui/**'])], rules);
-		assert.deepStrictEqual(check.problems, ['волна «build»: «backend-dev» (src/**) и «frontend-dev» (src/ui/**) могут писать в одно место — дайте каждому paths с раздельными каталогами в начале']);
+		assert.deepStrictEqual(check.problems, ['волна «build»: «backend-dev» (src/**) и «frontend-dev» (src/ui/**) могут писать в одно место — дайте каждому paths с раздельными каталогами в начале или включите vibeide.subagent.worktree']);
+	});
+
+	test('writers each in a worktree of its own may overlap: said out loud, not refused', () => {
+		// Codex CLI 0.156 does the same with a worktree per session; merging the branches stays with the person
+		assert.deepStrictEqual(checkWaves([step('backend-dev', 'build'), step('frontend-dev', 'build', ['src/ui/**'])], { ...rules, writersIsolated: true }), {
+			problems: [],
+			warnings: ['волна «build»: «backend-dev» (**) и «frontend-dev» (src/ui/**) могут писать в одно место — каждый пишет в своём дереве git, но сведение их веток может дать конфликт, и такая ветка останется вам'],
+		});
 	});
 
 	test('a writer without paths writes anywhere and cannot share a wave with another writer', () => {
@@ -142,7 +151,7 @@ suite('pipelineWaves', () => {
 		assert.deepStrictEqual({ ids: parsed.file.pipelines.map(p => p.id), warnings: parsed.warnings }, {
 			ids: ['lone', 'good'],
 			warnings: [
-				'«bad»: волна «w»: «backend-dev» (**) и «frontend-dev» (**) могут писать в одно место — дайте каждому paths с раздельными каталогами в начале — пайплайн пропущен',
+				'«bad»: волна «w»: «backend-dev» (**) и «frontend-dev» (**) могут писать в одно место — дайте каждому paths с раздельными каталогами в начале или включите vibeide.subagent.worktree — пайплайн пропущен',
 				'«lone»: волна «x» из одного шага — он идёт как обычный',
 			],
 		});

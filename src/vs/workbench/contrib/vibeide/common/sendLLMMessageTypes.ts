@@ -4,6 +4,7 @@
  *--------------------------------------------------------------------------------------------*/
 
 
+import type { CacheMissDiagnosis } from './anthropicCacheDiagnostics.js';
 import { InternalToolInfo } from './prompt/prompts.js';
 import { ToolName, ToolParamName } from './toolsServiceTypes.js';
 import { ChatMode, ModelSelection, ModelSelectionOptions, OverridesOfModel, ProviderName, RefreshableProviderName, SettingsOfProvider } from './vibeideSettingsTypes.js';
@@ -206,7 +207,9 @@ export type OnText = (p: { fullText: string; fullReasoning: string; toolCall?: R
 // `systemFingerprint` — the backend configuration where the wire names one (OpenAI-compatible); it
 // tells two backends apart when they answer under the same model name.
 // `finishNotice` — the answer stopped for a reason the reader must know about (see LLMFinishNotice).
-export type OnFinalMessage = (p: { fullText: string; fullReasoning: string; toolCall?: RawToolCallObj; anthropicReasoning: AnthropicReasoning[] | null; answeredModel?: string; systemFingerprint?: string; usage?: LLMTokenUsage; providerQuota?: ProviderQuotaSnapshot; finishNotice?: LLMFinishNotice }) => void; // id is tool_use_id
+// `responseId` — the vendor's id of this answer, sent back next turn to ask why the cache missed; `cacheMiss` — its
+// answer (Anthropic's own API only, common/anthropicCacheDiagnostics.ts).
+export type OnFinalMessage = (p: { fullText: string; fullReasoning: string; toolCall?: RawToolCallObj; anthropicReasoning: AnthropicReasoning[] | null; answeredModel?: string; systemFingerprint?: string; usage?: LLMTokenUsage; providerQuota?: ProviderQuotaSnapshot; finishNotice?: LLMFinishNotice; responseId?: string; cacheMiss?: CacheMissDiagnosis }) => void; // id is tool_use_id
 
 /**
  * An answer that ended for a reason other than «done», delivered next to the text it cut.
@@ -295,6 +298,8 @@ export type ServiceSendLLMMessageParams = {
 	extraBody?: Record<string, unknown>;
 	/** Cache routing key of the conversation — see `LLMRuntimeOptions.promptCacheKey`. */
 	promptCacheKey?: string;
+	/** The previous answer of this conversation — see `LLMRuntimeOptions.previousResponseId`. */
+	previousResponseId?: string;
 	/** Per-turn: request `tool_choice: 'required'` for this send (agent-loop corrective nudge). */
 	forceToolUse?: boolean;
 	/**
@@ -324,6 +329,11 @@ export type LLMRuntimeOptions = {
 	 * declares `promptCacheKey: true`: a strict OpenAI-compatible vendor answers 400 to a field it does not know.
 	 */
 	promptCacheKey?: string;
+	/**
+	 * The vendor's id of the previous answer in this conversation. Anthropic's own API compares the request with it and
+	 * names why the prompt cache missed (`diagnostics.previous_message_id`); other routes ignore it.
+	 */
+	previousResponseId?: string;
 	timeoutMs?: {
 		local?: number;
 		cloud?: number;

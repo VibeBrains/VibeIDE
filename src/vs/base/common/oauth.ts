@@ -1370,6 +1370,29 @@ async function tryParseAuthServerMetadata(response: CommonResponse): Promise<IAu
 	return undefined;
 }
 
+/**
+ * Whether metadata may be used for the authorization server it was fetched for (RFC 8414 §3.3, OIDC Discovery §4.3):
+ * the `issuer` it names must be the identifier the discovery URL was built from, or the data must not be used
+ *
+ * Without the check a server could hand out metadata naming another issuer, and anything keyed or verified by that
+ * name would follow it — the flaw fixed in the MCP Python SDK (GHSA-qx49-fqc8-xw99)
+ * A trailing slash is not a difference. A `{placeholder}` path segment matches any one segment: Microsoft Entra's
+ * multi-tenant endpoints publish `https://login.microsoftonline.com/{tenantid}/v2.0` for the `common` authority
+ */
+export function issuerMatchesAuthorizationServer(issuer: string, authorizationServer: string): boolean {
+	const strip = (url: string) => url.endsWith('/') ? url.slice(0, -1) : url;
+	const expected = strip(authorizationServer);
+	const claimed = strip(issuer);
+	if (claimed === expected) {
+		return true;
+	}
+	if (!/\{[^/{}]+\}/.test(claimed)) {
+		return false;
+	}
+	const pattern = claimed.split(/\{[^/{}]+\}/).map(part => part.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('[^/]+');
+	return new RegExp(`^${pattern}$`).test(expected);
+}
+
 /** Helper to get error text from response */
 async function getErrText(res: CommonResponse): Promise<string> {
 	try {
@@ -1425,6 +1448,10 @@ export async function fetchAuthorizationServerMetadata(
 				}
 			});
 			const metadata = await tryParseAuthServerMetadata(rawResponse);
+			if (metadata && !issuerMatchesAuthorizationServer(metadata.issuer, authorizationServer)) {
+				errors.push(new Error(`Authorization server metadata from ${url} names issuer ${metadata.issuer}, not ${authorizationServer}: not used (RFC 8414 §3.3)`));
+				return undefined;
+			}
 			if (metadata) {
 				return metadata;
 			}

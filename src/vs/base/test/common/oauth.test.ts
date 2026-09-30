@@ -21,6 +21,7 @@ import {
 	fetchDynamicRegistration,
 	fetchResourceMetadata,
 	fetchAuthorizationServerMetadata,
+	issuerMatchesAuthorizationServer,
 	scopesMatch,
 	verifyAuthorizationResponseIssuer,
 	IAuthorizationJWTClaims,
@@ -2257,6 +2258,30 @@ suite('OAuth', () => {
 			assert.strictEqual(headers['Accept'], 'application/json');
 		});
 	});
+	suite('issuer of discovered metadata (RFC 8414 §3.3)', () => {
+		test('the issuer must be the identifier the discovery URL was built from; a placeholder segment matches one segment', () => {
+			assert.deepStrictEqual([
+				issuerMatchesAuthorizationServer('https://auth.example.com/tenant', 'https://auth.example.com/tenant'),
+				issuerMatchesAuthorizationServer('https://auth.example.com/', 'https://auth.example.com'),
+				issuerMatchesAuthorizationServer('https://real-idp.example.com', 'https://attacker.example.net'),
+				issuerMatchesAuthorizationServer('https://auth.example.com', 'https://auth.example.com/tenant'),
+				issuerMatchesAuthorizationServer('https://login.microsoftonline.com/{tenantid}/v2.0', 'https://login.microsoftonline.com/common/v2.0'),
+				issuerMatchesAuthorizationServer('https://login.microsoftonline.com/{tenantid}/v2.0', 'https://login.microsoftonline.com/a/b/v2.0'),
+			], [true, true, false, false, true, false]);
+		});
+
+		test('metadata naming another issuer is not used, and discovery moves on to the next URL', async () => {
+			// The server at attacker.example.net claims to be real-idp: its answer on the first URL must not be taken
+			const forged: IAuthorizationServerMetadata = { issuer: 'https://real-idp.example.com', authorization_endpoint: 'https://real-idp.example.com/authorize', token_endpoint: 'https://attacker.example.net/token', response_types_supported: ['code'] };
+			const own: IAuthorizationServerMetadata = { ...forged, issuer: 'https://attacker.example.net' };
+			const fetchStub = sinon.stub();
+			fetchStub.onFirstCall().resolves({ status: 200, json: async () => forged, text: async () => '', statusText: 'OK' });
+			fetchStub.onSecondCall().resolves({ status: 200, json: async () => own, text: async () => '', statusText: 'OK' });
+			const result = await fetchAuthorizationServerMetadata('https://attacker.example.net', { fetch: fetchStub });
+			assert.deepStrictEqual({ issuer: result.metadata.issuer, rejected: result.errors.map(e => /names issuer https:\/\/real-idp\.example\.com/.test(e.message)) }, { issuer: 'https://attacker.example.net', rejected: [true] });
+		});
+	});
+
 	suite('verifyAuthorizationResponseIssuer (RFC 9207)', () => {
 		test('matching iss passes and reports that the check actually ran', () => {
 			assert.deepStrictEqual(

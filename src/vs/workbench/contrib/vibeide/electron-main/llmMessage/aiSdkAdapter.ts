@@ -33,6 +33,7 @@ import { availableTools, InternalToolInfo } from '../../common/prompt/prompts.js
 import { TOOL_NAME_ALIASES, applyParamAliases } from '../../common/prompt/toolAliases.js';
 import { lenientJsonParseObject } from '../../common/lenientJson.js';
 import { hasToolCallMarkup } from '../../common/xmlToolNormalize.js';
+import { AnthropicMessageStart, CacheMissDiagnosis, readAnthropicMessageStart } from '../../common/anthropicCacheDiagnostics.js';
 import { getModelSdkNpm } from './modelsDevCatalog.js';
 import { buildContextOverflowError, buildEmptyResponseError, isContextOverflow, LLMChatMessage, LLMFinishNotice, LLMTokenUsage, ProviderRefusalDiagnostics, RawToolCallObj, RawToolParamsObj } from '../../common/sendLLMMessageTypes.js';
 import { claudeThinkingOptions, compatibleClaudeThinkingOptions, DEFAULT_CLAUDE_THINKING_DISPLAY, googleThinkingConfig, isClaudeModelId, openAIReasoningEffort, replaysThinkingBlock, withoutEmptyThinkingSignatures, withThinkTags } from '../../common/wireReasoning.js';
@@ -254,6 +255,31 @@ const observeAnsweredModel = (response: Response, onModel: (model: string, finge
 	});
 };
 
+/** Reads Anthropic's `message_start` off the head of the answer — its id and the cache diagnosis — then leaves the stream alone */
+const observeAnthropicMessageStart = (response: Response, onStart: (start: AnthropicMessageStart) => void): Response => {
+	if (!response.body) { return response; }
+	let head = '';
+	let done = false;
+	const decoder = new TextDecoder();
+	const observer = new TransformStream<Uint8Array, Uint8Array>({
+		transform(chunk, controller) {
+			controller.enqueue(chunk);
+			if (done) { return; }
+			try {
+				head = (head + decoder.decode(chunk, { stream: true })).slice(0, ANSWERED_MODEL_PEEK_CHARS);
+				const start = readAnthropicMessageStart(head);
+				if (start) { done = true; onStart(start); return; }
+				if (head.length >= ANSWERED_MODEL_PEEK_CHARS) { done = true; }
+			} catch { done = true; }
+		},
+	});
+	return new Response(response.body.pipeThrough(observer), {
+		status: response.status,
+		statusText: response.statusText,
+		headers: response.headers,
+	});
+};
+
 const observeBodyTail = (response: Response, onTail: (tail: string) => void): Response => {
 	if (!response.body) { return response; }
 	let tail = '';
@@ -389,6 +415,8 @@ const makeCustomFetch = (opts: {
 	onAnsweredModel?: (model: string, fingerprint: string | undefined) => void;
 	/** Orchestration tokens found at the end of the answer — see common/orchestrationUsage.ts. */
 	onOrchestrationTokens?: (tokens: OrchestrationTokens) => void;
+	/** Anthropic's `message_start`: the answer's id and the vendor's cache diagnosis — see common/anthropicCacheDiagnostics.ts */
+	onMessageStart?: (start: AnthropicMessageStart) => void;
 	/**
 	 * Called with what the provider said, as soon as we know it. Fires up to twice per request:
 	 * once on the headers, again if a `base_resp` refusal turns up in the body. Last call wins.
@@ -443,6 +471,9 @@ const makeCustomFetch = (opts: {
 	if (opts.onAnsweredModel) {
 		const onAnsweredModel = opts.onAnsweredModel;
 		observed = observeAnsweredModel(observed, (model, fingerprint) => onAnsweredModel(model, fingerprint));
+	}
+	if (opts.onMessageStart && response.ok) {
+		observed = observeAnthropicMessageStart(observed, opts.onMessageStart);
 	}
 
 	// An orchestrator bills its internal calls on top of the visible tokens, and the SDK drops those
@@ -1522,6 +1553,8 @@ export const sendViaAISdk = async (params: SendChatParams_Internal): Promise<voi
 	let lastQuota: ProviderQuotaSnapshot | undefined;
 	let lastAnsweredModel: string | undefined;
 	let lastSystemFingerprint: string | undefined;
+	// Anthropic's own API: this answer's id, sent back next turn, and the vendor's reason the cache missed
+	let lastMessageStart: AnthropicMessageStart | undefined;
 	// Kept for the failure paths: without it an "empty response" cannot be told apart from a
 	// refusal the provider hid in the body of an HTTP 200 (modelStalls.md #001).
 	let lastDiagnostics: ProviderRefusalDiagnostics | undefined;
@@ -1541,9 +1574,16 @@ export const sendViaAISdk = async (params: SendChatParams_Internal): Promise<voi
 	// A file model on the Anthropic wire: its `extraBody` and its own «off» (MiMo: `thinking: {type: "disabled"}`) are a
 	// contract with that route, and @ai-sdk/anthropic takes no body transform — they go in through the fetch door.
 	// Built-ins are left alone: their caps were written for the OpenAI-compatible body.
-	const anthropicBodyPatch = anthropicWire && !isBuiltinProvider(providerName) ? {
-		...(additionalOpenAIPayload as Record<string, unknown> | undefined ?? {}),
-		...(reasoningOff && reasoningCapabilities?.reasoningOffPayload ? reasoningCapabilities.reasoningOffPayload : {}),
+	// Anthropic's own entries are the exception for «off»: they are written for this wire, and Sonnet 5.5's
+	// `between_tools` is a thinking mode the SDK does not know
+	const fileRoute = !isBuiltinProvider(providerName);
+	const offPayloadForWire = reasoningOff && (fileRoute || providerName === 'anthropic') ? reasoningCapabilities?.reasoningOffPayload : undefined;
+	// Cache diagnostics are Anthropic's own API only; `null` on the first turn asks for them with nothing to compare
+	const cacheDiagnostics = anthropicWire && providerName === 'anthropic';
+	const anthropicBodyPatch = anthropicWire ? {
+		...(fileRoute ? additionalOpenAIPayload as Record<string, unknown> | undefined ?? {} : {}),
+		...(offPayloadForWire ?? {}),
+		...(cacheDiagnostics ? { diagnostics: { previous_message_id: runtimeOptions?.previousResponseId ?? null } } : {}),
 	} : undefined;
 	const callFetch = makeCustomFetch({
 		providerName,
@@ -1554,6 +1594,7 @@ export const sendViaAISdk = async (params: SendChatParams_Internal): Promise<voi
 		onAnsweredModel: (model, fingerprint) => { lastAnsweredModel = model; lastSystemFingerprint = fingerprint; },
 		onOrchestrationTokens: tokens => { lastOrchestrationTokens = tokens; },
 		onDiagnostics: diagnostics => { lastDiagnostics = diagnostics; },
+		...(cacheDiagnostics ? { onMessageStart: (start: AnthropicMessageStart) => { lastMessageStart = start; } } : {}),
 	});
 
 	const sdkLogKey = `${providerName}|${modelName}|${sdkNpm ?? 'fallback'}|${sdkSource}`;
@@ -1928,6 +1969,8 @@ export const sendViaAISdk = async (params: SendChatParams_Internal): Promise<voi
 			...(lastAnsweredModel ? { answeredModel: lastAnsweredModel } : {}),
 			...(lastSystemFingerprint ? { systemFingerprint: lastSystemFingerprint } : {}),
 			...(finishNotice ? { finishNotice } : {}),
+			...(lastMessageStart?.id ? { responseId: lastMessageStart.id } : {}),
+			...(lastMessageStart?.cacheMiss ? { cacheMiss: lastMessageStart.cacheMiss satisfies CacheMissDiagnosis } : {}),
 		});
 	};
 

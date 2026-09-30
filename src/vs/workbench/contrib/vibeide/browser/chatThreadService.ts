@@ -178,6 +178,7 @@ import { IVibeSearchContextService } from '../common/vibeSearchContextService.js
 import { IVibeAIDebuggingService } from './vibeAIDebuggingContribution.js';
 import { IVibeContextGuardService } from './vibeContextGuardService.js';
 import { describeFinishNotice } from '../common/llmStreamFinish.js';
+import { describeCacheMiss, isCostlyCacheMiss } from '../common/anthropicCacheDiagnostics.js';
 
 // related to retrying when LLM message has error
 // Optimized retry logic: faster initial retry, exponential backoff
@@ -962,6 +963,9 @@ class ChatThreadService extends Disposable implements IChatThreadService {
 	// are parsed at runtime from the VibeIDE-emitted error template via regex.
 	// Key shape: `${threadId}:${providerName}:${modelName}`.
 	private readonly _emptyResponseStreak = new Map<string, number>();
+	// The vendor's id of the last answer per conversation cache key: Anthropic compares the next request with it and
+	// names why the prompt cache missed. In memory only — the vendor forgets its fingerprints within minutes anyway.
+	private readonly _lastResponseIdOfConversation = new Map<string, string>();
 	// Consecutive auto-waits on minute-window rate limits per thread (autopilot resume).
 	// Bounded by `vibeide.chat.rateLimitAutoWaitMaxRetries`; reset on any successful reply.
 	private readonly _rateLimitAutoWaitStreak = new Map<string, number>();
@@ -6491,6 +6495,7 @@ Output ONLY the JSON, no other text. Start with { and end with }.`;
 					overridesOfModel: effectiveOverridesForCall,
 					forceToolUse: forceThisTurn,
 					promptCacheKey: promptCacheKeyOf(threadId, 'agent'),
+					previousResponseId: this._lastResponseIdOfConversation.get(promptCacheKeyOf(threadId, 'agent')),
 					logging: { loggingName: `Chat - ${chatMode}`, loggingExtras: { threadId, nMessagesSent, chatMode, requestId: finalRequestId } },
 					separateSystemMessage: separateSystemMessage,
 					onText: ({ fullText, fullReasoning, toolCall }) => {
@@ -6565,7 +6570,7 @@ Output ONLY the JSON, no other text. Start with { and end with }.`;
 							this._setStreamState(threadId, { isRunning: 'LLM', llmInfo: { displayContentSoFar: fullText, reasoningSoFar: fullReasoning, toolCallSoFar: toolCall ?? null }, interrupt: Promise.resolve(() => { if (llmCancelToken) { this._llmMessageService.abort(llmCancelToken); } }) });
 						});
 					},
-					onFinalMessage: async ({ fullText, fullReasoning, toolCall, anthropicReasoning, usage, providerQuota, answeredModel, systemFingerprint, finishNotice }) => {
+					onFinalMessage: async ({ fullText, fullReasoning, toolCall, anthropicReasoning, usage, providerQuota, answeredModel, systemFingerprint, finishNotice, responseId, cacheMiss }) => {
 						vibeLog.debug('llmTurn', 'done', { afterMs: Date.now() - _turnStartMs, toolCall: toolCall?.name ?? null, textLen: fullText?.length ?? 0, reasoningLen: fullReasoning?.length ?? 0 }); recordChatTrace('llmTurn:done', { turn: traceTurn, afterMs: Date.now() - _turnStartMs, toolCall: toolCall?.name ?? null });
 						// Mark message as done to prevent late onText updates
 						messageIsDone = true;
@@ -6604,6 +6609,18 @@ Output ONLY the JSON, no other text. Start with { and end with }.`;
 						// because otherwise the turn simply looks finished.
 						if (finishNotice) {
 							this.addAssistantNotice(threadId, describeFinishNotice(finishNotice));
+						}
+
+						// Anthropic's own reason the prompt cache missed. Said only when the request changed something and it cost
+						// cached tokens: an expired fingerprint or a first turn is not news, and a line every turn would go unread
+						if (responseId) {
+							this._lastResponseIdOfConversation.set(promptCacheKeyOf(threadId, 'agent'), responseId);
+						}
+						if (cacheMiss) {
+							vibeLog.info('llmTurn', 'cache miss', { reason: cacheMiss.kind, missedInputTokens: cacheMiss.missedInputTokens ?? 0, cachedInputTokens: usage?.cachedInputTokens ?? 0 });
+						}
+						if (isCostlyCacheMiss(cacheMiss)) {
+							this.addAssistantNotice(threadId, describeCacheMiss(cacheMiss));
 						}
 
 						// Кто ответил на самом деле. Прокси, агрегатор и запасная цель подменяют модель молча, а счёт

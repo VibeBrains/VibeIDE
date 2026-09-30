@@ -43,7 +43,15 @@ type Outcome = { final?: FinalMessage; error?: ErrorMessage };
 const sse = (events: readonly WireBody[], named: boolean): string =>
 	events.map(event => `${named ? `event: ${String(event.type)}\n` : ''}data: ${JSON.stringify(event)}\n\n`).join('');
 
-const anthropicStart = (model: string) => ({ type: 'message_start', message: { id: 'msg_1', type: 'message', role: 'assistant', model, content: [], stop_reason: null, stop_sequence: null, usage: { input_tokens: 120, output_tokens: 1, cache_creation_input_tokens: 30, cache_read_input_tokens: 50 } } });
+const anthropicStart = (model: string) => ({
+	type: 'message_start',
+	message: {
+		id: 'msg_1', type: 'message', role: 'assistant', model, content: [], stop_reason: null, stop_sequence: null,
+		usage: { input_tokens: 120, output_tokens: 1, cache_creation_input_tokens: 30, cache_read_input_tokens: 50 },
+		// Cache diagnostics (GA): the vendor names why this request missed the cache of the previous one
+		...(model.endsWith('-cachemiss') ? { diagnostics: { cache_miss_reason: { type: 'tools_changed', cache_missed_input_tokens: 12_000 } } } : {}),
+	},
+});
 
 function anthropicStream(model: string): string {
 	if (model.endsWith('-refusal')) {
@@ -293,6 +301,53 @@ suite('aiSdkAdapter — встроенные провайдеры против �
 			output: 42,
 			notice: undefined,
 		});
+	});
+
+	test('Claude Sonnet 5.5: «выключено» — thinking between_tools вместо всего объекта, принудительного выбора инструмента нет', async () => {
+		// The shipped catalogue carries the same rule (modelQuirksCatalog.test.ts)
+		const quirks = await import('../../electron-main/modelQuirks/modelQuirksService.js');
+		quirks.__setCatalogForTests({ version: 1, rules: [{ match: 'sonnet-5-5', forcedToolChoiceUnsupported: true, reasoningBoundToModel: true }] });
+		const turn = async (reasoningEnabled: boolean) => {
+			requests.length = 0;
+			await send({
+				providerName: 'anthropic',
+				modelName: 'claude-sonnet-5-5',
+				settingsOfProvider: settingsWith({ anthropic: { apiKey: 'sk-ant-test' } }),
+				modelSelectionOptions: reasoningEnabled ? { reasoningEnabled: true, reasoningEffort: 'low' } : { reasoningEnabled: false },
+				runtimeOptions: { timeoutMs: { connection: 10_000, cloud: 15_000, aggregator: 15_000, streamIdle: 10_000, local: 10_000 }, forceToolUse: true },
+				messages: [{ role: 'user', content: 'Прочитай файл' }],
+			});
+			const body = requests.find(r => r.path === '/v1/messages')?.body;
+			return { thinking: body?.thinking, outputConfig: body?.output_config, toolChoice: body?.tool_choice };
+		};
+		try {
+			assert.deepStrictEqual([await turn(false), await turn(true)], [
+				// between_tools takes no block_binding, display or budget: the body replaces the whole thinking object
+				{ thinking: { type: 'between_tools' }, outputConfig: undefined, toolChoice: { type: 'auto' } },
+				{ thinking: { type: 'adaptive', display: 'summarized', block_binding: { prefix_mismatch_behavior: 'drop_block' } }, outputConfig: { effort: 'low' }, toolChoice: { type: 'auto' } },
+			]);
+		} finally {
+			quirks.__resetForTests();
+		}
+	});
+
+	test('Anthropic: диагностика кэша — прошлый ответ уходит в запросе, причина промаха и id приходят в итоге хода', async () => {
+		const turn = async (modelName: string, previousResponseId: string | undefined) => {
+			requests.length = 0;
+			const outcome = await send({
+				providerName: 'anthropic',
+				modelName,
+				settingsOfProvider: settingsWith({ anthropic: { apiKey: 'sk-ant-test' } }),
+				runtimeOptions: { timeoutMs: { connection: 10_000, cloud: 15_000, aggregator: 15_000, streamIdle: 10_000, local: 10_000 }, ...(previousResponseId ? { previousResponseId } : {}) },
+				messages: [{ role: 'user', content: 'Прочитай файл' }],
+			});
+			return { sent: requests.find(r => r.path === '/v1/messages')?.body?.diagnostics, responseId: outcome.final?.responseId, cacheMiss: outcome.final?.cacheMiss };
+		};
+		assert.deepStrictEqual([await turn('claude-opus-5-5', undefined), await turn('claude-opus-5-5-cachemiss', 'msg_1')], [
+			// The first turn asks for diagnostics with nothing to compare
+			{ sent: { previous_message_id: null }, responseId: 'msg_1', cacheMiss: undefined },
+			{ sent: { previous_message_id: 'msg_1' }, responseId: 'msg_1', cacheMiss: { kind: 'tools_changed', missedInputTokens: 12_000 } },
+		]);
 	});
 
 	test('Anthropic: отказ классификатора без текста — ошибка с категорией, а не «пустой ответ»', async () => {

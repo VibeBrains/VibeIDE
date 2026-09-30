@@ -114,6 +114,46 @@ suite('builtin model profiles — имя на проводе, профиль, п
 		]);
 	});
 
+	/**
+	 * Новое поколение модели получает свою ветку распознавания: провалившись в ветку прошлого, GLM-5.3 получал «выключено»,
+	 * которое вендор отвергает с 400, K3 — пятую часть своей цены, GPT-6.1 Sol — уровень `none`, которого у него нет,
+	 * а Sonnet 5.5 — профиль Sonnet 5 без своего «выключено»
+	 */
+	test('новые поколения по имени: Sonnet 5.5, GPT-6.1 Sol, Kimi K3 и Kimi Code, GLM-5.3', () => {
+		const card = (provider: 'anthropic' | 'openAI' | 'openRouter', modelName: string) => {
+			const caps = getModelCapabilities(provider, modelName, undefined);
+			const reasoning = caps.reasoningCapabilities || undefined;
+			const slider = reasoning?.reasoningSlider?.type === 'effort_slider' ? reasoning.reasoningSlider : undefined;
+			return {
+				model: `${provider}/${modelName} ← ${caps.recognizedModelName ?? '—'}`,
+				canTurnOff: reasoning?.canTurnOffReasoning,
+				off: reasoning?.reasoningOffPayload ?? reasoning?.reasoningOffEffort,
+				levels: slider?.values.join('/'),
+				default: slider?.default,
+				cost: `${caps.cost.input}/${caps.cost.output}/${caps.cost.cache_read ?? '—'}`,
+			};
+		};
+		assert.deepStrictEqual([
+			card('anthropic', 'claude-sonnet-5-5'),
+			card('anthropic', 'claude-sonnet-5-5-20260928'),
+			card('openAI', 'gpt-6.1-sol'),
+			card('openRouter', 'moonshotai/kimi-k3'),
+			card('openRouter', 'k3-256k'),
+			card('openRouter', 'kimi-for-coding'),
+			card('openRouter', 'z-ai/glm-5.3'),
+			card('openRouter', 'z-ai/glm-5.3-flash'),
+		], [
+			{ model: 'anthropic/claude-sonnet-5-5 ← claude-sonnet-5-5', canTurnOff: true, off: { thinking: { type: 'between_tools' } }, levels: 'low/medium/high/xhigh/max', default: 'high', cost: '2/10/0.2' },
+			{ model: 'anthropic/claude-sonnet-5-5-20260928 ← claude-sonnet-5-5', canTurnOff: true, off: { thinking: { type: 'between_tools' } }, levels: 'low/medium/high/xhigh/max', default: 'high', cost: '2/10/0.2' },
+			{ model: 'openAI/gpt-6.1-sol ← gpt-6.1-sol', canTurnOff: false, off: undefined, levels: 'low/medium/high/xhigh/max', default: 'medium', cost: '2/10/0.1' },
+			{ model: 'openRouter/moonshotai/kimi-k3 ← kimiK3', canTurnOff: false, off: undefined, levels: 'low/high/max', default: 'high', cost: '3/15/0.3' },
+			{ model: 'openRouter/k3-256k ← kimiK3', canTurnOff: false, off: undefined, levels: 'low/high/max', default: 'high', cost: '3/15/0.3' },
+			{ model: 'openRouter/kimi-for-coding ← kimiForCoding', canTurnOff: true, off: { reasoning_effort: 'none' }, levels: 'low/high/max', default: 'max', cost: '0.6/2.5/—' },
+			{ model: 'openRouter/z-ai/glm-5.3 ← glm5.3', canTurnOff: false, off: undefined, levels: 'low/high/max', default: 'high', cost: '1.4/4.4/—' },
+			{ model: 'openRouter/z-ai/glm-5.3-flash ← glm5', canTurnOff: true, off: undefined, levels: undefined, default: undefined, cost: '1/3.2/—' },
+		]);
+	});
+
 	test('DeepSeek: нативные вызовы у каждой модели, картинки у Flash, цена по часам, незнакомый id', () => {
 		const card = (modelName: string) => {
 			const caps = getModelCapabilities('deepseek', modelName, undefined);

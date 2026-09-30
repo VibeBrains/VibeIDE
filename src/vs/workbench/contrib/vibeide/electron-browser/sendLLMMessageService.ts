@@ -174,7 +174,7 @@ export class LLMMessageService extends Disposable implements ILLMMessageService 
 	sendLLMMessage(params: ServiceSendLLMMessageParams) {
 		// `extraBody` is taken out by name: left in `proxyParams` it would travel to the main process as a
 		// top-level field nobody reads, instead of inside `runtimeOptions` where the adapter merges it.
-		const { onText, onFinalMessage, onError, onAbort, modelSelection, forceToolUse, excludeFromSessionBudget, extraBody, promptCacheKey, ...proxyParams } = params;
+		const { onText, onFinalMessage, onError, onAbort, modelSelection, forceToolUse, excludeFromSessionBudget, extraBody, promptCacheKey, previousResponseId, ...proxyParams } = params;
 
 		// VibeIDE: Enforce session token budget before sending. Subagent sends opt out — they have
 		// their own quota, and the session gate must not block a role on the main-agent limit.
@@ -396,6 +396,7 @@ export class LLMMessageService extends Disposable implements ILLMMessageService 
 			claudeThinkingDisplay: claudeThinkingDisplayOf(this.configurationService.getValue<unknown>(CLAUDE_THINKING_DISPLAY_SETTING)), // how Claude's thinking comes back
 			...(extraBody ? { extraBody } : {}), // per-call body fields, e.g. a JSON Schema for an extraction
 			...(promptCacheKey ? { promptCacheKey } : {}), // conversation cache key; the adapter sends it only where declared
+			...(previousResponseId ? { previousResponseId } : {}), // Anthropic's cache diagnostics compare against it
 		};
 
 		// Transiently overlay dynamic-provider transport configs (.vibe/providers.json) so a dynamic

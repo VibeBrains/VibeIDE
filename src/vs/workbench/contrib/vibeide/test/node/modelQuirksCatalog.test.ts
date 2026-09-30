@@ -67,6 +67,8 @@ suite('ModelQuirks — настоящий каталог resources/model-quirks.
 		['hy3-preview', null],
 		// Claude 5 thinks in the adaptive mode; a compatible route (OpenCode Zen) learns it from the catalogue (25.09.2026)
 		['claude-sonnet-5', { adaptiveThinking: true }],
+		// Sonnet 5.5 (28.09.2026): forced tool_choice answers 400, reasoning bound to the model and the account
+		['claude-sonnet-5-5', { adaptiveThinking: true, forcedToolChoiceUnsupported: true, reasoningBoundToModel: true }],
 		['claude-opus-4-7', { adaptiveThinking: true }],
 	];
 

@@ -638,6 +638,38 @@ const openSourceModelOptions_assumingOAICompat = {
 		contextWindow: 204_800, reservedOutputTokenSpace: 8_192,
 		cost: { input: 0.60, output: 2.20 },
 	},
+	// GLM-5.3: reasoning always on, `thinking: disabled` and `reasoning_effort: none` answer 400 code 1210 (live, 16.09.2026)
+	// Levels low/high/max (docs.z.ai/guides/llm/glm-5.3). Price: OpenRouter `z-ai/glm-5.3`, 30.09.2026 — the vendor
+	// publishes no pay-as-you-go rate, and its Coding Plan is billed in credits
+	'glm5.3': {
+		supportsFIM: false,
+		supportsSystemMessage: 'system-role',
+		specialToolFormat: 'openai-style',
+		reasoningCapabilities: { supportsReasoning: true, canTurnOffReasoning: false, canIOReasoning: true, openSourceThinkTags: ['<think>', '</think>'], reasoningSlider: { type: 'effort_slider', values: ['low', 'high', 'max'], default: 'high' } },
+		contextWindow: 1_000_000, reservedOutputTokenSpace: 32_768,
+		cost: { input: 1.40, output: 4.40 },
+	},
+	// Kimi K3: thinking always on, levels low/high/max; the vendor default is max on the Open Platform and high on Kimi Code,
+	// so the slider names one explicitly — high, the cheaper of the two (platform.kimi.ai/docs/guide/kimi-k3-quickstart,
+	// kimi.com/code/docs/en/kimi-code/models). Price: platform.kimi.ai/docs/pricing/chat, 30.09.2026
+	'kimiK3': {
+		supportsFIM: false,
+		supportsSystemMessage: 'system-role',
+		specialToolFormat: 'openai-style',
+		reasoningCapabilities: { supportsReasoning: true, canTurnOffReasoning: false, canIOReasoning: true, reasoningSlider: { type: 'effort_slider', values: ['low', 'high', 'max'], default: 'high' } },
+		contextWindow: 1_048_576, reservedOutputTokenSpace: 32_768,
+		cost: { input: 3.00, cache_read: 0.30, output: 15.00 },
+	},
+	// `kimi-for-coding` on Kimi Code is K2.8 Preview: levels low/high/max, default max, and `none` turns thinking off
+	// (kimi.com/code/docs/en/kimi-code/models). A subscription model: the price is K2.5's, an approximation, not a zero
+	'kimiForCoding': {
+		supportsFIM: false,
+		supportsSystemMessage: 'system-role',
+		specialToolFormat: 'openai-style',
+		reasoningCapabilities: { supportsReasoning: true, canTurnOffReasoning: true, canIOReasoning: true, reasoningOffPayload: { reasoning_effort: 'none' }, reasoningSlider: { type: 'effort_slider', values: ['low', 'high', 'max'], default: 'max' } },
+		contextWindow: 262_144, reservedOutputTokenSpace: 32_768,
+		cost: { input: 0.60, output: 2.50 },
+	},
 	'kimiK2.5': {
 		supportsFIM: false,
 		supportsSystemMessage: 'system-role',
@@ -775,9 +807,13 @@ const extensiveModelOptionsFallback: VoidStaticProviderInfo['modelOptionsFallbac
 	// price is zero, so the router read them as free. Newer generations map to the newest profile
 	// we know: an approximate price beats a zero that lies.
 	if (lower.includes('glm-4.7') || lower.includes('glm4.7')) { return toFallback(openSourceModelOptions_assumingOAICompat, 'glm4.7'); }
+	// A newer generation gets its own branch: falling through to the previous one's profile gave GLM-5.3 an «off»
+	// that answers 400 and K3 a fifth of its price. Flash is left to the family profile: nothing says it cannot turn off
+	if (lower.includes('glm-5.3') && !lower.includes('flash')) { return toFallback(openSourceModelOptions_assumingOAICompat, 'glm5.3'); }
 	if (lower.includes('glm')) { return toFallback(openSourceModelOptions_assumingOAICompat, 'glm5'); }
-	// k3 keeps the k2.5 profile: same wire protocol, and its real price ($3/$15) is carried by the
-	// `.vibe-defaults` recipe, which is where anyone running K3 configures it.
+	// Kimi Code names K3 `k3` and `k3-256k`; the Open Platform and aggregators `kimi-k3`
+	if (lower.includes('kimi-k3') || /(^|\/)k3($|-)/.test(lower)) { return toFallback(openSourceModelOptions_assumingOAICompat, 'kimiK3'); }
+	if (lower.includes('kimi-for-coding')) { return toFallback(openSourceModelOptions_assumingOAICompat, 'kimiForCoding'); }
 	if (lower.includes('kimi')) { return toFallback(openSourceModelOptions_assumingOAICompat, 'kimiK2.5'); }
 	if (lower.includes('phi4')) { return toFallback(openSourceModelOptions_assumingOAICompat, 'phi4'); }
 	if (lower.includes('codestral')) { return toFallback(openSourceModelOptions_assumingOAICompat, 'codestral'); }
@@ -906,6 +942,28 @@ const anthropicModelOptions = {
 			canTurnOffReasoning: false,
 			canIOReasoning: true,
 			reasoningReservedOutputTokenSpace: 64_000,
+			reasoningSlider: { type: 'effort_slider', values: ['low', 'medium', 'high', 'xhigh', 'max'], default: 'high' },
+		},
+	},
+	// Sonnet 5.5 (2026-09-28, platform.claude.com/docs/en/models/sonnet-5-5/migration-guide): `disabled` answers 400
+	// Its lowest setting is `thinking: {type: "between_tools"}`, which the SDK does not know, so «off» goes in the body
+	// That mode takes no budget, `display` or `block_binding` and only the low…high efforts: the body replaces the whole
+	// `thinking` object, and «off» sends no effort, leaving the vendor default `high`
+	'claude-sonnet-5-5': {
+		contextWindow: 1_000_000,
+		reservedOutputTokenSpace: 64_000,
+		cost: { input: 2.00, cache_read: 0.20, cache_write: 2.50, output: 10.00 },
+		downloadable: false,
+		supportsFIM: false,
+		specialToolFormat: 'anthropic-style',
+		supportsSystemMessage: 'separated',
+		reasoningCapabilities: {
+			supportsReasoning: true,
+			canTurnOffReasoning: true,
+			reasoningOffPayload: { thinking: { type: 'between_tools' } },
+			canIOReasoning: true,
+			reasoningReservedOutputTokenSpace: 64_000,
+			// The vendor default is high, with the levels recalibrated against Sonnet 5
 			reasoningSlider: { type: 'effort_slider', values: ['low', 'medium', 'high', 'xhigh', 'max'], default: 'high' },
 		},
 	},
@@ -1100,6 +1158,7 @@ const anthropicFallbackProfiles: ReadonlyArray<readonly [RegExp, keyof typeof an
 	[/(fable|mythos)-?5/, 'claude-fable-5'],
 	[/opus-?5[-.]5/, 'claude-opus-5-5'],
 	[/opus-?5|opus.*4[-.][78]/, 'claude-opus-5'],
+	[/sonnet-?5[-.]5/, 'claude-sonnet-5-5'],
 	[/sonnet-?5/, 'claude-sonnet-5'],
 	[/claude-opus-4-5|claude-4-5-opus|claude-opus.*4\.5/, 'claude-opus-4-5-20251101'],
 	[/claude-sonnet-4-5|claude-4-5-sonnet|claude-sonnet.*4\.5/, 'claude-sonnet-4-5-20250929'],
@@ -1187,6 +1246,20 @@ const openAIModelOptions = { // https://platform.openai.com/docs/pricing
 		specialToolFormat: 'openai-style',
 		supportsSystemMessage: 'developer-role',
 		reasoningCapabilities: { supportsReasoning: true, canTurnOffReasoning: true, canIOReasoning: false, reasoningOffEffort: 'none', reasoningSlider: { type: 'effort_slider', values: ['low', 'medium', 'high', 'xhigh', 'max'], default: 'medium' } },
+	},
+	// GPT-6.1 Sol (2026-09-29, developers.openai.com/api/docs/models/gpt-6.1-sol): no `none` or `minimal` effort,
+	// so reasoning cannot be switched off, and tools work on Responses only — which `wireProtocolOfModel` already picks
+	// A cache read is 5% of the input, half of GPT-6 Sol's
+	'gpt-6.1-sol': {
+		contextWindow: 1_050_000,
+		reservedOutputTokenSpace: 128_000,
+		cost: { input: 2.00, cache_read: 0.10, cache_write: 2.50, output: 10.00, long_context: gpt6LongContext },
+		downloadable: false,
+		supportsFIM: false,
+		supportsVision: true,
+		specialToolFormat: 'openai-style',
+		supportsSystemMessage: 'developer-role',
+		reasoningCapabilities: { supportsReasoning: true, canTurnOffReasoning: false, canIOReasoning: false, reasoningSlider: { type: 'effort_slider', values: ['low', 'medium', 'high', 'xhigh', 'max'], default: 'medium' } },
 	},
 	// Latest GPT-5 series (best for coding and agentic tasks):
 	'gpt-5.1': {
@@ -1391,6 +1464,7 @@ const openAIFallbackProfiles: ReadonlyArray<readonly [RegExp, keyof typeof openA
 	// GPT-6 has no bare alias; an unnamed tier borrows the middle one rather than guessing high or low.
 	[/gpt-6.*astra/, 'gpt-6-astra'],
 	[/gpt-6.*luna/, 'gpt-6-luna'],
+	[/gpt-6\.1/, 'gpt-6.1-sol'],
 	[/gpt-6/, 'gpt-6-sol'],
 	[/gpt-5\.1/, 'gpt-5.1'],
 	[/gpt-5.*pro/, 'gpt-5-pro'],

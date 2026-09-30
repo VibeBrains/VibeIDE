@@ -261,6 +261,14 @@
 			"note": "Claude Opus 5.5: те же два механизма, что у Fable 5.1. 1) Принудительный вызов инструмента снят — tool_choice any/tool отвечает 400 на Messages, Batches и подсчёте токенов; auto и none не затронуты. 2) Рассуждение привязано и к модели, и к разговору: блоки Opus 5.5 читают только Fable 5.1 и Mythos 5.1, а у аккаунтов, созданных с 31.08.2026, блок, повторённый после правки system, tools или прошлых сообщений, отвечает 400. С 25.09.2026 системный промпт между ходами не меняется: активный файл, открытые файлы, дерево и дата уходят блоком <turn_context> при сообщении пользователя и хранятся с ним (стабильный префикс). drop_block в запросе остаётся страховкой (бета thinking-binding-controls-2026-08-01): префикс ещё меняют свёртка старой истории и правка правил проекта посреди разговора — недействительный блок тогда отбрасывается вместо отказа. Матчится и по датированным id (claude-opus-5-5-…); opus-5 сюда не попадает — у него дефис не на том месте. Живьём не проверено — ключа Anthropic нет."
 		},
 		{
+			"match": "sonnet-5-5",
+			"forcedToolChoiceUnsupported": true,
+			"reasoningBoundToModel": true,
+			"source": "platform.claude.com/docs/en/models/sonnet-5-5/migration-guide",
+			"observedAt": "2026-09-30",
+			"note": "Claude Sonnet 5.5 (28.09.2026): tool_choice any/tool отвечает 400 — «tool_choice: type \"tool\" and \"any\" are not supported for this model», замена — auto. Блоки рассуждения привязаны к модели и к аккаунту: Sonnet 5.5 не читает блоки Opus 5 / 5.5 / Fable / Mythos (API их отбрасывает с 200), а у аккаунтов с 31.08.2026 правка истории перед блоком — 400. «Выключено» — thinking between_tools, это запись каталога, а не квирк. Правило opus-5-5 сюда не попадает. Живьём не проверено — ключа Anthropic нет."
+		},
+		{
 			"match": "claude-opus-5",
 			"adaptiveThinking": true,
 			"source": "platform.claude.com/docs/en/build-with-claude/adaptive-thinking; правило ADAPTIVE_THINKING VibeIDEA (ModelQuirks.kt)",

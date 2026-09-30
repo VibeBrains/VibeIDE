@@ -4,7 +4,7 @@
  *--------------------------------------------------------------------------------------------*/
 
 import assert from 'assert';
-import { activeAgents, mergeAgentLayers, parseVibeAgentsFile, parseVibeAgentsFileOrEmpty } from '../../common/acp/vibeAgentsFile.js';
+import { activeAgents, mergeAgentLayers, parseJetBrainsAcpFile, parseVibeAgentsFile, parseVibeAgentsFileOrEmpty } from '../../common/acp/vibeAgentsFile.js';
 import { ensureNoDisposablesAreLeakedInTestSuite } from '../../../../../base/test/common/utils.js';
 
 suite('vibeAgentsFile', () => {
@@ -95,6 +95,35 @@ suite('vibeAgentsFile', () => {
 		assert.deepStrictEqual(mergeAgentLayers(machine, project).map(item => `${item.layer}:${item.agent.id}:${item.agent.command}`), [
 			'project:shared:npx',
 			'machine:local-only:/opt/agent',
+		]);
+	});
+
+	test('~/.jetbrains/acp.json: имя — отображаемое, id из него; битая запись пропускается с жалобой', () => {
+		assert.deepStrictEqual(parseJetBrainsAcpFile(`{
+			"agent_servers": {
+				"Claude Code": { "command": "/usr/local/bin/claude-agent-acp", "env": { "ANTHROPIC_LOG": "debug" } },
+				"Gemini CLI": { "command": "gemini", "args": ["--experimental-acp"] },
+				"Сломанный": { "args": ["acp"] },
+				"!!!": { "command": "x" }
+			}
+		}`), {
+			agents: [
+				{ id: 'claude-code', name: 'Claude Code', command: '/usr/local/bin/claude-agent-acp', env: { ANTHROPIC_LOG: 'debug' } },
+				{ id: 'gemini-cli', name: 'Gemini CLI', command: 'gemini', args: ['--experimental-acp'] },
+			],
+			problems: ['запись "сломанный": нет "command"', 'агент «!!!»: из имени не получается id'],
+		});
+		assert.deepStrictEqual([parseJetBrainsAcpFile(undefined), parseJetBrainsAcpFile('{"agents": []}').problems], [{ agents: [], problems: [] }, ['в файле нет объекта "agent_servers"']]);
+	});
+
+	test('агент JetBrains слабее обоих наших файлов и идёт последним', () => {
+		const machine = [{ id: 'claude-code', command: '/opt/mine' }];
+		const project = [{ id: 'team', command: 'npx' }];
+		const jetbrains = [{ id: 'claude-code', command: '/usr/local/bin/claude-agent-acp' }, { id: 'gemini-cli', command: 'gemini' }];
+		assert.deepStrictEqual(mergeAgentLayers(machine, project, jetbrains).map(item => `${item.layer}:${item.agent.id}:${item.agent.command}`), [
+			'project:team:npx',
+			'machine:claude-code:/opt/mine',
+			'jetbrains:gemini-cli:gemini',
 		]);
 	});
 });

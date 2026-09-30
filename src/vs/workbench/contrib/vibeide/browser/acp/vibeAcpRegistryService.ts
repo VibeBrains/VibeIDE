@@ -11,6 +11,7 @@
  * только файловая часть.
  *
  * - `<проект>/.vibe/agents.json` едет в репозитории: набор агентов у команды общий, как дев-стек.
+ * - `~/.jetbrains/acp.json` — агенты, которых поставили VibeIDEA и IDE JetBrains. Файл только читается, слабее обоих наших.
  * - `~/.vibe/agents.json` — машинный слой: агенты этой машины. Туда ложится бинарь, скачанный из
  *   реестра ACP, — абсолютный путь к нему в общем файле команды был бы бессмыслен.
  * При совпадении id проектная запись сильнее машинной.
@@ -30,7 +31,8 @@ import { IFileService } from '../../../../../platform/files/common/files.js';
 import { IWorkspaceContextService } from '../../../../../platform/workspace/common/workspace.js';
 import { IConfigurationService } from '../../../../../platform/configuration/common/configuration.js';
 import { IPathService } from '../../../../services/path/common/pathService.js';
-import { VibeAgentEntry, VibeAgentLayer, activeAgents, mergeAgentLayers, parseVibeAgentsFileOrEmpty } from '../../common/acp/vibeAgentsFile.js';
+import { VibeAgentEntry, VibeAgentLayer, VibeAgentSource, activeAgents, mergeAgentLayers, parseJetBrainsAcpFile, parseVibeAgentsFileOrEmpty } from '../../common/acp/vibeAgentsFile.js';
+import { ACP_READ_JETBRAINS_AGENTS_KEY } from '../../common/acp/acpRegistryConfiguration.js';
 import { IAcpAgentLaunch } from '../../common/acp/acpTypes.js';
 import { ConfigGuardFinding, scanAgentsConfig } from '../../common/vibeConfigGuard.js';
 
@@ -74,7 +76,7 @@ export class VibeAcpRegistryService extends Disposable implements IVibeAcpRegist
 	readonly onDidChange: Event<void> = this._onDidChange.event;
 
 	private _agents: readonly VibeAgentEntry[] = [];
-	private _layers = new Map<string, VibeAgentLayer>();
+	private _layers = new Map<string, VibeAgentSource>();
 	private _problems: readonly string[] = [];
 	private _guardFindings: readonly ConfigGuardFinding[] = [];
 	private readonly _watch = this._register(new MutableDisposable<DisposableStore>());
@@ -91,6 +93,10 @@ export class VibeAcpRegistryService extends Disposable implements IVibeAcpRegist
 		this._register(this._configurationService.onDidChangeConfiguration(e => {
 			if (e.affectsConfiguration(CONFIG_GUARD_ENABLED_KEY) || e.affectsConfiguration(CONFIG_GUARD_MODE_KEY)) {
 				void this._readAndApply();
+			}
+			// The switch adds or removes a file to watch, not only a list to read
+			if (e.affectsConfiguration(ACP_READ_JETBRAINS_AGENTS_KEY)) {
+				void this.reload();
 			}
 		}));
 		void this.reload();
@@ -109,7 +115,9 @@ export class VibeAcpRegistryService extends Disposable implements IVibeAcpRegist
 	}
 
 	layerOf(agentId: string): VibeAgentLayer | undefined {
-		return this._layers.get(agentId);
+		// JetBrains' file is read, never written: its agents have no layer to add to or update in
+		const source = this._layers.get(agentId);
+		return source === 'jetbrains' ? undefined : source;
 	}
 
 	async fileOf(layer: VibeAgentLayer): Promise<URI | undefined> {
@@ -163,6 +171,11 @@ export class VibeAcpRegistryService extends Disposable implements IVibeAcpRegist
 			const watcher = store.add(this._fileService.createWatcher(machineFile, { recursive: false, excludes: [] }));
 			store.add(watcher.onDidChange(() => void this._readAndApply()));
 		}
+		const jetbrainsFile = await this._jetbrainsFile();
+		if (jetbrainsFile) {
+			const watcher = store.add(this._fileService.createWatcher(jetbrainsFile, { recursive: false, excludes: [] }));
+			store.add(watcher.onDidChange(() => void this._readAndApply()));
+		}
 		const projectFile = await this.fileOf('project');
 		if (projectFile) {
 			store.add(this._fileService.onDidFilesChange(e => {
@@ -178,7 +191,8 @@ export class VibeAcpRegistryService extends Disposable implements IVibeAcpRegist
 	private async _readAndApply(): Promise<void> {
 		const project = parseVibeAgentsFileOrEmpty(await this._readText(await this.fileOf('project')));
 		const machine = parseVibeAgentsFileOrEmpty(await this._readText(await this.fileOf('machine')));
-		const listing = mergeAgentLayers(activeAgents(machine.agents), activeAgents(project.agents));
+		const jetbrains = parseJetBrainsAcpFile(await this._readText(await this._jetbrainsFile()));
+		const listing = mergeAgentLayers(activeAgents(machine.agents), activeAgents(project.agents), jetbrains.agents);
 		const findings = scanAgentsConfig(listing.map(item => item.agent));
 		const guardOn = this._configurationService.getValue<boolean>(CONFIG_GUARD_ENABLED_KEY) !== false;
 		const blocking = guardOn && this._configurationService.getValue<string>(CONFIG_GUARD_MODE_KEY) === 'block';
@@ -190,9 +204,17 @@ export class VibeAcpRegistryService extends Disposable implements IVibeAcpRegist
 		this._problems = [
 			...project.problems.map(problem => `.vibe/agents.json: ${problem}`),
 			...machine.problems.map(problem => `~/.vibe/agents.json: ${problem}`),
+			...jetbrains.problems.map(problem => `~/.jetbrains/acp.json: ${problem}`),
 			...(guardOn ? findings.map(finding => `Config Guard: ${finding.message}${blocked.has(finding.subject) && finding.severity === 'critical' ? ' Агент не предлагается — режим block.' : ''}`) : []),
 		];
 		this._onDidChange.fire();
+	}
+
+	/** `~/.jetbrains/acp.json`, unless reading it is switched off */
+	private async _jetbrainsFile(): Promise<URI | undefined> {
+		return this._configurationService.getValue<boolean>(ACP_READ_JETBRAINS_AGENTS_KEY) === false
+			? undefined
+			: joinPath(await this._pathService.userHome(), '.jetbrains', 'acp.json');
 	}
 
 	private async _readText(fileUri: URI | undefined): Promise<string | undefined> {
