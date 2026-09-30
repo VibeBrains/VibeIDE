@@ -20,7 +20,7 @@ import { Disposable } from '../../../../base/common/lifecycle.js';
 import { ILLMMessageService } from './sendLLMMessageService.js';
 import { IVibeideSettingsService } from './vibeideSettingsService.js';
 import { ITextModel } from '../../../../editor/common/model.js';
-import { autoFallbackProviderIds, isValidProviderModelSelection, ModelSelection } from './vibeideSettingsTypes.js';
+import { isValidProviderModelSelection, ModelSelection } from './vibeideSettingsTypes.js';
 
 export const IErrorDetectionService = createDecorator<IErrorDetectionService>('errorDetectionService');
 
@@ -363,20 +363,8 @@ class ErrorDetectionService extends Disposable implements IErrorDetectionService
 			const settings = this.settingsService.state;
 			let modelSelection: ModelSelection = settings.modelSelectionOfFeature['Chat'] || { providerName: 'auto', modelName: 'auto' };
 
-			// Resolve auto model selection
-			if (modelSelection.providerName === 'auto' && modelSelection.modelName === 'auto') {
-				for (const providerName of autoFallbackProviderIds(settings.settingsOfProvider)) {
-					const providerSettings = settings.settingsOfProvider[providerName];
-					if (providerSettings && providerSettings._didFillInProviderSettings) {
-						const models = providerSettings.models || [];
-						const firstModel = models.find(m => !m.isHidden);
-						if (firstModel) {
-							modelSelection = { providerName, modelName: firstModel.modelName };
-							break;
-						}
-					}
-				}
-			}
+			// «Auto» resolves the way every other feature resolves it: floating and retired models are skipped there
+			modelSelection = this.settingsService.resolveAutoModelSelection(modelSelection) ?? modelSelection;
 
 			// Type guard: ensure modelSelection is valid (not "auto")
 			if (!isValidProviderModelSelection(modelSelection)) {

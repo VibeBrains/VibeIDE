@@ -15,6 +15,7 @@ import { RawToolCallObj, LLMChatMessage, LLMTokenUsage } from '../common/sendLLM
 import { vibeLog } from '../common/vibeLog.js';
 import { ModelSelection } from '../common/vibeideSettingsTypes.js';
 import { getModelCapabilities } from '../common/modelCapabilities.js';
+import { retiredForAutoPick } from '../common/modelDeprecation.js';
 import { tokenQuotaForUsd } from '../common/agentRoleBudget.js';
 import { observedOutputShare } from '../common/cascadeEconomics.js';
 import { IVibeAgentRunLedgerService } from '../common/vibeAgentRunLedgerService.js';
@@ -132,7 +133,10 @@ class VibeSubagentRunnerService extends Disposable implements IVibeSubagentRunne
 		const overridesOfModel = this._settings.state.overridesOfModel;
 		const sees = (sel: ModelSelection) => sel.providerName !== 'auto'
 			&& isModelVisionCapable(sel, getModelCapabilities(sel.providerName, sel.modelName, overridesOfModel));
-		const firstVision = (): ModelSelection | undefined => this._settings.state._modelOptions.find(o => sees(o.selection))?.selection;
+		// Picked on the user's behalf, so a model the vendor already turned off is never the one handed over
+		const now = Date.now();
+		const firstVision = (): ModelSelection | undefined => this._settings.state._modelOptions.find(o => sees(o.selection)
+			&& !retiredForAutoPick(getModelCapabilities(o.selection.providerName, o.selection.modelName, overridesOfModel), now))?.selection;
 
 		// Звено 4: the vision-sink role (designer) defaults to a vision-capable model when the user
 		// left its per-role model unset and the chat fallback can't see — so it is vision-ready by

@@ -8,6 +8,7 @@ import { vibeLog } from './vibeLog.js';
 import { ModelSelection } from './vibeideSettingsTypes.js';
 import { isLocalProvider } from './isLocalProvider.js';
 import { getModelCapabilities, VibeideStaticModelInfo } from './modelCapabilities.js';
+import { retiredForAutoPick } from './modelDeprecation.js';
 import { IVibeideSettingsService, VibeideSettingsState } from './vibeideSettingsService.js';
 import { Disposable } from '../../../../base/common/lifecycle.js';
 import { createDecorator } from '../../../../platform/instantiation/common/instantiation.js';
@@ -219,7 +220,7 @@ export class TaskAwareModelRouter extends Disposable implements ITaskAwareModelR
 			? this.ROUTING_CACHE_TTL_SIMPLE
 			: (perfSettings?.routerCacheTtlMs ?? this.ROUTING_CACHE_TTL_DEFAULT);
 
-		if (cached && (Date.now() - cached.timestamp) < cacheTTLForCheck) {
+		if (cached && (Date.now() - cached.timestamp) < cacheTTLForCheck && this.isAutoPickable(cached.decision.modelSelection, settingsState)) {
 			// Record router metrics (cache hit)
 			if (perfSettings?.enable) {
 				const harness = getPerformanceHarness(true);
@@ -809,16 +810,22 @@ export class TaskAwareModelRouter extends Disposable implements ITaskAwareModelR
 			if (!providerSettings._didFillInProviderSettings) { continue; }
 
 			for (const modelInfo of providerSettings.models) {
-				if (!modelInfo.isHidden) {
-					models.push({
-						providerName,
-						modelName: modelInfo.modelName,
-					});
+				const model = { providerName, modelName: modelInfo.modelName };
+				if (!modelInfo.isHidden && this.isAutoPickable(model, settingsState)) {
+					models.push(model);
 				}
 			}
 		}
 
 		return models;
+	}
+
+	/**
+	 * A model the vendor already turned off is never a candidate: the router picks on the user's behalf
+	 * Filtered at the source, so the later stages that fall back to «all models» fall back without it too
+	 */
+	private isAutoPickable(model: ModelSelection, settingsState: VibeideSettingsState): boolean {
+		return !retiredForAutoPick(getModelCapabilities(model.providerName, model.modelName, settingsState.overridesOfModel), Date.now());
 	}
 
 	/**
@@ -1496,11 +1503,9 @@ export class TaskAwareModelRouter extends Disposable implements ITaskAwareModelR
 			if (!providerSettings._didFillInProviderSettings) { continue; }
 
 			for (const modelInfo of providerSettings.models) {
-				if (!modelInfo.isHidden) {
-					localModels.push({
-						providerName,
-						modelName: modelInfo.modelName,
-					});
+				const model = { providerName, modelName: modelInfo.modelName };
+				if (!modelInfo.isHidden && this.isAutoPickable(model, settingsState)) {
+					localModels.push(model);
 				}
 			}
 		}

@@ -158,15 +158,15 @@ function timeOfDayOf(raw: VibeProviderTimeOfDay | undefined): { time_of_day?: Pr
 }
 
 /**
- * The price and cache lifetime a file declares for a BUILT-IN provider's `static` models — exported for tests
- * `undefined` when no model declares either: nothing to patch
+ * The price, cache lifetime and retirement a file declares for a BUILT-IN provider's `static` models — exported for tests
+ * `undefined` when no model declares any of them: nothing to patch
  */
 export function builtinModelPatchesOf(models: readonly VibeProviderModelEntry[] | undefined): Record<string, BuiltinModelPatch> | undefined {
 	const patches: Record<string, BuiltinModelPatch> = {};
 	for (const m of models ?? []) {
-		const { cost, promptCacheTtl } = modelEntryToCaps(m);
-		if (cost || promptCacheTtl) {
-			patches[m.id] = { ...(cost ? { cost } : {}), ...(promptCacheTtl ? { promptCacheTtl } : {}) };
+		const { cost, promptCacheTtl, deprecation } = modelEntryToCaps(m);
+		if (cost || promptCacheTtl || deprecation) {
+			patches[m.id] = { ...(cost ? { cost } : {}), ...(promptCacheTtl ? { promptCacheTtl } : {}), ...(deprecation ? { deprecation } : {}) };
 		}
 	}
 	return Object.keys(patches).length > 0 ? patches : undefined;

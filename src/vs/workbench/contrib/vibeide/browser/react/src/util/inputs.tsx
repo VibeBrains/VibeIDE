@@ -1421,6 +1421,28 @@ export const VibeSwitch = ({
 
 
 
+/** A trailing marker on a dropdown row: a glyph with its explanation */
+export type DropdownBadge = {
+	readonly glyph: string;
+	readonly tooltip: string;
+	/** `warning` and `error` colour the glyph; the default is the row's muted foreground */
+	readonly tone?: 'warning' | 'error';
+	/** Shown on the closed button as well, when this option is the selected one */
+	readonly onTrigger?: boolean;
+};
+
+const dropdownBadgeToneClass = (tone: DropdownBadge['tone']) => tone === 'error' ? 'text-[var(--vscode-errorForeground)]'
+	: tone === 'warning' ? 'text-[var(--vscode-charts-yellow)]'
+		: 'text-vibe-fg-4';
+
+const DropdownBadgeGlyph = ({ badge }: { badge: DropdownBadge }) => <span
+	className={`@@vibe-dropdown-row__badge flex-shrink-0 cursor-help leading-none select-none ${dropdownBadgeToneClass(badge.tone)}`}
+	title={badge.tooltip}
+	aria-label={badge.tooltip}
+	onClick={(e) => e.stopPropagation()}
+	onMouseDown={(e) => e.stopPropagation()}
+>{badge.glyph}</span>;
+
 export const VibeCustomDropdownBox = <T extends NonNullable<any>>({
 	options,
 	selectedOption,
@@ -1439,7 +1461,7 @@ export const VibeCustomDropdownBox = <T extends NonNullable<any>>({
 	dropdownSearchPlaceholder = '',
 	dropdownSearchEmptyMessage = '',
 	getOptionSearchText,
-	getOptionBadge,
+	getOptionBadges,
 }: {
 	options: T[];
 	selectedOption: T | undefined;
@@ -1461,9 +1483,10 @@ export const VibeCustomDropdownBox = <T extends NonNullable<any>>({
 	/** Shown when the filter yields zero options (non-empty query). */
 	dropdownSearchEmptyMessage?: string;
 	getOptionSearchText?: (option: T) => string;
-	/** Optional trailing badge (a `<glyph>`) rendered after the option name. The glyph carries a
-	 *  native tooltip (`title`) — used to flag provenance without cluttering the row text. */
-	getOptionBadge?: (option: T) => { glyph: string; tooltip: string } | undefined;
+	/** Optional trailing badges (a `<glyph>` each) rendered after the option name. Each glyph carries a
+	 *  native tooltip (`title`) — used to flag provenance or state without cluttering the row text.
+	 *  A badge marked `onTrigger` is shown on the closed button too, for the selected option. */
+	getOptionBadges?: (option: T) => readonly DropdownBadge[];
 }) => {
 	const [isOpen, setIsOpen] = useState(false);
 	const [filterQuery, setFilterQuery] = useState('');
@@ -1615,6 +1638,7 @@ export const VibeCustomDropdownBox = <T extends NonNullable<any>>({
 							<div className="w-4 flex-shrink-0" />
 							<span className="flex min-w-0 items-center gap-2">
 								<span className="whitespace-nowrap">{optionName}</span>
+								{getOptionBadges?.(option).map(badge => <span key={badge.glyph}>{badge.glyph}</span>)}
 								{useTooltip ? (
 									<span className="w-4 flex-shrink-0 text-center text-[10px]">?</span>
 								) : (
@@ -1639,6 +1663,9 @@ export const VibeCustomDropdownBox = <T extends NonNullable<any>>({
 				<span className={`truncate ${arrowTouchesText ? 'mr-1' : ''}`}>
 					{getOptionDisplayName(selectedOption)}
 				</span>
+				{getOptionBadges?.(selectedOption).filter(badge => badge.onTrigger).map(badge => (
+					<span key={badge.glyph} className="mr-1 flex items-center"><DropdownBadgeGlyph badge={badge} /></span>
+				))}
 				<svg
 					className={`size-3 flex-shrink-0 ${arrowTouchesText ? '' : 'ml-auto'}`}
 					viewBox="0 0 12 12"
@@ -1697,7 +1724,7 @@ export const VibeCustomDropdownBox = <T extends NonNullable<any>>({
 							const thisOptionIsSelected = getOptionsEqual(option, selectedOption);
 							const optionName = getOptionDropdownName(option);
 							const optionDetail = getOptionDropdownDetail?.(option) || '';
-							const optionBadge = getOptionBadge?.(option);
+							const optionBadges = getOptionBadges?.(option) ?? [];
 							const showHint = detailPresentation === 'tooltip' && !!optionDetail;
 							const rowKey = `${optionName}\0${optionDetail}`;
 
@@ -1731,15 +1758,7 @@ export const VibeCustomDropdownBox = <T extends NonNullable<any>>({
 									<span className="flex min-w-0 flex-1 items-center gap-2">
 										<span className="flex min-w-0 flex-1 items-center gap-1.5">
 											<span className="min-w-0 whitespace-nowrap overflow-hidden text-ellipsis">{optionName}</span>
-											{optionBadge ? (
-												<span
-													className="@@vibe-dropdown-row__badge flex-shrink-0 cursor-help leading-none select-none text-vibe-fg-4"
-													title={optionBadge.tooltip}
-													aria-label={optionBadge.tooltip}
-													onClick={(e) => e.stopPropagation()}
-													onMouseDown={(e) => e.stopPropagation()}
-												>{optionBadge.glyph}</span>
-											) : null}
+											{optionBadges.map(badge => <DropdownBadgeGlyph key={badge.glyph} badge={badge} />)}
 										</span>
 										{showHint ? (
 											<button

@@ -6,6 +6,7 @@
 import assert from 'assert';
 import { ensureNoDisposablesAreLeakedInTestSuite } from '../../../../../base/test/common/utils.js';
 import { deprecationStatus, excludedFromAutoPick, DEPRECATION_SOON_DAYS } from '../../common/modelDeprecation.js';
+import { deprecationShortLabel, deprecationTooltip } from '../../common/modelDeprecationText.js';
 
 /**
  * Vendor-announced retirement of a model.
@@ -69,5 +70,30 @@ suite('model deprecation', () => {
 		assert.strictEqual(excludedFromAutoPick(deprecationStatus({ date: '2026-09-20' }, now)), false);
 		assert.strictEqual(excludedFromAutoPick(deprecationStatus({ date: '2026-12-01' }, now)), false);
 		assert.strictEqual(excludedFromAutoPick(undefined), false);
+	});
+
+	/**
+	 * What the picker says: the vendor's date for a reader, how far it is, the successor, and that a retired model is
+	 * still the user's to pick by hand
+	 */
+	test('the picker names the date, the distance and the successor', () => {
+		const said = (deprecation: { date?: string; replacedBy?: string }) => {
+			const status = deprecationStatus(deprecation, now)!;
+			return { short: deprecationShortLabel(status, deprecation.date), tooltip: deprecationTooltip(status, deprecation.date) };
+		};
+		assert.deepStrictEqual([
+			said({ date: '2026-08-16', replacedBy: 'openai/gpt-oss-20b' }),
+			said({ date: '2026-09-20' }),
+			said({ date: '2026-09-01' }),
+			said({ replacedBy: 'deepseek-flash' }),
+		], [
+			{
+				short: 'выключена вендором',
+				tooltip: 'Вендор выключил модель 16.08.2026 — 16 дн. назад\nАвтовыбор её не берёт; выбрать вручную можно — по корпоративному договору она может работать\nЗамена — openai/gpt-oss-20b',
+			},
+			{ short: 'выключится 20.09.2026', tooltip: 'Вендор выключит модель 20.09.2026 — через 19 дн.' },
+			{ short: 'выключится 01.09.2026', tooltip: 'Вендор выключает модель сегодня, 01.09.2026' },
+			{ short: 'снимается вендором', tooltip: 'Вендор объявил, что модель снимается, дату не назвал\nЗамена — deepseek-flash' },
+		]);
 	});
 });

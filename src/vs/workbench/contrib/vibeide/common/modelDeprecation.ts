@@ -69,3 +69,17 @@ export function deprecationStatus(deprecation: VibeModelDeprecation | undefined,
 export function excludedFromAutoPick(status: DeprecationStatus | undefined): boolean {
 	return status?.severity === 'retired';
 }
+
+/**
+ * Is this model already off, so no automatic pick may hand it over?
+ * Every place that picks a model on the user's behalf asks this about the model's capabilities
+ */
+export function retiredForAutoPick(capabilities: { readonly deprecation?: VibeModelDeprecation }, now: number): boolean {
+	return excludedFromAutoPick(deprecationStatus(capabilities.deprecation, now));
+}
+
+/** `2026-08-16` → `16.08.2026` for the reader; a date the vendor wrote some other way is shown as written */
+export function displayDeprecationDate(date: string | undefined): string | undefined {
+	const match = date?.match(/^(?<year>\d{4})-(?<month>\d{2})-(?<day>\d{2})$/);
+	return match?.groups ? `${match.groups.day}.${match.groups.month}.${match.groups.year}` : date;
+}

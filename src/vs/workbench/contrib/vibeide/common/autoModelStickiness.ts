@@ -16,7 +16,8 @@
  * revisit happens on a real change and not on a hunch:
  *   - the chat mode changed — a different mode asks for different work;
  *   - this message carries an image or a PDF and the pinned model cannot read them;
- *   - the pinned model is gone (provider disabled, key removed, entry deleted from `providers.json`).
+ *   - the pinned model is gone (provider disabled, key removed, entry deleted from `providers.json`);
+ *   - the vendor turned the pinned model off since the pin was made.
  * Everything else — a longer message, a new task type, a different language — is the same
  * conversation, and switching model inside it costs more than it buys.
  */
@@ -38,6 +39,8 @@ export interface AutoModelSituation {
 	readonly needsVision: boolean;
 	/** Is this selection still offered by settings (provider enabled, key present, model not removed)? */
 	readonly isAvailable: (selection: ModelSelection) => boolean;
+	/** Has the vendor already turned this model off? A pin made before that date must not outlive it */
+	readonly isRetired: (selection: ModelSelection) => boolean;
 }
 
 /**
@@ -53,7 +56,7 @@ export function pinnedAutoModel(pin: AutoModelPin | undefined, situation: AutoMo
 	if (situation.needsVision && !pin.vision) {
 		return undefined;
 	}
-	if (!situation.isAvailable(pin.selection)) {
+	if (!situation.isAvailable(pin.selection) || situation.isRetired(pin.selection)) {
 		return undefined;
 	}
 	return pin.selection;

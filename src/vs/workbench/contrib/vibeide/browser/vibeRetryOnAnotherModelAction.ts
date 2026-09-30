@@ -20,6 +20,7 @@ import { IChatThreadService } from './chatThreadService.js';
 import { IVibeideSettingsService, ModelOption } from '../common/vibeideSettingsService.js';
 import { modelSelectionsEqual } from '../common/vibeideSettingsTypes.js';
 import { VIBE_COMMAND_CATEGORY } from '../common/vibeCommandCategory.js';
+import { deprecationShortLabel, retirementOfModel } from '../common/modelDeprecationText.js';
 
 registerAction2(class RetryOnAnotherModelAction extends Action2 {
 	constructor() {
@@ -42,8 +43,14 @@ registerAction2(class RetryOnAnotherModelAction extends Action2 {
 		}
 		const current = settingsService.state.modelSelectionOfFeature['Chat'];
 		const options = settingsService.state._modelOptions.filter(option => !current || !modelSelectionsEqual(option.selection, current));
+		// The retry goes to the model picked here, so a model the vendor retires is named before it is chosen
+		const now = Date.now();
+		const retirementOf = (option: ModelOption): string | undefined => {
+			const retirement = retirementOfModel(option.selection, settingsService.state.overridesOfModel, now);
+			return retirement ? deprecationShortLabel(retirement.status, retirement.date) : undefined;
+		};
 		const picked = await quickInput.pick<IQuickPickItem & { option: ModelOption }>(
-			options.map(option => ({ label: option.name, option })),
+			options.map(option => ({ label: option.name, description: retirementOf(option), option })),
 			{ placeHolder: localize('vibeide.chat.retryOnAnotherModel.pick', 'На какой модели повторить запрос') },
 		);
 		if (picked) {

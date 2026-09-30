@@ -6,6 +6,15 @@
 import React from 'react';
 import { useAccessor, useSettingsState } from '../util/services.js';
 import { BUILT_IN_PRESETS, VIBE_AGENT_ROLE_PRESETS } from '../../../../common/vibeSubagentRegistryService.js';
+import { ModelOption } from '../../../../common/vibeideSettingsService.js';
+import { OverridesOfModel } from '../../../../common/vibeideSettingsTypes.js';
+import { deprecationShortLabel, retirementOfModel } from '../../../../common/modelDeprecationText.js';
+
+/** The option's text, with the model's retirement after it: a native select has no room for a marker with a tooltip */
+const roleModelOptionLabel = (option: ModelOption, overridesOfModel: OverridesOfModel): string => {
+	const retirement = retirementOfModel(option.selection, overridesOfModel, Date.now());
+	return retirement ? `${option.name} — ${deprecationShortLabel(retirement.status, retirement.date)}` : option.name;
+};
 
 // Dropdown chevron as an inline data-URI (muted gray so it reads in both themes). Used because the
 // select has appearance:none (native chrome removed to allow theming), which also strips the arrow.
@@ -116,7 +125,7 @@ export const AgentRoleModels = () => {
 								<option value=''>как в чате</option>
 								{settingsState._modelOptions.map(o => (
 									<option key={`${o.selection.providerName}:::${o.selection.modelName}`} value={`${o.selection.providerName}:::${o.selection.modelName}`}>
-										{o.name}
+										{roleModelOptionLabel(o, settingsState.overridesOfModel)}
 									</option>
 								))}
 							</select>

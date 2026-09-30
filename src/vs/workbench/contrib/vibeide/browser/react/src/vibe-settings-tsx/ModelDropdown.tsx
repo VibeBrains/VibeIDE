@@ -5,9 +5,9 @@
 
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { displayInfoOfProviderName, FeatureName, featureNames, isFeatureNameDisabled, ModelSelection, modelSelectionsEqual, ProviderName, providerNames, SettingsOfProvider } from '../../../../../../../workbench/contrib/vibeide/common/vibeideSettingsTypes.js';
+import { displayInfoOfProviderName, FeatureName, featureNames, isFeatureNameDisabled, ModelSelection, modelSelectionsEqual, OverridesOfModel, ProviderName, providerNames, SettingsOfProvider } from '../../../../../../../workbench/contrib/vibeide/common/vibeideSettingsTypes.js';
 import { useSettingsState, useRefreshModelState, useAccessor } from '../util/services.js';
-import { VibeCustomDropdownBox } from '../util/inputs.js';
+import { DropdownBadge, VibeCustomDropdownBox } from '../util/inputs.js';
 import { SelectBox } from '../../../../../../../base/browser/ui/selectBox/selectBox.js';
 import { IconWarning } from '../sidebar-tsx/SidebarChat.js';
 import { VIBEIDE_OPEN_SETTINGS_ACTION_ID, VIBEIDE_TOGGLE_SETTINGS_ACTION_ID } from '../../../vibeideSettingsPane.js';
@@ -15,6 +15,25 @@ import { modelFilterOfFeatureName, ModelOption } from '../../../../../../../work
 import { WarningBox } from './WarningBox.js';
 import ErrorBoundary from '../sidebar-tsx/ErrorBoundary.js';
 import { modelDdS } from './vibeSettingsRu.js';
+import { deprecationTooltip, retirementOfModel } from '../../../../common/modelDeprecationText.js';
+
+/**
+ * The marker of a model the vendor is retiring or has retired, or nothing
+ * Read at render time, not memoized with the options: the verdict moves with the clock, not with the list
+ */
+const deprecationBadge = (option: ModelOption, overridesOfModel: OverridesOfModel | undefined): DropdownBadge | undefined => {
+	const retirement = retirementOfModel(option.selection, overridesOfModel, Date.now());
+	if (!retirement) {
+		return undefined;
+	}
+	const { severity } = retirement.status;
+	return {
+		glyph: severity === 'retired' ? '⛔' : '⏳',
+		tooltip: deprecationTooltip(retirement.status, retirement.date),
+		tone: severity === 'retired' ? 'error' : severity === 'soon' ? 'warning' : undefined,
+		onTrigger: true,
+	};
+};
 
 const optionsEqual = (m1: ModelOption[], m2: ModelOption[]) => {
 	if (m1.length !== m2.length) {return false;}
@@ -65,13 +84,21 @@ const ModelSelectBox = ({ options, featureName, className }: { options: ModelOpt
 			}
 			return displayInfoOfProviderName(option.selection.providerName).title;
 		}}
-		getOptionBadge={(option) => {
+		getOptionBadges={(option) => {
 			// Dynamic-provider models flag their provenance with a trailing "✎" — the pencil's tooltip
 			// tells the user the model / its caps come from .vibe/providers.json, not the live catalog.
-			const tooltip = option.fileNote === 'override' ? modelDdS.fileNoteOverride
+			const fileNote = option.fileNote === 'override' ? modelDdS.fileNoteOverride
 				: option.fileNote === 'manual' ? modelDdS.fileNoteManual
 					: undefined;
-			return tooltip ? { glyph: '✎', tooltip } : undefined;
+			const badges: DropdownBadge[] = [];
+			const retirement = deprecationBadge(option, vibeideSettingsService.state.overridesOfModel);
+			if (retirement) {
+				badges.push(retirement);
+			}
+			if (fileNote) {
+				badges.push({ glyph: '✎', tooltip: fileNote });
+			}
+			return badges;
 		}}
 		getOptionsEqual={(a, b) => optionsEqual([a], [b])}
 		className={className}

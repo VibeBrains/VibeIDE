@@ -30,6 +30,7 @@ import { toolCallSignature, resolveAntiLoopThreshold, endsWithQuestion, looksLik
 import { IVibeImageCostService } from './vibeImageCostService.js';
 import { IVibeTokenBudgetService } from '../common/vibeTokenBudgetService.js';
 import { getModelCapabilities, isFloatingModel, type AutoDowngradeReason } from '../common/modelCapabilities.js';
+import { retiredForAutoPick } from '../common/modelDeprecation.js';
 import { ProviderRefusalDiagnostics, AnthropicReasoning, getErrorMessage, LLMChatMessage, LLMFinishNotice, LLMTokenUsage, parseContextOverflowError, parseEmptyResponseError, RawToolCallObj, RawToolParamsObj } from '../common/sendLLMMessageTypes.js';
 import { isQuotaLow, pickRateLimitHeaders, ProviderQuotaSnapshot, tightestBucket } from '../common/providerQuota.js';
 import { IVibeSpendLedgerService } from './vibeSpendLedgerService.js';
@@ -7256,11 +7257,12 @@ Output ONLY the JSON, no other text. Start with { and end with }.`;
 								// Get all available models
 								const settingsState = this._settingsService.state;
 								const availableModels: ModelSelection[] = [];
+								const now = Date.now();
 								for (const providerName of Object.keys(settingsState.settingsOfProvider)) {
 									const providerSettings = settingsState.settingsOfProvider[providerName];
 									if (!providerSettings._didFillInProviderSettings) { continue; }
 									for (const modelInfo of providerSettings.models) {
-										if (!modelInfo.isHidden) {
+										if (!modelInfo.isHidden && !retiredForAutoPick(getModelCapabilities(providerName, modelInfo.modelName, settingsState.overridesOfModel), now)) {
 											const modelKey = `${providerName}/${modelInfo.modelName}`;
 											if (!triedModels.has(modelKey)) {
 												availableModels.push({
@@ -9637,6 +9639,7 @@ We only need to do it for files that were edited since `from`, ie files between 
 				needsVision,
 				isAvailable: selection => this._settingsService.state._modelOptions.some(option =>
 					option.selection.providerName === selection.providerName && option.selection.modelName === selection.modelName),
+				isRetired: selection => retiredForAutoPick(getModelCapabilities(selection.providerName, selection.modelName, this._settingsService.state.overridesOfModel), Date.now()),
 			});
 			if (pinned) {
 				vibeLog.info('chatThread', `[Auto Model Select] source=pinned ${pinned.providerName}/${pinned.modelName} — разговор остаётся на выбранной ранее модели`);

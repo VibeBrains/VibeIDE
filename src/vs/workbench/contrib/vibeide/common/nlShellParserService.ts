@@ -8,7 +8,7 @@ import { createDecorator } from '../../../../platform/instantiation/common/insta
 import { ILLMMessageService } from './sendLLMMessageService.js';
 import { IVibeideSettingsService } from './vibeideSettingsService.js';
 import { CancellationToken } from '../../../../base/common/cancellation.js';
-import { autoFallbackProviderIds, isValidProviderModelSelection, ModelSelection } from './vibeideSettingsTypes.js';
+import { isValidProviderModelSelection } from './vibeideSettingsTypes.js';
 import { analyzeNLShellSafety } from './nlShellSafetyAnalyzer.js';
 
 export const INLShellParserService = createDecorator<INLShellParserService>('nlShellParserService');
@@ -68,28 +68,13 @@ class NLShellParserService implements INLShellParserService {
 		const settings = this.settingsService.state;
 		let modelSelection = settings.modelSelectionOfFeature['Chat'] || { providerName: 'auto', modelName: 'auto' };
 
-		// If auto is selected, try to find a fallback model
+		// «Auto» resolves the way every other feature resolves it: floating and retired models are skipped there
 		if (modelSelection.providerName === 'auto' && modelSelection.modelName === 'auto') {
-			// Try to find the first available configured model (prefer online models first, then local)
-			let fallbackModel: ModelSelection | null = null;
-
-			for (const providerName of autoFallbackProviderIds(settings.settingsOfProvider)) {
-				const providerSettings = settings.settingsOfProvider[providerName];
-				if (providerSettings && providerSettings._didFillInProviderSettings) {
-					const models = providerSettings.models || [];
-					const firstModel = models.find(m => !m.isHidden);
-					if (firstModel) {
-						fallbackModel = { providerName, modelName: firstModel.modelName };
-						break;
-					}
-				}
-			}
-
-			if (fallbackModel) {
-				modelSelection = fallbackModel;
-			} else {
+			const resolved = this.settingsService.resolveAutoModelSelection(modelSelection);
+			if (!resolved) {
 				throw new Error('No model provider configured. Please configure a model provider in VibeIDE Settings.');
 			}
+			modelSelection = resolved;
 		}
 
 		// Type guard: ensure modelSelection is valid (not "auto")

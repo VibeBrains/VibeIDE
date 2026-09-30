@@ -46,4 +46,14 @@ suite('hour cache write price', () => {
 			{ patched: ['claude-opus-5-5'], ttl: '1h', write: 8, read: 0.5 },
 		);
 	});
+
+	/** Спека обещает `deprecation` и файлу, который правит встроенного провайдера: без переноса пометка молча терялась */
+	test('a file patching a built-in brings the retirement the vendor announced', () => {
+		const patches = builtinModelPatchesOf([{ id: 'openai/gpt-oss-20b', deprecation: { date: '2027-01-15', replacedBy: 'openai/gpt-oss-40b' } }]);
+		setBuiltinModelPatches({ groq: patches ?? {} });
+		assert.deepStrictEqual(
+			getModelCapabilities('groq', 'openai/gpt-oss-20b', undefined).deprecation,
+			{ date: '2027-01-15', replacedBy: 'openai/gpt-oss-40b' },
+		);
+	});
 });

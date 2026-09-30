@@ -2585,10 +2585,11 @@ export type ExternalProviderDescriptor = {
 const _externalProviders = new Map<string, { info: VoidStaticProviderInfo; source: 'file' | 'network' }>();
 
 /**
- * What a provider file patching a BUILT-IN provider declares for its models: the vendor's price and the cache lifetime
+ * What a provider file patching a BUILT-IN provider declares for its models: the vendor's price, the cache lifetime
+ * and the retirement the vendor announced
  * Price-list data, not behaviour: tool format, context and reasoning stay the built-in's, as its key and endpoint do
  */
-export type BuiltinModelPatch = Pick<Partial<VibeideStaticModelInfo>, 'cost' | 'promptCacheTtl'>;
+export type BuiltinModelPatch = Pick<Partial<VibeideStaticModelInfo>, 'cost' | 'promptCacheTtl' | 'deprecation'>;
 
 /** provider id → lowercase model id → patch; replaced whole on each load of the files */
 const _builtinModelPatches = new Map<string, ReadonlyMap<string, BuiltinModelPatch>>();

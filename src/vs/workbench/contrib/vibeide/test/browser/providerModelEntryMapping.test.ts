@@ -74,6 +74,7 @@ suite('providers.json → model capabilities', () => {
 			topP: 0.95,
 			topK: 20,
 			extraBody: { tool_stream: true },
+			deprecation: { date: '2026-12-01', replacedBy: 'next-model', note: 'по ченджлогу вендора' },
 		});
 
 		assert.deepStrictEqual(caps, {
@@ -88,6 +89,7 @@ suite('providers.json → model capabilities', () => {
 			defaultTemperature: 0.6,
 			defaultTopP: 0.95,
 			defaultTopK: 20,
+			deprecation: { date: '2026-12-01', replacedBy: 'next-model', note: 'по ченджлогу вендора' },
 		});
 	});
 

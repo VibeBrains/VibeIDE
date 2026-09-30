@@ -15,6 +15,7 @@ import { IConfigurationService } from '../../../../platform/configuration/common
 import { IMetricsService } from './metricsService.js';
 import { vibeLog } from './vibeLog.js';
 import { defaultProviderSettings, getModelCapabilities, isFloatingModel, ModelOverrides, VibeideStaticModelInfo } from './modelCapabilities.js';
+import { retiredForAutoPick } from './modelDeprecation.js';
 import type { VibeProviderEntry, VibeReasoningDialect } from './vibeProvidersFile.js';
 import { VOID_SETTINGS_STORAGE_KEY } from './storageKeys.js';
 import type { BuiltinWireHints } from './builtinWireHints.js';
@@ -523,6 +524,7 @@ const _validatedModelState = (state: Omit<VibeideSettingsState, '_modelOptions'>
 	// now that model options are updated, make sure the selection is valid
 	// if the user-selected model is no longer in the list, update the selection for each feature that needs it to something relevant (the 0th model available, or null)
 	let newModelSelectionOfFeature = state.modelSelectionOfFeature;
+	const now = Date.now();
 	for (const featureName of featureNames) {
 
 		const { filter } = modelFilterOfFeatureName[featureName];
@@ -549,9 +551,13 @@ const _validatedModelState = (state: Omit<VibeideSettingsState, '_modelOptions'>
 			if (providerStillActive) { continue; }
 		}
 
+		// The replacement is picked on the user's behalf, so a model the vendor already turned off is skipped
+		// The user can still choose it by hand: an enterprise contract may keep a model the vendor retired for everyone else
+		const replacement = modelOptionsForThisFeature.find(o => o.selection.providerName === 'auto'
+			|| !retiredForAutoPick(getModelCapabilities(o.selection.providerName, o.selection.modelName, state.overridesOfModel), now));
 		newModelSelectionOfFeature = {
 			...newModelSelectionOfFeature,
-			[featureName]: modelOptionsForThisFeature.length === 0 ? null : modelOptionsForThisFeature[0].selection
+			[featureName]: replacement?.selection ?? null
 		};
 	}
 
@@ -1260,12 +1266,18 @@ class VoidSettingsService extends Disposable implements IVibeideSettingsService 
 		// Walk the MERGED provider set: config providers first (the user's explicit configuration),
 		// then the curated built-in order — same precedence the model picker shows. A floating alias is
 		// taken only when no fixed model is available at all: «Auto» must not route onto moving ground.
+		// A model the vendor already turned off is not taken at all: it would answer 404 mid-task
 		let firstFloating: ModelSelection | null = null;
+		const now = Date.now();
 		for (const providerName of autoFallbackProviderIds(this.state.settingsOfProvider)) {
 			const providerSettings = this.state.settingsOfProvider[providerName];
 			if (providerSettings && providerSettings._didFillInProviderSettings) {
 				for (const model of (providerSettings.models || []).filter(m => !m.isHidden)) {
-					if (!isFloatingModel(getModelCapabilities(providerName, model.modelName, this.state.overridesOfModel))) {
+					const capabilities = getModelCapabilities(providerName, model.modelName, this.state.overridesOfModel);
+					if (retiredForAutoPick(capabilities, now)) {
+						continue;
+					}
+					if (!isFloatingModel(capabilities)) {
 						return { providerName, modelName: model.modelName };
 					}
 					firstFloating ??= { providerName, modelName: model.modelName };
