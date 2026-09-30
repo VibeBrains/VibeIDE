@@ -30,7 +30,7 @@ import { toolCallSignature, resolveAntiLoopThreshold, endsWithQuestion, looksLik
 import { IVibeImageCostService } from './vibeImageCostService.js';
 import { IVibeTokenBudgetService } from '../common/vibeTokenBudgetService.js';
 import { getModelCapabilities, isFloatingModel, type AutoDowngradeReason } from '../common/modelCapabilities.js';
-import { ProviderRefusalDiagnostics, AnthropicReasoning, getErrorMessage, LLMChatMessage, LLMTokenUsage, parseContextOverflowError, parseEmptyResponseError, RawToolCallObj, RawToolParamsObj } from '../common/sendLLMMessageTypes.js';
+import { ProviderRefusalDiagnostics, AnthropicReasoning, getErrorMessage, LLMChatMessage, LLMFinishNotice, LLMTokenUsage, parseContextOverflowError, parseEmptyResponseError, RawToolCallObj, RawToolParamsObj } from '../common/sendLLMMessageTypes.js';
 import { isQuotaLow, pickRateLimitHeaders, ProviderQuotaSnapshot, tightestBucket } from '../common/providerQuota.js';
 import { IVibeSpendLedgerService } from './vibeSpendLedgerService.js';
 import { ModelHealthTracker, HEALTH_FAILURE_THRESHOLD, HEALTH_WINDOW_MS, classifyProviderError } from '../common/modelHealthTracker.js';
@@ -6204,7 +6204,7 @@ Output ONLY the JSON, no other text. Start with { and end with }.`;
 				}
 
 				type ResTypes =
-					| { type: 'llmDone'; toolCall?: RawToolCallObj; info: { fullText: string; fullReasoning: string; anthropicReasoning: AnthropicReasoning[] | null } }
+					| { type: 'llmDone'; toolCall?: RawToolCallObj; info: { fullText: string; fullReasoning: string; anthropicReasoning: AnthropicReasoning[] | null; finishNotice?: LLMFinishNotice } }
 					| { type: 'llmError'; error?: { message: string; fullError: Error | null } }
 					| { type: 'llmAborted' };
 
@@ -6753,7 +6753,7 @@ Output ONLY the JSON, no other text. Start with { and end with }.`;
 							this._maybeShowVisionDropWarning(modelSelection, fullText);
 						}
 
-						resMessageIsDonePromise({ type: 'llmDone', toolCall, info: { fullText, fullReasoning, anthropicReasoning } }); // resolve with tool calls
+						resMessageIsDonePromise({ type: 'llmDone', toolCall, info: { fullText, fullReasoning, anthropicReasoning, finishNotice } }); // resolve with tool calls
 					},
 					onError: async (error) => {
 						// Clear timeout
@@ -7847,6 +7847,22 @@ Output ONLY the JSON, no other text. Start with { and end with }.`;
 				// and the run died SILENTLY with no notice and no «Продолжить» affordance.
 				if (chatMode === 'agent' && !toolCall
 					&& !hasSynthesizedToolsInThisRequest && !toolSynthesizedAndMessageAdded) {
+					// The model did call, in markup nothing parsed: a nudge «вызови инструмент» would only make it repeat the same
+					// markup, turn after turn, and the run would then end as «finished with text». The notice above says what
+					// happened; the run stops here with the resume affordance, for a model change or a manual retry
+					if (info.finishNotice?.kind === 'unparsedToolCall') {
+						vibeLog.warn('chatThread', `[agent] tool call written as text in unrecognised markup (${modelSelection?.providerName ?? '?'}/${modelSelection?.modelName ?? '?'}) — stopping instead of nudging.`);
+						await reportTurnChecksOnFinalExit(info.fullText);
+						this._addMessageToThread(threadId, {
+							role: 'assistant',
+							displayContent: localize('vibeide.agent.stoppedUnparsedToolCall', 'Прогон остановлен: вызов инструмента не распознан, и повтор хода дал бы тот же результат. Смените модель и нажмите «Продолжить» или напишите следующий шаг.'),
+							reasoning: '',
+							anthropicReasoning: null,
+							agentStoppedNoToolCall: true,
+						});
+						this._setStreamState(threadId, { isRunning: undefined });
+						return;
+					}
 					const autopilotOn = this._settingsService.state.globalSettings.chatAgentAutopilot === true;
 					const rawMaxNudges = this._configurationService.getValue<unknown>('vibeide.agent.autoContinueMaxNudges');
 					const maxNudges = (typeof rawMaxNudges === 'number' && Number.isFinite(rawMaxNudges) && rawMaxNudges >= 0) ? Math.floor(rawMaxNudges) : 2;

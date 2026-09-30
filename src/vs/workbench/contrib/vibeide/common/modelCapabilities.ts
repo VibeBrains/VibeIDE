@@ -1729,38 +1729,57 @@ const geminiSettings: VoidStaticProviderInfo = {
 
 
 // ---------------- DEEPSEEK API ----------------
-// V4 generation (released 2026-04-24, MIT weights): 1M context, both ids serve a thinking and a
-// non-thinking mode behind the same name. Both are TEXT-ONLY — `supportsVision: false` is load-
-// bearing here, it keeps the vision gate from routing an image request to a model that cannot
-// accept one. https://api-docs.deepseek.com/quick_start/pricing
+// https://api-docs.deepseek.com/quick_start/pricing
+// Every id serves a thinking and a non-thinking mode behind the same name, and both modes take tools natively
+// Without `specialToolFormat` the request goes out without `tools`, and the model writes its DSML call into the text:
+// The vendor parses that markup into `tool_calls` only for a request that declared tools
+
+// Peak hours of the price list: 01:00–04:00 and 06:00–10:00 UTC on weekdays, off-peak is half the peak rate
+// Chinese public holidays are off-peak all day as well
+// Their calendar changes every year, so it comes only from a provider file declaring the model with `timeOfDay`
+const deepseekTimeOfDay: PriceTimeOfDay = {
+	windows: [{ from: 60, to: 240 }, { from: 360, to: 600 }],
+	days: [1, 2, 3, 4, 5],
+	offPeakDates: new Set<string>(),
+	offPeakFactor: 0.5,
+};
+
+const deepseekFlash = {
+	...openSourceModelOptions_assumingOAICompat.deepseekR1,
+	specialToolFormat: 'openai-style',
+	contextWindow: 1_000_000,
+	reservedOutputTokenSpace: 32_000,
+	// `supportsVision` is load-bearing on each DeepSeek id: it decides whether the vision gate may route an image here
+	supportsVision: true,
+	cost: { cache_read: .006, input: .30, output: 1.20, time_of_day: deepseekTimeOfDay },
+	downloadable: false,
+} as const satisfies VibeideStaticModelInfo;
+
 const deepseekModelOptions = {
+	'deepseek-flash': deepseekFlash,
 	'deepseek-v4-pro': {
 		...openSourceModelOptions_assumingOAICompat.deepseekR1,
+		specialToolFormat: 'openai-style',
 		contextWindow: 1_000_000,
 		reservedOutputTokenSpace: 32_000,
 		supportsVision: false,
-		cost: { cache_read: .003625, input: .435, output: .87, },
+		cost: { cache_read: .044, input: 1.32, output: 3.96, time_of_day: deepseekTimeOfDay },
 		downloadable: false,
 	},
+	// Retired by the vendor; the id keeps answering, served by `deepseek-flash`
 	'deepseek-v4-flash': {
-		...openSourceModelOptions_assumingOAICompat.deepseekR1,
-		contextWindow: 1_000_000,
-		reservedOutputTokenSpace: 32_000,
-		supportsVision: false,
-		cost: { cache_read: .0028, input: .14, output: .28, },
-		downloadable: false,
+		...deepseekFlash,
+		deprecation: { replacedBy: 'deepseek-flash' },
 	},
-	// `deepseek-chat` / `deepseek-reasoner` removed — DeepSeek retired both ids on 2026-07-24, so
-	// the names no longer resolve at the provider either. A stale selection degrades gracefully
-	// rather than throwing: this provider's `modelOptionsFallback` returns null, so
-	// `getModelCapabilities` hands back `defaultModelOptions` flagged `isUnrecognizedModel`, and the
-	// models.dev catalog still fills in context/cost if it knows the id.
+	// `deepseek-chat` / `deepseek-reasoner` removed — DeepSeek retired both ids on 2026-07-24
 } as const satisfies { [s: string]: VibeideStaticModelInfo };
 
 
 const deepseekSettings: VoidStaticProviderInfo = {
 	modelOptions: deepseekModelOptions,
-	modelOptionsFallback: (modelName) => { return null; },
+	// An id the list does not know yet still gets native tools: without a profile it would silently fall into XML mode
+	// The text-only Pro profile keeps the vision gate shut, and its dearer price makes the estimate err high, not free
+	modelOptionsFallback: modelName => ({ ...deepseekModelOptions['deepseek-v4-pro'], modelName, recognizedModelName: 'deepseek-v4-pro' }),
 	providerReasoningIOSettings: {
 		// reasoning: OAICompat +  response.choices[0].delta.reasoning_content // https://api-docs.deepseek.com/guides/reasoning_model
 		input: { includeInPayload: openAICompatIncludeInPayloadReasoning },

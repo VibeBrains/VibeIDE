@@ -34,6 +34,7 @@ Format должен покрываться **хотя бы одним** layer. �
 | **DeepSeek-v4-pro** | openCode aggregator | `tool_calls` outer wrap | L1 | `outerToolCalls` | builtin baseline |
 | **Kimi-K2** | openCode aggregator (force-XML) | Canonical + aliases (`<read>` → `read_file`) | L1 | `aliasResolution` | 2026-05-22 |
 | **Minimax-m2.7** | openCode aggregator | Native FC cross-tool args confusion | force-XML quirk via `model-quirks.json` | n/a (X.14.2 backlog) | 2026-05-23 |
+| **DeepSeek-flash** | встроенный `deepseek` (попал в XML-режим без формата) | DSML без маркеров: `< calls>` / `< invoke name=…>` / `</ parameter>` | L1 + признак `unparsedToolCall` для нераспознанного | `DeepSeek DSML residue` (3 tests), node `вызов, написанный текстом` | 2026-09-28 |
 
 ---
 

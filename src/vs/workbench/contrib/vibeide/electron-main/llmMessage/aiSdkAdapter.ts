@@ -32,6 +32,7 @@ import { generateUuid } from '../../../../../base/common/uuid.js';
 import { availableTools, InternalToolInfo } from '../../common/prompt/prompts.js';
 import { TOOL_NAME_ALIASES, applyParamAliases } from '../../common/prompt/toolAliases.js';
 import { lenientJsonParseObject } from '../../common/lenientJson.js';
+import { hasToolCallMarkup } from '../../common/xmlToolNormalize.js';
 import { getModelSdkNpm } from './modelsDevCatalog.js';
 import { buildContextOverflowError, buildEmptyResponseError, isContextOverflow, LLMChatMessage, LLMFinishNotice, LLMTokenUsage, ProviderRefusalDiagnostics, RawToolCallObj, RawToolParamsObj } from '../../common/sendLLMMessageTypes.js';
 import { claudeThinkingOptions, compatibleClaudeThinkingOptions, DEFAULT_CLAUDE_THINKING_DISPLAY, googleThinkingConfig, isClaudeModelId, openAIReasoningEffort, replaysThinkingBlock, withoutEmptyThinkingSignatures, withThinkTags } from '../../common/wireReasoning.js';
@@ -1906,10 +1907,12 @@ export const sendViaAISdk = async (params: SendChatParams_Internal): Promise<voi
 			onError({ message: cutToolCallMessage(toolName, reason), fullError: null, ...diagnostics });
 			return;
 		}
+		const tc = cutToolCall ? null : finalizeToolCall();
+		// Native mode never runs text, so a call the model spelled out in it is lost; XML mode judges its own text in extractGrammar
+		const unparsedToolCall = !!specialToolFormat && !tc && !cutToolCall && hasToolCallMarkup(fullTextSoFar);
 		const finishNotice: LLMFinishNotice | undefined = cutToolCall
 			? { kind: 'truncated', by: notice?.kind === 'truncated' ? notice.by : 'output-limit', cutToolName: toolName }
-			: notice;
-		const tc = cutToolCall ? null : finalizeToolCall();
+			: notice ?? (unparsedToolCall ? { kind: 'unparsedToolCall' } : undefined);
 		onFinalMessage({
 			fullText: fullTextSoFar,
 			fullReasoning: fullReasoningSoFar,

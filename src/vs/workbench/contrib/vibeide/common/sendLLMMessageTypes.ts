@@ -226,7 +226,12 @@ export type LLMFinishNotice =
 	}
 	/** The stream went silent and was ended by our timer; what arrived is delivered, a half-written call is not. */
 	| { readonly kind: 'stalled'; readonly cutToolName?: string }
-	| { readonly kind: 'refusal'; readonly category?: string; readonly explanation?: string };
+	| { readonly kind: 'refusal'; readonly category?: string; readonly explanation?: string }
+	/**
+	 * The model wrote a tool call into its text in markup the IDE did not parse, and nothing was run
+	 * Read as prose, the turn ends «with text» and the autopilot nudges a model that believes it has already called
+	 */
+	| { readonly kind: 'unparsedToolCall' };
 /**
  * What the provider actually said at the moment it refused, captured verbatim.
  *

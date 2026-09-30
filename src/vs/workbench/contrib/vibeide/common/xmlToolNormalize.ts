@@ -198,6 +198,7 @@ export const convertJsonToolArrayToCanonical = (text: string): string => {
  *   - tool_calls      DeepSeek / Anthropic (newer)
  *   - tool_use        Anthropic
  *   - tools           Generic
+ *   - calls           DeepSeek DSML residue (`< calls>` once the vendor's markers are gone, see SPACED_MARKUP_RE)
  */
 /**
  * Vendor wrapper names — exported so streaming-state code in `extractGrammar.ts`
@@ -211,7 +212,31 @@ export const VENDOR_WRAPPER_NAMES: readonly string[] = [
 	'tool_calls',
 	'tool_use',
 	'tools',
+	'calls',
 ];
+
+/**
+ * Tag names that arrive with whitespace after `<` or `</` once DSML markers are gone
+ * Observed from DeepSeek called without native tools:
+ * `< calls>` / `< invoke name="git_state">` / `< parameter name="what" string="true">branch</ parameter>`
+ */
+const SPACED_MARKUP_NAMES: readonly string[] = ['invoke', 'parameter', ...VENDOR_WRAPPER_NAMES];
+
+/**
+ * `< invoke` / `</ parameter` / `< /calls` → `<invoke` / `</parameter` / `</calls`
+ * The tag must close on the same line, so prose such as `a < tools` is left as written
+ */
+const SPACED_MARKUP_RE = new RegExp(`<(\\s*)(\\/?)(\\s*)(${SPACED_MARKUP_NAMES.join('|')})\\b(?=[^<>\\n]*>)`, 'gi');
+
+/** `invoke name="…"` / `parameter name="…"` in any spacing, with or without DSML markers around the tag name */
+const TOOL_CALL_MARKUP_RE = /\b(?:invoke|parameter)\s+name\s*=\s*["']/i;
+
+/**
+ * Whether text still carries tool-call markup
+ * Checked on a turn that produced no call: on the normalized text in XML mode, where every parsed call is already
+ * rewritten to canonical tags, and on the raw text in native mode, where text is never executed
+ */
+export const hasToolCallMarkup = (text: string): boolean => TOOL_CALL_MARKUP_RE.test(text);
 
 /**
  * Namespaced suffix patterns: `<vendor:tool_call>`, `<minimax:invoke>`, etc.
@@ -264,6 +289,9 @@ export const STRIP_WRAPPERS_RE = new RegExp(
  */
 const FAST_PATH_SNIFFS: readonly string[] = [
 	'<invoke',
+	// Any spacing of `< invoke name=` / `< calls>` — the tag-name sniffs above need `<` glued to the name
+	'invoke name=',
+	'calls>',
 	...VENDOR_WRAPPER_NAMES.map(name => `<${name}`),
 	...VENDOR_NAMESPACED_SUFFIXES.map(suffix => `:${suffix}`),
 	// Close-tag of any canonical tool → enter the full path so the paired-attribute
@@ -394,7 +422,9 @@ const normalizeAlternativeToolSyntaxImpl = (text: string): string => {
 	// Strip DSML fullwidth-pipe markers FIRST so the downstream regexes (which
 	// look for literal `<invoke`, `<parameter`, etc.) see canonical tag names.
 	let beforeDsml = jsonNormalized;
-	let result = jsonNormalized.replace(DSML_MARKER_STRIP_RE, '');
+	let result = jsonNormalized
+		.replace(DSML_MARKER_STRIP_RE, '')
+		.replace(SPACED_MARKUP_RE, (_m: string, _before: string, slash: string, _after: string, name: string) => `<${slash}${name}`);
 	if (result !== beforeDsml) { bumpCounter('dsml'); }
 	beforeDsml = result;
 	result = result.replace(STRIP_WRAPPERS_RE, '');
@@ -610,13 +640,13 @@ const STRIP_PATTERNS: readonly StripPattern[] = builtinToolNames.map(toolName =>
  * truncated `tool_c`.
  */
 // Token alternation derived from `VENDOR_WRAPPER_NAMES` (single source of truth — same
-// const that feeds `STRIP_WRAPPERS_RE`/`FAST_PATH_SNIFFS`) plus `invoke` and a small
+// const that feeds `STRIP_WRAPPERS_RE`/`FAST_PATH_SNIFFS`) plus `invoke`, `parameter` and a small
 // EMPIRICAL set of truncated variants the way deepseek-v4-pro via openCodeGo emits them
 // (`<tool_c`/`</inv` cut mid-tag). Adding a vendor wrapper to VENDOR_WRAPPER_NAMES extends
 // these scrubs automatically — no duplicated hardcoded list. Longest-first so full names
 // win over their truncated prefixes.
 const VENDOR_LEAK_TRUNCATIONS: readonly string[] = ['tool_c', 'inv'];
-const vendorLeakAlternation = [...VENDOR_WRAPPER_NAMES, 'invoke', ...VENDOR_LEAK_TRUNCATIONS]
+const vendorLeakAlternation = [...VENDOR_WRAPPER_NAMES, 'invoke', 'parameter', ...VENDOR_LEAK_TRUNCATIONS]
 	.slice()
 	.sort((a, b) => b.length - a.length)
 	.map(escapeRegexLiteral)

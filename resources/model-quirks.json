@@ -170,7 +170,7 @@
 			"match": "deepseek",
 			"forceEmptyReasoning": true,
 			"mirrorReasoningContent": true,
-			"note": "DeepSeek family (all providers) — every assistant message must carry a reasoning slot (HTTP 400 otherwise); reasoning text must be mirrored on top-level message field. Native FC is left enabled here for direct API users; the openCode-scoped rule above forces XML for that aggregator."
+			"note": "DeepSeek family (all providers) — every assistant message must carry a reasoning slot (HTTP 400 otherwise); reasoning text must be mirrored on top-level message field. No tool-format force here: the built-in DeepSeek profiles declare native FC themselves (modelCapabilities.ts) — until 2026-09-30 they did not, and the direct API silently ran in XML mode, where the model writes DSML calls into the text. The openCode-scoped rule above sets auto for that aggregator."
 		},
 		{
 			"match": "qwen",

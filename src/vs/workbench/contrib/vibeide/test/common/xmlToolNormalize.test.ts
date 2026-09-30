@@ -31,6 +31,7 @@ import * as assert from 'assert';
 import { ensureNoDisposablesAreLeakedInTestSuite } from '../../../../../base/test/common/utils.js';
 import {
 	getNormalizeCounters,
+	hasToolCallMarkup,
 	normalizeAlternativeToolSyntax,
 	resetNormalizeCounters,
 	resolveInvokeToolName,
@@ -192,15 +193,33 @@ suite('XML tool normalization (v0.13.10)', () => {
 			assert.doesNotMatch(out, /<tool_calls>/, `outer wrapper should be stripped, got: ${out.slice(0, 200)}`);
 		});
 
-		test('ASCII-pipe DSML variant is NOT fast-pathed (documented perf limitation)', () => {
-			// `<|FOO|…>` uses ASCII `|`. The DSML strip regex CAN handle it, but the fast-path
-			// sniff list intentionally omits ASCII `|`: it appears in nearly every markdown
-			// table / code block, so sniffing it would force the full path on almost all
-			// messages. The fullwidth `｜` (U+FF5C) IS sniffed. So this hypothetical ASCII
-			// variant passes through unchanged — by design, not a regression.
+		test('ASCII-pipe DSML variant reaches the full path through the `invoke name=` sniff', () => {
+			// ASCII `|` itself is still not sniffed: it appears in nearly every markdown table and
+			// would force the full path on almost all messages. `invoke name=` is rare in prose,
+			// and once it lets the text in, the DSML strip handles the ASCII pipes as well.
 			const input = '<|FOO|invoke name="read_file"><|FOO|parameter name="path">x</|FOO|parameter></|FOO|invoke>';
-			const out = normalizeAlternativeToolSyntax(input);
-			assert.strictEqual(out, input);
+			assert.strictEqual(normalizeAlternativeToolSyntax(input), '<read_file><uri>x</uri></read_file>');
+		});
+	});
+
+	suite('DeepSeek DSML residue — whitespace after `<` (2026-09-30)', () => {
+
+		test('the form from the incident thread becomes a canonical call', () => {
+			// DeepSeek called without native tools: its DSML markers were gone and left a space behind
+			const input = '< calls>\n< invoke name="git_state">\n< parameter name="what" string="true">branch</ parameter>\n</ invoke>\n</ calls>';
+			assert.strictEqual(normalizeAlternativeToolSyntax(input), '\n<git_state>\n<what>branch</what>\n</git_state>\n');
+		});
+
+		test('prose with `<` before the same words is left as written', () => {
+			const input = 'Пример `<invoke name="x">` из доки, а ещё count < calls, a < parameter';
+			assert.strictEqual(normalizeAlternativeToolSyntax(input), input);
+		});
+
+		test('hasToolCallMarkup: any spacing and DSML markers count, bare words do not', () => {
+			assert.deepStrictEqual(
+				['< invoke name="x">', '<｜DSML｜parameter name=\'y\'>', 'про invoke и parameter словами', 'name="x"'].map(hasToolCallMarkup),
+				[true, true, false, false],
+			);
 		});
 	});
 

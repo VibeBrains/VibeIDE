@@ -132,6 +132,11 @@ export function describeFinishNotice(notice: LLMFinishNotice): string {
 		}
 		return lines.join('\n\n');
 	}
+	if (notice.kind === 'unparsedToolCall') {
+		lines.push(localize('vibeide.finish.unparsedToolCall', "**Модель написала вызов инструмента текстом, в разметке, которую IDE не распознала**"));
+		lines.push(localize('vibeide.finish.unparsedToolCallHint', "Вызов не выполнен. Модель, скорее всего, считает, что уже его сделала"));
+		return lines.join('\n\n');
+	}
 	if (notice.kind === 'stalled') {
 		lines.push(localize('vibeide.finish.stalled', "**Поток ответа замолчал и был прерван**"));
 		lines.push(localize('vibeide.finish.stalledShown', "Показано то, что успело прийти"));

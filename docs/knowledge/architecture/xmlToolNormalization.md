@@ -63,6 +63,10 @@ LLM emit'ит tool call в произвольном формате
 | Malformed close `<tool_calls<invoke ...>…</invoke</tool_calls` | deepseek-v4-pro 2026-05-23 | Wrappers leaked (требовали `>`) | Tolerant close `(?:>|(?=<|$))` strips orphans |
 | `<tool_calls>` outer wrap | Generic | Stripped via STRIP_WRAPPERS_RE | Removed before invoke regex |
 | Namespaced `<minimax:tool_call>`, `<claude:tool_use>`, etc. | Various | Stripped via STRIP_WRAPPERS_RE | Removed |
+| DSML без маркеров, пробел после `<`: `< calls>` / `< invoke name="X">` / `</ parameter>` | встроенный deepseek-flash в XML-режиме, 2026-09-28 | Проходило быструю проверку насквозь, считалось прозой | `SPACED_MARKUP_RE` склеивает `<` с именем, если тег закрыт `>` на той же строке (проза `count < calls` не трогается) → обёртка `calls` снята → invoke normalized |
+
+Показ в потоке: нормализация может переписать уже показанный текст — блок схлопывается на `</invoke>`, обёртка распознаётся, когда пришёл её `>`.
+XML-обёртка тогда пересобирает показанный текст из всего нормализованного потока, а не дописывает хвост по смещению: смещение указывало бы в другие символы, и на экран попадал бы обрывок вида `< inv"git_state">`.
 
 ## [архитектура] Decision tree (normalize)
 

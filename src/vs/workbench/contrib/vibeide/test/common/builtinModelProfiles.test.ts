@@ -5,7 +5,8 @@
 
 import * as assert from 'assert';
 import { ensureNoDisposablesAreLeakedInTestSuite } from '../../../../../base/test/common/utils.js';
-import { builtinWireSdkNpm, getModelCapabilities, getProviderCapabilities } from '../../common/modelCapabilities.js';
+import { builtinWireSdkNpm, getModelCapabilities, getProviderCapabilities, resolveProvider } from '../../common/modelCapabilities.js';
+import { providerNames } from '../../common/vibeideSettingsTypes.js';
 
 /**
  * Встроенные провайдеры: какая модель уходит на провод, чей профиль она получает и каким проводом идёт.
@@ -111,6 +112,81 @@ suite('builtin model profiles — имя на проводе, профиль, п
 			{ model: 'claude-sonnet-4-5', cost: { input: 3, cache_read: 0.3, cache_write: 3.75, output: 15 }, default: undefined, canTurnOff: true },
 			{ model: 'claude-haiku-4-5', cost: { input: 1, cache_read: 0.1, cache_write: 1.25, output: 5 }, default: undefined, canTurnOff: undefined },
 		]);
+	});
+
+	test('DeepSeek: нативные вызовы у каждой модели, картинки у Flash, цена по часам, незнакомый id', () => {
+		const card = (modelName: string) => {
+			const caps = getModelCapabilities('deepseek', modelName, undefined);
+			const cost = caps.cost;
+			return {
+				model: `${caps.modelName} ← ${caps.recognizedModelName ?? '—'}`,
+				tools: caps.specialToolFormat,
+				vision: caps.supportsVision,
+				cost: { input: cost.input, output: cost.output, cache_read: cost.cache_read },
+				offPeakFactor: cost.time_of_day?.offPeakFactor,
+				replacedBy: caps.deprecation?.replacedBy,
+			};
+		};
+		assert.deepStrictEqual(['deepseek-flash', 'deepseek-v4-pro', 'deepseek-v4-flash', 'deepseek-v5-preview'].map(card), [
+			{ model: 'deepseek-flash ← deepseek-flash', tools: 'openai-style', vision: true, cost: { input: 0.30, output: 1.20, cache_read: 0.006 }, offPeakFactor: 0.5, replacedBy: undefined },
+			{ model: 'deepseek-v4-pro ← deepseek-v4-pro', tools: 'openai-style', vision: false, cost: { input: 1.32, output: 3.96, cache_read: 0.044 }, offPeakFactor: 0.5, replacedBy: undefined },
+			{ model: 'deepseek-v4-flash ← deepseek-v4-flash', tools: 'openai-style', vision: true, cost: { input: 0.30, output: 1.20, cache_read: 0.006 }, offPeakFactor: 0.5, replacedBy: 'deepseek-flash' },
+			{ model: 'deepseek-v5-preview ← deepseek-v4-pro', tools: 'openai-style', vision: false, cost: { input: 1.32, output: 3.96, cache_read: 0.044 }, offPeakFactor: 0.5, replacedBy: undefined },
+		]);
+	});
+
+	/**
+	 * Модель облачного провайдера без `specialToolFormat` молча уходит в XML-режим: запрос идёт без `tools`,
+	 * и модель, обученная на собственной разметке вызовов, пишет её в текст. Так весь встроенный DeepSeek
+	 * работал в XML-режиме, пока каталог квирков утверждал обратное
+	 * Локальные и произвольные OpenAI-совместимые провайдеры не проверяются: там умения зависят от того, что поднято
+	 *
+	 * Список ниже — модели, найденные стражем при его появлении и ещё не сверенные с документацией вендора
+	 * Он только убывает: новая модель без формата роняет тест, и вылеченная, но оставленная в списке, тоже
+	 */
+	test('каждая модель облачного встроенного провайдера объявляет формат вызовов', () => {
+		const servedByUser = new Set(['ollama', 'vLLM', 'lmStudio', 'openAICompatible']);
+		const notYetVerified = [
+			'openRouter/qwen/qwen3-235b-a22b',
+			'openRouter/microsoft/phi-4-reasoning-plus:free',
+			'openRouter/mistralai/mistral-small-3.1-24b-instruct:free',
+			'openRouter/google/gemini-2.0-flash-lite-preview-02-05:free',
+			'openRouter/google/gemini-2.0-pro-exp-02-05:free',
+			'openRouter/google/gemini-2.0-flash-exp:free',
+			'openRouter/deepseek/deepseek-r1',
+			'openRouter/deepseek/deepseek-r1-zero:free',
+			'openRouter/anthropic/claude-opus-4',
+			'openRouter/anthropic/claude-sonnet-4',
+			'openRouter/anthropic/claude-3.7-sonnet:thinking',
+			'openRouter/anthropic/claude-3.7-sonnet',
+			'openRouter/anthropic/claude-3.5-sonnet',
+			'openRouter/mistralai/codestral-2501',
+			'openRouter/mistralai/devstral-small:free',
+			'openRouter/qwen/qwen-2.5-coder-32b-instruct',
+			'openRouter/qwen/qwq-32b',
+			'groq/llama-3.3-70b-versatile',
+			'groq/llama-3.1-8b-instant',
+			'groq/qwen-2.5-coder-32b',
+			'groq/qwen-qwq-32b',
+			'openAI/o3-mini',
+			'openAI/o1-pro',
+			'openAI/o1',
+			'openAI/o1-mini',
+			'mistral/mistral-large-latest',
+			'mistral/mistral-medium-latest',
+			'mistral/codestral-latest',
+			'mistral/magistral-medium-latest',
+			'mistral/magistral-small-latest',
+			'mistral/devstral-small-latest',
+			'mistral/ministral-8b-latest',
+			'mistral/ministral-3b-latest',
+		];
+		const withoutToolFormat = providerNames
+			.filter(provider => !servedByUser.has(provider))
+			.flatMap(provider => Object.keys(resolveProvider(provider)?.info.modelOptions ?? {})
+				.filter(modelName => !getModelCapabilities(provider, modelName, undefined).specialToolFormat)
+				.map(modelName => `${provider}/${modelName}`));
+		assert.deepStrictEqual(withoutToolFormat, notYetVerified);
 	});
 
 	test('провод встроенного: свой у Anthropic, Gemini и локальных, у OpenAI — Responses для GPT-6', () => {

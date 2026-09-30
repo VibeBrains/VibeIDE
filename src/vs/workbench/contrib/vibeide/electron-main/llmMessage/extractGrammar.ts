@@ -9,10 +9,10 @@ import { endsWithAnyPrefixOf, SurroundingsRemover } from '../../common/helpers/e
 import { stripStandaloneThinkDelimiters } from '../../common/helpers/stripThinkDelimiters.js';
 import { availableTools, InternalToolInfo } from '../../common/prompt/prompts.js';
 import { PARAM_ALIASES_BY_TOOL, TOOL_NAME_ALIASES } from '../../common/prompt/toolAliases.js';
-import { OnFinalMessage, OnText, RawToolCallObj, RawToolParamsObj } from '../../common/sendLLMMessageTypes.js';
+import { LLMFinishNotice, OnFinalMessage, OnText, RawToolCallObj, RawToolParamsObj } from '../../common/sendLLMMessageTypes.js';
 import { ToolName, ToolParamName } from '../../common/toolsServiceTypes.js';
 import { ChatMode } from '../../common/vibeideSettingsTypes.js';
-import { normalizeAlternativeToolSyntax, NormalizeAttribution, SELF_CLOSING_PARTIAL_RE, stripUnclaimedToolTags, VENDOR_NAMESPACED_SUFFIXES, VENDOR_WRAPPER_NAMES } from '../../common/xmlToolNormalize.js';
+import { hasToolCallMarkup, normalizeAlternativeToolSyntax, NormalizeAttribution, SELF_CLOSING_PARTIAL_RE, stripUnclaimedToolTags, VENDOR_NAMESPACED_SUFFIXES, VENDOR_WRAPPER_NAMES } from '../../common/xmlToolNormalize.js';
 
 
 // =============== reasoning ===============
@@ -243,6 +243,9 @@ const ALT_PARTIAL_REGEXES: RegExp[] = (() => {
 		// Invoke partial: `<invoke ...` (open) or `</invoke...` (close) without `>`.
 		/<invoke\b[^>]*$/i,
 		/<\/invoke\b[^>]*$/i,
+		// Spaced partial: `< invoke name="x` / `</ parameter` — the normalizer glues them only once `>` arrives
+		// Wrapper names stay out: `count < calls` at the end of a chunk would hold back all the prose after it
+		/<\s*\/?\s*(?:invoke|parameter)\b[^>\n]*$/i,
 		// Self-closing partial (v0.13.10): `<read_file path="d:\Project` etc.
 		SELF_CLOSING_PARTIAL_RE,
 		// X.6 — DSML fullwidth-pipe partial: `<｜｜DSML｜｜inv` mid-stream
@@ -481,18 +484,28 @@ export const extractXMLToolsWrapper = (
 	let foundOpenTag: { idx: number; toolName: ToolName } | null = null;
 	let openToolTagBuffer = ''; // the characters we've seen so far that come after a < with no space afterwards, not yet added to fullText
 
-	let prevNormalizedLen = 0;
+	let prevNormalized = '';
 	const newOnText: OnText = (params) => {
 		// Normalize alternative tool-call syntaxes (<invoke name=...>, <tool_code>, etc.)
 		// into our canonical <tool><param>...</param></tool> form. Until a closing
 		// </invoke> arrives, the buffer is unchanged and the partial-tag hints below
 		// hold the in-progress XML out of the user-visible chat.
 		const normalizedFullText = normalizeAlternativeToolSyntax(params.fullText, attribution);
-		// Length is non-monotonic: when </invoke> finally lands, the whole block
-		// collapses to its shorter canonical form. Clamp so substring() stays valid.
-		if (prevNormalizedLen > normalizedFullText.length) { prevNormalizedLen = normalizedFullText.length; }
-		const newText = normalizedFullText.substring(prevNormalizedLen);
-		prevNormalizedLen = normalizedFullText.length;
+		// Normalization may rewrite text already shown: a block collapses once `</invoke>` lands, a wrapper is
+		// recognised once its `>` arrives
+		// An offset into the previous text then points into different characters and the new tail comes out garbled,
+		// so the shown text is rebuilt from the whole normalized stream instead
+		let newText: string;
+		if (normalizedFullText.startsWith(prevNormalized)) {
+			newText = normalizedFullText.substring(prevNormalized.length);
+		} else {
+			newText = normalizedFullText;
+			if (foundOpenTag === null) {
+				fullText = '';
+				openToolTagBuffer = '';
+			}
+		}
+		prevNormalized = normalizedFullText;
 		trueFullText = normalizedFullText;
 
 		if (foundOpenTag === null) {
@@ -558,7 +571,15 @@ export const extractXMLToolsWrapper = (
 		// console.log('----- tools ----\n', JSON.stringify(firstToolCallRef.current, null, 2))
 		// console.log('----- toolCall ----\n', JSON.stringify(toolCall, null, 2))
 
-		onFinalMessage({ ...params, fullText: stripUnclaimedToolTags(fullText, attribution), toolCall: toolCall });
+		// Markup left after normalization is a call nothing understood — the scrub below hides it from the reader,
+		// so the notice is the only trace of it
+		const unparsed = !toolCall && !params.finishNotice && hasToolCallMarkup(trueFullText);
+		onFinalMessage({
+			...params,
+			fullText: stripUnclaimedToolTags(fullText, attribution),
+			toolCall: toolCall,
+			...(unparsed ? { finishNotice: { kind: 'unparsedToolCall' } satisfies LLMFinishNotice } : {}),
+		});
 	};
 	return { newOnText, newOnFinalMessage };
 };

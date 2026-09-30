@@ -110,6 +110,20 @@ const compatibleStream = (): string => sse([
 	{ id: 'c1', object: 'chat.completion.chunk', created: 1, model: 'm', choices: [{ index: 0, delta: {}, finish_reason: 'stop' }], usage: { prompt_tokens: 100, completion_tokens: 3, total_tokens: 103, prompt_tokens_details: { cached_tokens: 10, cache_write_tokens: 40 } } },
 ], false) + 'data: [DONE]\n\n';
 
+/**
+ * A tool call written into the text, streamed in pieces cut mid-tag
+ * `dsml-spaced` is DeepSeek's DSML once its markers are gone, `dsml-garbled` a spacing nothing parses
+ */
+const markupInTextStream = (model: string): string => {
+	const pieces = model === 'dsml-garbled'
+		? ['Смотрю ветку.\n<invoke name = "git_state"><parameter name = "what">bra', 'nch</parameter></invoke>']
+		: ['< calls>\n< inv', 'oke name="git_state">\n< parameter name="what" string="true">bra', 'nch</ parameter>\n</ invoke>\n</ calls>'];
+	return sse([
+		...pieces.map(content => ({ id: 'c2', object: 'chat.completion.chunk', created: 1, model, choices: [{ index: 0, delta: { content }, finish_reason: null }] })),
+		{ id: 'c2', object: 'chat.completion.chunk', created: 1, model, choices: [{ index: 0, delta: {}, finish_reason: 'stop' }], usage: { prompt_tokens: 100, completion_tokens: 30, total_tokens: 130 } },
+	], false) + 'data: [DONE]\n\n';
+};
+
 const unverifiedOrganisation = JSON.stringify({ error: { message: 'Your organization must be verified to stream this model. Please go to: https://platform.openai.com/settings/organization/general and click on Verify Organization.', type: 'invalid_request_error', param: 'stream', code: 'unsupported_value' } });
 
 const wholeChatCompletion = JSON.stringify({ id: 'chatcmpl-1', object: 'chat.completion', created: 1, model: 'o3', choices: [{ index: 0, message: { role: 'assistant', content: 'Готово без потока.' }, finish_reason: 'stop' }], usage: { prompt_tokens: 80, completion_tokens: 6, total_tokens: 86 } });
@@ -131,7 +145,7 @@ function respond(path: string, body: WireBody | undefined, res: ServerResponse):
 		res.end(streamed ? unverifiedOrganisation : wholeChatCompletion);
 	} else if (path === '/compat/v1/chat/completions') {
 		res.writeHead(200, { 'content-type': 'text/event-stream' });
-		res.end(compatibleStream());
+		res.end(model.startsWith('dsml-') ? markupInTextStream(model) : compatibleStream());
 	} else if (path.startsWith('/v1beta/models/')) {
 		res.writeHead(429, { 'content-type': 'application/json' });
 		res.end(googleRateLimit);
@@ -554,6 +568,40 @@ suite('aiSdkAdapter — встроенные провайдеры против �
 			{ reasoning: { effort: 'low' }, reasoningEffort: undefined, routeHint: 'test-router' },
 			{ reasoning: undefined, reasoningEffort: 'low', routeHint: 'test-plain' },
 		]);
+	});
+
+	test('вызов, написанный текстом: XML-режим разбирает DSML с пробелами, нераспознанное и нативное названы признаком', async () => {
+		setExternalProviders([{ id: 'test-native', source: 'file', modelCapOverrides: { 'dsml-spaced': { specialToolFormat: 'openai-style' } } }]);
+		const turn = async (providerName: string, modelName: string) => {
+			const shown: string[] = [];
+			const outcome = await send({
+				providerName: providerName as SendChatParams_Internal['providerName'],
+				modelName,
+				settingsOfProvider: settingsWith({ [providerName]: { baseURL: `http://127.0.0.1:${port}/compat/v1`, apiKey: 'k', protocol: 'openai' } }),
+				messages: [{ role: 'user', content: 'Какая ветка?' }],
+				onText: ({ fullText }) => { shown.push(fullText); },
+			});
+			const body = requests[requests.length - 1]?.body;
+			return {
+				tools: Array.isArray(body?.tools),
+				call: outcome.final?.toolCall ? `${outcome.final.toolCall.name} ${JSON.stringify(outcome.final.toolCall.rawParams)}` : undefined,
+				notice: outcome.final?.finishNotice?.kind,
+				markupShown: shown.some(text => /invoke|parameter|calls/.test(text)),
+			};
+		};
+		try {
+			assert.deepStrictEqual([
+				await turn('test-compat', 'dsml-spaced'),
+				await turn('test-compat', 'dsml-garbled'),
+				await turn('test-native', 'dsml-spaced'),
+			], [
+				{ tools: false, call: 'git_state {"what":"branch"}', notice: undefined, markupShown: false },
+				{ tools: false, call: undefined, notice: 'unparsedToolCall', markupShown: false },
+				{ tools: true, call: undefined, notice: 'unparsedToolCall', markupShown: true },
+			]);
+		} finally {
+			setExternalProviders([]);
+		}
 	});
 
 	test('сервер без ключа (auth: "none"): ни на одном проводе ключа нет, ключ из окружения не подхватывается', async () => {
