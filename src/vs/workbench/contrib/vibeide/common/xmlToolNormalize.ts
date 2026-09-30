@@ -316,14 +316,17 @@ const FAST_PATH_SNIFFS: readonly string[] = [
  *
  * `｜` is U+FF5C (FULLWIDTH VERTICAL LINE), NOT ASCII `|`.
  *
- * Strip pattern: pipe(s) + ASCII identifier + pipe(s). Structural, no
- * hardcoded "DSML" literal — works for `｜｜FOO｜｜`, `｜BAR｜`, `|BAZ|`.
+ * Strip pattern: pipe(s) + identifier + pipe(s). Structural, no
+ * hardcoded "DSML" literal — works for `｜｜FOO｜｜`, `｜BAR｜`.
  * After stripping, downstream regexes see canonical `<invoke>` / `<parameter>`.
+ *
+ * Fullwidth pipes only: an ASCII `|word|` inside a value is a shell pipe (`cat a |sort| uniq`), and stripping it
+ * cut the command. No vendor emits the ASCII form; the contract shared with VibeIDEA says the same
  */
 // X.15.6 — Unicode identifier coverage. Chinese DSML observed with ASCII
 // keyword "DSML", but cousin formats may use non-ASCII ids inside the pipes.
 // `\p{L}` covers any Unicode letter; the `u` flag enables it.
-export const DSML_MARKER_STRIP_RE = /[｜|]{1,4}[\p{L}][\p{L}\p{N}_-]*[｜|]{1,4}/gu;
+export const DSML_MARKER_STRIP_RE = /｜{1,4}[\p{L}][\p{L}\p{N}_-]*｜{1,4}/gu;
 
 /**
  * Escape regex metacharacters in tool-name literals before joining them into

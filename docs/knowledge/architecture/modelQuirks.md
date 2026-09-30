@@ -64,6 +64,7 @@ interface ModelQuirksRule {
   mirrorReasoningContent?: boolean           // interleaved families
   reasoningAsThinkTags?: boolean             // with mirror: <think> inside the text on the OpenAI wire (MiniMax)
   forceToolCallFormat?: 'native'|'xml'|'auto'
+  toolCallsInText?: boolean                  // native tools, yet a call sometimes arrives as DSML text (DeepSeek); VibeIDEA: TOOL_CALLS_IN_TEXT
   note?: string                              // freeform, ignored at runtime
 }
 ```

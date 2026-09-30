@@ -170,7 +170,8 @@
 			"match": "deepseek",
 			"forceEmptyReasoning": true,
 			"mirrorReasoningContent": true,
-			"note": "DeepSeek family (all providers) — every assistant message must carry a reasoning slot (HTTP 400 otherwise); reasoning text must be mirrored on top-level message field. No tool-format force here: the built-in DeepSeek profiles declare native FC themselves (modelCapabilities.ts) — until 2026-09-30 they did not, and the direct API silently ran in XML mode, where the model writes DSML calls into the text. The openCode-scoped rule above sets auto for that aggregator."
+			"toolCallsInText": true,
+			"note": "DeepSeek family (all providers) — every assistant message must carry a reasoning slot (HTTP 400 otherwise); reasoning text must be mirrored on top-level message field. toolCallsInText: with native tools the model sometimes still writes its call into the text in DSML — it is parsed by common/dsmlToolCalls.ts (vectors shared with VibeIDEA, TOOL_CALLS_IN_TEXT there). No tool-format force here: the built-in DeepSeek profiles declare native FC themselves (modelCapabilities.ts) — until 2026-09-30 they did not, and the direct API silently ran in XML mode, where the model writes DSML calls into the text. The openCode-scoped rule above sets auto for that aggregator."
 		},
 		{
 			"match": "qwen",

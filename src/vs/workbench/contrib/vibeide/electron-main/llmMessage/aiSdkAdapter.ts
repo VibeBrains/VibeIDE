@@ -48,7 +48,7 @@ import { getModelQuirks } from '../modelQuirks/modelQuirksService.js';
 import { withReasoningEffortInSystemPrompt } from '../../common/modelQuirks/modelQuirksTypes.js';
 import { providerNames, SettingsOfProvider } from '../../common/vibeideSettingsTypes.js';
 import { ensureSystemCADispatcher } from './systemCAFetch.js';
-import { extractReasoningWrapper, extractXMLToolsWrapper, stripThinkTagsWrapper, stripStandaloneThinkDelimitersWrapper } from './extractGrammar.js';
+import { extractDsmlToolCallsWrapper, extractReasoningWrapper, extractXMLToolsWrapper, stripThinkTagsWrapper, stripStandaloneThinkDelimitersWrapper } from './extractGrammar.js';
 import type { SendChatParams_Internal } from './sendLLMMessage.internalTypes.js';
 import { assertHttpHeaderSafe, getGoogleApiKey, withProcessEnvApiKey } from './llmHelpers.js';
 import { detectNoFundsRefusal, noFundsStatusText } from '../../common/providerFundsRefusal.js';
@@ -1449,6 +1449,11 @@ export const sendViaAISdk = async (params: SendChatParams_Internal): Promise<voi
 	// XML tool fallback when native tools are disabled for this model.
 	if (!specialToolFormat) {
 		const wrapped = extractXMLToolsWrapper(onText, onFinalMessage, chatMode, mcpTools, { providerName, modelName });
+		onText = wrapped.newOnText;
+		onFinalMessage = wrapped.newOnFinalMessage;
+	} else if (quirks.toolCallsInText) {
+		// Native tools, yet the model sometimes spells the call out in the text in its own markup
+		const wrapped = extractDsmlToolCallsWrapper(onText, onFinalMessage);
 		onText = wrapped.newOnText;
 		onFinalMessage = wrapped.newOnFinalMessage;
 	}

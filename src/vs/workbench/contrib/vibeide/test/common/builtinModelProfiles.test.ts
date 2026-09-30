@@ -141,52 +141,37 @@ suite('builtin model profiles — имя на проводе, профиль, п
 	 * работал в XML-режиме, пока каталог квирков утверждал обратное
 	 * Локальные и произвольные OpenAI-совместимые провайдеры не проверяются: там умения зависят от того, что поднято
 	 *
-	 * Список ниже — модели, найденные стражем при его появлении и ещё не сверенные с документацией вендора
-	 * Он только убывает: новая модель без формата роняет тест, и вылеченная, но оставленная в списке, тоже
+	 * Исключения ниже — каждое с причиной по первоисточнику вендора (сверено 30.09.2026)
+	 * Новая модель без формата роняет тест, и модель, получившая формат, но оставленная в исключениях, тоже
 	 */
 	test('каждая модель облачного встроенного провайдера объявляет формат вызовов', () => {
 		const servedByUser = new Set(['ollama', 'vLLM', 'lmStudio', 'openAICompatible']);
-		const notYetVerified = [
-			'openRouter/qwen/qwen3-235b-a22b',
-			'openRouter/microsoft/phi-4-reasoning-plus:free',
-			'openRouter/mistralai/mistral-small-3.1-24b-instruct:free',
-			'openRouter/google/gemini-2.0-flash-lite-preview-02-05:free',
-			'openRouter/google/gemini-2.0-pro-exp-02-05:free',
-			'openRouter/google/gemini-2.0-flash-exp:free',
-			'openRouter/deepseek/deepseek-r1',
-			'openRouter/deepseek/deepseek-r1-zero:free',
-			'openRouter/anthropic/claude-opus-4',
-			'openRouter/anthropic/claude-sonnet-4',
-			'openRouter/anthropic/claude-3.7-sonnet:thinking',
-			'openRouter/anthropic/claude-3.7-sonnet',
-			'openRouter/anthropic/claude-3.5-sonnet',
-			'openRouter/mistralai/codestral-2501',
-			'openRouter/mistralai/devstral-small:free',
-			'openRouter/qwen/qwen-2.5-coder-32b-instruct',
-			'openRouter/qwen/qwq-32b',
-			'groq/llama-3.3-70b-versatile',
-			'groq/llama-3.1-8b-instant',
-			'groq/qwen-2.5-coder-32b',
-			'groq/qwen-qwq-32b',
-			'openAI/o3-mini',
-			'openAI/o1-pro',
-			'openAI/o1',
-			'openAI/o1-mini',
-			'mistral/mistral-large-latest',
-			'mistral/mistral-medium-latest',
-			'mistral/codestral-latest',
-			'mistral/magistral-medium-latest',
-			'mistral/magistral-small-latest',
-			'mistral/devstral-small-latest',
-			'mistral/ministral-8b-latest',
-			'mistral/ministral-3b-latest',
-		];
-		const withoutToolFormat = providerNames
+		const offOpenRouter = 'снята с OpenRouter: ни одного эндпоинта (api/v1/models/<id>/endpoints)';
+		const withoutToolFormat: Record<string, string> = {
+			'openRouter/microsoft/phi-4-reasoning-plus:free': offOpenRouter,
+			'openRouter/mistralai/mistral-small-3.1-24b-instruct:free': offOpenRouter,
+			'openRouter/google/gemini-2.0-flash-lite-preview-02-05:free': offOpenRouter,
+			'openRouter/google/gemini-2.0-pro-exp-02-05:free': offOpenRouter,
+			'openRouter/google/gemini-2.0-flash-exp:free': offOpenRouter,
+			'openRouter/deepseek/deepseek-r1-zero:free': offOpenRouter,
+			'openRouter/anthropic/claude-opus-4': offOpenRouter,
+			'openRouter/anthropic/claude-3.7-sonnet:thinking': offOpenRouter,
+			'openRouter/anthropic/claude-3.7-sonnet': offOpenRouter,
+			'openRouter/anthropic/claude-3.5-sonnet': offOpenRouter,
+			'openRouter/mistralai/codestral-2501': offOpenRouter,
+			'openRouter/mistralai/devstral-small:free': offOpenRouter,
+			'openRouter/qwen/qwen-2.5-coder-32b-instruct': 'в supported_parameters нет tools, единственный провайдер без инструментов',
+			'openRouter/qwen/qwq-32b': offOpenRouter,
+			'groq/qwen-2.5-coder-32b': 'выключена Groq 14.04.2025 (console.groq.com/docs/deprecations)',
+			'groq/qwen-qwq-32b': 'выключена Groq 14.07.2025 (console.groq.com/docs/deprecations)',
+			'openAI/o1-mini': 'Function calling: Not supported; выключена 27.10.2025, замена o4-mini',
+		};
+		const found = providerNames
 			.filter(provider => !servedByUser.has(provider))
 			.flatMap(provider => Object.keys(resolveProvider(provider)?.info.modelOptions ?? {})
 				.filter(modelName => !getModelCapabilities(provider, modelName, undefined).specialToolFormat)
 				.map(modelName => `${provider}/${modelName}`));
-		assert.deepStrictEqual(withoutToolFormat, notYetVerified);
+		assert.deepStrictEqual(found, Object.keys(withoutToolFormat));
 	});
 
 	test('провод встроенного: свой у Anthropic, Gemini и локальных, у OpenAI — Responses для GPT-6', () => {

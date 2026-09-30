@@ -193,12 +193,10 @@ suite('XML tool normalization (v0.13.10)', () => {
 			assert.doesNotMatch(out, /<tool_calls>/, `outer wrapper should be stripped, got: ${out.slice(0, 200)}`);
 		});
 
-		test('ASCII-pipe DSML variant reaches the full path through the `invoke name=` sniff', () => {
-			// ASCII `|` itself is still not sniffed: it appears in nearly every markdown table and
-			// would force the full path on almost all messages. `invoke name=` is rare in prose,
-			// and once it lets the text in, the DSML strip handles the ASCII pipes as well.
-			const input = '<|FOO|invoke name="read_file"><|FOO|parameter name="path">x</|FOO|parameter></|FOO|invoke>';
-			assert.strictEqual(normalizeAlternativeToolSyntax(input), '<read_file><uri>x</uri></read_file>');
+		test('ASCII pipes are not a DSML marker: a shell pipe inside a value survives', () => {
+			// No vendor emits `<|FOO|invoke …>`; an ASCII `|word|` is a pipe in a command, and stripping it cut the command
+			const input = '<invoke name="run_command"><parameter name="command">cat a |sort| uniq</parameter></invoke>';
+			assert.strictEqual(normalizeAlternativeToolSyntax(input), '<run_command><command>cat a |sort| uniq</command></run_command>');
 		});
 	});
 

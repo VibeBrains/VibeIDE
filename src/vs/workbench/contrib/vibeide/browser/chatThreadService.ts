@@ -193,6 +193,7 @@ const AUTO_DOWNGRADE_THRESHOLD = 6; // After this many consecutive tool failures
 const ANTI_LOOP_SIGNATURE_RING = 50; // Anti-loop guard: how many recent tool-call signatures to retain per request. Bounds memory while spanning enough history to catch slow re-read cycles. See roadmap F (aggregator-failures section).
 const ANTI_LOOP_MAX_BLOCKS = 8; // Anti-loop guard: after this many TOTAL short-circuited (blocked) calls in one request, the model is clearly ignoring the hint — abort the loop with a hard message instead of spinning to maxLoopIterations. Last-resort escalation; the per-signature threshold (`vibeide.chat.antiLoopRepeatThreshold`) is the first line.
 const ANTI_LOOP_MAX_CONSECUTIVE_SAME_BLOCKS = 3; // Tighter escalation for the SAME signature blocked back-to-back with no executed call in between: the model is verbatim-replaying one call (observed: get_dir_tree on the same dir ×4 after the guard hint, each costing a full LLM round-trip). Three identical consecutive blocks ≈ zero chance the next nudge lands — abort early instead of burning turns to the total cap.
+const UNPARSED_TOOL_CALL_RETRIES = 1; // A call the model wrote as text in markup nothing parsed gets this many requests to repeat it as a real call, then the run stops. VibeIDEA asks once as well.
 
 // Classify the last tool failure into a coarse reason code stored as
 // `_reason` on auto-detected overrides (roadmap O.7). Drives toast wording and
@@ -5705,6 +5706,8 @@ Output ONLY the JSON, no other text. Start with { and end with }.`;
 		// is a permission-seeking stall nobody answers in unattended mode). Bounded by the
 		// `autoContinueOnQuestion` setting (0 = unlimited); reset on any executed tool call, same as above.
 		let questionNudgeCount = 0;
+		// A call written as text in markup nothing parsed gets one request to repeat it as a real call; reset on any executed call
+		let unparsedToolCallRetries = 0;
 
 		// Track tools executed in this request to detect incomplete workflows
 		const toolsExecutedInRequest: string[] = [];
@@ -7847,15 +7850,26 @@ Output ONLY the JSON, no other text. Start with { and end with }.`;
 				// and the run died SILENTLY with no notice and no «Продолжить» affordance.
 				if (chatMode === 'agent' && !toolCall
 					&& !hasSynthesizedToolsInThisRequest && !toolSynthesizedAndMessageAdded) {
-					// The model did call, in markup nothing parsed: a nudge «вызови инструмент» would only make it repeat the same
-					// markup, turn after turn, and the run would then end as «finished with text». The notice above says what
-					// happened; the run stops here with the resume affordance, for a model change or a manual retry
+					// The model did call, in markup nothing parsed. It gets one request to repeat the call as a real one, independent
+					// of the autopilot: this is a broken call, not a turn that ended in prose. A second failure in a row stops the run
+					// with the resume affordance — the generic «вызови инструмент» would only make it repeat the same markup, turn
+					// after turn, until the run ended as «finished with text». The notice above says what happened
 					if (info.finishNotice?.kind === 'unparsedToolCall') {
-						vibeLog.warn('chatThread', `[agent] tool call written as text in unrecognised markup (${modelSelection?.providerName ?? '?'}/${modelSelection?.modelName ?? '?'}) — stopping instead of nudging.`);
+						if (unparsedToolCallRetries < UNPARSED_TOOL_CALL_RETRIES) {
+							unparsedToolCallRetries += 1;
+							vibeLog.warn('chatThread', `[agent] tool call written as text in unrecognised markup (${modelSelection?.providerName ?? '?'}/${modelSelection?.modelName ?? '?'}) — asking to repeat it as a real call.`);
+							const retry = localize('vibeide.agent.retryUnparsedToolCall', '⚙️ Вызов инструмента не выполнен: он пришёл текстом, в разметке, которую IDE не разобрала. Повтори этот же вызов через механизм вызова инструментов, в формате из системных инструкций, — не текстом ответа.');
+							this._addMessageToThread(threadId, { role: 'user', content: retry, displayContent: retry, selections: null, isSyntheticNudge: true, state: defaultMessageState });
+							shouldSendAnotherMessage = true;
+							forceToolUseNextTurn = this._configurationService.getValue<boolean>('vibeide.agent.forceToolUseOnNudge') !== false;
+							this._setStreamState(threadId, { isRunning: 'idle', interrupt: 'not_needed' });
+							continue;
+						}
+						vibeLog.warn('chatThread', `[agent] tool call written as text in unrecognised markup again (${modelSelection?.providerName ?? '?'}/${modelSelection?.modelName ?? '?'}) — stopping instead of nudging.`);
 						await reportTurnChecksOnFinalExit(info.fullText);
 						this._addMessageToThread(threadId, {
 							role: 'assistant',
-							displayContent: localize('vibeide.agent.stoppedUnparsedToolCall', 'Прогон остановлен: вызов инструмента не распознан, и повтор хода дал бы тот же результат. Смените модель и нажмите «Продолжить» или напишите следующий шаг.'),
+							displayContent: localize('vibeide.agent.stoppedUnparsedToolCall', 'Прогон остановлен: вызов инструмента снова не распознан, повторная просьба не помогла. Смените модель и нажмите «Продолжить» или напишите следующий шаг.'),
 							reasoning: '',
 							anthropicReasoning: null,
 							agentStoppedNoToolCall: true,
@@ -8352,6 +8366,7 @@ Output ONLY the JSON, no other text. Start with { and end with }.`;
 					// text-only / question-only turns (no tool call between them) are auto-continued.
 					autoContinueOnTextCount = 0;
 					questionNudgeCount = 0;
+					unparsedToolCallRetries = 0;
 
 					// Only update plan step status if we have an active plan (skip if no plan)
 					if (activePlanTracking?.currentStep) {

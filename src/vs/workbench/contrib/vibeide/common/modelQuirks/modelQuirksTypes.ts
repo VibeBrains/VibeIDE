@@ -132,6 +132,13 @@ export interface ModelQuirksRule {
 	readonly forcedToolChoiceUnsupported?: boolean;
 
 	/**
+	 * With native tools, the model sometimes writes a call into the text of its answer in its own markup (DSML at DeepSeek)
+	 * instead of the tool-call field. Such text is read as the call and kept out of the shown answer
+	 * (`common/dsmlToolCalls.ts`, vectors shared with VibeIDEA). VibeIDEA: TOOL_CALLS_IN_TEXT
+	 */
+	readonly toolCallsInText?: boolean;
+
+	/**
 	 * This model's reasoning blocks are bound to it — no other model can read them.
 	 *
 	 * Anthropic states it for the Fable/Mythos family: Fable 5.1 reads earlier models' thinking, but
@@ -304,6 +311,7 @@ export function validateCatalog(raw: unknown): ModelQuirksCatalog {
 			...readString(rr, 'reasoningEffortInSystemPrompt'),
 			...readEnum(rr, 'forceToolCallFormat', ['native', 'xml', 'auto']),
 			...readBool(rr, 'forcedToolChoiceUnsupported'),
+			...readBool(rr, 'toolCallsInText'),
 			...readBool(rr, 'reasoningBoundToModel'),
 			...readBool(rr, 'adaptiveThinking'),
 			...readBool(rr, 'roundtripThoughtSignature'),
@@ -387,6 +395,7 @@ export function applyUserOverride(catalogQuirks: ResolvedModelQuirks, userOverri
 		...readString(oo, 'reasoningEffortInSystemPrompt'),
 		...readEnum(oo, 'forceToolCallFormat', ['native', 'xml', 'auto']),
 		...readBool(oo, 'forcedToolChoiceUnsupported'),
+		...readBool(oo, 'toolCallsInText'),
 		...readBool(oo, 'reasoningBoundToModel'),
 		...readBool(oo, 'adaptiveThinking'),
 		...readBool(oo, 'roundtripThoughtSignature'),
