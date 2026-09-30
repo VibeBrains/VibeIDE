@@ -60,8 +60,8 @@ suite('builtin model profiles — имя на проводе, профиль, п
 			'claude-opus-4-8 ← claude-opus-5',
 			'claude-sonnet-4-5 ← claude-sonnet-4-5-20250929',
 			'claude-opus-4-5 ← claude-opus-4-5-20251101',
-			'claude-opus-4-1 ← claude-opus-4-1-20250805',
-			'claude-opus-4-6 ← claude-opus-4-20250514',
+			'claude-opus-4-1 ← claude-opus-4-6',
+			'claude-opus-4-6 ← claude-opus-4-6',
 			'claude-haiku-4-5 ← claude-haiku-4-5-20251001',
 			'gpt-5.5 ← gpt-5',
 			'gpt-5-mini-2025-08-07 ← gpt-5-mini',
@@ -98,20 +98,48 @@ suite('builtin model profiles — имя на проводе, профиль, п
 		]);
 	});
 
+	/**
+	 * Claude 4.6 — своя запись: без неё Opus 4.6 брал профиль выключенной Opus 4.0 и считался втрое дороже ($15/$75)
+	 * Выключенные 4.0 и 4.1, которые ещё может отдавать шлюз, получают профиль 4.6 — замену, названную вендором
+	 * Sonnet 4.5 вендор выключает 30.11.2026 (platform.claude.com, model-deprecations, сверено 30.09.2026)
+	 */
 	test('Fable и Mythos, прежние Claude: цены со страницы вендора, мышление Fable не выключается', () => {
 		const card = (modelName: string) => {
 			const caps = getModelCapabilities('anthropic', modelName, undefined);
 			const reasoning = caps.reasoningCapabilities || undefined;
 			const slider = reasoning?.reasoningSlider?.type === 'effort_slider' ? reasoning.reasoningSlider : undefined;
-			return { model: modelName, cost: caps.cost, default: slider?.default, canTurnOff: reasoning?.canTurnOffReasoning };
+			return { model: modelName, cost: caps.cost, levels: slider?.values.join('/'), default: slider?.default, canTurnOff: reasoning?.canTurnOffReasoning, retires: caps.deprecation?.date };
 		};
-		assert.deepStrictEqual(['claude-fable-5-1', 'claude-mythos-5', 'claude-opus-4-5', 'claude-opus-4-1', 'claude-sonnet-4-5', 'claude-haiku-4-5'].map(card), [
-			{ model: 'claude-fable-5-1', cost: { input: 10, cache_read: 0.25, cache_write: 12.5, output: 50 }, default: 'high', canTurnOff: false },
-			{ model: 'claude-mythos-5', cost: { input: 10, cache_read: 1, cache_write: 12.5, output: 50 }, default: 'high', canTurnOff: false },
-			{ model: 'claude-opus-4-5', cost: { input: 5, cache_read: 0.5, cache_write: 6.25, output: 25 }, default: undefined, canTurnOff: true },
-			{ model: 'claude-opus-4-1', cost: { input: 15, cache_read: 1.5, cache_write: 18.75, output: 75 }, default: undefined, canTurnOff: true },
-			{ model: 'claude-sonnet-4-5', cost: { input: 3, cache_read: 0.3, cache_write: 3.75, output: 15 }, default: undefined, canTurnOff: true },
-			{ model: 'claude-haiku-4-5', cost: { input: 1, cache_read: 0.1, cache_write: 1.25, output: 5 }, default: undefined, canTurnOff: undefined },
+		assert.deepStrictEqual(['claude-fable-5-1', 'claude-mythos-5', 'claude-opus-4-6', 'claude-sonnet-4-6', 'claude-opus-4-5', 'claude-opus-4-1', 'claude-sonnet-4-5', 'claude-haiku-4-5'].map(card), [
+			{ model: 'claude-fable-5-1', cost: { input: 10, cache_read: 0.25, cache_write: 12.5, output: 50 }, levels: 'low/medium/high/xhigh/max', default: 'high', canTurnOff: false, retires: undefined },
+			{ model: 'claude-mythos-5', cost: { input: 10, cache_read: 1, cache_write: 12.5, output: 50 }, levels: 'low/medium/high/xhigh/max', default: 'high', canTurnOff: false, retires: undefined },
+			{ model: 'claude-opus-4-6', cost: { input: 5, cache_read: 0.5, cache_write: 6.25, output: 25 }, levels: 'low/medium/high/max', default: 'high', canTurnOff: true, retires: undefined },
+			{ model: 'claude-sonnet-4-6', cost: { input: 3, cache_read: 0.3, cache_write: 3.75, output: 15 }, levels: 'low/medium/high/max', default: 'high', canTurnOff: true, retires: undefined },
+			{ model: 'claude-opus-4-5', cost: { input: 5, cache_read: 0.5, cache_write: 6.25, output: 25 }, levels: undefined, default: undefined, canTurnOff: true, retires: undefined },
+			{ model: 'claude-opus-4-1', cost: { input: 5, cache_read: 0.5, cache_write: 6.25, output: 25 }, levels: 'low/medium/high/max', default: 'high', canTurnOff: true, retires: undefined },
+			{ model: 'claude-sonnet-4-5', cost: { input: 3, cache_read: 0.3, cache_write: 3.75, output: 15 }, levels: undefined, default: undefined, canTurnOff: true, retires: '2026-11-30' },
+			{ model: 'claude-haiku-4-5', cost: { input: 1, cache_read: 0.1, cache_write: 1.25, output: 5 }, levels: undefined, default: undefined, canTurnOff: undefined, retires: undefined },
+		]);
+	});
+
+	/**
+	 * Claude через шлюз распознаётся той же таблицей, что у прямого провайдера: вторая копия правил отстала,
+	 * и любая Claude 5 через OpenRouter получала профиль Sonnet 3.7
+	 */
+	test('Claude через шлюз: та же таблица, что у прямого провайдера; выключенные 3.x — на живой профиль своей линии', () => {
+		const via = (modelName: string) => `${modelName} ← ${getModelCapabilities('openRouter', modelName, undefined).recognizedModelName}`;
+		assert.deepStrictEqual([
+			'anthropic/claude-opus-5', 'anthropic/claude-sonnet-5.5', 'anthropic/claude-fable-5.1', 'anthropic/claude-opus-4.6',
+			'anthropic/claude-3.7-sonnet', 'anthropic/claude-3-opus', 'anthropic/claude-3.5-haiku', 'anthropic/claude-next',
+		].map(via), [
+			'anthropic/claude-opus-5 ← claude-opus-5',
+			'anthropic/claude-sonnet-5.5 ← claude-sonnet-5-5',
+			'anthropic/claude-fable-5.1 ← claude-fable-5-1',
+			'anthropic/claude-opus-4.6 ← claude-opus-4-6',
+			'anthropic/claude-3.7-sonnet ← claude-sonnet-4-6',
+			'anthropic/claude-3-opus ← claude-opus-4-6',
+			'anthropic/claude-3.5-haiku ← claude-haiku-4-5-20251001',
+			'anthropic/claude-next ← claude-sonnet-5-5',
 		]);
 	});
 

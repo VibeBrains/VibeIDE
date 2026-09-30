@@ -737,31 +737,22 @@ const extensiveModelOptionsFallback: VoidStaticProviderInfo['modelOptionsFallbac
 	// new 3.x id (Flash, Flash-Lite, whatever ships next) silently inherits the PRO profile: Pro pricing,
 	// Pro reserved output space, Pro thinking levels. That is exactly how `gemini-3.6-flash` and
 	// `gemini-3.5-flash-lite` were mispriced before 2026-07-25 — see docs/knowledge/architecture/modelPricing.md.
-	if (lower.includes('gemini-3') && lower.includes('image')) { return toFallback(geminiModelOptions, 'gemini-3-pro-image-preview'); }
+	if (lower.includes('gemini-3') && lower.includes('image')) { return toFallback(geminiModelOptions, 'gemini-3-pro-image'); }
 	if (lower.includes('gemini-3') && lower.includes('flash') && lower.includes('lite')) { return toFallback(geminiModelOptions, 'gemini-3.5-flash-lite'); }
 	if (lower.includes('gemini-3') && lower.includes('flash')) { return toFallback(geminiModelOptions, 'gemini-3.6-flash'); }
-	if (lower.includes('gemini-3')) { return toFallback(geminiModelOptions, 'gemini-3-pro-preview'); }
+	if (lower.includes('gemini-3')) { return toFallback(geminiModelOptions, 'gemini-3.1-pro-preview'); }
 	// Gemini 2.5 models:
 	if (lower.includes('gemini') && (lower.includes('2.5') || lower.includes('2-5'))) {
-		if (lower.includes('pro') && !lower.includes('preview')) { return toFallback(geminiModelOptions, 'gemini-2.5-pro'); }
-		return toFallback(geminiModelOptions, 'gemini-2.5-pro-preview-05-06');
+		if (lower.includes('pro')) { return toFallback(geminiModelOptions, 'gemini-2.5-pro'); }
+		if (lower.includes('lite')) { return toFallback(geminiModelOptions, 'gemini-2.5-flash-lite'); }
+		return toFallback(geminiModelOptions, 'gemini-2.5-flash');
 	}
+	// Gemini 2.0 and 1.5 are retired; the vendor names the current Flash as their replacement
+	if (lower.includes('gemini')) { return toFallback(geminiModelOptions, 'gemini-3.6-flash'); }
 
-	// Claude 4.5 models (latest):
-	if (lower.includes('claude-opus-4-5') || lower.includes('claude-4-5-opus') || (lower.includes('claude-opus') && lower.includes('4.5'))) { return toFallback(anthropicModelOptions, 'claude-opus-4-5-20251101'); }
-	if (lower.includes('claude-sonnet-4-5') || lower.includes('claude-4-5-sonnet') || (lower.includes('claude-sonnet') && lower.includes('4.5'))) { return toFallback(anthropicModelOptions, 'claude-sonnet-4-5-20250929'); }
-	if (lower.includes('claude-haiku-4-5') || lower.includes('claude-4-5-haiku') || (lower.includes('claude-haiku') && lower.includes('4.5'))) { return toFallback(anthropicModelOptions, 'claude-haiku-4-5-20251001'); }
-	// Claude 4.1 models:
-	if (lower.includes('claude-opus-4-1') || lower.includes('claude-4-1-opus') || (lower.includes('claude-opus') && lower.includes('4.1'))) { return toFallback(anthropicModelOptions, 'claude-opus-4-1-20250805'); }
-	// Claude 4.0 models (legacy):
-	if (lower.includes('claude-4-opus') || lower.includes('claude-opus-4')) { return toFallback(anthropicModelOptions, 'claude-opus-4-20250514'); }
-	if (lower.includes('claude-4-sonnet') || lower.includes('claude-sonnet-4')) { return toFallback(anthropicModelOptions, 'claude-sonnet-4-20250514'); }
-	// Claude 3.7 models
-	if (lower.includes('claude-3-7') || lower.includes('claude-3.7')) { return toFallback(anthropicModelOptions, 'claude-3-7-sonnet-20250219'); }
-	// Claude 3.5 models
-	if (lower.includes('claude-3-5') || lower.includes('claude-3.5')) { return toFallback(anthropicModelOptions, 'claude-3-5-sonnet-20241022'); }
-	// Claude 3 models (legacy)
-	if (lower.includes('claude')) { return toFallback(anthropicModelOptions, 'claude-3-7-sonnet-20250219'); }
+	// Claude through a gateway resolves by the same table as the direct provider: a second copy of the rules fell behind
+	// and gave every Claude 5 the Sonnet 3.7 profile. A Claude the table does not name gets the current Sonnet
+	if (lower.includes('claude')) { return toFallback(anthropicModelOptions, firstMatchingProfile(lower, anthropicFallbackProfiles) ?? 'claude-sonnet-5-5'); }
 
 	// xAI models (check latest first):
 	if (lower.includes('grok-4')) { return toFallback(xAIModelOptions, 'grok-4'); }
@@ -983,7 +974,42 @@ const anthropicModelOptions = {
 			reasoningSlider: { type: 'effort_slider', values: ['low', 'medium', 'high', 'xhigh', 'max'], default: 'high' },
 		},
 	},
-	// Latest Claude 4.5 series:
+	// Claude 4.6: legacy for the vendor, not retired. Adaptive thinking with a level; `max` but no `xhigh`,
+	// which starts at Opus 4.7 (platform.claude.com/docs/en/build-with-claude/effort, checked 30.09.2026)
+	// Budget thinking still answers here, the vendor calls it deprecated — the slider offers the level only
+	'claude-opus-4-6': {
+		contextWindow: 1_000_000,
+		reservedOutputTokenSpace: 64_000,
+		cost: { input: 5.00, cache_read: 0.50, cache_write: 6.25, output: 25.00 },
+		downloadable: false,
+		supportsFIM: false,
+		specialToolFormat: 'anthropic-style',
+		supportsSystemMessage: 'separated',
+		reasoningCapabilities: {
+			supportsReasoning: true,
+			canTurnOffReasoning: true,
+			canIOReasoning: true,
+			reasoningReservedOutputTokenSpace: 64_000,
+			reasoningSlider: { type: 'effort_slider', values: ['low', 'medium', 'high', 'max'], default: 'high' },
+		},
+	},
+	'claude-sonnet-4-6': {
+		contextWindow: 1_000_000,
+		reservedOutputTokenSpace: 64_000,
+		cost: { input: 3.00, cache_read: 0.30, cache_write: 3.75, output: 15.00 },
+		downloadable: false,
+		supportsFIM: false,
+		specialToolFormat: 'anthropic-style',
+		supportsSystemMessage: 'separated',
+		reasoningCapabilities: {
+			supportsReasoning: true,
+			canTurnOffReasoning: true,
+			canIOReasoning: true,
+			reasoningReservedOutputTokenSpace: 64_000,
+			reasoningSlider: { type: 'effort_slider', values: ['low', 'medium', 'high', 'max'], default: 'high' },
+		},
+	},
+	// Claude 4.5 series:
 	'claude-opus-4-5-20251101': {
 		contextWindow: 200_000,
 		reservedOutputTokenSpace: 8_192,
@@ -1015,6 +1041,8 @@ const anthropicModelOptions = {
 			reasoningReservedOutputTokenSpace: 8192,
 			reasoningSlider: { type: 'budget_slider', min: 1024, max: 8192, default: 1024 },
 		},
+		// Announced 30.09.2026 (platform.claude.com/docs/en/about-claude/model-deprecations)
+		deprecation: { date: '2026-11-30', replacedBy: 'claude-sonnet-5-5' },
 	},
 	'claude-haiku-4-5-20251001': {
 		contextWindow: 200_000,
@@ -1026,114 +1054,6 @@ const anthropicModelOptions = {
 		supportsSystemMessage: 'separated',
 		reasoningCapabilities: false,
 	},
-	'claude-opus-4-1-20250805': {
-		contextWindow: 200_000,
-		reservedOutputTokenSpace: 8_192,
-		cost: { input: 15.00, cache_read: 1.50, cache_write: 18.75, output: 75.00 },
-		downloadable: false,
-		supportsFIM: false,
-		specialToolFormat: 'anthropic-style',
-		supportsSystemMessage: 'separated',
-		reasoningCapabilities: {
-			supportsReasoning: true,
-			canTurnOffReasoning: true,
-			canIOReasoning: true,
-			reasoningReservedOutputTokenSpace: 8192,
-			reasoningSlider: { type: 'budget_slider', min: 1024, max: 8192, default: 1024 },
-		},
-	},
-	// Claude 3.7 series:
-	'claude-3-7-sonnet-20250219': { // https://docs.anthropic.com/en/docs/about-claude/models/all-models#model-comparison-table
-		contextWindow: 200_000,
-		reservedOutputTokenSpace: 8_192,
-		cost: { input: 3.00, cache_read: 0.30, cache_write: 3.75, output: 15.00 },
-		downloadable: false,
-		supportsFIM: false,
-		specialToolFormat: 'anthropic-style',
-		supportsSystemMessage: 'separated',
-		reasoningCapabilities: {
-			supportsReasoning: true,
-			canTurnOffReasoning: true,
-			canIOReasoning: true,
-			reasoningReservedOutputTokenSpace: 8192, // can bump it to 128_000 with beta mode output-128k-2025-02-19
-			reasoningSlider: { type: 'budget_slider', min: 1024, max: 8192, default: 1024 }, // they recommend batching if max > 32_000. we cap at 8192 because above is typically not necessary (often even buggy)
-		},
-
-	},
-	// Legacy Claude 4.0 series (still available):
-	'claude-opus-4-20250514': {
-		contextWindow: 200_000,
-		reservedOutputTokenSpace: 8_192,
-		cost: { input: 15.00, cache_read: 1.50, cache_write: 18.75, output: 75.00 },
-		downloadable: false,
-		supportsFIM: false,
-		specialToolFormat: 'anthropic-style',
-		supportsSystemMessage: 'separated',
-		reasoningCapabilities: {
-			supportsReasoning: true,
-			canTurnOffReasoning: true,
-			canIOReasoning: true,
-			reasoningReservedOutputTokenSpace: 8192, // can bump it to 128_000 with beta mode output-128k-2025-02-19
-			reasoningSlider: { type: 'budget_slider', min: 1024, max: 8192, default: 1024 }, // they recommend batching if max > 32_000. we cap at 8192 because above is typically not necessary (often even buggy)
-		},
-
-	},
-	'claude-sonnet-4-20250514': {
-		contextWindow: 200_000,
-		reservedOutputTokenSpace: 8_192,
-		cost: { input: 3.00, cache_read: 0.30, cache_write: 3.75, output: 15.00 },
-		downloadable: false,
-		supportsFIM: false,
-		specialToolFormat: 'anthropic-style',
-		supportsSystemMessage: 'separated',
-		reasoningCapabilities: {
-			supportsReasoning: true,
-			canTurnOffReasoning: true,
-			canIOReasoning: true,
-			reasoningReservedOutputTokenSpace: 8192, // can bump it to 128_000 with beta mode output-128k-2025-02-19
-			reasoningSlider: { type: 'budget_slider', min: 1024, max: 8192, default: 1024 }, // they recommend batching if max > 32_000. we cap at 8192 because above is typically not necessary (often even buggy)
-		},
-
-	},
-	'claude-3-5-sonnet-20241022': {
-		contextWindow: 200_000,
-		reservedOutputTokenSpace: 8_192,
-		cost: { input: 3.00, cache_read: 0.30, cache_write: 3.75, output: 15.00 },
-		downloadable: false,
-		supportsFIM: false,
-		specialToolFormat: 'anthropic-style',
-		supportsSystemMessage: 'separated',
-		reasoningCapabilities: false,
-	},
-	'claude-3-5-haiku-20241022': {
-		contextWindow: 200_000,
-		reservedOutputTokenSpace: 8_192,
-		cost: { input: 0.80, cache_read: 0.08, cache_write: 1.00, output: 4.00 },
-		downloadable: false,
-		supportsFIM: false,
-		specialToolFormat: 'anthropic-style',
-		supportsSystemMessage: 'separated',
-		reasoningCapabilities: false,
-	},
-	'claude-3-opus-20240229': {
-		contextWindow: 200_000,
-		reservedOutputTokenSpace: 4_096,
-		cost: { input: 15.00, cache_read: 1.50, cache_write: 18.75, output: 75.00 },
-		downloadable: false,
-		supportsFIM: false,
-		specialToolFormat: 'anthropic-style',
-		supportsSystemMessage: 'separated',
-		reasoningCapabilities: false,
-	},
-	'claude-3-sonnet-20240229': { // no point of using this, but including this for people who put it in
-		contextWindow: 200_000, cost: { input: 3.00, output: 15.00 },
-		downloadable: false,
-		reservedOutputTokenSpace: 4_096,
-		supportsFIM: false,
-		specialToolFormat: 'anthropic-style',
-		supportsSystemMessage: 'separated',
-		reasoningCapabilities: false,
-	}
 } as const satisfies { [s: string]: VibeideStaticModelInfo };
 
 /**
@@ -1163,15 +1083,14 @@ const anthropicFallbackProfiles: ReadonlyArray<readonly [RegExp, keyof typeof an
 	[/claude-opus-4-5|claude-4-5-opus|claude-opus.*4\.5/, 'claude-opus-4-5-20251101'],
 	[/claude-sonnet-4-5|claude-4-5-sonnet|claude-sonnet.*4\.5/, 'claude-sonnet-4-5-20250929'],
 	[/claude-haiku-4-5|claude-4-5-haiku|claude-haiku.*4\.5/, 'claude-haiku-4-5-20251001'],
-	[/claude-opus-4-1|claude-4-1-opus|claude-opus.*4\.1/, 'claude-opus-4-1-20250805'],
-	// Claude 4.0, and every later 4.x the lines above do not name.
-	[/claude-4-opus|claude-opus-4/, 'claude-opus-4-20250514'],
-	[/claude-4-sonnet|claude-sonnet-4/, 'claude-sonnet-4-20250514'],
-	[/claude-3-7-sonnet/, 'claude-3-7-sonnet-20250219'],
-	[/claude-3-5-sonnet/, 'claude-3-5-sonnet-20241022'],
-	[/claude-3-5-haiku/, 'claude-3-5-haiku-20241022'],
-	[/claude-3-opus/, 'claude-3-opus-20240229'],
-	[/claude-3-sonnet/, 'claude-3-sonnet-20240229'],
+	// Every other 4.x — 4.6 itself and the retired 4.0 and 4.1 a gateway may still serve — takes the 4.6 profile:
+	// the vendor's own replacement, with the family's current price
+	[/claude-4(-\d)?-opus|claude-opus-4/, 'claude-opus-4-6'],
+	[/claude-4(-\d)?-sonnet|claude-sonnet-4/, 'claude-sonnet-4-6'],
+	// Claude 3.x is retired at the vendor; a gateway still serving it gets the nearest living profile of its line
+	[/claude-3.*opus/, 'claude-opus-4-6'],
+	[/claude-3.*haiku/, 'claude-haiku-4-5-20251001'],
+	[/claude-3/, 'claude-sonnet-4-6'],
 ];
 
 const anthropicSettings: VoidStaticProviderInfo = {
@@ -1583,75 +1502,105 @@ const xAISettings: VoidStaticProviderInfo = {
 
 
 // ---------------- GEMINI ----------------
+// Gemini 3 thinks always; depth is set by `thinking_level` (a string enum), NOT by `thinkingBudget`
+// — see https://ai.google.dev/gemini-api/docs/thinking, hence `canTurnOffReasoning: false` on every 3.x profile
+// `reasoningReservedOutputTokenSpace` repeats `reservedOutputTokenSpace`: with thinking on, `getReservedOutputTokenSpace`
+// reads THIS field, and leaving it out would silently reserve nothing
+function gemini3Thinking(values: string[], defaultLevel: string): Exclude<VibeideStaticModelInfo['reasoningCapabilities'], false> {
+	return {
+		supportsReasoning: true,
+		canTurnOffReasoning: false,
+		canIOReasoning: false,
+		reasoningSlider: { type: 'effort_slider', values, default: defaultLevel },
+		reasoningReservedOutputTokenSpace: 65_536,
+	};
+}
+
+// Gemini 3.x Flash: 1M in, 64K out, the four thinking levels
+const gemini3FlashBase = {
+	contextWindow: 1_048_576, // 1M tokens input
+	reservedOutputTokenSpace: 65_536, // 64K tokens output
+	downloadable: false,
+	supportsFIM: false,
+	supportsSystemMessage: 'separated',
+	specialToolFormat: 'gemini-style',
+	reasoningCapabilities: gemini3Thinking(['minimal', 'low', 'medium', 'high'], 'medium'),
+} as const satisfies Omit<VibeideStaticModelInfo, 'cost'>;
+
+// Gemini 3.6, 3.7 and 3.8 Flash share one price list (ai.google.dev/gemini-api/docs/pricing, checked 30.09.2026)
+const gemini3Flash = {
+	...gemini3FlashBase,
+	// Introductory rate, in force until the new year; output includes thinking tokens. We used to
+	// carry the 2027 number alone, which doubled every estimate a user saw all through 2026.
+	cost: { input: 0.75, output: 3.75, cache_read: 0.075 },
+	costSchedule: {
+		validUntil: '2027-01-01',
+		after: { input: 1.50, output: 7.50 },
+		note: 'вводная цена до 31.12.2026, дальше стандартная (ai.google.dev/gemini-api/docs/pricing)',
+	},
+} as const satisfies VibeideStaticModelInfo;
+
+// Gemini 2.5 thinks by a token budget, the older control; the switch is the one the 2.5 Pro profile always had
+// Served only to projects that already used them: «For any new projects, use our latest models» (the deprecations page)
+const gemini25Thinking = {
+	supportsReasoning: true,
+	canTurnOffReasoning: true,
+	canIOReasoning: false,
+	reasoningSlider: { type: 'budget_slider', min: 1024, max: 8192, default: 1024 }, // max is really 24576
+	reasoningReservedOutputTokenSpace: 8192,
+} as const;
+
+// Above 200K tokens of prompt the vendor bills the whole request at the higher Pro rates
+const geminiProLongContext = { over_input_tokens: 200_000, input: 2, cache: 2, output: 1.5 } as const;
+
 // Exported so the price gate in `geminiModelResolve.test.ts` can walk EVERY profile instead of a
 // hand-kept id list — a profile added later with a zero price has to fail the build, not wait for
 // someone to notice the estimator printing $0.00.
+// Retired ids are gone from the table (the deprecations page, checked 30.09.2026): 3 Pro Preview, 3 Pro Image Preview,
+// 2.0 and 1.5, the 2.5 previews. The fallback maps their names onto the replacements the vendor names
 export const geminiModelOptions = { // https://ai.google.dev/gemini-api/docs/pricing
-	// https://ai.google.dev/gemini-api/docs/thinking#set-budget
-	// Latest Gemini 3 series. Depth is set by `thinking_level` (a string enum), NOT by `thinkingBudget`
-	// — see https://ai.google.dev/gemini-api/docs/thinking. Thinking cannot be switched off on any of
-	// them, hence `canTurnOffReasoning: false` throughout.
-	'gemini-3.6-flash': {
-		contextWindow: 1_048_576, // 1M tokens input
-		reservedOutputTokenSpace: 65_536, // 64K tokens output
-		// Introductory rate, in force until the new year; output includes thinking tokens. We used to
-		// carry the 2027 number alone, which doubled every estimate a user saw all through 2026.
-		cost: { input: 0.75, output: 3.75, cache_read: 0.075 },
-		costSchedule: {
-			validUntil: '2027-01-01',
-			after: { input: 1.50, output: 7.50 },
-			note: 'вводная цена до 31.12.2026, дальше стандартная (ai.google.dev/gemini-api/docs/pricing)',
-		},
-		downloadable: false,
-		supportsFIM: false,
-		supportsSystemMessage: 'separated',
-		specialToolFormat: 'gemini-style',
-		reasoningCapabilities: {
-			supportsReasoning: true,
-			canTurnOffReasoning: false,
-			canIOReasoning: false,
-			reasoningSlider: { type: 'effort_slider', values: ['minimal', 'low', 'medium', 'high'], default: 'medium' },
-			// Same as `reservedOutputTokenSpace`: thinking is always on here, and `getReservedOutputTokenSpace`
-			// reads THIS field whenever reasoning is enabled — leaving it out would silently reserve nothing.
-			reasoningReservedOutputTokenSpace: 65_536,
-		},
+	'gemini-3.8-flash': gemini3Flash,
+	'gemini-3.7-flash': gemini3Flash,
+	'gemini-3.6-flash': gemini3Flash,
+	'gemini-3.5-flash': {
+		...gemini3FlashBase,
+		cost: { input: 1.50, output: 9.00, cache_read: 0.15 },
 	},
 	'gemini-3.5-flash-lite': {
 		contextWindow: 1_048_576, // 1M tokens input
 		reservedOutputTokenSpace: 65_536, // 64K tokens output
-		cost: { input: 0.30, output: 2.50 }, // output includes thinking tokens
+		cost: { input: 0.30, output: 2.50, cache_read: 0.03 }, // output includes thinking tokens
 		downloadable: false,
 		supportsFIM: false,
 		supportsSystemMessage: 'separated',
 		specialToolFormat: 'gemini-style',
-		reasoningCapabilities: {
-			supportsReasoning: true,
-			canTurnOffReasoning: false,
-			canIOReasoning: false,
-			reasoningSlider: { type: 'effort_slider', values: ['minimal', 'low', 'medium', 'high'], default: 'minimal' },
-			reasoningReservedOutputTokenSpace: 65_536, // see the note on gemini-3.6-flash above
-		},
+		reasoningCapabilities: gemini3Thinking(['minimal', 'low', 'medium', 'high'], 'minimal'),
 	},
-	// Pro profile. Also serves later Pro previews (`gemini-3.1-pro-preview`, …) through the fallback below.
-	'gemini-3-pro-preview': {
-		contextWindow: 1_048_576, // 1M tokens input
-		reservedOutputTokenSpace: 65_536, // 65K tokens output
-		cost: { input: 2.00, output: 12.00 }, // prompts <=200k; above that the vendor charges 4.00/18.00 (our cost model has no length tiers)
+	'gemini-3.1-flash-lite': {
+		contextWindow: 1_048_576,
+		reservedOutputTokenSpace: 65_536,
+		cost: { input: 0.25, output: 1.50, cache_read: 0.025 },
 		downloadable: false,
 		supportsFIM: false,
 		supportsSystemMessage: 'separated',
 		specialToolFormat: 'gemini-style',
-		reasoningCapabilities: {
-			supportsReasoning: true,
-			canTurnOffReasoning: false,
-			canIOReasoning: false,
-			reasoningSlider: { type: 'effort_slider', values: ['low', 'medium', 'high'], default: 'high' }, // no 'minimal' on Pro
-			reasoningReservedOutputTokenSpace: 65_536, // see the note on gemini-3.6-flash above
-		},
+		reasoningCapabilities: gemini3Thinking(['minimal', 'low', 'medium', 'high'], 'minimal'),
+		deprecation: { date: '2027-05-07', replacedBy: 'gemini-3.5-flash-lite' },
 	},
-	'gemini-3-pro-image-preview': {
-		contextWindow: 1_048_576, // 1M tokens input
-		reservedOutputTokenSpace: 65_536, // 65K tokens output
+	// The Pro line is a preview; no 'minimal' level on Pro
+	'gemini-3.1-pro-preview': {
+		contextWindow: 1_048_576,
+		reservedOutputTokenSpace: 65_536,
+		cost: { input: 2.00, output: 12.00, cache_read: 0.20, long_context: geminiProLongContext },
+		downloadable: false,
+		supportsFIM: false,
+		supportsSystemMessage: 'separated',
+		specialToolFormat: 'gemini-style',
+		reasoningCapabilities: gemini3Thinking(['low', 'medium', 'high'], 'high'),
+	},
+	'gemini-3-pro-image': {
+		contextWindow: 65_536,
+		reservedOutputTokenSpace: 32_768,
 		cost: { input: 2.00, output: 12.00 }, // text+thinking output; IMAGE output is billed at 120.00/1M, which this flat model cannot express
 		downloadable: false,
 		supportsFIM: false,
@@ -1659,136 +1608,43 @@ export const geminiModelOptions = { // https://ai.google.dev/gemini-api/docs/pri
 		specialToolFormat: 'gemini-style',
 		reasoningCapabilities: false, // image generation model — no thinking_level control
 	},
-	// Gemini 2.5 series:
 	'gemini-2.5-pro': {
 		contextWindow: 1_048_576,
 		reservedOutputTokenSpace: 8_192,
-		cost: { input: 1.25, output: 10.00 }, // prompts <=200k; above that the vendor charges 2.50/15.00
+		cost: { input: 1.25, output: 10.00, cache_read: 0.125, long_context: geminiProLongContext },
 		downloadable: false,
 		supportsFIM: false,
 		supportsSystemMessage: 'separated',
 		specialToolFormat: 'gemini-style',
-		reasoningCapabilities: {
-			supportsReasoning: true,
-			canTurnOffReasoning: true,
-			canIOReasoning: false,
-			reasoningSlider: { type: 'budget_slider', min: 1024, max: 8192, default: 1024 }, // max is really 24576
-			reasoningReservedOutputTokenSpace: 8192,
-		},
+		reasoningCapabilities: gemini25Thinking,
 	},
-	'gemini-2.5-pro-preview-05-06': {
+	'gemini-2.5-flash': {
 		contextWindow: 1_048_576,
 		reservedOutputTokenSpace: 8_192,
-		cost: { input: 1.25, output: 10.00 }, // same tier as the GA 2.5 Pro above
+		cost: { input: 0.30, output: 2.50, cache_read: 0.03 },
 		downloadable: false,
 		supportsFIM: false,
 		supportsSystemMessage: 'separated',
 		specialToolFormat: 'gemini-style',
-		reasoningCapabilities: {
-			supportsReasoning: true,
-			canTurnOffReasoning: true,
-			canIOReasoning: false,
-			reasoningSlider: { type: 'budget_slider', min: 1024, max: 8192, default: 1024 }, // max is really 24576
-			reasoningReservedOutputTokenSpace: 8192,
-		},
+		reasoningCapabilities: gemini25Thinking,
 	},
-	'gemini-2.0-flash-lite': {
+	'gemini-2.5-flash-lite': {
 		contextWindow: 1_048_576,
 		reservedOutputTokenSpace: 8_192,
-		cost: { input: 0.075, output: 0.30 },
+		cost: { input: 0.10, output: 0.40, cache_read: 0.01 },
 		downloadable: false,
 		supportsFIM: false,
 		supportsSystemMessage: 'separated',
 		specialToolFormat: 'gemini-style',
-		reasoningCapabilities: false, // no reasoning
-	},
-	'gemini-2.5-flash-preview-04-17': {
-		contextWindow: 1_048_576,
-		reservedOutputTokenSpace: 8_192,
-		cost: { input: 0.15, output: .60 }, // TODO $3.50 output with thinking not included
-		downloadable: false,
-		supportsFIM: false,
-		supportsSystemMessage: 'separated',
-		specialToolFormat: 'gemini-style',
-		reasoningCapabilities: {
-			supportsReasoning: true,
-			canTurnOffReasoning: true,
-			canIOReasoning: false,
-			reasoningSlider: { type: 'budget_slider', min: 1024, max: 8192, default: 1024 }, // max is really 24576
-			reasoningReservedOutputTokenSpace: 8192,
-		},
-	},
-	'gemini-2.5-pro-exp-03-25': {
-		contextWindow: 1_048_576,
-		reservedOutputTokenSpace: 8_192,
-		cost: { input: 0, output: 0 }, // experimental id — free tier only, never appeared on the paid pricing page
-		downloadable: false,
-		supportsFIM: false,
-		supportsSystemMessage: 'separated',
-		specialToolFormat: 'gemini-style',
-		reasoningCapabilities: {
-			supportsReasoning: true,
-			canTurnOffReasoning: true,
-			canIOReasoning: false,
-			reasoningSlider: { type: 'budget_slider', min: 1024, max: 8192, default: 1024 }, // max is really 24576
-			reasoningReservedOutputTokenSpace: 8192,
-		},
-	},
-	'gemini-2.0-flash': {
-		contextWindow: 1_048_576,
-		reservedOutputTokenSpace: 8_192, // 8_192,
-		cost: { input: 0.10, output: 0.40 },
-		downloadable: false,
-		supportsFIM: false,
-		supportsSystemMessage: 'separated',
-		specialToolFormat: 'gemini-style',
-		reasoningCapabilities: false,
-	},
-	'gemini-2.0-flash-lite-preview-02-05': {
-		contextWindow: 1_048_576,
-		reservedOutputTokenSpace: 8_192, // 8_192,
-		cost: { input: 0.075, output: 0.30 },
-		downloadable: false,
-		supportsFIM: false,
-		supportsSystemMessage: 'separated',
-		specialToolFormat: 'gemini-style',
-		reasoningCapabilities: false,
-	},
-	'gemini-1.5-flash': {
-		contextWindow: 1_048_576,
-		reservedOutputTokenSpace: 8_192, // 8_192,
-		cost: { input: 0.075, output: 0.30 },  // TODO!!! price doubles after 128K tokens, we are NOT encoding that info right now
-		downloadable: false,
-		supportsFIM: false,
-		supportsSystemMessage: 'separated',
-		specialToolFormat: 'gemini-style',
-		reasoningCapabilities: false,
-	},
-	'gemini-1.5-pro': {
-		contextWindow: 2_097_152,
-		reservedOutputTokenSpace: 8_192,
-		cost: { input: 1.25, output: 5.00 },  // TODO!!! price doubles after 128K tokens, we are NOT encoding that info right now
-		downloadable: false,
-		supportsFIM: false,
-		supportsSystemMessage: 'separated',
-		specialToolFormat: 'gemini-style',
-		reasoningCapabilities: false,
-	},
-	'gemini-1.5-flash-8b': {
-		contextWindow: 1_048_576,
-		reservedOutputTokenSpace: 8_192,
-		cost: { input: 0.0375, output: 0.15 },  // TODO!!! price doubles after 128K tokens, we are NOT encoding that info right now
-		downloadable: false,
-		supportsFIM: false,
-		supportsSystemMessage: 'separated',
-		specialToolFormat: 'gemini-style',
-		reasoningCapabilities: false,
+		reasoningCapabilities: gemini25Thinking,
 	},
 } as const satisfies { [s: string]: VibeideStaticModelInfo };
 
 const geminiSettings: VoidStaticProviderInfo = {
 	modelOptions: geminiModelOptions,
-	modelOptionsFallback: (modelName) => { return null; },
+	// An id the table does not have yet (a new Flash, a retired preview) resolves by its family, as on a gateway:
+	// without a profile it came out priced at zero, and cost routing took it for a free model
+	modelOptionsFallback: modelName => modelName.toLowerCase().includes('gemini') ? extensiveModelOptionsFallback(modelName) : null,
 };
 
 

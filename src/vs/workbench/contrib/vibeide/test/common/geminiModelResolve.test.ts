@@ -37,35 +37,62 @@ suite('Gemini — model resolution, pricing and thinking levels', () => {
 	 */
 	const flashCost = { input: 0.75, output: 3.75, cache_read: 0.075 };
 
+	const flashLiteCost = { input: 0.30, output: 2.50, cache_read: 0.03 };
+	const flashLevels = { values: ['minimal', 'low', 'medium', 'high'], default: 'medium' };
+	const flashLiteLevels = { values: ['minimal', 'low', 'medium', 'high'], default: 'minimal' };
+	// Pro has no 'minimal' level and defaults to 'high'; above 200K of prompt the whole request is billed at the higher rate
+	const proShape = { recognized: 'gemini-3.1-pro-preview', cost: { input: 2.00, output: 12.00, cache_read: 0.20, long_context: { over_input_tokens: 200_000, input: 2, cache: 2, output: 1.5 } }, effort: { values: ['low', 'medium', 'high'], default: 'high' } };
+
+	/** The vendor's current lineup, checked against ai.google.dev (models, pricing, deprecations) on 30.09.2026 */
 	test('exact 3.x profiles carry vendor pricing and their own thinking levels', () => {
 		assert.deepStrictEqual(
-			[shape('gemini', 'gemini-3.6-flash'), shape('gemini', 'gemini-3.5-flash-lite'), shape('gemini', 'gemini-3-pro-preview')],
 			[
-				{ recognized: 'gemini-3.6-flash', cost: flashCost, effort: { values: ['minimal', 'low', 'medium', 'high'], default: 'medium' } },
-				{ recognized: 'gemini-3.5-flash-lite', cost: { input: 0.30, output: 2.50 }, effort: { values: ['minimal', 'low', 'medium', 'high'], default: 'minimal' } },
-				// Pro has no 'minimal' level and defaults to 'high'.
-				{ recognized: 'gemini-3-pro-preview', cost: { input: 2.00, output: 12.00 }, effort: { values: ['low', 'medium', 'high'], default: 'high' } },
+				shape('gemini', 'gemini-3.8-flash'),
+				shape('gemini', 'gemini-3.7-flash'),
+				shape('gemini', 'gemini-3.6-flash'),
+				shape('gemini', 'gemini-3.5-flash'),
+				shape('gemini', 'gemini-3.5-flash-lite'),
+				shape('gemini', 'gemini-3.1-flash-lite'),
+				shape('gemini', 'gemini-3.1-pro-preview'),
+			],
+			[
+				{ recognized: 'gemini-3.8-flash', cost: flashCost, effort: flashLevels },
+				{ recognized: 'gemini-3.7-flash', cost: flashCost, effort: flashLevels },
+				{ recognized: 'gemini-3.6-flash', cost: flashCost, effort: flashLevels },
+				{ recognized: 'gemini-3.5-flash', cost: { input: 1.50, output: 9.00, cache_read: 0.15 }, effort: flashLevels },
+				{ recognized: 'gemini-3.5-flash-lite', cost: flashLiteCost, effort: flashLiteLevels },
+				{ recognized: 'gemini-3.1-flash-lite', cost: { input: 0.25, output: 1.50, cache_read: 0.025 }, effort: flashLiteLevels },
+				proShape,
 			],
 		);
 	});
 
-	test('unknown 3.x ids resolve by family, not onto Pro, and keep a non-zero price', () => {
+	/**
+	 * An id without its own row resolves by family on the direct provider too: there it used to get no profile at all,
+	 * priced at zero. Retired ids land on the replacement the vendor names
+	 */
+	test('unknown and retired ids resolve by family, not onto Pro, and keep a non-zero price', () => {
 		assert.deepStrictEqual(
 			[
-				shape('openRouter', 'google/gemini-3.6-flash'),
 				shape('openRouter', 'google/gemini-3.5-flash-lite'),
 				shape('openRouter', 'google/gemini-3.9-flash'),      // a Flash that does not exist yet
-				shape('openRouter', 'google/gemini-3.1-flash-lite'), // a Flash-Lite that we have no profile for
-				shape('openRouter', 'gemini-3.1-pro-preview'),       // Pro really does belong on the Pro profile
-			],
+				shape('gemini', 'gemini-3.9-flash'),
+				shape('openRouter', 'gemini-3.1-pro-preview'),
+				shape('gemini', 'gemini-3-pro-preview'),             // retired 09.03.2026, the vendor names 3.1 Pro
+				shape('gemini', 'gemini-2.5-flash-preview-04-17'),   // a retired 2.5 preview lands on the served 2.5 Flash
+				shape('gemini', 'gemini-2.0-flash'),                 // retired 01.06.2026, the vendor names 3.6 Flash
+			].map(({ recognized }) => recognized),
 			[
-				{ recognized: 'gemini-3.6-flash', cost: flashCost, effort: { values: ['minimal', 'low', 'medium', 'high'], default: 'medium' } },
-				{ recognized: 'gemini-3.5-flash-lite', cost: { input: 0.30, output: 2.50 }, effort: { values: ['minimal', 'low', 'medium', 'high'], default: 'minimal' } },
-				{ recognized: 'gemini-3.6-flash', cost: flashCost, effort: { values: ['minimal', 'low', 'medium', 'high'], default: 'medium' } },
-				{ recognized: 'gemini-3.5-flash-lite', cost: { input: 0.30, output: 2.50 }, effort: { values: ['minimal', 'low', 'medium', 'high'], default: 'minimal' } },
-				{ recognized: 'gemini-3-pro-preview', cost: { input: 2.00, output: 12.00 }, effort: { values: ['low', 'medium', 'high'], default: 'high' } },
+				'gemini-3.5-flash-lite',
+				'gemini-3.6-flash',
+				'gemini-3.6-flash',
+				'gemini-3.1-pro-preview',
+				'gemini-3.1-pro-preview',
+				'gemini-2.5-flash',
+				'gemini-3.6-flash',
 			],
 		);
+		assert.deepStrictEqual(shape('openRouter', 'google/gemini-3.1-pro-preview'), proShape);
 	});
 
 	test('every paid Gemini profile has a non-zero price', () => {
@@ -86,8 +113,8 @@ suite('Gemini — model resolution, pricing and thinking levels', () => {
 		const reserved = (model: string) =>
 			getReservedOutputTokenSpace('gemini', model, { isReasoningEnabled: true, overridesOfModel: undefined });
 		assert.deepStrictEqual(
-			[reserved('gemini-3.6-flash'), reserved('gemini-3.5-flash-lite'), reserved('gemini-3-pro-preview')],
-			[65_536, 65_536, 65_536],
+			[reserved('gemini-3.8-flash'), reserved('gemini-3.6-flash'), reserved('gemini-3.5-flash-lite'), reserved('gemini-3.1-pro-preview')],
+			[65_536, 65_536, 65_536, 65_536],
 		);
 	});
 
