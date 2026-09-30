@@ -239,6 +239,15 @@ const TOOL_CALL_MARKUP_RE = /\b(?:invoke|parameter)\s+name\s*=\s*["']/i;
 export const hasToolCallMarkup = (text: string): boolean => TOOL_CALL_MARKUP_RE.test(text);
 
 /**
+ * A call block opened with `<invoke name="…">` and not closed by the end of the text, from its opening to the end
+ * While the answer streams, the tail is held back: until `</invoke>` arrives the normalizer leaves the block as written,
+ * and the scrub would take the tags out and show the values
+ * A text that ends inside such a block lost the rest of the call; the tail goes, the placeholder names it
+ * A closing tag cut short (`</inv`) counts as a close: that block belongs to the vendor-leak scrub
+ */
+export const UNCLOSED_INVOKE_TAIL_RE = /<\s*invoke\s+name\s*=\s*["'][^>\n]*>(?![\s\S]*<\/\s*inv)[\s\S]*$/i;
+
+/**
  * Namespaced suffix patterns: `<vendor:tool_call>`, `<minimax:invoke>`, etc.
  * Each entry is the part AFTER the colon. Vendor prefix is `[a-z][\w-]*`.
  * Exported for the same reason as `VENDOR_WRAPPER_NAMES`.
@@ -687,6 +696,12 @@ const stripUnclaimedToolTagsImpl = (text: string): string => {
 	// independently — a lone unclosed `<invoke …>` has no block to match) clears any
 	// leftover standalone wrapper open/close tokens with no extra placeholders.
 	let didVendorScrub = false;
+	// Before the block pass: inside an unclosed call it would pair `<invoke` with a `</parameter>` and leave the rest
+	if (UNCLOSED_INVOKE_TAIL_RE.test(out)) {
+		placeholder ??= unclaimedToolTagPlaceholder();
+		out = out.replace(UNCLOSED_INVOKE_TAIL_RE, placeholder);
+		didVendorScrub = true;
+	}
 	if (VENDOR_LEAK_BLOCK_RE.test(out)) {
 		placeholder ??= unclaimedToolTagPlaceholder();
 		out = out.replace(VENDOR_LEAK_BLOCK_RE, placeholder);

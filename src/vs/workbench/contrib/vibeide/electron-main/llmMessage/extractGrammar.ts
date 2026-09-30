@@ -13,10 +13,13 @@ import { LLMFinishNotice, OnFinalMessage, OnText, RawToolCallObj, RawToolParamsO
 import { ToolName, ToolParamName } from '../../common/toolsServiceTypes.js';
 import { ChatMode } from '../../common/vibeideSettingsTypes.js';
 import { dsmlVisibleLength, parseDsmlToolCalls } from '../../common/dsmlToolCalls.js';
-import { hasToolCallMarkup, normalizeAlternativeToolSyntax, NormalizeAttribution, SELF_CLOSING_PARTIAL_RE, stripUnclaimedToolTags, VENDOR_NAMESPACED_SUFFIXES, VENDOR_WRAPPER_NAMES } from '../../common/xmlToolNormalize.js';
+import { hasToolCallMarkup, normalizeAlternativeToolSyntax, NormalizeAttribution, SELF_CLOSING_PARTIAL_RE, stripUnclaimedToolTags, UNCLOSED_INVOKE_TAIL_RE, VENDOR_NAMESPACED_SUFFIXES, VENDOR_WRAPPER_NAMES } from '../../common/xmlToolNormalize.js';
 
 
 // =============== reasoning ===============
+
+/** Reasoning from the model's own channel first, then what was cut out of its text by tags */
+const joinReasoning = (native: string, tagged: string): string => native && tagged ? `${native}\n\n${tagged}` : native || tagged;
 
 // could simplify this - this assumes we can never add a tag without committing it to the user's screen, but that's not true
 export const extractReasoningWrapper = (
@@ -32,12 +35,16 @@ export const extractReasoningWrapper = (
 
 	if (!thinkTags[0] || !thinkTags[1]) { throw new Error(`thinkTags must not be empty if provided. Got ${JSON.stringify(thinkTags)}.`); }
 
+	// The tags are parsed out of the text only; reasoning the model sends in its own field passes through
+	// Replaced by the parse, it would be dropped whenever the text carries no tags
+	let nativeReasoning = '';
 	const onText_ = onText;
 	onText = (params) => {
-		onText_(params);
+		onText_({ ...params, fullReasoning: joinReasoning(nativeReasoning, params.fullReasoning) });
 	};
 
 	const newOnText: OnText = ({ fullText: fullText_, ...p }) => {
+		nativeReasoning = p.fullReasoning;
 
 		// until found the first think tag, keep adding to fullText
 		if (!foundTag1) {
@@ -118,17 +125,18 @@ export const extractReasoningWrapper = (
 	};
 
 
-	const getOnFinalMessageParams = () => {
-		const fullText_ = fullTextSoFar;
-		const tag1Idx = fullText_.indexOf(thinkTags[0]);
-		const tag2Idx = fullText_.indexOf(thinkTags[1]);
-		if (tag1Idx === -1) { return { fullText: fullText_, fullReasoning: '' }; } // never started reasoning
-		if (tag2Idx === -1) { return { fullText: '', fullReasoning: fullText_ }; } // never stopped reasoning
-
-		const fullReasoning = fullText_.substring(tag1Idx + thinkTags[0].length, tag2Idx);
-		const fullText = fullText_.substring(0, tag1Idx) + fullText_.substring(tag2Idx + thinkTags[1].length, Infinity);
-
-		return { fullText, fullReasoning };
+	// The final split reads the raw text of the whole answer, not the streamed state: that one has its tags cut out
+	// already, and a stream that ended on half a tag never took its tail in
+	const splitFinalText = (rawText: string) => {
+		const openIdx = rawText.indexOf(thinkTags[0]);
+		if (openIdx === -1) { return { fullText: rawText, fullReasoning: '' }; } // never started reasoning
+		const reasoningStart = openIdx + thinkTags[0].length;
+		const closeIdx = rawText.indexOf(thinkTags[1], reasoningStart);
+		if (closeIdx === -1) { return { fullText: rawText.substring(0, openIdx), fullReasoning: rawText.substring(reasoningStart) }; } // never stopped reasoning
+		return {
+			fullText: rawText.substring(0, openIdx) + rawText.substring(closeIdx + thinkTags[1].length),
+			fullReasoning: rawText.substring(reasoningStart, closeIdx),
+		};
 	};
 
 	const newOnFinalMessage: OnFinalMessage = (params) => {
@@ -136,8 +144,8 @@ export const extractReasoningWrapper = (
 		// treat like just got text before calling onFinalMessage (or else we sometimes miss the final chunk that's new to finalMessage)
 		newOnText({ ...params });
 
-		const { fullText, fullReasoning } = getOnFinalMessageParams();
-		onFinalMessage({ ...params, fullText, fullReasoning });
+		const { fullText, fullReasoning } = splitFinalText(params.fullText);
+		onFinalMessage({ ...params, fullText, fullReasoning: joinReasoning(params.fullReasoning, fullReasoning) });
 	};
 
 	return { newOnText, newOnFinalMessage };
@@ -247,6 +255,8 @@ const ALT_PARTIAL_REGEXES: RegExp[] = (() => {
 		// Spaced partial: `< invoke name="x` / `</ parameter` — the normalizer glues them only once `>` arrives
 		// Wrapper names stay out: `count < calls` at the end of a chunk would hold back all the prose after it
 		/<\s*\/?\s*(?:invoke|parameter)\b[^>\n]*$/i,
+		// An opened call not yet closed: its values would show once the scrub takes the tags out
+		UNCLOSED_INVOKE_TAIL_RE,
 		// Self-closing partial (v0.13.10): `<read_file path="d:\Project` etc.
 		SELF_CLOSING_PARTIAL_RE,
 		// X.6 — DSML fullwidth-pipe partial: `<｜｜DSML｜｜inv` mid-stream
@@ -564,6 +574,12 @@ export const extractXMLToolsWrapper = (
 		// treat like just got text before calling onFinalMessage (or else we sometimes miss the final chunk that's new to finalMessage)
 		newOnText({ ...params });
 
+		// Text held back as a possible tag start is the answer's own once the stream is over: prose ending in `<`,
+		// or a call cut short, which the scrub below replaces with the placeholder
+		if (foundOpenTag === null) {
+			fullText += openToolTagBuffer;
+			openToolTagBuffer = '';
+		}
 		fullText = fullText.trimEnd();
 		const toolCall = latestToolCall;
 

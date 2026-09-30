@@ -6,6 +6,7 @@
 import * as assert from 'assert';
 import { ensureNoDisposablesAreLeakedInTestSuite } from '../../../../../base/test/common/utils.js';
 import { builtinWireSdkNpm, getModelCapabilities, getProviderCapabilities, resolveProvider } from '../../common/modelCapabilities.js';
+import { deprecationStatus } from '../../common/modelDeprecation.js';
 import { providerNames } from '../../common/vibeideSettingsTypes.js';
 
 /**
@@ -154,7 +155,11 @@ suite('builtin model profiles — имя на проводе, профиль, п
 		]);
 	});
 
-	test('DeepSeek: нативные вызовы у каждой модели, картинки у Flash, цена по часам, незнакомый id', () => {
+	/**
+	 * Рассуждение V4 приходит своим полем `reasoning_content`, поэтому разбора `<think>` из текста у встроенного DeepSeek нет:
+	 * Унаследованный от R1, он вырезал бы тег из ответа, который его цитирует, вместе со всем, что за ним
+	 */
+	test('DeepSeek: нативные вызовы у каждой модели, картинки у Flash, цена по часам, без разбора <think>, незнакомый id', () => {
 		const card = (modelName: string) => {
 			const caps = getModelCapabilities('deepseek', modelName, undefined);
 			const cost = caps.cost;
@@ -165,13 +170,14 @@ suite('builtin model profiles — имя на проводе, профиль, п
 				cost: { input: cost.input, output: cost.output, cache_read: cost.cache_read },
 				offPeakFactor: cost.time_of_day?.offPeakFactor,
 				replacedBy: caps.deprecation?.replacedBy,
+				thinkTags: caps.reasoningCapabilities ? caps.reasoningCapabilities.openSourceThinkTags : 'нет рассуждения',
 			};
 		};
 		assert.deepStrictEqual(['deepseek-flash', 'deepseek-v4-pro', 'deepseek-v4-flash', 'deepseek-v5-preview'].map(card), [
-			{ model: 'deepseek-flash ← deepseek-flash', tools: 'openai-style', vision: true, cost: { input: 0.30, output: 1.20, cache_read: 0.006 }, offPeakFactor: 0.5, replacedBy: undefined },
-			{ model: 'deepseek-v4-pro ← deepseek-v4-pro', tools: 'openai-style', vision: false, cost: { input: 1.32, output: 3.96, cache_read: 0.044 }, offPeakFactor: 0.5, replacedBy: undefined },
-			{ model: 'deepseek-v4-flash ← deepseek-v4-flash', tools: 'openai-style', vision: true, cost: { input: 0.30, output: 1.20, cache_read: 0.006 }, offPeakFactor: 0.5, replacedBy: 'deepseek-flash' },
-			{ model: 'deepseek-v5-preview ← deepseek-v4-pro', tools: 'openai-style', vision: false, cost: { input: 1.32, output: 3.96, cache_read: 0.044 }, offPeakFactor: 0.5, replacedBy: undefined },
+			{ model: 'deepseek-flash ← deepseek-flash', tools: 'openai-style', vision: true, cost: { input: 0.30, output: 1.20, cache_read: 0.006 }, offPeakFactor: 0.5, replacedBy: undefined, thinkTags: undefined },
+			{ model: 'deepseek-v4-pro ← deepseek-v4-pro', tools: 'openai-style', vision: false, cost: { input: 1.32, output: 3.96, cache_read: 0.044 }, offPeakFactor: 0.5, replacedBy: undefined, thinkTags: undefined },
+			{ model: 'deepseek-v4-flash ← deepseek-v4-flash', tools: 'openai-style', vision: true, cost: { input: 0.30, output: 1.20, cache_read: 0.006 }, offPeakFactor: 0.5, replacedBy: 'deepseek-flash', thinkTags: undefined },
+			{ model: 'deepseek-v5-preview ← deepseek-v4-pro', tools: 'openai-style', vision: false, cost: { input: 1.32, output: 3.96, cache_read: 0.044 }, offPeakFactor: 0.5, replacedBy: undefined, thinkTags: undefined },
 		]);
 	});
 
@@ -181,30 +187,13 @@ suite('builtin model profiles — имя на проводе, профиль, п
 	 * работал в XML-режиме, пока каталог квирков утверждал обратное
 	 * Локальные и произвольные OpenAI-совместимые провайдеры не проверяются: там умения зависят от того, что поднято
 	 *
-	 * Исключения ниже — каждое с причиной по первоисточнику вендора (сверено 30.09.2026)
+	 * Исключение ниже — с причиной по первоисточнику вендора (сверено 30.09.2026)
 	 * Новая модель без формата роняет тест, и модель, получившая формат, но оставленная в исключениях, тоже
 	 */
 	test('каждая модель облачного встроенного провайдера объявляет формат вызовов', () => {
 		const servedByUser = new Set(['ollama', 'vLLM', 'lmStudio', 'openAICompatible']);
-		const offOpenRouter = 'снята с OpenRouter: ни одного эндпоинта (api/v1/models/<id>/endpoints)';
 		const withoutToolFormat: Record<string, string> = {
-			'openRouter/microsoft/phi-4-reasoning-plus:free': offOpenRouter,
-			'openRouter/mistralai/mistral-small-3.1-24b-instruct:free': offOpenRouter,
-			'openRouter/google/gemini-2.0-flash-lite-preview-02-05:free': offOpenRouter,
-			'openRouter/google/gemini-2.0-pro-exp-02-05:free': offOpenRouter,
-			'openRouter/google/gemini-2.0-flash-exp:free': offOpenRouter,
-			'openRouter/deepseek/deepseek-r1-zero:free': offOpenRouter,
-			'openRouter/anthropic/claude-opus-4': offOpenRouter,
-			'openRouter/anthropic/claude-3.7-sonnet:thinking': offOpenRouter,
-			'openRouter/anthropic/claude-3.7-sonnet': offOpenRouter,
-			'openRouter/anthropic/claude-3.5-sonnet': offOpenRouter,
-			'openRouter/mistralai/codestral-2501': offOpenRouter,
-			'openRouter/mistralai/devstral-small:free': offOpenRouter,
 			'openRouter/qwen/qwen-2.5-coder-32b-instruct': 'в supported_parameters нет tools, единственный провайдер без инструментов',
-			'openRouter/qwen/qwq-32b': offOpenRouter,
-			'groq/qwen-2.5-coder-32b': 'выключена Groq 14.04.2025 (console.groq.com/docs/deprecations)',
-			'groq/qwen-qwq-32b': 'выключена Groq 14.07.2025 (console.groq.com/docs/deprecations)',
-			'openAI/o1-mini': 'Function calling: Not supported; выключена 27.10.2025, замена o4-mini',
 		};
 		const found = providerNames
 			.filter(provider => !servedByUser.has(provider))
@@ -214,7 +203,23 @@ suite('builtin model profiles — имя на проводе, профиль, п
 		assert.deepStrictEqual(found, Object.keys(withoutToolFormat));
 	});
 
-	test('провод встроенного: свой у Anthropic, Gemini и локальных, у OpenAI — Responses для GPT-6', () => {
+	/**
+	 * Выключенная вендором модель во встроенном списке отвечает 404, и пользователь узнаёт об этом посреди задачи
+	 * Пометка `deprecation` с датой — отсрочка на переход, а не место хранения: через 90 дней после выключения
+	 * запись удаляется, и тест падает, пока её держат
+	 * Тест читает настоящие часы нарочно: список гниёт от времени, а не от правок
+	 */
+	test('выключенная больше 90 дней назад модель не держится во встроенном списке', () => {
+		const retiredForDays = 90;
+		const now = Date.now();
+		const stale = providerNames.flatMap(provider => Object.keys(resolveProvider(provider)?.info.modelOptions ?? {})
+			.map(modelName => ({ model: `${provider}/${modelName}`, status: deprecationStatus(getModelCapabilities(provider, modelName, undefined).deprecation, now) }))
+			.filter(({ status }) => status?.daysLeft !== undefined && status.daysLeft < -retiredForDays)
+			.map(({ model }) => model));
+		assert.deepStrictEqual(stale, []);
+	});
+
+	test('провод встроенного: свой у Anthropic, Gemini и локальных, у OpenAI — Responses для GPT-6 и моделей только-Responses', () => {
 		const catalogProtocol = (modelName: string) => getProviderCapabilities('openAI').wireProtocolOfModel?.(getModelCapabilities('openAI', modelName, undefined).recognizedModelName ?? modelName);
 		assert.deepStrictEqual([
 			builtinWireSdkNpm('anthropic', 'anthropic', undefined),
@@ -222,6 +227,10 @@ suite('builtin model profiles — имя на проводе, профиль, п
 			builtinWireSdkNpm('ollama', undefined, undefined),
 			builtinWireSdkNpm('openAI', 'openai', catalogProtocol('gpt-5.5')),
 			builtinWireSdkNpm('openAI', undefined, catalogProtocol('gpt-6-luna')),
+			builtinWireSdkNpm('openAI', undefined, catalogProtocol('o1-pro')),
+			builtinWireSdkNpm('openAI', undefined, catalogProtocol('o3-pro-2025-06-10')),
+			builtinWireSdkNpm('openAI', undefined, catalogProtocol('gpt-5-pro')),
+			builtinWireSdkNpm('openAI', 'openai', catalogProtocol('o3')),
 			builtinWireSdkNpm('openAI', 'openai-responses', undefined),
 			builtinWireSdkNpm('deepseek', 'openai', undefined),
 			builtinWireSdkNpm('openCodeZen', 'openai', undefined),
@@ -231,6 +240,10 @@ suite('builtin model profiles — имя на проводе, профиль, п
 			'@ai-sdk/openai-compatible',
 			'@ai-sdk/openai',
 			'@ai-sdk/openai#responses',
+			'@ai-sdk/openai#responses',
+			'@ai-sdk/openai#responses',
+			'@ai-sdk/openai#responses',
+			'@ai-sdk/openai',
 			'@ai-sdk/openai#responses',
 			undefined,
 			undefined,

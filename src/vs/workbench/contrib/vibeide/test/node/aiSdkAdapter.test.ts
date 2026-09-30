@@ -137,6 +137,15 @@ const markupInTextStream = (model: string): string => {
 	], false) + 'data: [DONE]\n\n';
 };
 
+/** Reasoning in its own `reasoning_content` field, as DeepSeek and other thinking models send it; the answer has no tags */
+const reasoningFieldStream = (model: string): string => sse([
+	{ id: 'c3', object: 'chat.completion.chunk', created: 1, model, choices: [{ index: 0, delta: { role: 'assistant', reasoning_content: 'Проверю, ' }, finish_reason: null }] },
+	{ id: 'c3', object: 'chat.completion.chunk', created: 1, model, choices: [{ index: 0, delta: { reasoning_content: 'какая ветка.' }, finish_reason: null }] },
+	{ id: 'c3', object: 'chat.completion.chunk', created: 1, model, choices: [{ index: 0, delta: { content: 'На ветке ' }, finish_reason: null }] },
+	{ id: 'c3', object: 'chat.completion.chunk', created: 1, model, choices: [{ index: 0, delta: { content: 'next.' }, finish_reason: null }] },
+	{ id: 'c3', object: 'chat.completion.chunk', created: 1, model, choices: [{ index: 0, delta: {}, finish_reason: 'stop' }], usage: { prompt_tokens: 100, completion_tokens: 20, total_tokens: 120 } },
+], false) + 'data: [DONE]\n\n';
+
 const unverifiedOrganisation = JSON.stringify({ error: { message: 'Your organization must be verified to stream this model. Please go to: https://platform.openai.com/settings/organization/general and click on Verify Organization.', type: 'invalid_request_error', param: 'stream', code: 'unsupported_value' } });
 
 const wholeChatCompletion = JSON.stringify({ id: 'chatcmpl-1', object: 'chat.completion', created: 1, model: 'o3', choices: [{ index: 0, message: { role: 'assistant', content: 'Готово без потока.' }, finish_reason: 'stop' }], usage: { prompt_tokens: 80, completion_tokens: 6, total_tokens: 86 } });
@@ -159,6 +168,9 @@ function respond(path: string, body: WireBody | undefined, res: ServerResponse):
 	} else if (path === '/compat/v1/chat/completions') {
 		res.writeHead(200, { 'content-type': 'text/event-stream' });
 		res.end(model.includes('dsml-') ? markupInTextStream(model) : compatibleStream());
+	} else if (path === '/reasoning/v1/chat/completions') {
+		res.writeHead(200, { 'content-type': 'text/event-stream' });
+		res.end(reasoningFieldStream(model));
 	} else if (path.startsWith('/v1beta/models/')) {
 		res.writeHead(429, { 'content-type': 'application/json' });
 		res.end(googleRateLimit);
@@ -684,6 +696,27 @@ suite('aiSdkAdapter — встроенные провайдеры против �
 			setExternalProviders([]);
 			quirks.__resetForTests();
 		}
+	});
+
+	test('рассуждение своим полем доходит до итога и у профиля с разбором <think> (R1)', async () => {
+		const outcome = await send({
+			// A self-hosted endpoint serving R1: its profile parses `<think>` out of the text
+			providerName: 'openAICompatible',
+			modelName: 'deepseek-r1',
+			settingsOfProvider: settingsWith({ openAICompatible: { endpoint: `http://127.0.0.1:${port}/reasoning/v1`, apiKey: 'k' } }),
+			messages: [{ role: 'user', content: 'Какая ветка?' }],
+		});
+		assert.deepStrictEqual({
+			path: requests[requests.length - 1]?.path,
+			text: outcome.final?.fullText,
+			reasoning: outcome.final?.fullReasoning,
+			error: outcome.error?.message,
+		}, {
+			path: '/reasoning/v1/chat/completions',
+			text: 'На ветке next.',
+			reasoning: 'Проверю, какая ветка.',
+			error: undefined,
+		});
 	});
 
 	test('сервер без ключа (auth: "none"): ни на одном проводе ключа нет, ключ из окружения не подхватывается', async () => {

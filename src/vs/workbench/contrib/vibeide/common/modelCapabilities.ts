@@ -840,13 +840,13 @@ const extensiveModelOptionsFallback: VoidStaticProviderInfo['modelOptionsFallbac
 	if (lower.includes('gpt-4.1') && lower.includes('mini')) { return toFallback(openAIModelOptions, 'gpt-4.1-mini'); }
 	if (lower.includes('gpt-4.1') || (lower.includes('gpt') && lower.includes('4.1'))) { return toFallback(openAIModelOptions, 'gpt-4.1'); }
 	// Reasoning models (o-series):
-	if (lower.includes('o3') && lower.includes('deep') && lower.includes('search')) { return toFallback(openAIModelOptions, 'o3-deep-search'); }
 	if (lower.includes('o3') && lower.includes('pro')) { return toFallback(openAIModelOptions, 'o3-pro'); }
 	if (lower.includes('o3') && lower.includes('mini')) { return toFallback(openAIModelOptions, 'o3-mini'); }
 	if (lower.includes('o3')) { return toFallback(openAIModelOptions, 'o3'); }
 	if (lower.includes('o4') && lower.includes('mini')) { return toFallback(openAIModelOptions, 'o4-mini'); }
 	if (lower.includes('o1') && lower.includes('pro')) { return toFallback(openAIModelOptions, 'o1-pro'); }
-	if (lower.includes('o1') && lower.includes('mini')) { return toFallback(openAIModelOptions, 'o1-mini'); }
+	// o1-mini is retired (27.10.2025); the vendor names o4-mini as its replacement
+	if (lower.includes('o1') && lower.includes('mini')) { return toFallback(openAIModelOptions, 'o4-mini'); }
 	if (lower.includes('o1')) { return toFallback(openAIModelOptions, 'o1'); }
 	// GPT-4o series:
 	if (lower.includes('gpt-4o') && lower.includes('mini')) { return toFallback(openAIModelOptions, 'gpt-4o-mini'); }
@@ -1365,16 +1365,6 @@ const openAIModelOptions = { // https://platform.openai.com/docs/pricing
 		reasoningCapabilities: false,
 	},
 	// Reasoning models (o-series):
-	'o3-deep-search': {
-		contextWindow: 1_047_576, // TODO: Verify actual context window
-		reservedOutputTokenSpace: 32_768,
-		cost: { input: 20.00, output: 80.00, cache_read: 5.00 }, // TODO: Verify pricing
-		downloadable: false,
-		supportsFIM: false,
-		specialToolFormat: 'openai-style',
-		supportsSystemMessage: 'developer-role',
-		reasoningCapabilities: { supportsReasoning: true, canTurnOffReasoning: false, canIOReasoning: false, reasoningSlider: { type: 'effort_slider', values: ['low', 'medium', 'high'], default: 'low' } },
-	},
 	'o3-pro': {
 		contextWindow: 1_047_576, // TODO: Verify actual context window
 		reservedOutputTokenSpace: 32_768,
@@ -1435,15 +1425,6 @@ const openAIModelOptions = { // https://platform.openai.com/docs/pricing
 		supportsSystemMessage: 'developer-role',
 		reasoningCapabilities: { supportsReasoning: true, canTurnOffReasoning: false, canIOReasoning: false, reasoningSlider: { type: 'effort_slider', values: ['low', 'medium', 'high'], default: 'low' } },
 	},
-	'o1-mini': {
-		contextWindow: 128_000,
-		reservedOutputTokenSpace: 65_536,
-		cost: { input: 1.10, cache_read: 0.55, output: 4.40, },
-		downloadable: false,
-		supportsFIM: false,
-		supportsSystemMessage: false, // does not support any system
-		reasoningCapabilities: { supportsReasoning: true, canTurnOffReasoning: false, canIOReasoning: false, reasoningSlider: { type: 'effort_slider', values: ['low', 'medium', 'high'], default: 'low' } },
-	},
 	// Legacy models (still available for backward compatibility):
 	// 'gpt-3.5-turbo': // Legacy chat model, not recommended for new usage
 } as const satisfies { [s: string]: VibeideStaticModelInfo };
@@ -1474,13 +1455,12 @@ const openAIFallbackProfiles: ReadonlyArray<readonly [RegExp, keyof typeof openA
 	[/gpt-4\.1.*nano/, 'gpt-4.1-nano'],
 	[/gpt-4\.1.*mini/, 'gpt-4.1-mini'],
 	[/gpt-4\.1/, 'gpt-4.1'],
-	[/\bo3.*deep.*search/, 'o3-deep-search'],
 	[/\bo3.*pro/, 'o3-pro'],
 	[/\bo3.*mini/, 'o3-mini'],
 	[/\bo3/, 'o3'],
 	[/\bo4.*mini/, 'o4-mini'],
 	[/\bo1.*pro/, 'o1-pro'],
-	[/\bo1.*mini/, 'o1-mini'],
+	[/\bo1.*mini/, 'o4-mini'],
 	[/\bo1/, 'o1'],
 	[/4o.*mini/, 'gpt-4o-mini'],
 	[/4o/, 'gpt-4o'],
@@ -1488,15 +1468,23 @@ const openAIFallbackProfiles: ReadonlyArray<readonly [RegExp, keyof typeof openA
 	[/gpt-3\.5|3\.5-turbo/, 'gpt-4o-mini'],
 ];
 
+/**
+ * OpenAI models the vendor serves on /v1/responses and batch only: on chat completions the request is refused
+ * Model cards at developers.openai.com, checked 30.09.2026
+ * GPT-6 goes there by prefix: it calls functions with reasoning only on /v1/responses, on chat completions tools work
+ * only at effort `none`, and Astra refuses even that
+ */
+const openAIResponsesOnlyModels: ReadonlySet<string> = new Set(['o1-pro', 'o3-pro', 'gpt-5-pro']);
+
 const openAISettings: VoidStaticProviderInfo = {
 	modelOptions: openAIModelOptions,
 	modelOptionsFallback: modelName => {
 		const recognized = firstMatchingProfile(modelName, openAIFallbackProfiles);
 		return recognized ? { modelName, recognizedModelName: recognized, ...openAIModelOptions[recognized] } : null;
 	},
-	// GPT-6 calls functions with reasoning only on /v1/responses: on chat completions tools work only at
-	// effort `none`, and Astra refuses even that.
-	wireProtocolOfModel: recognizedModelName => recognizedModelName.startsWith('gpt-6') ? 'openai-responses' : undefined,
+	wireProtocolOfModel: recognizedModelName => recognizedModelName.startsWith('gpt-6') || openAIResponsesOnlyModels.has(recognizedModelName)
+		? 'openai-responses'
+		: undefined,
 	providerReasoningIOSettings: {
 		input: { includeInPayload: openAICompatIncludeInPayloadReasoning },
 	},
@@ -1821,27 +1809,32 @@ const deepseekTimeOfDay: PriceTimeOfDay = {
 	offPeakFactor: 0.5,
 };
 
-const deepseekFlash = {
-	...openSourceModelOptions_assumingOAICompat.deepseekR1,
+// Not the R1 profile: V4 streams its reasoning in its own `reasoning_content` field (api-docs.deepseek.com/guides/thinking_mode)
+// R1's `<think>` parsing on top of it would take the tag out of an answer that quotes one, and the answer after it with it
+const deepseekApiBase = {
+	supportsFIM: false,
+	// As in the R1 profile it was split from: the docs show a system role for V4, but moving the prompt wants a live check
+	supportsSystemMessage: false,
+	reasoningCapabilities: { supportsReasoning: true, canTurnOffReasoning: false, canIOReasoning: true },
 	specialToolFormat: 'openai-style',
 	contextWindow: 1_000_000,
 	reservedOutputTokenSpace: 32_000,
+	downloadable: false,
+} as const satisfies Partial<VibeideStaticModelInfo>;
+
+const deepseekFlash = {
+	...deepseekApiBase,
 	// `supportsVision` is load-bearing on each DeepSeek id: it decides whether the vision gate may route an image here
 	supportsVision: true,
 	cost: { cache_read: .006, input: .30, output: 1.20, time_of_day: deepseekTimeOfDay },
-	downloadable: false,
 } as const satisfies VibeideStaticModelInfo;
 
 const deepseekModelOptions = {
 	'deepseek-flash': deepseekFlash,
 	'deepseek-v4-pro': {
-		...openSourceModelOptions_assumingOAICompat.deepseekR1,
-		specialToolFormat: 'openai-style',
-		contextWindow: 1_000_000,
-		reservedOutputTokenSpace: 32_000,
+		...deepseekApiBase,
 		supportsVision: false,
 		cost: { cache_read: .044, input: 1.32, output: 3.96, time_of_day: deepseekTimeOfDay },
-		downloadable: false,
 	},
 	// Retired by the vendor; the id keeps answering, served by `deepseek-flash`
 	'deepseek-v4-flash': {
@@ -1899,36 +1892,6 @@ const mistralModelOptions = { // https://mistral.ai/products/la-plateforme#prici
 		supportsSystemMessage: 'system-role',
 		reasoningCapabilities: false,
 	},
-	'magistral-medium-latest': {
-		contextWindow: 256_000,
-		reservedOutputTokenSpace: 8_192,
-		cost: { input: 0.30, output: 0.90 }, // TODO: check this
-		supportsFIM: true,
-		specialToolFormat: 'openai-style',
-		downloadable: { sizeGb: 13 },
-		supportsSystemMessage: 'system-role',
-		reasoningCapabilities: { supportsReasoning: true, canIOReasoning: true, canTurnOffReasoning: false, openSourceThinkTags: ['<think>', '</think>'] },
-	},
-	'magistral-small-latest': {
-		contextWindow: 40_000,
-		reservedOutputTokenSpace: 8_192,
-		cost: { input: 0.30, output: 0.90 }, // TODO: check this
-		supportsFIM: true,
-		specialToolFormat: 'openai-style',
-		downloadable: { sizeGb: 13 },
-		supportsSystemMessage: 'system-role',
-		reasoningCapabilities: { supportsReasoning: true, canIOReasoning: true, canTurnOffReasoning: false, openSourceThinkTags: ['<think>', '</think>'] },
-	},
-	'devstral-small-latest': { //https://openrouter.ai/mistralai/devstral-small:free
-		contextWindow: 131_000,
-		reservedOutputTokenSpace: 8_192,
-		cost: { input: 0, output: 0 },
-		supportsFIM: false,
-		specialToolFormat: 'openai-style',
-		downloadable: { sizeGb: 14 }, //https://ollama.com/library/devstral
-		supportsSystemMessage: 'system-role',
-		reasoningCapabilities: false,
-	},
 	'ministral-8b-latest': { // ollama 'mistral'
 		contextWindow: 131_000,
 		reservedOutputTokenSpace: 4_096,
@@ -1962,6 +1925,8 @@ const mistralSettings: VoidStaticProviderInfo = {
 
 // ---------------- GROQ ----------------
 const groqModelOptions = { // https://console.groq.com/docs/models, https://groq.com/pricing/
+	// Both llama ids are off since 16.08.2026 on the free and developer tiers (console.groq.com/docs/deprecations)
+	// A committed-spend enterprise contract keeps them, which is why the models page still lists them
 	'llama-3.3-70b-versatile': {
 		contextWindow: 128_000,
 		reservedOutputTokenSpace: 32_768, // 32_768,
@@ -1971,6 +1936,7 @@ const groqModelOptions = { // https://console.groq.com/docs/models, https://groq
 		specialToolFormat: 'openai-style',
 		supportsSystemMessage: 'system-role',
 		reasoningCapabilities: false,
+		deprecation: { date: '2026-08-16', replacedBy: 'openai/gpt-oss-120b' },
 	},
 	'llama-3.1-8b-instant': {
 		contextWindow: 128_000,
@@ -1981,24 +1947,29 @@ const groqModelOptions = { // https://console.groq.com/docs/models, https://groq
 		specialToolFormat: 'openai-style',
 		supportsSystemMessage: 'system-role',
 		reasoningCapabilities: false,
+		deprecation: { date: '2026-08-16', replacedBy: 'openai/gpt-oss-20b' },
 	},
-	'qwen-2.5-coder-32b': {
-		contextWindow: 128_000,
-		reservedOutputTokenSpace: null, // not specified?
-		cost: { input: 0.79, output: 0.79 },
-		downloadable: false,
-		supportsFIM: false, // unfortunately looks like no FIM support on groq
-		supportsSystemMessage: 'system-role',
-		reasoningCapabilities: false,
-	},
-	'qwen-qwq-32b': { // https://huggingface.co/Qwen/QwQ-32B
-		contextWindow: 128_000,
-		reservedOutputTokenSpace: null, // not specified?
-		cost: { input: 0.29, output: 0.39 },
+	// The replacements Groq names for the llama pair; reasoning cannot be switched off, only its effort chosen
+	// console.groq.com/docs/model/openai/gpt-oss-120b, …/gpt-oss-20b and /docs/reasoning, checked 30.09.2026
+	'openai/gpt-oss-120b': {
+		contextWindow: 131_072,
+		reservedOutputTokenSpace: 65_536,
+		cost: { input: 0.15, cache_read: 0.075, output: 0.60 },
 		downloadable: false,
 		supportsFIM: false,
+		specialToolFormat: 'openai-style',
 		supportsSystemMessage: 'system-role',
-		reasoningCapabilities: { supportsReasoning: true, canIOReasoning: true, canTurnOffReasoning: false, openSourceThinkTags: ['<think>', '</think>'] }, // we're using reasoning_format:parsed so really don't need to know openSourceThinkTags
+		reasoningCapabilities: { supportsReasoning: true, canTurnOffReasoning: false, canIOReasoning: true, reasoningSlider: { type: 'effort_slider', values: ['low', 'medium', 'high'], default: 'medium' } },
+	},
+	'openai/gpt-oss-20b': {
+		contextWindow: 131_072,
+		reservedOutputTokenSpace: 65_536,
+		cost: { input: 0.075, cache_read: 0.037, output: 0.30 },
+		downloadable: false,
+		supportsFIM: false,
+		specialToolFormat: 'openai-style',
+		supportsSystemMessage: 'system-role',
+		reasoningCapabilities: { supportsReasoning: true, canTurnOffReasoning: false, canIOReasoning: true, reasoningSlider: { type: 'effort_slider', values: ['low', 'medium', 'high'], default: 'medium' } },
 	},
 } as const satisfies { [s: string]: VibeideStaticModelInfo };
 const groqSettings: VoidStaticProviderInfo = {
@@ -2012,7 +1983,8 @@ const groqSettings: VoidStaticProviderInfo = {
 				if (reasoningInfo.type === 'budget_slider_value') {
 					return { reasoning_format: 'parsed' };
 				}
-				return null;
+				// GPT-OSS: the level goes as `reasoning_effort`, and the reasoning already comes in its own field
+				return openAICompatIncludeInPayloadReasoning(reasoningInfo);
 			}
 		},
 		output: { nameOfFieldInDelta: 'reasoning' },
@@ -2352,51 +2324,6 @@ const openRouterModelOptions_assumingOpenAICompat = {
 		specialToolFormat: 'openai-style',
 		reasoningCapabilities: { supportsReasoning: true, canIOReasoning: true, canTurnOffReasoning: false },
 	},
-	'microsoft/phi-4-reasoning-plus:free': { // a 14B model...
-		contextWindow: 32_768,
-		reservedOutputTokenSpace: null,
-		cost: { input: 0, output: 0 },
-		downloadable: false,
-		supportsFIM: false,
-		supportsSystemMessage: 'system-role',
-		reasoningCapabilities: { supportsReasoning: true, canIOReasoning: true, canTurnOffReasoning: false },
-	},
-	'mistralai/mistral-small-3.1-24b-instruct:free': {
-		contextWindow: 128_000,
-		reservedOutputTokenSpace: null,
-		cost: { input: 0, output: 0 },
-		downloadable: false,
-		supportsFIM: false,
-		supportsSystemMessage: 'system-role',
-		reasoningCapabilities: false,
-	},
-	'google/gemini-2.0-flash-lite-preview-02-05:free': {
-		contextWindow: 1_048_576,
-		reservedOutputTokenSpace: null,
-		cost: { input: 0, output: 0 },
-		downloadable: false,
-		supportsFIM: false,
-		supportsSystemMessage: 'system-role',
-		reasoningCapabilities: false,
-	},
-	'google/gemini-2.0-pro-exp-02-05:free': {
-		contextWindow: 1_048_576,
-		reservedOutputTokenSpace: null,
-		cost: { input: 0, output: 0 },
-		downloadable: false,
-		supportsFIM: false,
-		supportsSystemMessage: 'system-role',
-		reasoningCapabilities: false,
-	},
-	'google/gemini-2.0-flash-exp:free': {
-		contextWindow: 1_048_576,
-		reservedOutputTokenSpace: null,
-		cost: { input: 0, output: 0 },
-		downloadable: false,
-		supportsFIM: false,
-		supportsSystemMessage: 'system-role',
-		reasoningCapabilities: false,
-	},
 	'deepseek/deepseek-r1': {
 		...openSourceModelOptions_assumingOAICompat.deepseekR1,
 		specialToolFormat: 'openai-style',
@@ -2404,28 +2331,6 @@ const openRouterModelOptions_assumingOpenAICompat = {
 		reservedOutputTokenSpace: null,
 		cost: { input: 0.8, output: 2.4 },
 		downloadable: false,
-	},
-	'deepseek/deepseek-r1-zero:free': {
-		...openSourceModelOptions_assumingOAICompat.deepseekR1,
-		contextWindow: 128_000,
-		reservedOutputTokenSpace: null,
-		cost: { input: 0, output: 0 },
-		downloadable: false,
-	},
-	'anthropic/claude-opus-4': {
-		contextWindow: 200_000,
-		reservedOutputTokenSpace: null,
-		cost: { input: 15.00, output: 30.00 },
-		downloadable: false,
-		supportsFIM: false,
-		supportsSystemMessage: 'system-role',
-		reasoningCapabilities: {
-			supportsReasoning: true,
-			canTurnOffReasoning: true,
-			canIOReasoning: true,
-			reasoningReservedOutputTokenSpace: 8192,
-			reasoningSlider: { type: 'budget_slider', min: 1024, max: 8192, default: 1024 },
-		},
 	},
 	'anthropic/claude-sonnet-4': {
 		contextWindow: 200_000,
@@ -2443,55 +2348,6 @@ const openRouterModelOptions_assumingOpenAICompat = {
 			reasoningSlider: { type: 'budget_slider', min: 1024, max: 8192, default: 1024 },
 		},
 	},
-	'anthropic/claude-3.7-sonnet:thinking': {
-		contextWindow: 200_000,
-		reservedOutputTokenSpace: null,
-		cost: { input: 3.00, output: 15.00 },
-		downloadable: false,
-		supportsFIM: false,
-		supportsSystemMessage: 'system-role',
-		reasoningCapabilities: { // same as anthropic, see above
-			supportsReasoning: true,
-			canTurnOffReasoning: false,
-			canIOReasoning: true,
-			reasoningReservedOutputTokenSpace: 8192,
-			reasoningSlider: { type: 'budget_slider', min: 1024, max: 8192, default: 1024 }, // they recommend batching if max > 32_000.
-		},
-	},
-	'anthropic/claude-3.7-sonnet': {
-		contextWindow: 200_000,
-		reservedOutputTokenSpace: null,
-		cost: { input: 3.00, output: 15.00 },
-		downloadable: false,
-		supportsFIM: false,
-		supportsSystemMessage: 'system-role',
-		reasoningCapabilities: false, // stupidly, openrouter separates thinking from non-thinking
-	},
-	'anthropic/claude-3.5-sonnet': {
-		contextWindow: 200_000,
-		reservedOutputTokenSpace: null,
-		cost: { input: 3.00, output: 15.00 },
-		downloadable: false,
-		supportsFIM: false,
-		supportsSystemMessage: 'system-role',
-		reasoningCapabilities: false,
-	},
-	'mistralai/codestral-2501': {
-		...openSourceModelOptions_assumingOAICompat.codestral,
-		contextWindow: 256_000,
-		reservedOutputTokenSpace: null,
-		cost: { input: 0.3, output: 0.9 },
-		downloadable: false,
-		reasoningCapabilities: false,
-	},
-	'mistralai/devstral-small:free': {
-		...openSourceModelOptions_assumingOAICompat.devstral,
-		contextWindow: 130_000,
-		reservedOutputTokenSpace: null,
-		cost: { input: 0, output: 0 },
-		downloadable: false,
-		reasoningCapabilities: false,
-	},
 	'qwen/qwen-2.5-coder-32b-instruct': {
 		...openSourceModelOptions_assumingOAICompat['qwen2.5coder'],
 		contextWindow: 33_000,
@@ -2499,13 +2355,6 @@ const openRouterModelOptions_assumingOpenAICompat = {
 		cost: { input: 0.07, output: 0.16 },
 		downloadable: false,
 	},
-	'qwen/qwq-32b': {
-		...openSourceModelOptions_assumingOAICompat['qwq'],
-		contextWindow: 33_000,
-		reservedOutputTokenSpace: null,
-		cost: { input: 0.07, output: 0.16 },
-		downloadable: false,
-	}
 } as const satisfies { [s: string]: VibeideStaticModelInfo };
 
 const openRouterSettings: VoidStaticProviderInfo = {
