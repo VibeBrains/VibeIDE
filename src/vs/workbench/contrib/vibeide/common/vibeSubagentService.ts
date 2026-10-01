@@ -746,6 +746,7 @@ export class VibeSubagentService extends Disposable implements IVibeSubagentServ
 			// оркестратора пайплайн не проходит, и границы там иначе не было бы вовсе.
 			...writeScopeField(effectiveWriteScope(entry.type, handoff.writeScope, await this._qaWritePathsFor(entry.type, handoff))),
 			...(worktree ? { runRoot: worktree.path } : {}),
+			...(worktree?.linked?.length ? { sharedFolders: worktree.linked } : {}),
 			maxSteps,
 			maxTokensEst: Math.max(0, maxTokens),
 			maxWallClockMs: handoff.maxWallClockMs ?? 0,
@@ -823,8 +824,18 @@ export class VibeSubagentService extends Disposable implements IVibeSubagentServ
 			return { note: `\n\nРабота зафиксирована в ветке ${worktree.branch} (дерево ${worktree.path}) и НЕ влита в проект.`, committed: true, merged: false };
 		}
 		try {
-			await this._worktrees.mergeWorktree(worktree.id);
-			return { note: `\n\nВетка ${worktree.branch} влита в проект.`, committed: true, merged: true };
+			const outcome = await this._worktrees.mergeWorktree(worktree.id);
+			switch (outcome.kind) {
+				case 'merged':
+					return { note: `\n\nВетка ${worktree.branch} влита в проект.`, committed: true, merged: true };
+				case 'applied':
+					// Дерево шло от снимка папки — работа ложится незакоммиченной, рядом с правками пользователя
+					return { note: `\n\nРабота роли перенесена в папку проекта незакоммиченными правками (${outcome.files} файл.), дерево ${worktree.branch} убрано.`, committed: true, merged: true };
+				case 'unchanged':
+					return { note: `\n\nРабота роли не меняет папку проекта — переносить было нечего, дерево ${worktree.branch} убрано.`, committed: true, merged: true };
+				case 'conflict':
+					return { note: `\n\nРабота роли расходится с правками, сделанными в папке после её старта (${outcome.files.join(', ')}) — папка не тронута, работа в ветке ${worktree.branch}, дерево ${worktree.path} на месте.`, committed: true, merged: false };
+			}
 		} catch (e) {
 			// Конфликт слияния — не потеря: дерево и ветка остаются, чинить есть чем.
 			this._log.error(`[VibeSubagent] ${entry.id} — слияние ${worktree.branch} не прошло: ${e instanceof Error ? e.message : String(e)}`);

@@ -47,6 +47,13 @@ export interface SubagentRunRequest {
 	 * Не задан — прогон работает прямо в открытой папке, как и раньше.
 	 */
 	readonly runRoot?: string;
+	/**
+	 * Папки корня прогона, принесённые ссылкой на папку проекта (`node_modules`), — относительно `runRoot`
+	 *
+	 * За ними общие файлы пользователя: установка пакетов в таком прогоне отклоняется
+	 * Не задано — ссылок нет (копия при записи или режим без папок), и пакеты роль ставит в своё
+	 */
+	readonly sharedFolders?: readonly string[];
 	readonly maxSteps: number;
 	/** Estimated-token quota (0 = unlimited). */
 	readonly maxTokensEst: number;

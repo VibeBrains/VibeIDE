@@ -5,6 +5,7 @@
 
 
 import { SnapshotCommitMeta } from './workspaceSnapshotPolicy.js';
+import type { IWorktreeIncludeOptions } from './worktreeIncludePolicy.js';
 import type { WriteScope } from './pipeline/vibePipelineFile.js';
 import { createDecorator } from '../../../../platform/instantiation/common/instantiation.js';
 
@@ -36,10 +37,46 @@ export interface IChangeSet {
 	readonly files: readonly IChangedFile[];
 }
 
-/** Two points to compare: a pinned snapshot and the working tree now, or an agent branch and the commit it forked from. */
+/**
+ * Two points to compare: a pinned snapshot and the working tree now, or an agent branch and its base —
+ * the working-folder snapshot it forked from when it has one, the merge base with `HEAD` otherwise.
+ */
 export type ChangeRange =
 	| { readonly kind: 'snapshot'; readonly commit: string }
 	| { readonly kind: 'branch'; readonly branch: string };
+
+/** How an agent worktree is created. */
+export interface IAddWorktreeOptions {
+	/** What to branch from; `HEAD` when absent. */
+	readonly baseRef?: string;
+	/** Ignored files and folders to bring from the repository folder; nothing when absent. */
+	readonly include?: IWorktreeIncludeOptions;
+}
+
+/** A created agent worktree and what was brought into it from outside git. */
+export interface IAddedWorktree {
+	/** Absolute path of the worktree. */
+	readonly path: string;
+	/** Folders brought as links into the user's folder — shared, so writes into them must be refused. */
+	readonly linked: readonly string[];
+	/** Folders brought as copies — the role's own. */
+	readonly cloned: readonly string[];
+	/** Ignored files copied in. */
+	readonly copied: readonly string[];
+	/** Paths that could not be brought; the worktree works without them. */
+	readonly failed: readonly string[];
+}
+
+/** How an agent branch came back into the project. */
+export type WorktreeFinishResult =
+	/** Merged with `merge --no-ff`: the branch forked from `HEAD`. */
+	| { readonly kind: 'merged' }
+	/** Written into the folder as uncommitted changes: the branch forked from a working-folder snapshot. */
+	| { readonly kind: 'applied'; readonly files: number }
+	/** Nothing to bring: the role changed nothing, or the folder already holds its result. */
+	| { readonly kind: 'unchanged' }
+	/** The role's work and the folder's changes collide in these files; the folder is untouched. */
+	| { readonly kind: 'conflict'; readonly files: readonly string[] };
 
 export interface IVibeideSCMService {
 	readonly _serviceBrand: undefined;
@@ -143,21 +180,40 @@ export interface IVibeideSCMService {
 	 */
 	gitCouplingLog(path: string, days: number, maxCommits: number): Promise<string>;
 	/**
-	 * Создать рабочее дерево агента: своя папка, своя ветка от `baseRef`.
+	 * Создать рабочее дерево агента: своя папка, своя ветка от `options.baseRef`.
 	 *
-	 * Возвращает абсолютный путь дерева. Папка дерева заодно попадает в `.git/info/exclude` — это
+	 * Папка дерева заодно попадает в `.git/info/exclude` — это
 	 * локальный список исключений, поэтому `.gitignore` пользователя мы не трогаем, а дерево не
 	 * висит в его `git status` как гора неотслеженных файлов.
+	 *
+	 * Следом в дерево приносится игнорируемое из `options.include`: файлы копируются, папки — копией при записи
+	 * или ссылкой. Не принесённое не роняет создание: дерево работает и без него, а ответ это называет
 	 *
 	 * @param path Любой путь внутри репозитория
 	 * @param branch Имя ветки дерева; занятое имя — ошибка, а не молчаливое переиспользование
 	 * @param relativePath Путь дерева относительно корня репозитория
-	 * @param baseRef От чего ответвляться; по умолчанию `HEAD`
 	 */
-	addWorktree(path: string, branch: string, relativePath: string, baseRef?: string): Promise<string>;
+	addWorktree(path: string, branch: string, relativePath: string, options?: IAddWorktreeOptions): Promise<IAddedWorktree>;
+	/**
+	 * Снять рабочую папку снимком-коммитом поверх `HEAD` и закрепить его ссылкой базы ветки
+	 *
+	 * `undefined` — папка совпадает с `HEAD`, снимок ничего не добавил бы, и дерево идёт от `HEAD`
+	 * Бросает, если ветка уже есть: перезаписать базу чужой ветки значило бы испортить её перенос
+	 *
+	 * @param path Любой путь внутри репозитория
+	 * @param branch Будущая ветка дерева
+	 */
+	pinWorktreeBase(path: string, branch: string): Promise<string | undefined>;
+	/** Снять ссылку базы ветки. Ссылки нет — ничего не делает. */
+	releaseWorktreeBase(path: string, branch: string): Promise<void>;
+	/** Снять ссылки баз, чьих веток больше нет, и сказать, сколько. Никогда не бросает. */
+	pruneWorktreeBases(path: string): Promise<number>;
 	/**
 	 * Убрать рабочее дерево. Без `force` git откажется удалять дерево с несохранёнными правками —
 	 * и это верно: молча стереть чужую работу хуже, чем оставить папку.
+	 *
+	 * Ссылки на общие папки снимаются первыми, и только как ссылки: удаление дерева не должно пройти сквозь них
+	 * Снять ссылку не вышло — дерево не удаляется вовсе
 	 *
 	 * @param path Любой путь внутри репозитория
 	 * @param worktreePath Путь дерева (абсолютный или относительно корня)
@@ -171,19 +227,24 @@ export interface IVibeideSCMService {
 	 * бы на грязном дереве. Личность коммита — репозитория: этот коммит остаётся в истории
 	 * пользователя, и подписывать его служебным именем незачем.
 	 *
+	 * Ссылки на общие папки в коммит не попадают: для git ссылка — файл, и `add -A` унёс бы её в историю
+	 *
 	 * @param worktreePath Путь дерева прогона, а не корня репозитория
 	 * @returns `false`, если дерево чистое — роль ничего не записала
 	 */
 	commitWorktree(worktreePath: string, message: string): Promise<boolean>;
 	/**
-	 * Влить ветку дерева в текущую ветку репозитория отдельным коммитом слияния.
+	 * Вернуть работу ветки дерева в проект.
 	 *
-	 * `--no-ff` намеренно: работа агента должна остаться видимой в истории одним узлом, иначе
-	 * «что он сделал» приходится собирать по отдельным коммитам.
+	 * Ветка от `HEAD` вливается `merge --no-ff`: работа агента должна остаться видимой в истории одним узлом,
+	 * иначе «что он сделал» приходится собирать по отдельным коммитам. Конфликт слияния — исключение, как и было
+	 *
+	 * Ветка от снимка папки переносится в папку незакоммиченными правками: слить её нельзя — снимок с правками
+	 * пользователя попал бы в историю. Конфликт с правками, сделанными после старта, папку не трогает
 	 *
 	 * @param path Любой путь внутри репозитория
 	 */
-	mergeWorktreeBranch(path: string, branch: string): Promise<void>;
+	finishWorktreeBranch(path: string, branch: string): Promise<WorktreeFinishResult>;
 	/**
 	 * Удалить ветку дерева после слияния.
 	 *

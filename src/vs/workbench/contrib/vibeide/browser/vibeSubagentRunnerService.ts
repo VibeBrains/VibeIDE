@@ -36,7 +36,10 @@ import { IVibeAgentActivityLogService } from './vibeAgentActivityLogService.js';
 import { URI } from '../../../../base/common/uri.js';
 import { IWorkspaceContextService } from '../../../../platform/workspace/common/workspace.js';
 import { stepMayWrite } from '../common/pipeline/vibePipelineFile.js';
-import { rebaseParamsIntoWorktree, relativeToRoot } from '../common/worktreeRebase.js';
+import { isInsideRoot, rebaseParamsIntoWorktree, relativeToRoot } from '../common/worktreeRebase.js';
+import { describeSharedFolderInstall, describeWriteThroughLink, packageInstallSegment } from '../common/worktreeLinkGuard.js';
+import { IFileService } from '../../../../platform/files/common/files.js';
+import { dirname, isEqual } from '../../../../base/common/resources.js';
 import { promptCacheKeyOf } from '../common/promptCacheKey.js';
 import { isLinux } from '../../../../base/common/platform.js';
 import { lastRealUserIndex } from '../common/turnContext.js';
@@ -96,6 +99,20 @@ function writeTargetOf(toolName: string, params: unknown): URI | undefined {
 	return uri instanceof URI ? uri : undefined;
 }
 
+/**
+ * Путь, который инструмент меняет на диске, — для проверки записи сквозь ссылку
+ *
+ * Шире `writeTargetOf`: удаление через ссылку на `node_modules` проекта — худшая из записей в общую папку
+ * Границы записи шага при этом удалений по-прежнему не меряют — их список не меняется
+ */
+function diskMutationTargetOf(toolName: string, params: unknown): URI | undefined {
+	if (toolName === 'delete_file_or_folder') {
+		const uri = (params as { uri?: URI } | undefined)?.uri;
+		return uri instanceof URI ? uri : undefined;
+	}
+	return writeTargetOf(toolName, params);
+}
+
 class VibeSubagentRunnerService extends Disposable implements IVibeSubagentRunner {
 	declare readonly _serviceBrand: undefined;
 
@@ -111,6 +128,7 @@ class VibeSubagentRunnerService extends Disposable implements IVibeSubagentRunne
 		@IWorkspaceContextService private readonly _workspaceContextService: IWorkspaceContextService,
 		@IVibeSpendLedgerService private readonly _spendLedger: IVibeSpendLedgerService,
 		@IVibeAgentRunLedgerService private readonly _runLedger: IVibeAgentRunLedgerService,
+		@IFileService private readonly _fileService: IFileService,
 	) {
 		super();
 	}
@@ -385,6 +403,29 @@ class VibeSubagentRunnerService extends Disposable implements IVibeSubagentRunne
 				}
 			}
 
+			// Папки зависимостей дерева — ссылки на папку пользователя: установка пакетов здесь меняла бы его
+			// `node_modules`, то есть ровно то, от чего дерево и заводится
+			if (req.sharedFolders && req.sharedFolders.length > 0 && toolName === 'run_command') {
+				const command = (params as { command?: unknown })?.command;
+				const install = typeof command === 'string' ? packageInstallSegment(command) : undefined;
+				if (install) {
+					deniedActions++;
+					history.push(this._invalidToolMessage(toolCall, describeSharedFolderInstall(install, req.sharedFolders)));
+					continue;
+				}
+			}
+
+			// Лексически путь в дереве, а по ссылке — в общей папке: запись прошла бы мимо изоляции
+			const mutated = req.runRoot ? diskMutationTargetOf(toolName, params) : undefined;
+			if (req.runRoot && mutated) {
+				const realTarget = await this._realTargetOutside(mutated, req.runRoot);
+				if (realTarget) {
+					deniedActions++;
+					history.push(this._invalidToolMessage(toolCall, describeWriteThroughLink(this._runRelative(mutated, req.runRoot), realTarget)));
+					continue;
+				}
+			}
+
 			const scopedPath = req.writeScope ? writeTargetOf(toolName, params) : undefined;
 			if (req.writeScope && scopedPath !== undefined) {
 				const relative = this._runRelative(scopedPath, req.runRoot);
@@ -523,6 +564,31 @@ class VibeSubagentRunnerService extends Disposable implements IVibeSubagentRunne
 		const root = runRoot || this._workspaceRoot();
 		if (!root) { return uri.fsPath; }
 		return relativeToRoot(root, uri.fsPath, !isLinux);
+	}
+
+	/**
+	 * Настоящий путь цели, если он уводит из дерева прогона по ссылке, иначе `undefined`
+	 *
+	 * Цель записи часто ещё не существует, поэтому разрешается ближайшая существующая папка над ней:
+	 * новые сегменты пути ссылками быть не могут
+	 * Цель лексически вне дерева здесь не судится — туда ведут разрешённые пользователем папки
+	 */
+	private async _realTargetOutside(target: URI, runRoot: string): Promise<string | undefined> {
+		const root = URI.file(runRoot);
+		if (!isInsideRoot(root.fsPath, target.fsPath, !isLinux)) {
+			return undefined;
+		}
+		const realRoot = (await this._fileService.realpath(root).catch(() => undefined))?.fsPath ?? root.fsPath;
+		for (let probe = target; isInsideRoot(root.fsPath, probe.fsPath, !isLinux); probe = dirname(probe)) {
+			const real = await this._fileService.realpath(probe).catch(() => undefined);
+			if (real) {
+				return isInsideRoot(realRoot, real.fsPath, !isLinux) ? undefined : real.fsPath;
+			}
+			if (isEqual(probe, root)) {
+				break;
+			}
+		}
+		return undefined;
 	}
 
 	/**

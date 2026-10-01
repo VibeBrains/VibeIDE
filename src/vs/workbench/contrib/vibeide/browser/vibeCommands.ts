@@ -1723,8 +1723,25 @@ registerAction2(class VibeAgentWorktrees extends Action2 {
 		}
 
 		try {
-			await worktrees.mergeWorktree(picked.wt.id);
-			notifications.notify({ severity: Severity.Info, message: localize('vibeide.worktrees.merged', 'Ветка «{0}» влита, дерево убрано.', picked.wt.branch) });
+			const outcome = await worktrees.mergeWorktree(picked.wt.id);
+			switch (outcome.kind) {
+				case 'merged':
+					notifications.notify({ severity: Severity.Info, message: localize('vibeide.worktrees.merged', 'Ветка «{0}» влита, дерево убрано.', picked.wt.branch) });
+					break;
+				case 'applied':
+					notifications.notify({ severity: Severity.Info, message: localize('vibeide.worktrees.applied', "Работа «{0}» перенесена в папку проекта незакоммиченными правками (файлов: {1}), дерево убрано.", picked.wt.branch, outcome.files) });
+					break;
+				case 'unchanged':
+					notifications.notify({ severity: Severity.Info, message: localize('vibeide.worktrees.unchanged', "Работа «{0}» не меняет папку проекта — переносить было нечего, дерево убрано.", picked.wt.branch) });
+					break;
+				case 'conflict':
+					// Конфликтных маркеров в папке нет — она не тронута, поэтому команда разбора конфликтов тут не поможет
+					notifications.notify({
+						severity: Severity.Warning,
+						message: localize('vibeide.worktrees.conflict', "Работа «{0}» расходится с правками, сделанными в папке после её старта: {1}. Папка не тронута, дерево и ветка на месте — сведите эти файлы вручную или выбросьте дерево.", picked.wt.branch, outcome.files.join(', ')),
+					});
+					break;
+			}
 		} catch (error) {
 			// Конфликт слияния — не потеря: дерево и ветка остаются, и разобрать конфликт есть чем.
 			notifications.notify({

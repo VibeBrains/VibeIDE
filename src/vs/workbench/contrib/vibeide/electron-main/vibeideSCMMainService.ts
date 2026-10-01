@@ -7,13 +7,17 @@
 import { promisify } from 'util';
 import { exec as _exec, execFile as _execFile } from 'child_process';
 import { tmpdir } from 'os';
-import { join, join as pathJoin } from 'path';
-import { copyFile, mkdir, readFile, rm, writeFile } from 'fs/promises';
+import { dirname, isAbsolute, join, join as pathJoin } from 'path';
+import { copyFile, lstat, mkdir, readFile, rm, rmdir, symlink, unlink, writeFile } from 'fs/promises';
+import { cp } from '@vscode/fs-copyfile';
 import { Disposable } from '../../../../base/common/lifecycle.js';
+import { isWindows } from '../../../../base/common/platform.js';
 import { generateUuid } from '../../../../base/common/uuid.js';
-import { ChangeRange, IChangedFile, IChangeSet, IVibeideSCMService, IWorkspaceSnapshotRestorePlan } from '../common/vibeideSCMTypes.js';
+import { ChangeRange, IAddedWorktree, IAddWorktreeOptions, IChangedFile, IChangeSet, IVibeideSCMService, IWorkspaceSnapshotRestorePlan, WorktreeFinishResult } from '../common/vibeideSCMTypes.js';
 import { isSnapshotTreeId, parsePathList, parsePinnedSnapshots, planSnapshotRestore, selectStaleSnapshotRefs, shouldReuseSnapshot, snapshotCommitMessage, SnapshotCommitMeta, SNAPSHOT_ARGV } from '../common/workspaceSnapshotPolicy.js';
 import { CHANGES_ARGV, chunkChangedFiles, isSafeBranchName, parseNameStatusZ, parsePipelineRunRefs, pathspecOf, pipelineSnapshotMessage, pipelineSnapshotRef, selectStaleRunRefs, splitPatchSections } from '../common/workspaceChangesPolicy.js';
+import { folderExcludeLine, IWorktreeIncludeOptions, linkExcludeLine, LINKED_PATHS_FILE, parseNulList, selectIncludeFiles, selectLinkFolders, WORKTREE_INCLUDE_ARGV } from '../common/worktreeIncludePolicy.js';
+import { decideWorktreeBase, decideWorktreeFinish, parseMergeTreeZ, selectOrphanBasePins, WORKTREE_BASE_ARGV } from '../common/worktreeBasePolicy.js';
 
 interface NumStat {
 	file: string;
@@ -80,30 +84,183 @@ const gitArgv = async (
 };
 
 /**
- * Спрятать папку рабочего дерева от `git status` — в `.git/info/exclude`, а не в `.gitignore`.
+ * Спрятать пути от `git status` — в `info/exclude`, а не в `.gitignore`.
  *
  * `.gitignore` — файл пользователя и он едет в коммит: дописывать туда служебную строку значит
  * менять его репозиторий ради нашей механики. `info/exclude` делает ровно то же самое локально.
+ *
+ * Путь к файлу спрашивается у git: в репозитории, где `.git` — файл (подмодуль, дерево), `<корень>/.git/info`
+ * указывал бы в никуда
  */
-const excludeFromGitStatus = async (root: string, relativePath: string): Promise<void> => {
+const excludeFromGitStatus = async (root: string, lines: readonly string[]): Promise<void> => {
 	try {
-		const infoDir = pathJoin(root, '.git', 'info');
-		const excludeFile = pathJoin(infoDir, 'exclude');
-		const line = `/${relativePath.replace(/\\/g, '/').replace(/^\/+/, '').replace(/\/+$/, '')}/`;
+		const reported = await gitArgv(WORKTREE_INCLUDE_ARGV.excludeFile, root);
+		const excludeFile = isAbsolute(reported) ? reported : pathJoin(root, reported);
 		let current = '';
 		try {
 			current = await readFile(excludeFile, 'utf8');
 		} catch {
-			await mkdir(infoDir, { recursive: true });
+			await mkdir(dirname(excludeFile), { recursive: true });
 		}
-		if (current.split(/\r?\n/).includes(line)) {
+		const present = new Set(current.split(/\r?\n/));
+		const missing = [...new Set(lines)].filter(line => !present.has(line));
+		if (missing.length === 0) {
 			return;
 		}
-		await writeFile(excludeFile, `${current}${current.endsWith('\n') || current === '' ? '' : '\n'}${line}\n`, 'utf8');
+		await writeFile(excludeFile, `${current}${current.endsWith('\n') || current === '' ? '' : '\n'}${missing.join('\n')}\n`, 'utf8');
 	} catch {
 		// Не смогли — дерево всё равно создаётся; максимум, что теряется, это чистый `git status`.
+		// Ссылки при этом в коммит не уйдут: `commitWorktree` снимает их с индекса сам
 	}
 };
+
+/**
+ * Git с кодом выхода вместо исключения на ненулевом коде
+ * Нужен там, где код выхода — часть ответа: у `merge-tree` код 1 значит «конфликт», а не «сломалось»
+ */
+const gitArgvWithStatus = async (args: readonly string[], cwd: string): Promise<{ readonly stdout: string; readonly exitCode: number }> => {
+	try {
+		return { stdout: await gitArgv(args, cwd), exitCode: 0 };
+	} catch (error) {
+		const failure = error as { code?: unknown; stdout?: unknown };
+		if (typeof failure.code === 'number' && typeof failure.stdout === 'string') {
+			return { stdout: failure.stdout.trim(), exitCode: failure.code };
+		}
+		throw error;
+	}
+};
+
+/** Служебный каталог дерева в `.git/worktrees/<имя>`, или `undefined`, если дерева уже нет. */
+const worktreeGitDir = async (worktreePath: string): Promise<string | undefined> => {
+	try {
+		return await gitArgv(WORKTREE_INCLUDE_ARGV.worktreeGitDir, worktreePath);
+	} catch {
+		return undefined;
+	}
+};
+
+/**
+ * Ссылки на общие папки, принесённые в дерево
+ *
+ * Список лежит в служебном каталоге дерева, а не в памяти окна: снимать ссылки перед удалением нужно и
+ * для дерева, оставшегося от прошлого запуска IDE
+ */
+const readLinkedPaths = async (worktreePath: string): Promise<string[]> => {
+	const gitDir = await worktreeGitDir(worktreePath);
+	if (!gitDir) {
+		return [];
+	}
+	try {
+		const parsed: unknown = JSON.parse(await readFile(join(gitDir, LINKED_PATHS_FILE), 'utf8'));
+		// Файл могли править руками: путь, уводящий из дерева, не трогается ни на диске, ни в индексе
+		return Array.isArray(parsed)
+			? parsed.filter((item): item is string => typeof item === 'string' && item.length > 0 && !isAbsolute(item) && !item.split(/[\\/]/).includes('..'))
+			: [];
+	} catch {
+		return [];
+	}
+};
+
+/**
+ * Снять ссылки дерева на общие папки — как ссылки, никогда не сквозь них
+ *
+ * `lstat` подтверждает, что на месте всё ещё ссылка: настоящую папку (копию, или ту, что роль положила
+ * вместо ссылки) уберёт вместе с деревом сам git
+ * Ссылку, которую снять не удалось, нельзя отдавать на удаление дерева: чужой обход каталогов мог бы пройти
+ * сквозь неё в папку пользователя
+ */
+const unlinkSharedFolders = async (worktreePath: string): Promise<void> => {
+	const stuck: string[] = [];
+	for (const relative of await readLinkedPaths(worktreePath)) {
+		const link = join(worktreePath, relative);
+		let isLink = false;
+		try {
+			isLink = (await lstat(link)).isSymbolicLink();
+		} catch {
+			continue;
+		}
+		if (!isLink) {
+			continue;
+		}
+		try {
+			await unlink(link);
+		} catch {
+			// Точка соединения Windows для части API — каталог: снимается `rmdir`, тоже без обхода содержимого
+			await rmdir(link).catch(() => stuck.push(relative));
+		}
+	}
+	if (stuck.length > 0) {
+		throw new Error(`Не удалось снять ссылки ${stuck.join(', ')} в дереве ${worktreePath} — дерево не удаляется, чтобы не задеть общие папки проекта`);
+	}
+};
+
+const EMPTY_INCLUDE = { linked: [], cloned: [], copied: [], failed: [] } as const;
+
+/**
+ * Принести в новое дерево игнорируемое git: файлы копируются, папки — копией при записи или ссылкой
+ *
+ * Ошибка по одному пути не роняет остальные: дерево без `.env` хуже, чем с ним, но лучше, чем никакого
+ */
+const bringIgnoredInto = async (root: string, worktreePath: string, options: IWorktreeIncludeOptions): Promise<Omit<IAddedWorktree, 'path'>> => {
+	const tracked = parseNulList(await gitArgv(WORKTREE_INCLUDE_ARGV.trackedFiles, worktreePath));
+	const folders = options.mode === 'none' || options.folders.length === 0
+		? []
+		: selectLinkFolders(parseNulList(await gitArgv(WORKTREE_INCLUDE_ARGV.ignoredEntries, root)), options.folders, tracked);
+	const files = options.files.length === 0
+		? []
+		: selectIncludeFiles(parseNulList(await gitArgv(WORKTREE_INCLUDE_ARGV.ignoredFiles(options.files, folders), root)), options.files, tracked, folders);
+
+	const linked: string[] = [];
+	const cloned: string[] = [];
+	const copied: string[] = [];
+	const failed: string[] = [];
+	if (options.mode === 'link' && folders.length > 0) {
+		// Исключение и список ссылок — до самих ссылок: прерванное на середине создание не должно оставить
+		// ссылку, которую `add -A` закоммитит, а удаление дерева не узнает
+		await excludeFromGitStatus(root, folders.map(linkExcludeLine));
+		const gitDir = await worktreeGitDir(worktreePath);
+		if (!gitDir) {
+			return { ...EMPTY_INCLUDE, failed: [...folders, ...files] };
+		}
+		await writeFile(join(gitDir, LINKED_PATHS_FILE), JSON.stringify(folders), 'utf8');
+	}
+	for (const folder of folders) {
+		const source = join(root, folder);
+		const target = join(worktreePath, folder);
+		try {
+			await mkdir(dirname(target), { recursive: true });
+			if (options.mode === 'link') {
+				// На Windows — точка соединения: обычная ссылка там требует прав администратора или режима разработчика
+				await symlink(source, target, isWindows ? 'junction' : 'dir');
+				linked.push(folder);
+			} else {
+				// `verbatimSymlinks` без фильтров даёт на APFS клонирование всей папки одним вызовом
+				await cp(source, target, { recursive: true, force: true, verbatimSymlinks: true });
+				cloned.push(folder);
+			}
+		} catch {
+			failed.push(folder);
+			if (options.mode !== 'link') {
+				// Недокопированная папка хуже отсутствующей: сборка в дереве упала бы на половине пакетов
+				await rm(target, { recursive: true, force: true }).catch(() => { /* best effort */ });
+			}
+		}
+	}
+	for (const file of files) {
+		try {
+			const target = join(worktreePath, file);
+			await mkdir(dirname(target), { recursive: true });
+			await cp(join(root, file), target, { force: true, verbatimSymlinks: true });
+			copied.push(file);
+		} catch {
+			failed.push(file);
+		}
+	}
+	return { linked, cloned, copied, failed };
+};
+
+/** Сколько раз пересчитывать перенос, если папка менялась, пока он считался. */
+const FINISH_ATTEMPTS = 3;
 
 /**
  * `commit-tree` refuses to run without an author identity, and a repository may have none configured
@@ -199,16 +356,70 @@ export class VibeideSCMService extends Disposable implements IVibeideSCMService 
 		], path);
 	}
 
-	async addWorktree(path: string, branch: string, relativePath: string, baseRef?: string): Promise<string> {
+	async addWorktree(path: string, branch: string, relativePath: string, options: IAddWorktreeOptions = {}): Promise<IAddedWorktree> {
 		const root = await gitArgv(SNAPSHOT_ARGV.repoRoot, path);
 		const worktreePath = pathJoin(root, relativePath);
-		await excludeFromGitStatus(root, relativePath);
-		await gitArgv(['worktree', 'add', '-b', branch, worktreePath, baseRef ?? 'HEAD'], root);
-		return worktreePath;
+		await excludeFromGitStatus(root, [folderExcludeLine(relativePath)]);
+		await gitArgv(['worktree', 'add', '-b', branch, worktreePath, options.baseRef ?? 'HEAD'], root);
+		// Ветка уже создана, поэтому сбой здесь — не сбой создания: брошенное исключение оставило бы дерево и ветку
+		// без хозяина, а снятая вызывающим база превратила бы её снимок в коммит для обычного слияния
+		const brought = options.include
+			? await bringIgnoredInto(root, worktreePath, options.include).catch((error: unknown) => ({ ...EMPTY_INCLUDE, failed: [`(${error instanceof Error ? error.message : String(error)})`] }))
+			: EMPTY_INCLUDE;
+		return { path: worktreePath, ...brought };
+	}
+
+	async pinWorktreeBase(path: string, branch: string): Promise<string | undefined> {
+		const root = await gitArgv(SNAPSHOT_ARGV.repoRoot, path);
+		const existing = await gitArgv(WORKTREE_BASE_ARGV.branchExists(branch), root).catch(() => '');
+		if (existing) {
+			throw new Error(`Ветка ${branch} уже существует — её база не перезаписывается`);
+		}
+		const tree = await writeWorkingTree(root);
+		if (!tree) {
+			throw new Error('git не записал дерево рабочей папки — базу дерева роли снять не из чего');
+		}
+		const headTree = await gitArgv(WORKTREE_BASE_ARGV.headTree, root).catch(() => '');
+		if (decideWorktreeBase(tree, isSnapshotTreeId(headTree) ? headTree : undefined) === 'head') {
+			return undefined;
+		}
+		const commit = (await gitArgv(WORKTREE_BASE_ARGV.commitOnHead(tree), root, undefined, SNAPSHOT_IDENTITY)).trim();
+		if (!isSnapshotTreeId(commit)) {
+			throw new Error('git не записал коммит снимка рабочей папки');
+		}
+		// Ссылка держит снимок живым до конца работы роли: на нём считаются и перенос, и дифф для судящих
+		await gitArgv(WORKTREE_BASE_ARGV.pin(branch, commit), root);
+		return commit;
+	}
+
+	async releaseWorktreeBase(path: string, branch: string): Promise<void> {
+		const root = await gitArgv(SNAPSHOT_ARGV.repoRoot, path);
+		const pinned = await gitArgv(WORKTREE_BASE_ARGV.resolve(branch), root).catch(() => '');
+		if (pinned) {
+			await gitArgv(WORKTREE_BASE_ARGV.release(branch), root);
+		}
+	}
+
+	async pruneWorktreeBases(path: string): Promise<number> {
+		try {
+			const root = await gitArgv(SNAPSHOT_ARGV.repoRoot, path);
+			const pins = parsePathList(await gitArgv(WORKTREE_BASE_ARGV.listPins, root));
+			if (pins.length === 0) {
+				return 0;
+			}
+			const orphans = selectOrphanBasePins(pins, parsePathList(await gitArgv(WORKTREE_BASE_ARGV.listBranches, root)));
+			for (const ref of orphans) {
+				await gitArgv(['update-ref', '-d', ref], root).catch(() => { /* already gone */ });
+			}
+			return orphans.length;
+		} catch {
+			return 0;
+		}
 	}
 
 	async removeWorktree(path: string, worktreePath: string, force?: boolean): Promise<void> {
 		const root = await gitArgv(SNAPSHOT_ARGV.repoRoot, path);
+		await unlinkSharedFolders(worktreePath);
 		await gitArgv(['worktree', 'remove', ...(force ? ['--force'] : []), worktreePath], root);
 	}
 
@@ -216,6 +427,11 @@ export class VibeideSCMService extends Disposable implements IVibeideSCMService 
 		// Индекс тут свой собственный: у каждого рабочего дерева git держит отдельный индекс, и
 		// `add -A` в дереве прогона не задевает индекс пользователя в основной папке.
 		await gitArgv(['add', '-A'], worktreePath);
+		// Строка `info/exclude` прячет ссылки от `add -A`, но её запись могла не состояться — снимаем их и здесь
+		const linked = await readLinkedPaths(worktreePath);
+		if (linked.length > 0) {
+			await gitArgv(WORKTREE_INCLUDE_ARGV.unstage(linked), worktreePath);
+		}
 		const staged = await gitArgv(['diff', '--cached', '--name-only'], worktreePath);
 		if (!staged) {
 			return false;
@@ -228,9 +444,73 @@ export class VibeideSCMService extends Disposable implements IVibeideSCMService 
 		return true;
 	}
 
-	async mergeWorktreeBranch(path: string, branch: string): Promise<void> {
+	async finishWorktreeBranch(path: string, branch: string): Promise<WorktreeFinishResult> {
 		const root = await gitArgv(SNAPSHOT_ARGV.repoRoot, path);
-		await gitArgv(['merge', '--no-ff', branch], root);
+		const base = (await gitArgv(WORKTREE_BASE_ARGV.resolve(branch), root).catch(() => '')).trim();
+		if (!isSnapshotTreeId(base)) {
+			// Ветка от `HEAD`: обычное слияние, как было всегда
+			await gitArgv(['merge', '--no-ff', branch], root);
+			return { kind: 'merged' };
+		}
+		const baseTree = await gitArgv(CHANGES_ARGV.treeOf(base), root);
+		const resultTree = await gitArgv(CHANGES_ARGV.treeOf(branch), root);
+		for (let attempt = 0; attempt < FINISH_ATTEMPTS; attempt++) {
+			const folderTree = await writeWorkingTree(root);
+			if (!folderTree) {
+				throw new Error('git не записал дерево рабочей папки — переносить работу роли вслепую нельзя');
+			}
+			const decision = decideWorktreeFinish({ baseTree, resultTree, folderTree });
+			let target: string;
+			if (decision.kind === 'unchanged') {
+				return { kind: 'unchanged' };
+			} else if (decision.kind === 'apply') {
+				target = decision.target;
+			} else {
+				const { stdout, exitCode } = await gitArgvWithStatus(WORKTREE_BASE_ARGV.mergeTrees(baseTree, folderTree, resultTree), root);
+				if (exitCode !== 0 && exitCode !== 1) {
+					throw new Error(`git merge-tree завершился с кодом ${exitCode}`);
+				}
+				const merged = parseMergeTreeZ(stdout, exitCode);
+				if (merged.conflicts.length > 0 || !merged.tree) {
+					return { kind: 'conflict', files: merged.conflicts };
+				}
+				if (merged.tree === folderTree) {
+					return { kind: 'unchanged' };
+				}
+				target = merged.tree;
+			}
+			// Пока считалось слияние, пользователь мог сохранить файл — запись поверх стёрла бы его правку
+			if (await writeWorkingTree(root) !== folderTree) {
+				continue;
+			}
+			return { kind: 'applied', files: await this._writeTreeIntoFolder(root, folderTree, target) };
+		}
+		throw new Error('Папка проекта менялась всё время, пока переносилась работа роли — перенос не сделан, ветка и дерево на месте');
+	}
+
+	/**
+	 * Привести папку от дерева `from` к дереву `target`, трогая только различающиеся файлы
+	 *
+	 * Не `restoreWorkspaceSnapshot`: тот переписывает каждый файл проекта, а здесь папка живая — переписанный
+	 * без нужды файл будит наблюдателей и сборку и может накрыть правку, сделанную в эту секунду
+	 * Индекс пользователя не трогается: работа роли ложится незакоммиченной, как его собственные правки
+	 */
+	private async _writeTreeIntoFolder(root: string, from: string, target: string): Promise<number> {
+		const changes = parseNameStatusZ(await gitArgv(WORKTREE_BASE_ARGV.changedPaths(from, target), root));
+		const written = changes.filter(change => change.status !== 'deleted');
+		// Сначала удаления: файл, ставший папкой, должен освободить место до записи её содержимого
+		for (const change of changes.filter(change => change.status === 'deleted')) {
+			await rm(join(root, change.path), { force: true }).catch(() => { /* already gone */ });
+		}
+		if (written.length > 0) {
+			await withTemporaryIndex(root, async indexFile => {
+				await gitArgv(SNAPSHOT_ARGV.readTree(target), root, indexFile);
+				for (const chunk of chunkChangedFiles(written)) {
+					await gitArgv(WORKTREE_BASE_ARGV.checkoutPaths(chunk.map(change => change.path)), root, indexFile);
+				}
+			});
+		}
+		return changes.length;
 	}
 
 	async deleteBranch(path: string, branch: string, force?: boolean): Promise<void> {
@@ -365,7 +645,10 @@ export class VibeideSCMService extends Disposable implements IVibeideSCMService 
 				if (!isSafeBranchName(range.branch)) {
 					return undefined;
 				}
-				const base = await gitArgv(CHANGES_ARGV.mergeBase(range.branch), root);
+				// Ветка от снимка папки меряется от снимка: от `HEAD` в её дифф попали бы правки пользователя,
+				// сделанные до старта роли, и судящий шаг приписал бы их ей
+				const pinned = (await gitArgv(WORKTREE_BASE_ARGV.resolve(range.branch), root).catch(() => '')).trim();
+				const base = isSnapshotTreeId(pinned) ? pinned : await gitArgv(CHANGES_ARGV.mergeBase(range.branch), root);
 				from = await gitArgv(CHANGES_ARGV.treeOf(base), root);
 				to = await gitArgv(CHANGES_ARGV.treeOf(range.branch), root);
 			}

@@ -28,6 +28,9 @@ import { generateUuid } from '../../../../base/common/uuid.js';
 import { Registry } from '../../../../platform/registry/common/platform.js';
 import { IConfigurationRegistry, Extensions as ConfigurationExtensions } from '../../../../platform/configuration/common/configurationRegistry.js';
 import { localize } from '../../../../nls.js';
+import { isMacintosh } from '../../../../base/common/platform.js';
+import { DEFAULT_WORKTREE_INCLUDE_FILES, DEFAULT_WORKTREE_LINK_FOLDERS, defaultWorktreeLinkMode, WORKTREE_INCLUDE_SETTING } from '../common/worktreeIncludePolicy.js';
+import { DEFAULT_WORKTREE_BASE, WORKTREE_BASE_SETTING } from '../common/worktreeBasePolicy.js';
 import {
 	SubagentKind,
 	SubagentIsolationDecision,
@@ -56,7 +59,40 @@ Registry.as<IConfigurationRegistry>(ConfigurationExtensions.Configuration).regis
 		'vibeide.subagent.worktree': {
 			type: 'boolean',
 			default: false,
-			description: localize('vibeide.subagent.worktree', 'Запускать роль-исполнителя в отдельном рабочем дереве git (`.vibe-worktrees/<ветка>`): её правки и команды не попадают в общую папку, пока работа не влита. По окончании работа фиксируется коммитом в ветке дерева всегда; вливается автоматически только под автопилотом и только при успехе, иначе ветка остаётся вам на решение. Требует, чтобы открытая папка была репозиторием git. По умолчанию выключено.'),
+			description: localize('vibeide.subagent.worktree', 'Запускать роль-исполнителя в отдельном рабочем дереве git (`.vibe-worktrees/<ветка>`): её правки и команды не попадают в общую папку, пока работа не влита. По окончании работа фиксируется коммитом в ветке дерева всегда; возвращается в проект (см. `vibeide.subagent.worktreeBase`) автоматически только под автопилотом и только при успехе, иначе ветка остаётся вам на решение. Требует, чтобы открытая папка была репозиторием git. По умолчанию выключено.'),
+		},
+		[WORKTREE_BASE_SETTING]: {
+			type: 'string',
+			enum: ['workingTree', 'head'],
+			enumDescriptions: [
+				localize('vibeide.subagent.worktreeBase.workingTree', "От папки проекта как есть — с вашими незакоммиченными правками и новыми файлами. Работа роли возвращается в папку незакоммиченными правками, без коммита слияния."),
+				localize('vibeide.subagent.worktreeBase.head', "От последнего коммита, как обычная ветка git: незакоммиченных правок роль не видит, работа вливается коммитом слияния."),
+			],
+			default: DEFAULT_WORKTREE_BASE,
+			description: localize('vibeide.subagent.worktreeBase', "От чего ответвляется рабочее дерево роли. `workingTree` — роль видит проект таким, каким его видите вы, а проверка в дереве идёт по вашему текущему коду. Если после старта роли вы поменяли те же файлы, что и она, перенос не делается: папка остаётся нетронутой, а ветка ждёт в «Деревьях агентов». По умолчанию `workingTree`."),
+		},
+		[WORKTREE_INCLUDE_SETTING.files]: {
+			type: 'array',
+			items: { type: 'string' },
+			default: [...DEFAULT_WORKTREE_INCLUDE_FILES],
+			description: localize('vibeide.subagent.worktreeInclude', "Какие игнорируемые git файлы копировать из папки проекта в рабочее дерево роли при его создании. Шаблоны glob от корня репозитория, как в `files.exclude`, без фигурных скобок. Без них роль не видит, например, `.env`, и проверка проекта в дереве падает на окружении, а не на её работе. Копируются только файлы, которые git игнорирует и которых нет среди отслеживаемых в дереве. Пустой список — ничего не копировать."),
+		},
+		[WORKTREE_INCLUDE_SETTING.folders]: {
+			type: 'array',
+			items: { type: 'string' },
+			default: [...DEFAULT_WORKTREE_LINK_FOLDERS],
+			description: localize('vibeide.subagent.worktreeLinkFolders', "Какие игнорируемые git папки зависимостей приносить в рабочее дерево роли. Имя без `/` — папка с таким именем на любой глубине (`node_modules`), с `/` — шаблон пути от корня репозитория (`packages/*/node_modules`). Как приносить, задаёт `vibeide.subagent.worktreeLinkMode`. Сборочные папки вроде `out/` по умолчанию не приносятся: их роль собирает сама."),
+		},
+		[WORKTREE_INCLUDE_SETTING.mode]: {
+			type: 'string',
+			enum: ['clone', 'link', 'none'],
+			enumDescriptions: [
+				localize('vibeide.subagent.worktreeLinkMode.clone', "Копия при записи: на macOS (APFS) мгновенная и не занимает места, пока файлы не меняются; на других системах — полная копия. Папка у роли своя, пакеты ставить можно."),
+				localize('vibeide.subagent.worktreeLinkMode.link', "Ссылка на папку проекта (в Windows — точка соединения). Дёшево на любой системе, но папка общая: установка пакетов в дереве роли и запись через ссылку отклоняются."),
+				localize('vibeide.subagent.worktreeLinkMode.none', "Не приносить: зависимости в дереве роль ставит сама."),
+			],
+			default: defaultWorktreeLinkMode(isMacintosh),
+			description: localize('vibeide.subagent.worktreeLinkMode', "Как приносить в рабочее дерево роли папки из `vibeide.subagent.worktreeLinkFolders`. По умолчанию — `clone` на macOS и `link` на других системах."),
 		},
 		'vibeide.subagent.forceInline': {
 			type: 'boolean',

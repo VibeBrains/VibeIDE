@@ -1540,6 +1540,8 @@ export default defineConfig(
 						'@vscode/vscode-languagedetection',
 						'@vscode/ripgrep-universal',
 						'@vscode/iconv-lite-umd',
+						// VibeIDE: copy-on-write clone of ignored folders into agent worktrees (electron-main).
+						'@vscode/fs-copyfile',
 						'@vscode/native-watchdog',
 						'@vscode/policy-watcher',
 						'@vscode/proxy-agent',

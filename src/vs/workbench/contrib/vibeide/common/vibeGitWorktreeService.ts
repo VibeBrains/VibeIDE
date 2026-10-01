@@ -10,9 +10,13 @@ import { Emitter, Event } from '../../../../base/common/event.js';
 import { createDecorator } from '../../../../platform/instantiation/common/instantiation.js';
 import { registerSingleton, InstantiationType } from '../../../../platform/instantiation/common/extensions.js';
 import { IVibeCheckpointCoordinator } from './vibeCheckpointCoordinatorService.js';
-import { IVibeideSCMService } from './vibeideSCMTypes.js';
+import { IVibeideSCMService, WorktreeFinishResult } from './vibeideSCMTypes.js';
 import { IWorkspaceContextService } from '../../../../platform/workspace/common/workspace.js';
+import { IConfigurationService } from '../../../../platform/configuration/common/configuration.js';
+import { isMacintosh } from '../../../../base/common/platform.js';
 import { AGENT_BRANCH_PREFIX, parseWorktreeList, worktreeBranchName, worktreeRelativePath } from './worktreeNaming.js';
+import { DEFAULT_WORKTREE_INCLUDE_FILES, DEFAULT_WORKTREE_LINK_FOLDERS, IWorktreeIncludeOptions, readPatternList, readWorktreeLinkMode, WORKTREE_INCLUDE_SETTING } from './worktreeIncludePolicy.js';
+import { readWorktreeBaseMode, WORKTREE_BASE_SETTING } from './worktreeBasePolicy.js';
 
 /**
  * Чем кончилась фиксация работы роли в её ветке.
@@ -27,6 +31,12 @@ export interface WorktreeInfo {
 	branch: string;
 	isAgentWorktree: boolean;
 	sessionId?: string;
+	/**
+	 * Папки дерева, принесённые ссылкой на папку проекта, — относительно корня дерева
+	 * За ними общие файлы пользователя, поэтому прогон в таком дереве не ставит пакеты и не пишет сквозь ссылку
+	 * Известны только у дерева, созданного в этом окне: остальным ограничение не нужно — прогона в них нет
+	 */
+	linked?: readonly string[];
 }
 
 export const IVibeGitWorktreeService = createDecorator<IVibeGitWorktreeService>('vibeGitWorktreeService');
@@ -50,8 +60,14 @@ export interface IVibeGitWorktreeService {
 	 */
 	commitAgentWorktree(worktreeId: string, message: string): Promise<WorktreeCommitOutcome>;
 
-	/** Merge agent worktree to main after Approve */
-	mergeWorktree(worktreeId: string): Promise<void>;
+	/**
+	 * Вернуть работу роли в проект и убрать дерево с веткой
+	 *
+	 * Ветка от `HEAD` вливается коммитом слияния; ветка от снимка папки переносится в папку незакоммиченными
+	 * правками. Конфликт с правками папки ничего не трогает: дерево и ветка остаются, а ответ называет файлы
+	 * Конфликт обычного слияния, как и прежде, — исключение
+	 */
+	mergeWorktree(worktreeId: string): Promise<WorktreeFinishResult>;
 
 	/**
 	 * Отказаться от работы роли: снести дерево и его ветку вместе с невлитыми коммитами.
@@ -99,6 +115,7 @@ class VibeGitWorktreeService extends Disposable implements IVibeGitWorktreeServi
 		@IVibeCheckpointCoordinator private readonly _checkpointCoordinator: IVibeCheckpointCoordinator,
 		@IVibeideSCMService private readonly _scm: IVibeideSCMService,
 		@IWorkspaceContextService private readonly _workspace: IWorkspaceContextService,
+		@IConfigurationService private readonly _configuration: IConfigurationService,
 	) {
 		super();
 	}
@@ -106,6 +123,15 @@ class VibeGitWorktreeService extends Disposable implements IVibeGitWorktreeServi
 	/** Папка репозитория, внутри которой живут деревья; без открытой папки изоляция невозможна. */
 	private _repoPath(): string | undefined {
 		return this._workspace.getWorkspace().folders[0]?.uri.fsPath;
+	}
+
+	/** Что приносить в дерево из игнорируемого — из настроек, с умолчаниями политики. */
+	private _includeOptions(): IWorktreeIncludeOptions {
+		return {
+			files: readPatternList(this._configuration.getValue<unknown>(WORKTREE_INCLUDE_SETTING.files), DEFAULT_WORKTREE_INCLUDE_FILES),
+			folders: readPatternList(this._configuration.getValue<unknown>(WORKTREE_INCLUDE_SETTING.folders), DEFAULT_WORKTREE_LINK_FOLDERS),
+			mode: readWorktreeLinkMode(this._configuration.getValue<unknown>(WORKTREE_INCLUDE_SETTING.mode), isMacintosh),
+		};
 	}
 
 	async createAgentWorktree(sessionId: string): Promise<WorktreeInfo | null> {
@@ -116,21 +142,42 @@ class VibeGitWorktreeService extends Disposable implements IVibeGitWorktreeServi
 		}
 		const branch = worktreeBranchName(sessionId);
 		const relativePath = worktreeRelativePath(branch);
+		const fromWorkingTree = readWorktreeBaseMode(this._configuration.getValue<unknown>(WORKTREE_BASE_SETTING)) === 'workingTree';
+		const include = this._includeOptions();
 		try {
 			// Создание и слияние идут через тот же мьютекс, что и чекпоинты: две операции с индексом
 			// одного репозитория одновременно — это гонка за `.git/index`, а не параллелизм.
-			const path = await this._checkpointCoordinator.runExclusive({ op: 'worktree:create', holderLabel: branch }, async () =>
-				await this._scm.addWorktree(repoPath, branch, relativePath));
+			// Снимок-база берётся внутри той же секции: между снимком и созданием дерева папка не должна меняться
+			// нашими же руками
+			const created = await this._checkpointCoordinator.runExclusive({ op: 'worktree:create', holderLabel: branch }, async () => {
+				const pruned = await this._scm.pruneWorktreeBases(repoPath);
+				if (pruned > 0) {
+					vibeLog.info('Worktree', `Сняты базы исчезнувших веток: ${pruned}`);
+				}
+				const baseRef = fromWorkingTree ? await this._scm.pinWorktreeBase(repoPath, branch) : undefined;
+				try {
+					return await this._scm.addWorktree(repoPath, branch, relativePath, { ...(baseRef ? { baseRef } : {}), include });
+				} catch (e) {
+					// Дерева нет — его база держала бы снимок зря
+					await this._scm.releaseWorktreeBase(repoPath, branch).catch(() => { /* swept by the next prune */ });
+					throw e;
+				}
+			});
 			const worktree: WorktreeInfo = {
 				id: `wt-${sessionId}`,
-				path,
+				path: created.path,
 				branch,
 				isAgentWorktree: true,
 				sessionId,
+				...(created.linked.length > 0 ? { linked: created.linked } : {}),
 			};
 			this._worktrees.set(worktree.id, worktree);
 			this._onWorktreeCreated.fire(worktree);
-			vibeLog.info('Worktree', `Создано дерево ${branch} → ${path}`);
+			vibeLog.info('Worktree', `Создано дерево ${branch} → ${created.path}${broughtNote(created)}`);
+			if (created.failed.length > 0) {
+				// Не принесённое — не повод отказываться от изоляции: проверка в дереве скажет сама, чего ей не хватило
+				vibeLog.warn('Worktree', `В дерево ${branch} не принесено: ${created.failed.join(', ')}`);
+			}
 			return worktree;
 		} catch (e) {
 			// Занятое имя ветки, грязный индекс, не-репозиторий — всё это причины, по которым
@@ -183,35 +230,49 @@ class VibeGitWorktreeService extends Disposable implements IVibeGitWorktreeServi
 			// git отказал бы именно в том, зачем пришли. Подтверждение человека берётся выше, в команде.
 			await this._scm.removeWorktree(repoPath, wt.path, true);
 			await this._scm.deleteBranch(repoPath, wt.branch, true);
+			await this._releaseBase(repoPath, wt.branch);
 			this._worktrees.delete(worktreeId);
 			vibeLog.info('Worktree', `Выброшено дерево ${wt.branch}`);
 		});
 	}
 
-	async mergeWorktree(worktreeId: string): Promise<void> {
-		await this._checkpointCoordinator.runExclusive({ op: 'worktree:merge', holderLabel: worktreeId }, async () => {
+	/** Снять базу ветки; не вышло — её снимет уборка при следующем создании дерева. */
+	private async _releaseBase(repoPath: string, branch: string): Promise<void> {
+		try {
+			await this._scm.releaseWorktreeBase(repoPath, branch);
+		} catch (e) {
+			vibeLog.warn('Worktree', `База ветки ${branch} не снята:`, e);
+		}
+	}
+
+	async mergeWorktree(worktreeId: string): Promise<WorktreeFinishResult> {
+		return await this._checkpointCoordinator.runExclusive({ op: 'worktree:merge', holderLabel: worktreeId }, async (): Promise<WorktreeFinishResult> => {
 			const wt = await this._resolveWorktree(worktreeId);
-			if (!wt) {
-				return;
-			}
 			const repoPath = this._repoPath();
-			if (!repoPath) {
-				return;
+			if (!wt || !repoPath) {
+				throw new Error(`Дерево ${worktreeId} не найдено — вливать нечего`);
 			}
-			// Порядок важен: сначала слияние. Конфликт — это остановка с сохранённым деревом, а не
+			// Порядок важен: сначала перенос работы. Конфликт — это остановка с сохранённым деревом, а не
 			// потеря работы: удали мы дерево первым, чинить конфликт было бы уже нечем.
-			await this._scm.mergeWorktreeBranch(repoPath, wt.branch);
-			await this._scm.removeWorktree(repoPath, wt.path);
+			const outcome = await this._scm.finishWorktreeBranch(repoPath, wt.branch);
+			if (outcome.kind === 'conflict') {
+				vibeLog.warn('Worktree', `Работа ${wt.branch} расходится с правками папки в ${outcome.files.join(', ')} — дерево и ветка оставлены`);
+				return outcome;
+			}
 			try {
-				await this._scm.deleteBranch(repoPath, wt.branch);
+				await this._scm.removeWorktree(repoPath, wt.path);
+				// Перенесённая в папку работа в истории HEAD не значится, и осторожное `-d` отказало бы в удалении
+				await this._scm.deleteBranch(repoPath, wt.branch, outcome.kind !== 'merged');
+				await this._releaseBase(repoPath, wt.branch);
 			} catch (e) {
-				// Ветка после слияния может остаться (например, на неё уже кто-то сослался) — это не
-				// повод считать слияние несостоявшимся.
-				vibeLog.warn('Worktree', `Ветка ${wt.branch} не удалена после слияния:`, e);
+				// Работа уже в проекте — несостоявшаяся уборка не повод называть перенос несостоявшимся
+				// Оставшиеся дерево и ветка видны в «Деревьях агентов»; повторный перенос ничего не задвоит
+				vibeLog.warn('Worktree', `Дерево или ветка ${wt.branch} не убраны после переноса:`, e);
 			}
 			this._worktrees.delete(worktreeId);
 			this._onWorktreeMerged.fire(wt);
-			vibeLog.info('Worktree', `Влито и убрано: ${wt.branch}`);
+			vibeLog.info('Worktree', `Работа ${wt.branch} в проекте (${outcome.kind}), дерево убрано`);
+			return outcome;
 		});
 	}
 
@@ -243,6 +304,16 @@ class VibeGitWorktreeService extends Disposable implements IVibeGitWorktreeServi
 	getWorktrees(): WorktreeInfo[] {
 		return Array.from(this._worktrees.values());
 	}
+}
+
+/** Строка журнала о принесённом в дерево. */
+function broughtNote(created: { readonly linked: readonly string[]; readonly cloned: readonly string[]; readonly copied: readonly string[] }): string {
+	const parts = [
+		created.linked.length > 0 ? `ссылки: ${created.linked.join(', ')}` : '',
+		created.cloned.length > 0 ? `копии: ${created.cloned.join(', ')}` : '',
+		created.copied.length > 0 ? `файлы: ${created.copied.join(', ')}` : '',
+	].filter(Boolean);
+	return parts.length > 0 ? ` (${parts.join('; ')})` : '';
 }
 
 registerSingleton(IVibeGitWorktreeService, VibeGitWorktreeService, InstantiationType.Delayed);

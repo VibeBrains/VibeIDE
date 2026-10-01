@@ -32,6 +32,16 @@ function isUnder(root: string, path: string, ignoreCase: boolean): boolean {
 }
 
 /**
+ * Лежит ли путь внутри корня — тем же сравнением, что у переноса
+ *
+ * Для защиты от записи через ссылку оба пути берутся уже разрешёнными: путь дерева, ведущий по ссылке в общую
+ * папку, лексически внутри дерева, а пишет мимо него
+ */
+export function isInsideRoot(root: string, target: string, ignoreCase: boolean = false): boolean {
+	return isUnder(normalizePath(root), normalizePath(target), ignoreCase);
+}
+
+/**
  * Путь `target` в системе координат дерева прогона.
  *
  * @param workspaceRoot Корень открытой папки

@@ -77,7 +77,11 @@ class VibeSpeculativeExplorationService extends Disposable implements IVibeSpecu
 		const abandoned = branches.filter(b => b.id !== branchId);
 
 		if (selected) {
-			await this._worktreeService.mergeWorktree(selected.worktree.id);
+			const outcome = await this._worktreeService.mergeWorktree(selected.worktree.id);
+			// Конфликт с правками папки — работа не в проекте, и называть ветку завершённой нельзя
+			if (outcome.kind === 'conflict') {
+				throw new Error(`Работа ветки расходится с правками папки в ${outcome.files.join(', ')} — дерево и ветка оставлены`);
+			}
 			selected.status = 'complete';
 		}
 		for (const branch of abandoned) {
