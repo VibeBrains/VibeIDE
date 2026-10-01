@@ -81,7 +81,7 @@ import { IFileService } from '../../../../platform/files/common/files.js';
 import { IMCPService } from '../common/mcpService.js';
 import { RawMCPToolCall } from '../common/mcpServiceTypes.js';
 import { preprocessImagesForQA } from './imageQAIntegration.js';
-import { ITaskAwareModelRouter, TaskContext, TaskType, RoutingDecision } from '../common/modelRouter.js';
+import { autoFallbackCandidates, ITaskAwareModelRouter, TaskContext, TaskType } from '../common/modelRouter.js';
 import { chatLatencyAudit } from '../common/chatLatencyAudit.js';
 import { suggestAlternateTool as suggestAlternateToolPure } from '../common/toolSchemaSuggest.js';
 import { IEditRiskScoringService, EditContext, EditRiskScore } from '../common/editRiskScoringService.js';
@@ -590,6 +590,16 @@ const newThreadObject = (workspaceId: string | undefined, workspaceLabel: string
 		},
 		filesWithUserChanges: new Set()
 	} satisfies ThreadType;
+};
+
+/** What «Авто» chose for a message */
+type AutoModelChoice = {
+	readonly selection: ModelSelection;
+	/**
+	 * The router's ranking for this message, best first, to switch to when a model fails with an error
+	 * Absent when the router was not asked: the run ranks on its first error with the same task context
+	 */
+	readonly fallbackRanking?: readonly ModelSelection[];
 };
 
 
@@ -1590,22 +1600,14 @@ class ChatThreadService extends Disposable implements IChatThreadService {
 	}
 
 	/**
-	 * Auto-select model based on task context
-	 * Falls back to user's manual selection if they've set one
+	 * The task context «Авто» routes a message by
+	 * One builder serves the choice and the error fallback: a ranking from a thinner context picks other models
 	 */
-	private async _autoSelectModel(
+	private _buildAutoTaskContext(
 		userMessage: string,
 		images?: ChatImageAttachment[],
 		pdfs?: ChatPDFAttachment[]
-	): Promise<ModelSelection | null> {
-		const featureName: FeatureName = 'Chat';
-		const userManualSelection = this._settingsService.state.modelSelectionOfFeature[featureName];
-
-		// If user has a specific model selected (not "Auto"), respect it
-		if (userManualSelection && !(userManualSelection.providerName === 'auto' && userManualSelection.modelName === 'auto')) {
-			return userManualSelection;
-		}
-
+	): { context: TaskContext; isCodebaseQuestion: boolean } {
 		// Detect task type from message and attachments
 		const taskType = this._detectTaskType(userMessage, images, pdfs);
 		const hasImages = images && images.length > 0;
@@ -1640,7 +1642,6 @@ class ChatThreadService extends Disposable implements IChatThreadService {
 
 		// Privacy/offline mode: removed restriction for images/PDFs
 		// Images/PDFs now always use auto selection (remote models allowed)
-		const globalSettings = this._settingsService.state.globalSettings;
 		const requiresPrivacy = false;
 
 		// Estimate context size needed for codebase questions
@@ -1707,6 +1708,29 @@ class ChatThreadService extends Disposable implements IChatThreadService {
 			isMultiStepTask,
 		};
 
+		return { context, isCodebaseQuestion };
+	}
+
+	/**
+	 * Auto-select model based on task context
+	 * Falls back to user's manual selection if they've set one
+	 */
+	private async _autoSelectModel(
+		userMessage: string,
+		images?: ChatImageAttachment[],
+		pdfs?: ChatPDFAttachment[]
+	): Promise<AutoModelChoice | null> {
+		const featureName: FeatureName = 'Chat';
+		const userManualSelection = this._settingsService.state.modelSelectionOfFeature[featureName];
+
+		// If user has a specific model selected (not "Auto"), respect it
+		if (userManualSelection && !(userManualSelection.providerName === 'auto' && userManualSelection.modelName === 'auto')) {
+			return { selection: userManualSelection };
+		}
+
+		const { context, isCodebaseQuestion } = this._buildAutoTaskContext(userMessage, images, pdfs);
+		const globalSettings = this._settingsService.state.globalSettings;
+
 		try {
 			const routingDecision = await this._modelRouter.route(context);
 
@@ -1729,10 +1753,10 @@ class ChatThreadService extends Disposable implements IChatThreadService {
 					timeoutMs: routingDecision.timeoutMs,
 					userOverride: userManualSelection ? 'yes' : 'no',
 					isCodebaseQuestion,
-					contextSize: estimatedContextSize,
-					taskType,
-					requiresComplexReasoning,
-					hasCode,
+					contextSize: context.contextSize,
+					taskType: context.taskType,
+					requiresComplexReasoning: context.requiresComplexReasoning,
+					hasCode: context.hasCode,
 				};
 				vibeLog.info('chatThread', '[Auto Model Select]', JSON.stringify(logData, null, 2));
 
@@ -1742,13 +1766,11 @@ class ChatThreadService extends Disposable implements IChatThreadService {
 				}
 			}
 
-			// Store routing decision for later outcome tracking
-			// We'll track the outcome when the message is actually sent
-			return routingDecision.modelSelection;
+			return { selection: routingDecision.modelSelection, fallbackRanking: autoFallbackCandidates(routingDecision) };
 		} catch (error) {
 			vibeLog.error('chatThread', '[Auto Model Select] Error:', error);
 			// Fall back to user's manual selection or null
-			return userManualSelection;
+			return userManualSelection ? { selection: userManualSelection } : null;
 		}
 	}
 
@@ -5088,6 +5110,7 @@ Output ONLY the JSON, no other text. Start with { and end with }.`;
 		earlyRequestId,
 		isAutoMode,
 		repoIndexerPromise,
+		fallbackRanking,
 	}: {
 		threadId: string;
 		modelSelection: ModelSelection | null;
@@ -5096,6 +5119,8 @@ Output ONLY the JSON, no other text. Start with { and end with }.`;
 		earlyRequestId?: string;
 		isAutoMode?: boolean;
 		repoIndexerPromise?: Promise<{ results: string[]; metrics: QueryMetrics } | null>;
+		/** «Авто»: the router's ranking that chose this run's model; absent when the router was not asked */
+		fallbackRanking?: readonly ModelSelection[];
 	}) {
 
 		// Concurrency guard: ONE agent loop per thread. Observed (2026-06-07): a hard-stall
@@ -6102,17 +6127,12 @@ Output ONLY the JSON, no other text. Start with { and end with }.`;
 			// Retry cache: accumulates streamed text so a retry can resume rather than restart.
 			let _retryPartial: PartialResponse | undefined = undefined;
 			let _retryLastTextLen = 0;
-			// Store original routing decision for fallback chain (only in auto mode)
-			let originalRoutingDecision: RoutingDecision | null = null;
+			// «Авто»: models to switch to when the current one fails with an error, best first
+			let autoFallbackRanking = fallbackRanking;
 			// Track if we're in auto mode (user selected "auto")
 			const isAutoMode = !modelSelection || (modelSelection.providerName === 'auto' && modelSelection.modelName === 'auto') ||
 				(this._settingsService.state.modelSelectionOfFeature['Chat']?.providerName === 'auto' &&
 					this._settingsService.state.modelSelectionOfFeature['Chat']?.modelName === 'auto');
-
-			// If in auto mode and we have a model selection, try to get the routing decision for fallback chain
-			if (isAutoMode && modelSelection && modelSelection.providerName !== 'auto') {
-				// We'll get the routing decision when we need it (on first error)
-			}
 
 			// Track previous model to detect switches
 			let previousModelKey: string | null = null;
@@ -7214,112 +7234,17 @@ Output ONLY the JSON, no other text. Start with { and end with }.`;
 					// In auto mode, try fallback models for ALL errors (not just rate limits)
 					// This ensures auto mode is resilient even if one model is failing
 					if (isAutoMode) {
-						// Get routing decision if we don't have it yet
-						if (!originalRoutingDecision && originalUserMessage) {
+						// A pinned or resumed turn was not routed: rank now, by the same task context the choice uses
+						if (!autoFallbackRanking && originalUserMessage) {
 							try {
-								const taskType = this._detectTaskType(originalUserMessage.content, originalUserMessage.images, originalUserMessage.pdfs);
-								const hasImages = originalUserMessage.images && originalUserMessage.images.length > 0;
-								const hasPDFs = originalUserMessage.pdfs && originalUserMessage.pdfs.length > 0;
-								const hasCode = this._detectCodeInMessage(originalUserMessage.content);
-								const lowerMessage = originalUserMessage.content.toLowerCase().trim();
-								const isCodebaseQuestion = /\b(codebase|code base|repository|repo|project)\b/.test(lowerMessage) ||
-									/\b(architecture|structure|organization|layout)\b.*\b(project|codebase|repo|code)\b/.test(lowerMessage);
-								const requiresComplexReasoning = isCodebaseQuestion;
-								const isLongMessage = originalUserMessage.content.length > 500;
-
-								const context: TaskContext = {
-									taskType,
-									hasImages,
-									hasPDFs,
-									hasCode,
-									requiresPrivacy: false,
-									preferLowLatency: false,
-									preferLowCost: false,
-									userOverride: null,
-									requiresComplexReasoning,
-									isLongMessage,
-								};
-
-								originalRoutingDecision = await this._modelRouter.route(context);
+								const { context } = this._buildAutoTaskContext(originalUserMessage.content, originalUserMessage.images, originalUserMessage.pdfs);
+								autoFallbackRanking = autoFallbackCandidates(await this._modelRouter.route(context));
 							} catch (routerError) {
 								vibeLog.error('chatThread', '[ChatThreadService] Error getting routing decision for fallback:', routerError);
 							}
 						}
 
-						// Try next model from fallback chain
-						let nextModel: ModelSelection | null = null;
-						if (originalRoutingDecision?.fallbackChain && originalRoutingDecision.fallbackChain.length > 0) {
-							// Find first model in fallback chain that we haven't tried
-							const fallbackChain: ModelSelection[] = originalRoutingDecision.fallbackChain;
-							for (const fallbackModel of fallbackChain) {
-								const modelKey = `${fallbackModel.providerName}/${fallbackModel.modelName}`;
-								if (!triedModels.has(modelKey)) {
-									nextModel = fallbackModel;
-									break;
-								}
-							}
-						}
-
-						// If no fallback model available, try to get a new routing decision excluding tried models
-						if (!nextModel && originalUserMessage) {
-							try {
-								// Get all available models
-								const settingsState = this._settingsService.state;
-								const availableModels: ModelSelection[] = [];
-								const now = Date.now();
-								for (const providerName of Object.keys(settingsState.settingsOfProvider)) {
-									const providerSettings = settingsState.settingsOfProvider[providerName];
-									if (!providerSettings._didFillInProviderSettings) { continue; }
-									for (const modelInfo of providerSettings.models) {
-										if (!modelInfo.isHidden && !retiredForAutoPick(getModelCapabilities(providerName, modelInfo.modelName, settingsState.overridesOfModel), now)) {
-											const modelKey = `${providerName}/${modelInfo.modelName}`;
-											if (!triedModels.has(modelKey)) {
-												availableModels.push({
-													providerName,
-													modelName: modelInfo.modelName,
-												});
-											}
-										}
-									}
-								}
-
-								// If we have other models available, try to route to one
-								if (availableModels.length > 0) {
-									const taskType = this._detectTaskType(originalUserMessage.content, originalUserMessage.images, originalUserMessage.pdfs);
-									const hasImages = originalUserMessage.images && originalUserMessage.images.length > 0;
-									const hasPDFs = originalUserMessage.pdfs && originalUserMessage.pdfs.length > 0;
-									const hasCode = this._detectCodeInMessage(originalUserMessage.content);
-									const lowerMessage = originalUserMessage.content.toLowerCase().trim();
-									const isCodebaseQuestion = /\b(codebase|code base|repository|repo|project)\b/.test(lowerMessage);
-									const requiresComplexReasoning = isCodebaseQuestion;
-									const isLongMessage = originalUserMessage.content.length > 500;
-
-									const context: TaskContext = {
-										taskType,
-										hasImages,
-										hasPDFs,
-										hasCode,
-										requiresPrivacy: false,
-										preferLowLatency: false,
-										preferLowCost: false,
-										userOverride: null,
-										requiresComplexReasoning,
-										isLongMessage,
-									};
-
-									const newRoutingDecision = await this._modelRouter.route(context);
-									if (newRoutingDecision.modelSelection.providerName !== 'auto') {
-										const modelKey = `${newRoutingDecision.modelSelection.providerName}/${newRoutingDecision.modelSelection.modelName}`;
-										if (!triedModels.has(modelKey)) {
-											nextModel = newRoutingDecision.modelSelection;
-											originalRoutingDecision = newRoutingDecision; // Update for next fallback
-										}
-									}
-								}
-							} catch (routerError) {
-								vibeLog.error('chatThread', '[ChatThreadService] Error getting new routing decision:', routerError);
-							}
-						}
+						const nextModel = autoFallbackRanking?.find(candidate => !triedModels.has(`${candidate.providerName}/${candidate.modelName}`));
 
 						// If we found a next model, switch to it and retry
 						if (nextModel) {
@@ -9622,6 +9547,7 @@ We only need to do it for files that were edited since `from`, ie files between 
 		// Generate requestId early for router tracking in auto mode, then reuse it in _runChatAgent
 		const earlyRequestId = isAutoMode ? generateUuid() : undefined;
 		let modelSelection: ModelSelection | null;
+		let fallbackRanking: readonly ModelSelection[] | undefined;
 
 		// PERFORMANCE: Start prompt prep in parallel with router decision for auto mode
 		// This can save 50-200ms by doing work that doesn't need model selection
@@ -9661,7 +9587,7 @@ We only need to do it for files that were edited since `from`, ie files between 
 			if (pinned) {
 				vibeLog.info('chatThread', `[Auto Model Select] source=pinned ${pinned.providerName}/${pinned.modelName} — разговор остаётся на выбранной ранее модели`);
 			}
-			const routerPromise = pinned ? Promise.resolve(pinned) : this._autoSelectModel(instructions, images, pdfs);
+			const routerPromise: Promise<AutoModelChoice | null> = pinned ? Promise.resolve({ selection: pinned }) : this._autoSelectModel(instructions, images, pdfs);
 			const thread = this.state.allThreads[threadId];
 			const chatMessages = thread?.messages ?? [];
 			const { chatMode } = this._settingsService.state.globalSettings;
@@ -9670,9 +9596,11 @@ We only need to do it for files that were edited since `from`, ie files between 
 			repoIndexerPromise = this._convertToLLMMessagesService.startRepoIndexerQuery(chatMessages, chatMode);
 
 			// Wait for router decision
-			const autoSelectedModel = await routerPromise;
+			const autoChoice = await routerPromise;
 			chatLatencyAudit.markRouterEnd(earlyRequestId);
+			const autoSelectedModel = autoChoice?.selection ?? null;
 			modelSelection = autoSelectedModel;
+			fallbackRanking = autoChoice?.fallbackRanking;
 			if (autoSelectedModel && !pinned) {
 				// Vision is recorded WITH the pin: an attachment in a later message must be able to
 				// tell «the pinned model cannot read this» without re-deriving capabilities then.
@@ -9764,7 +9692,7 @@ We only need to do it for files that were edited since `from`, ie files between 
 
 		// Pass earlyRequestId, isAutoMode, and repoIndexerPromise to _runChatAgent for latency tracking
 		this._wrapRunAgentToNotify(
-			this._runChatAgent({ threadId, modelSelection, modelSelectionOptions, earlyRequestId, isAutoMode, repoIndexerPromise }),
+			this._runChatAgent({ threadId, modelSelection, modelSelectionOptions, earlyRequestId, isAutoMode, repoIndexerPromise, fallbackRanking }),
 			threadId,
 		);
 

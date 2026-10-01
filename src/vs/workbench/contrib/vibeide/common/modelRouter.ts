@@ -15,7 +15,6 @@ import { createDecorator } from '../../../../platform/instantiation/common/insta
 import { registerSingleton, InstantiationType } from '../../../../platform/instantiation/common/extensions.js';
 import { RoutingEvaluationService } from './routingEvaluation.js';
 import { IStorageService } from '../../../../platform/storage/common/storage.js';
-import { shouldUseSpeculativeEscalation } from './routingEscalation.js';
 import { getPerformanceHarness } from './performanceHarness.js';
 
 // ── Local-model speed heuristics (data-driven) ──────────────────────────────
@@ -83,6 +82,7 @@ export interface TaskContext {
 
 /**
  * Quality tier for pre-flight routing decision
+ * A label for logs and the routing explanation: no tier swaps the chosen model for a cheaper one
  */
 export type QualityTier = 'cheap_fast' | 'standard' | 'escalate' | 'abstain';
 
@@ -116,11 +116,34 @@ export interface RoutingDecision {
 	reasoning: string;
 	/** Слой, чьё слово оказалось решающим. */
 	source: RoutingSource;
-	fallbackChain?: ModelSelection[]; // ordered list of fallbacks
+	/**
+	 * Runners-up by score, best first, without the chosen model
+	 * Tried only after the chosen model fails with an error
+	 */
+	fallbackChain?: ModelSelection[];
 	qualityTier?: QualityTier; // pre-flight quality estimate
 	shouldAbstain?: boolean; // true if should ask for clarification
 	abstainReason?: string; // reason for abstaining
 	timeoutMs?: number; // per-model timeout in milliseconds
+}
+
+/** How many runners-up a scored decision keeps for the error fallback */
+const FALLBACK_CHAIN_LENGTH = 3;
+
+/** The runners-up of a ranking sorted best first */
+function fallbackChainOf(ranked: readonly { readonly model: ModelSelection }[]): ModelSelection[] {
+	return ranked.slice(1, 1 + FALLBACK_CHAIN_LENGTH).map(entry => entry.model);
+}
+
+/**
+ * Models «Авто» may answer with when the current one fails with an error, best first
+ * The chosen model leads the list: a turn that was not routed (pinned, resumed) has not tried it yet
+ */
+export function autoFallbackCandidates(decision: RoutingDecision): readonly ModelSelection[] {
+	if (decision.shouldAbstain) {
+		return [];
+	}
+	return [decision.modelSelection, ...(decision.fallbackChain ?? [])];
 }
 
 export interface ITaskAwareModelRouter {
@@ -452,6 +475,7 @@ export class TaskAwareModelRouter extends Disposable implements ITaskAwareModelR
 				source: 'scored' as const,
 				confidence: Math.min(1.0, best.score / 100),
 				reasoning: this.generateReasoning(best.model, context, best.score, settingsState),
+				fallbackChain: fallbackChainOf(scored),
 				qualityTier,
 				timeoutMs,
 			};
@@ -490,32 +514,16 @@ export class TaskAwareModelRouter extends Disposable implements ITaskAwareModelR
 		}
 
 		const best = scored[0];
-		const fallbackChain = scored.slice(1, 4).map(s => s.model); // top 3 fallbacks
+		const fallbackChain = fallbackChainOf(scored);
 
 		// Determine timeout based on model and task
 		const timeoutMs = this.getModelTimeout(best.model, context, settingsState);
 
 		const confidence = Math.min(1.0, best.score / 100);
 
-		// Check if we should use speculative escalation
-		const useSpeculativeEscalation = shouldUseSpeculativeEscalation(confidence, qualityTier);
-
-		// If using speculative escalation, prefer a fast/cheap model first
-		let finalModel = best.model;
-		if (useSpeculativeEscalation && fallbackChain.length > 0) {
-			// Find a fast/cheap model in the fallback chain
-			const fastModel = this.findFastCheapModel(fallbackChain, settingsState);
-			if (fastModel) {
-				// Use fast model first, with best model as escalation target
-				finalModel = fastModel;
-				// Note: The escalation logic will be handled in chatThreadService
-				// by monitoring early tokens and switching if needed
-			}
-		}
-
 		// Safety check: ensure we never return 'auto' as a model selection
 		// (This should never happen due to filtering, but add safeguard)
-		if (finalModel.providerName === 'auto' && finalModel.modelName === 'auto') {
+		if (best.model.providerName === 'auto' && best.model.modelName === 'auto') {
 			// This should never happen, but if it does, try local models as fallback
 			vibeLog.error('modelRouter', '[ModelRouter] Error: Attempted to return "auto" model selection. Trying local model fallback.');
 			const localDecision = this.routeToLocalModel(context);
@@ -537,12 +545,12 @@ export class TaskAwareModelRouter extends Disposable implements ITaskAwareModelR
 		// Record routing decision for evaluation
 		this.evaluationService.recordOutcome({
 			timestamp: startTime,
-			modelSelection: finalModel,
+			modelSelection: best.model,
 			taskType: context.taskType,
 			confidence,
 		});
 
-		const reasoning = this.generateReasoning(finalModel, context, best.score, settingsState);
+		const reasoning = this.generateReasoning(best.model, context, best.score, settingsState);
 
 		// Debug: Warn if local model selected for codebase question when online models available
 		// Detect codebase questions: complex reasoning + code task without code blocks, OR explicit context size requirement
@@ -551,10 +559,10 @@ export class TaskAwareModelRouter extends Disposable implements ITaskAwareModelR
 			(context.taskType === 'code' && context.isLongMessage && !context.hasCode);
 
 		if (isCodebaseQuestionForDebug) {
-			const isLocal = isLocalProvider(finalModel.providerName, settingsState.settingsOfProvider);
+			const isLocal = isLocalProvider(best.model.providerName, settingsState.settingsOfProvider);
 			if (isLocal && hasOnlineModels) {
 				vibeLog.warn('modelRouter', '[ModelRouter] WARNING: Selected local model for codebase question despite online models available!', {
-					selectedModel: finalModel,
+					selectedModel: best.model,
 					hasOnlineModels,
 					reasoning,
 					score: best.score,
@@ -563,13 +571,11 @@ export class TaskAwareModelRouter extends Disposable implements ITaskAwareModelR
 		}
 
 		const decision = {
-		source: 'scored' as const,
-			modelSelection: finalModel,
+			source: 'scored' as const,
+			modelSelection: best.model,
 			confidence,
 			reasoning,
-			fallbackChain: useSpeculativeEscalation && finalModel !== best.model
-				? [best.model, ...fallbackChain.filter(m => m !== finalModel)]
-				: fallbackChain,
+			fallbackChain,
 			qualityTier,
 			timeoutMs,
 		};
@@ -619,42 +625,6 @@ export class TaskAwareModelRouter extends Disposable implements ITaskAwareModelR
 	}
 
 	/**
-	 * Find a fast/cheap model suitable for speculative escalation
-	 */
-	private findFastCheapModel(
-		models: ModelSelection[],
-		settingsState: VibeideSettingsState
-	): ModelSelection | null {
-		// Filter out 'auto' provider
-		const validModels = models.filter(m => m.providerName !== 'auto');
-
-		for (const model of validModels) {
-			const capabilities = this.getCachedCapabilities(model, settingsState);
-			const name = model.modelName.toLowerCase();
-
-			// Prefer fast models (mini, haiku, flash, nano)
-			if (name.includes('mini') || name.includes('haiku') || name.includes('flash') || name.includes('nano')) {
-				// Also check if it's cheap
-				const costPerM = (capabilities.cost.input + capabilities.cost.output) / 2;
-				if (costPerM < 5) { // Reasonable cost threshold
-					return model;
-				}
-			}
-		}
-
-		// If no fast model found, return first cheap model
-		for (const model of validModels) {
-			const capabilities = this.getCachedCapabilities(model, settingsState);
-			const costPerM = (capabilities.cost.input + capabilities.cost.output) / 2;
-			if (costPerM < 2) {
-				return model;
-			}
-		}
-
-		return null;
-	}
-
-	/**
 	 * Estimate quality tier for pre-flight routing decision
 	 */
 	private estimateQualityTier(context: TaskContext): QualityTier {
@@ -663,7 +633,7 @@ export class TaskAwareModelRouter extends Disposable implements ITaskAwareModelR
 			return 'cheap_fast';
 		}
 
-		// Complex tasks need escalation
+		// Demanding tasks: only the label changes, the answer still comes from the best model by score
 		if (context.requiresComplexReasoning ||
 			context.isMultiStepTask ||
 			(context.contextSize && context.contextSize > 100_000) ||
