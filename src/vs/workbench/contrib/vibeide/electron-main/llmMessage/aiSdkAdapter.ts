@@ -33,6 +33,7 @@ import { availableTools, InternalToolInfo } from '../../common/prompt/prompts.js
 import { TOOL_NAME_ALIASES, applyParamAliases } from '../../common/prompt/toolAliases.js';
 import { lenientJsonParseObject } from '../../common/lenientJson.js';
 import { hasToolCallMarkup } from '../../common/xmlToolNormalize.js';
+import { OfferedToolSchemas, textToolCallStart } from '../../common/textToolCalls.js';
 import { AnthropicMessageStart, CacheMissDiagnosis, readAnthropicMessageStart } from '../../common/anthropicCacheDiagnostics.js';
 import { getModelSdkNpm } from './modelsDevCatalog.js';
 import { buildContextOverflowError, buildEmptyResponseError, isContextOverflow, LLMChatMessage, LLMFinishNotice, LLMTokenUsage, ProviderRefusalDiagnostics, RawToolCallObj, RawToolParamsObj } from '../../common/sendLLMMessageTypes.js';
@@ -49,7 +50,7 @@ import { getModelQuirks } from '../modelQuirks/modelQuirksService.js';
 import { withReasoningEffortInSystemPrompt } from '../../common/modelQuirks/modelQuirksTypes.js';
 import { providerNames, SettingsOfProvider } from '../../common/vibeideSettingsTypes.js';
 import { ensureSystemCADispatcher } from './systemCAFetch.js';
-import { extractDsmlToolCallsWrapper, extractReasoningWrapper, extractXMLToolsWrapper, stripThinkTagsWrapper, stripStandaloneThinkDelimitersWrapper } from './extractGrammar.js';
+import { extractReasoningWrapper, extractTextToolCallsWrapper, extractXMLToolsWrapper, stripThinkTagsWrapper, stripStandaloneThinkDelimitersWrapper } from './extractGrammar.js';
 import type { SendChatParams_Internal } from './sendLLMMessage.internalTypes.js';
 import { assertHttpHeaderSafe, getGoogleApiKey, withProcessEnvApiKey } from './llmHelpers.js';
 import { detectNoFundsRefusal, noFundsStatusText } from '../../common/providerFundsRefusal.js';
@@ -1292,6 +1293,23 @@ function repairToolArgsViaAliases(canonicalToolName: string, rawInput: unknown):
 	return { input: JSON.stringify(aliased), changed: true };
 }
 
+/**
+ * The JSON schema of a tool's arguments as the wire declares it: every parameter a string
+ * The same schema types the values of a call the model writes as text, so both paths promise the model one contract
+ */
+function toolInputSchema(t: InternalToolInfo): { type: 'object'; properties: Record<string, { description: string; type: 'string' }>; required?: string[] } {
+	const properties: Record<string, { description: string; type: 'string' }> = {};
+	const required: string[] = [];
+	for (const k of Object.keys(t.params)) {
+		const desc = t.params[k].description;
+		properties[k] = { description: desc, type: 'string' };
+		if (!desc.trimStart().toLowerCase().startsWith('optional')) {
+			required.push(k);
+		}
+	}
+	return { type: 'object', properties, ...(required.length > 0 ? { required } : {}) };
+}
+
 // InternalToolInfo map -> AI SDK ToolSet. Real tools have no `execute`: the
 // model's tool_call is surfaced via the stream and dispatched manually by
 // chatThreadService. The `invalid` pseudo-tool is the one exception — it
@@ -1327,23 +1345,9 @@ const convertToolsToAiSdkToolSet = (
 		for (const t of toolsArray) {
 			const name = t.name;
 			if (!name) { continue; }
-			const properties: Record<string, { description: string; type: 'string' }> = {};
-			const required: string[] = [];
-			for (const k of Object.keys(t.params)) {
-				const desc = t.params[k].description;
-				properties[k] = { description: desc, type: 'string' };
-				if (!desc.trimStart().toLowerCase().startsWith('optional')) {
-					required.push(k);
-				}
-			}
-			const inputSchema: JSONSchema7 = {
-				type: 'object',
-				properties,
-				...(required.length > 0 ? { required } : {}),
-			};
 			out[name] = tool({
 				description: t.description,
-				inputSchema: jsonSchema(inputSchema),
+				inputSchema: jsonSchema(toolInputSchema(t)),
 			});
 		}
 	}
@@ -1450,6 +1454,15 @@ export const sendViaAISdk = async (params: SendChatParams_Internal): Promise<voi
 		return caps.specialToolFormat;
 	})();
 
+	// The tools this request offers: the wire's list and the names a call written as text may run
+	// `caps.maxTools` is the per-model tool budget from `.vibe/providers.json`. Undefined means
+	// no limit — a model without a declared budget must get exactly the list it got before.
+	const offeredTools = specialToolFormat ? availableTools(chatMode, mcpTools, { maxTools: caps.maxTools }) : undefined;
+	const offeredToolSchemas: OfferedToolSchemas = Object.fromEntries((offeredTools ?? []).filter(t => t.name).map(t => [t.name, toolInputSchema(t)]));
+	// Native tools, yet the model may write its call into the text in its family's markup (a server without the
+	// family's parser, or a slip). Read for every such model unless its quirk turns it off
+	const readsTextToolCalls = !!specialToolFormat && Object.keys(offeredToolSchemas).length > 0 && quirks.toolCallsInText !== false;
+
 	// Open-source think-tag reasoning: wrap callbacks to extract <think>...</think>.
 	const openSourceThinkTags = reasoningCapabilities ? reasoningCapabilities.openSourceThinkTags : undefined;
 	let onText = onText_;
@@ -1460,6 +1473,12 @@ export const sendViaAISdk = async (params: SendChatParams_Internal): Promise<voi
 	// (so the stray tag isn't replayed to the model next request). Other wrappers see the raw text.
 	{
 		const wrapped = stripStandaloneThinkDelimitersWrapper(onText, onFinalMessage);
+		onText = wrapped.newOnText;
+		onFinalMessage = wrapped.newOnFinalMessage;
+	}
+	// Installed before the reasoning wrappers, so it runs after them: markup inside <think> is reasoning, never a call
+	if (readsTextToolCalls) {
+		const wrapped = extractTextToolCallsWrapper(onText, onFinalMessage, offeredToolSchemas, { providerName, modelName });
 		onText = wrapped.newOnText;
 		onFinalMessage = wrapped.newOnFinalMessage;
 	}
@@ -1480,11 +1499,6 @@ export const sendViaAISdk = async (params: SendChatParams_Internal): Promise<voi
 	// XML tool fallback when native tools are disabled for this model.
 	if (!specialToolFormat) {
 		const wrapped = extractXMLToolsWrapper(onText, onFinalMessage, chatMode, mcpTools, { providerName, modelName });
-		onText = wrapped.newOnText;
-		onFinalMessage = wrapped.newOnFinalMessage;
-	} else if (quirks.toolCallsInText) {
-		// Native tools, yet the model sometimes spells the call out in the text in its own markup
-		const wrapped = extractDsmlToolCallsWrapper(onText, onFinalMessage);
 		onText = wrapped.newOnText;
 		onFinalMessage = wrapped.newOnFinalMessage;
 	}
@@ -1754,11 +1768,7 @@ export const sendViaAISdk = async (params: SendChatParams_Internal): Promise<voi
 	//
 	// `invalid` pseudo-tool only injected when tools are passed; otherwise the
 	// repair hook has nothing to repair.
-	const tools = specialToolFormat
-		// `caps.maxTools` is the per-model tool budget from `.vibe/providers.json`. Undefined means
-		// no limit — a model without a declared budget must get exactly the list it got before.
-		? convertToolsToAiSdkToolSet(availableTools(chatMode, mcpTools, { maxTools: caps.maxTools }), true)
-		: undefined;
+	const tools = specialToolFormat ? convertToolsToAiSdkToolSet(offeredTools, true) : undefined;
 	const activeTools = tools
 		? Object.keys(tools).filter(k => k !== INVALID_TOOL_NAME)
 		: undefined;
@@ -1880,6 +1890,9 @@ export const sendViaAISdk = async (params: SendChatParams_Internal): Promise<voi
 		if (fullTextSoFar || fullReasoningSoFar || (toolName && toolCallComplete)) {
 			timeoutDeliveredPartial = true;
 			const tc = toolCallComplete ? finalizeToolCall() : null;
+			// A call written as text reads even when cut, since several forms close at the end of the text:
+			// The notice tells the text reading that the answer stopped short, and a cut call must not run
+			const cutTextCall = !cutToolCall && !tc && readsTextToolCalls && textToolCallStart(fullTextSoFar) >= 0;
 			onFinalMessage({
 				fullText: fullTextSoFar,
 				fullReasoning: fullReasoningSoFar,
@@ -1890,6 +1903,7 @@ export const sendViaAISdk = async (params: SendChatParams_Internal): Promise<voi
 				...(lastAnsweredModel ? { answeredModel: lastAnsweredModel } : {}),
 				...(lastSystemFingerprint ? { systemFingerprint: lastSystemFingerprint } : {}),
 				...(cutToolCall ? { finishNotice: { kind: 'stalled', cutToolName: toolName } satisfies LLMFinishNotice } : {}),
+				...(cutTextCall ? { finishNotice: { kind: 'stalled' } satisfies LLMFinishNotice } : {}),
 			});
 		} else {
 			onError({ message: cutToolCall ? cutToolCallMessage(toolName, errMessage) : errMessage, fullError: null });
@@ -1954,8 +1968,10 @@ export const sendViaAISdk = async (params: SendChatParams_Internal): Promise<voi
 			return;
 		}
 		const tc = cutToolCall ? null : finalizeToolCall();
-		// Native mode never runs text, so a call the model spelled out in it is lost; XML mode judges its own text in extractGrammar
-		const unparsedToolCall = !!specialToolFormat && !tc && !cutToolCall && hasToolCallMarkup(fullTextSoFar);
+		// Native mode without the text reading never runs text:
+		// A call the model spelled out in it is lost and only named
+		// The text reading and XML mode judge the text themselves in extractGrammar
+		const unparsedToolCall = !!specialToolFormat && !readsTextToolCalls && !tc && !cutToolCall && hasToolCallMarkup(fullTextSoFar);
 		const finishNotice: LLMFinishNotice | undefined = cutToolCall
 			? { kind: 'truncated', by: notice?.kind === 'truncated' ? notice.by : 'output-limit', cutToolName: toolName }
 			: notice ?? (unparsedToolCall ? { kind: 'unparsedToolCall' } : undefined);

@@ -43,9 +43,10 @@ suite('ModelQuirks — настоящий каталог resources/model-quirks.
 		['qwen2.5-coder', { temperature: 0.55, topP: 1.0, forceToolCallFormat: 'xml' }],
 		['qwen3.8-max', { temperature: 0.6, topP: 0.95, topK: 20 }],
 		['ling-3.0-flash', { temperature: 0.6, topP: 0.95, topK: 20 }],
-		['deepseek-v4-pro', { forceEmptyReasoning: true, mirrorReasoningContent: true, toolCallsInText: true }],
-		// DeepSeek sometimes writes its call into the text in DSML even with native tools; VibeIDEA: TOOL_CALLS_IN_TEXT (30.09.2026)
-		['deepseek-flash', { forceEmptyReasoning: true, mirrorReasoningContent: true, toolCallsInText: true }],
+		// A call written as text is read for every model with native tools, not by a quirk
+		// The catalogue leaves the flag unset
+		['deepseek-v4-pro', { forceEmptyReasoning: true, mirrorReasoningContent: true, toolCallsInText: undefined }],
+		['deepseek-flash', { forceEmptyReasoning: true, mirrorReasoningContent: true, toolCallsInText: undefined }],
 		['kimi-k2.6', { temperature: 1.0, topP: 0.95, mirrorReasoningContent: true }],
 		// K3 — preserved-thinking-history: наследует зеркалирование, а не общий пресет `kimi`.
 		['kimi-k3', { temperature: 1.0, topP: 0.95, mirrorReasoningContent: true }],

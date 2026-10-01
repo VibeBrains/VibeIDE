@@ -91,4 +91,31 @@ suite('extractGrammar — обёртки потока ответа', () => {
 			heldProse: 'Сравни a <',
 		});
 	});
+
+	/**
+	 * Вызов, написанный текстом, при нативных инструментах
+	 * Несколько форм закрываются концом текста, поэтому оборванный ответ тоже читается как вызов
+	 * Исполнять его нельзя: половина записи файла хуже, чем никакой
+	 */
+	test('вызов текстом: оборванный ответ ничего не исполняет, своё уведомление сохраняется, чужая догадка снимается', () => {
+		const offered = { write_file: { type: 'object', properties: { content: { type: 'string' } } } };
+		const cutText = 'Пишу файл.\n<tool_call>\n<function=write_file>\n<parameter=content>\nconst a = 1;\nconst';
+		const finish = (fullText: string, finishNotice?: Parameters<OnFinalMessage>[0]['finishNotice']) => {
+			let final: Parameters<OnFinalMessage>[0] | undefined;
+			const { newOnFinalMessage } = grammar.extractTextToolCallsWrapper(() => { }, f => { final = f; }, offered, { providerName: 'p', modelName: 'm' });
+			newOnFinalMessage({ fullText, fullReasoning: '', anthropicReasoning: null, ...(finishNotice ? { finishNotice } : {}) });
+			return { call: final?.toolCall?.name, text: final?.fullText, notice: final?.finishNotice };
+		};
+		assert.deepStrictEqual({
+			whole: finish(cutText),
+			truncated: finish(cutText, { kind: 'truncated', by: 'output-limit' }),
+			stalled: finish(cutText, { kind: 'stalled' }),
+			guessed: finish('Так выглядит `<invoke name="x">` в тексте.', { kind: 'unparsedToolCall' }),
+		}, {
+			whole: { call: 'write_file', text: 'Пишу файл.', notice: undefined },
+			truncated: { call: undefined, text: 'Пишу файл.', notice: { kind: 'truncated', by: 'output-limit', cutToolName: 'write_file' } },
+			stalled: { call: undefined, text: 'Пишу файл.', notice: { kind: 'stalled', cutToolName: 'write_file' } },
+			guessed: { call: undefined, text: 'Так выглядит `<invoke name="x">` в тексте.', notice: undefined },
+		});
+	});
 });

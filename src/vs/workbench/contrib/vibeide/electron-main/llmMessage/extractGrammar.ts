@@ -12,7 +12,8 @@ import { PARAM_ALIASES_BY_TOOL, TOOL_NAME_ALIASES } from '../../common/prompt/to
 import { LLMFinishNotice, OnFinalMessage, OnText, RawToolCallObj, RawToolParamsObj } from '../../common/sendLLMMessageTypes.js';
 import { ToolName, ToolParamName } from '../../common/toolsServiceTypes.js';
 import { ChatMode } from '../../common/vibeideSettingsTypes.js';
-import { dsmlVisibleLength, parseDsmlToolCalls } from '../../common/dsmlToolCalls.js';
+import { OfferedToolSchemas, parseTextToolCalls, TextToolMarkupFilter } from '../../common/textToolCalls.js';
+import { vibeLog } from '../../common/vibeLog.js';
 import { hasToolCallMarkup, normalizeAlternativeToolSyntax, NormalizeAttribution, SELF_CLOSING_PARTIAL_RE, stripUnclaimedToolTags, UNCLOSED_INVOKE_TAIL_RE, VENDOR_NAMESPACED_SUFFIXES, VENDOR_WRAPPER_NAMES } from '../../common/xmlToolNormalize.js';
 
 
@@ -603,30 +604,57 @@ export const extractXMLToolsWrapper = (
 
 
 /**
- * Native mode for a model that sometimes writes its call into the text in its own markup (quirk `toolCallsInText`, DSML)
- * While the answer streams, the markup is held out of the shown text
- * At the end, a turn that brought no native call gets the call parsed out of the text, and the answer loses the markup
+ * Native tools, yet the model may write a call into the text of its answer in its family's own markup
+ * The forms are those of `common/textToolCalls.ts`: DSML, Hermes, Qwen XML, GLM, Kimi, Mistral, harmony and the rest
  *
- * The loop runs one call per turn, so only the first call runs; the model issues the rest on the next turn, as after
- * any single call. Markup that does not parse stays hidden and is named by the `unparsedToolCall` notice
+ * While the answer streams, the markup is held out of the shown text
+ * At the end, a turn that brought no native call gets the call read out of the text, and the answer loses the markup
+ * Only a tool offered in this request runs, under its offered name: markup in code or naming no offered tool is text
+ *
+ * The loop runs one call per turn, so only the first call runs; the model issues the rest on the next turn,
+ * as after any single call
+ * Markup that names an offered tool but does not read stays hidden and is named by the `unparsedToolCall` notice
+ * An answer cut by the output limit or by a stall runs nothing: a call read from it may be cut as well
  */
-export const extractDsmlToolCallsWrapper = (onText: OnText, onFinalMessage: OnFinalMessage): { newOnText: OnText; newOnFinalMessage: OnFinalMessage } => {
+export const extractTextToolCallsWrapper = (
+	onText: OnText,
+	onFinalMessage: OnFinalMessage,
+	offered: OfferedToolSchemas,
+	model: { readonly providerName: string; readonly modelName: string },
+): { newOnText: OnText; newOnFinalMessage: OnFinalMessage } => {
+	let filter = new TextToolMarkupFilter();
+	let seen = '';
 	const newOnText: OnText = params => {
-		onText({ ...params, fullText: params.fullText.slice(0, dsmlVisibleLength(params.fullText)) });
+		// The text only grows while it streams; one rewritten from the start is read again from its start
+		if (!params.fullText.startsWith(seen)) {
+			filter = new TextToolMarkupFilter();
+			seen = '';
+		}
+		filter.accept(params.fullText.slice(seen.length));
+		seen = params.fullText;
+		onText({ ...params, fullText: filter.shown });
 	};
 	const newOnFinalMessage: OnFinalMessage = params => {
-		const dsml = params.toolCall ? undefined : parseDsmlToolCalls(params.fullText);
-		if (!dsml?.markup) {
+		if (params.toolCall) {
 			onFinalMessage(params);
 			return;
 		}
+		const read = parseTextToolCalls(params.fullText, offered);
 		const { finishNotice, ...rest } = params;
-		const call = dsml.parsed ? dsml.calls[0] : undefined;
-		const notice: LLMFinishNotice | undefined = finishNotice?.kind === 'unparsedToolCall' ? undefined : finishNotice;
-		onFinalMessage({
-			...rest,
-			fullText: dsml.answer,
-			...(call ? {
+		// The reading below decides whether the text held a call, not a guess made from the raw text before it
+		const notice = finishNotice?.kind === 'unparsedToolCall' ? undefined : finishNotice;
+		const call = read.outcome === 'calls' ? read.calls[0] : undefined;
+		const who = `${model.providerName}/${model.modelName}`;
+		if (read.outcome === 'text') {
+			onFinalMessage({ ...rest, ...(notice ? { finishNotice: notice } : {}) });
+		} else if (call && notice && (notice.kind === 'truncated' || notice.kind === 'stalled')) {
+			vibeLog.warn('textToolCalls', `${who}: вызов ${call.name} в тексте (${read.format}) не выполнен — ответ оборван`);
+			onFinalMessage({ ...rest, fullText: read.answer, finishNotice: { ...notice, cutToolName: call.name } });
+		} else if (call) {
+			vibeLog.info('textToolCalls', `${who}: вызов ${call.name} прочитан из текста (${read.format}), вызовов в разметке: ${read.calls.length}`);
+			onFinalMessage({
+				...rest,
+				fullText: read.answer,
 				toolCall: {
 					id: generateUuid(),
 					name: call.name as ToolName,
@@ -634,9 +662,12 @@ export const extractDsmlToolCallsWrapper = (onText: OnText, onFinalMessage: OnFi
 					doneParams: Object.keys(call.arguments) as ToolParamName<ToolName>[],
 					isDone: true,
 				},
-			} : {}),
-			...(notice ? { finishNotice: notice } : call ? {} : { finishNotice: { kind: 'unparsedToolCall' } satisfies LLMFinishNotice }),
-		});
+				...(notice ? { finishNotice: notice } : {}),
+			});
+		} else {
+			vibeLog.warn('textToolCalls', `${who}: разметка вызова в тексте (${read.format}) не разобрана`);
+			onFinalMessage({ ...rest, fullText: read.answer, finishNotice: notice ?? { kind: 'unparsedToolCall' } });
+		}
 	};
 	return { newOnText, newOnFinalMessage };
 };

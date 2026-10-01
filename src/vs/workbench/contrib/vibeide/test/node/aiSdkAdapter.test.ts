@@ -119,9 +119,11 @@ const compatibleStream = (): string => sse([
 ], false) + 'data: [DONE]\n\n';
 
 /**
- * A tool call written into the text, streamed in pieces cut mid-tag
+ * A tool call written into the text, streamed in pieces cut mid-tag, picked by the end of the model's name
  * `dsml-spaced` is DeepSeek's DSML once its markers are gone, `dsml-canonical` the vendor's own form cut mid-marker,
- * `dsml-garbled` a spacing the XML normalizer does not parse, `dsml-cut` a call cut off before `invoke` closes
+ * `dsml-garbled` a spacing none of the families writes, `dsml-cut` a call cut off before `invoke` closes,
+ * `hermes` and `qwen-xml` the `<tool_call>` forms of Qwen, `foreign` a call to a tool that was not offered,
+ * `think` the markup inside `<think>`: reasoning about a call, not a call
  */
 const markupInTextStream = (model: string): string => {
 	const pieces = model.endsWith('dsml-garbled')
@@ -130,6 +132,14 @@ const markupInTextStream = (model: string): string => {
 			? ['Смотрю ветку.\n<｜DSML｜function_calls>\n<｜DSML｜invoke name="read_file">\n<｜DSML｜parameter name="uri" string="true">src/ma']
 		: model.endsWith('dsml-canonical')
 			? ['Смотрю ветку.\n\n<｜DS', 'ML｜function_calls>\n<｜DSML｜invoke name="git_state">\n<｜DSML｜parameter name="what" string="true">bra', 'nch</｜DSML｜parameter>\n</｜DSML｜invoke>\n</｜DSML｜function_calls>']
+		: model.endsWith('hermes')
+			? ['Смотрю ветку.\n\n<tool', '_call>\n{"name": "git_state", "argu', 'ments": {"what": "branch"}}\n</tool_call>']
+		: model.endsWith('qwen-xml')
+			? ['Смотрю ветку.\n<tool_call>\n<function=git_st', 'ate>\n<parameter=what>\nbranch\n</param', 'eter>\n</function>\n</tool_call>']
+		: model.endsWith('foreign')
+			? ['Смотрю ветку.\n\n<tool_call>\n{"name": "rm_rf", "arguments": {"what": "branch"}}\n</tool_call>']
+		: model.endsWith('think')
+			? ['<think>Вызову <tool_call>\n{"name": "git_state", "arguments": {"what": "bra', 'nch"}}\n</tool_call></think>', 'На ветке next.']
 			: ['< calls>\n< inv', 'oke name="git_state">\n< parameter name="what" string="true">bra', 'nch</ parameter>\n</ invoke>\n</ calls>'];
 	return sse([
 		...pieces.map(content => ({ id: 'c2', object: 'chat.completion.chunk', created: 1, model, choices: [{ index: 0, delta: { content }, finish_reason: null }] })),
@@ -167,7 +177,7 @@ function respond(path: string, body: WireBody | undefined, res: ServerResponse):
 		res.end(streamed ? unverifiedOrganisation : wholeChatCompletion);
 	} else if (path === '/compat/v1/chat/completions') {
 		res.writeHead(200, { 'content-type': 'text/event-stream' });
-		res.end(model.includes('dsml-') ? markupInTextStream(model) : compatibleStream());
+		res.end(model.startsWith('text-') ? markupInTextStream(model) : compatibleStream());
 	} else if (path === '/reasoning/v1/chat/completions') {
 		res.writeHead(200, { 'content-type': 'text/event-stream' });
 		res.end(reasoningFieldStream(model));
@@ -644,59 +654,71 @@ suite('aiSdkAdapter — встроенные провайдеры против �
 		]);
 	});
 
-	test('вызов, написанный текстом: XML-режим и DeepSeek разбирают DSML, остальное названо признаком', async () => {
+	test('вызов, написанный текстом: разметка любого семейства становится вызовом предложенного инструмента', async () => {
 		const native = { specialToolFormat: 'openai-style' as const };
+		const thinking = { ...native, reasoningCapabilities: { supportsReasoning: true as const, canTurnOffReasoning: false, canIOReasoning: true, openSourceThinkTags: ['<think>', '</think>'] as [string, string] } };
+		const models = ['text-dsml-spaced', 'text-dsml-canonical', 'text-dsml-garbled', 'text-dsml-cut', 'text-hermes', 'text-qwen-xml', 'text-foreign', 'text-deepseek-dsml-spaced'];
 		setExternalProviders([{
 			id: 'test-native', source: 'file',
-			modelCapOverrides: { 'dsml-spaced': native, 'deepseek-dsml-spaced': native, 'deepseek-dsml-canonical': native, 'deepseek-dsml-garbled': native, 'deepseek-dsml-cut': native },
+			modelCapOverrides: { ...Object.fromEntries(models.map(model => [model, native])), 'text-think': thinking },
 		}]);
-		// The shipped catalogue carries the same rule for deepseek-* (modelQuirksCatalog.test.ts)
-		const quirks = await import('../../electron-main/modelQuirks/modelQuirksService.js');
-		quirks.__setCatalogForTests({ version: 1, rules: [{ match: 'deepseek', toolCallsInText: true }] });
-		const turn = async (providerName: string, modelName: string) => {
+		const turn = async (providerName: string, modelName: string, chatMode: SendChatParams_Internal['chatMode'] = 'agent') => {
 			const shown: string[] = [];
 			let answer: string | undefined;
 			const outcome = await send({
 				providerName: providerName as SendChatParams_Internal['providerName'],
 				modelName,
+				chatMode,
 				settingsOfProvider: settingsWith({ [providerName]: { baseURL: `http://127.0.0.1:${port}/compat/v1`, apiKey: 'k', protocol: 'openai' } }),
 				messages: [{ role: 'user', content: 'Какая ветка?' }],
 				onText: ({ fullText }) => { shown.push(fullText); },
 			});
-			const body = requests[requests.length - 1]?.body;
 			return {
-				tools: Array.isArray(body?.tools),
 				call: outcome.final?.toolCall ? `${outcome.final.toolCall.name} ${JSON.stringify(outcome.final.toolCall.rawParams)}` : undefined,
 				notice: outcome.final?.finishNotice?.kind,
-				markupShown: shown.some(text => /invoke|parameter|calls|DSML|｜/.test(text)),
+				markupShown: shown.some(text => /invoke|parameter|calls|DSML|｜|tool_call|function=/.test(text)),
 				answer: (answer = outcome.final?.fullText?.trim()) && answer.length > 0 ? answer : undefined,
 			};
 		};
 		try {
 			assert.deepStrictEqual([
-				await turn('test-compat', 'dsml-spaced'),
-				await turn('test-compat', 'dsml-garbled'),
-				await turn('test-native', 'dsml-spaced'),
-				await turn('test-native', 'deepseek-dsml-spaced'),
-				await turn('test-native', 'deepseek-dsml-canonical'),
-				await turn('test-native', 'deepseek-dsml-garbled'),
-				await turn('test-native', 'deepseek-dsml-cut'),
+				await turn('test-compat', 'text-dsml-spaced'),
+				await turn('test-compat', 'text-dsml-garbled'),
+				await turn('test-native', 'text-dsml-spaced'),
+				await turn('test-native', 'text-deepseek-dsml-spaced'),
+				await turn('test-native', 'text-dsml-canonical'),
+				await turn('test-native', 'text-hermes'),
+				await turn('test-native', 'text-qwen-xml'),
+				await turn('test-native', 'text-dsml-cut'),
+				await turn('test-native', 'text-dsml-garbled'),
+				await turn('test-native', 'text-foreign'),
+				await turn('test-native', 'text-hermes', 'normal'),
+				await turn('test-native', 'text-think'),
 			], [
 				// XML mode: the normalizer turns the spaced form into a canonical call, the garbled one is hidden and named
-				{ tools: false, call: 'git_state {"what":"branch"}', notice: undefined, markupShown: false, answer: undefined },
-				{ tools: false, call: undefined, notice: 'unparsedToolCall', markupShown: false, answer: 'Смотрю ветку.\n\n*[вызов инструмента — некорректный формат от модели, скрыто]*' },
-				// Native mode without the quirk: text is never run, the markup is only named
-				{ tools: true, call: undefined, notice: 'unparsedToolCall', markupShown: true, answer: '< calls>\n< invoke name="git_state">\n< parameter name="what" string="true">branch</ parameter>\n</ invoke>\n</ calls>' },
-				// DeepSeek (quirk toolCallsInText): the call is parsed out of the text, the markup never shows
-				{ tools: true, call: 'git_state {"what":"branch"}', notice: undefined, markupShown: false, answer: undefined },
-				{ tools: true, call: 'git_state {"what":"branch"}', notice: undefined, markupShown: false, answer: 'Смотрю ветку.' },
-				// Unambiguous markup with loose spacing parses too; a call cut off before it closes stays hidden and named
-				{ tools: true, call: 'git_state {"what":"branch"}', notice: undefined, markupShown: false, answer: 'Смотрю ветку.' },
-				{ tools: true, call: undefined, notice: 'unparsedToolCall', markupShown: false, answer: 'Смотрю ветку.' },
+				{ call: 'git_state {"what":"branch"}', notice: undefined, markupShown: false, answer: undefined },
+				{ call: undefined, notice: 'unparsedToolCall', markupShown: false, answer: 'Смотрю ветку.\n\n*[вызов инструмента — некорректный формат от модели, скрыто]*' },
+				// Native mode: the call is read out of the text whatever the model's name, the markup never shows
+				{ call: 'git_state {"what":"branch"}', notice: undefined, markupShown: false, answer: undefined },
+				{ call: 'git_state {"what":"branch"}', notice: undefined, markupShown: false, answer: undefined },
+				{ call: 'git_state {"what":"branch"}', notice: undefined, markupShown: false, answer: 'Смотрю ветку.' },
+				{ call: 'git_state {"what":"branch"}', notice: undefined, markupShown: false, answer: 'Смотрю ветку.' },
+				{ call: 'git_state {"what":"branch"}', notice: undefined, markupShown: false, answer: 'Смотрю ветку.' },
+				// A call cut off before it closes stays hidden and named, the model is asked to repeat it
+				{ call: undefined, notice: 'unparsedToolCall', markupShown: false, answer: 'Смотрю ветку.' },
+				// A spacing none of the families writes is not one of their forms: it is the answer
+				{ call: undefined, notice: undefined, markupShown: true, answer: 'Смотрю ветку.\n<invoke name = "git_state"><parameter name = "what">branch</parameter></invoke>' },
+				// A call to a tool this request did not offer is the model writing about one
+				// It is text, and the model is not asked to repeat it
+				// Held while the answer streams, it reaches the reader with the final answer
+				{ call: undefined, notice: undefined, markupShown: false, answer: 'Смотрю ветку.\n\n<tool_call>\n{"name": "rm_rf", "arguments": {"what": "branch"}}\n</tool_call>' },
+				// No tools on offer in plain chat: the markup is the answer
+				{ call: undefined, notice: undefined, markupShown: true, answer: 'Смотрю ветку.\n\n<tool_call>\n{"name": "git_state", "arguments": {"what": "branch"}}\n</tool_call>' },
+				// Markup inside <think> is reasoning: it runs nothing and stays out of the answer
+				{ call: undefined, notice: undefined, markupShown: false, answer: 'На ветке next.' },
 			]);
 		} finally {
 			setExternalProviders([]);
-			quirks.__resetForTests();
 		}
 	});
 

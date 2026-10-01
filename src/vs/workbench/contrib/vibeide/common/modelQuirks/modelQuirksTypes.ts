@@ -132,9 +132,11 @@ export interface ModelQuirksRule {
 	readonly forcedToolChoiceUnsupported?: boolean;
 
 	/**
-	 * With native tools, the model sometimes writes a call into the text of its answer in its own markup (DSML at DeepSeek)
-	 * instead of the tool-call field. Such text is read as the call and kept out of the shown answer
-	 * (`common/dsmlToolCalls.ts`, vectors shared with VibeIDEA). VibeIDEA: TOOL_CALLS_IN_TEXT
+	 * Whether a call the model writes into the text of its answer, in its family's own markup, is read as the call
+	 *
+	 * On for every model with native tools, whatever its name (`common/textToolCalls.ts`, vectors shared with VibeIDEA)
+	 * A server without the family's parser or a model that slips leaves the markup in the text
+	 * `false` turns it off for a model whose answers carry such markup as their subject, not as calls
 	 */
 	readonly toolCallsInText?: boolean;
 
