@@ -1103,6 +1103,7 @@ class VibeDynamicProvidersService extends Disposable implements IVibeDynamicProv
 		const builtinWireHints: Record<string, BuiltinWireHints> = {};
 		const builtinLocality: Record<string, boolean> = {};
 		const builtinModelPatches: Record<string, Record<string, BuiltinModelPatch>> = {};
+		const builtinStaticModels: Record<string, { id: string; name?: string }[]> = {};
 		const dynamicProviderSettings: Record<string, DynamicProviderSeed> = {};
 
 		// First pass: built-in patches (disable toggles) are order-independent; collect the active
@@ -1114,6 +1115,9 @@ class VibeDynamicProvidersService extends Disposable implements IVibeDynamicProv
 				if (p.entry.active === false) { disabledProviders.add(p.id); continue; }
 				const off = (p.entry.models?.static ?? []).filter(m => m.active === false).map(m => m.id);
 				if (off.length > 0) { disabledModels.set(p.id, new Set(off)); }
+				// Models the vendor's catalogue does not list (a subscription-only preview) become selectable from the file
+				const on = (p.entry.models?.static ?? []).filter(m => m.active !== false).map(m => ({ id: m.id, ...(m.name ? { name: m.name } : {}) }));
+				if (on.length > 0) { builtinStaticModels[p.id] = on; }
 				// A built-in whose endpoint is a local proxy to a cloud model is told so by the file, not guessed by the address
 				if (typeof p.entry.runsLocally === 'boolean') { builtinLocality[p.id] = p.entry.runsLocally; }
 				// The file's wire declarations reach the built-in too — a declaration is a contract, not a hint
@@ -1229,9 +1233,10 @@ class VibeDynamicProvidersService extends Disposable implements IVibeDynamicProv
 		const hasWireHints = Object.keys(builtinWireHints).length > 0;
 		const hasLocality = Object.keys(builtinLocality).length > 0;
 		const hasSeed = Object.keys(dynamicProviderSettings).length > 0;
+		const hasBuiltinStatic = Object.keys(builtinStaticModels).length > 0;
 		const overrides: VibeProviderActiveOverrides | undefined =
-			(disabledProviders.size > 0 || disabledModels.size > 0 || dynamicModelOptions.length > 0 || hasTransport || hasWireHints || hasLocality || hasSeed)
-				? { disabledProviders, disabledModels, dynamicModelOptions, ...(hasTransport ? { transportConfigs } : {}), ...(hasWireHints ? { builtinWireHints } : {}), ...(hasLocality ? { builtinLocality } : {}), ...(hasSeed ? { dynamicProviderSettings } : {}) }
+			(disabledProviders.size > 0 || disabledModels.size > 0 || dynamicModelOptions.length > 0 || hasTransport || hasWireHints || hasLocality || hasSeed || hasBuiltinStatic)
+				? { disabledProviders, disabledModels, dynamicModelOptions, ...(hasTransport ? { transportConfigs } : {}), ...(hasWireHints ? { builtinWireHints } : {}), ...(hasLocality ? { builtinLocality } : {}), ...(hasSeed ? { dynamicProviderSettings } : {}), ...(hasBuiltinStatic ? { builtinStaticModels } : {}) }
 				: undefined;
 		this._settingsService.applyProviderActiveOverrides(overrides);
 	}

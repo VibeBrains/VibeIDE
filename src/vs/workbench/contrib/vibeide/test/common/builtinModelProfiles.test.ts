@@ -277,4 +277,29 @@ suite('builtin model profiles — имя на проводе, профиль, п
 			undefined,
 		]);
 	});
+	/**
+	 * MiniMax M3.1 Flash Preview: мышление не выключается, без уровня вендор думает на max и выжигает подписку M Plan
+	 * Профиль M3 слал бы «выключено» как thinking: disabled — 400; поэтому M3.1 распознаётся раньше M3 и шлёт уровень
+	 */
+	test('MiniMax M3.1: свой профиль раньше M3, уровень уходит полем reasoning_effort, выключателя нет', () => {
+		const card = (provider: 'minimax' | 'openRouter', modelName: string) => {
+			const caps = getModelCapabilities(provider, modelName, undefined);
+			const reasoning = caps.reasoningCapabilities || undefined;
+			const slider = reasoning?.reasoningSlider?.type === 'effort_slider' ? reasoning.reasoningSlider : undefined;
+			return `${modelName} ← ${caps.recognizedModelName} | ${reasoning?.canTurnOffReasoning} | ${slider?.values.join('/')} | ${slider?.default}`;
+		};
+		const payload = getProviderCapabilities('minimax').providerReasoningIOSettings?.input?.includeInPayload;
+		assert.deepStrictEqual({
+			cards: [card('minimax', 'MiniMax-M3.1-Flash-Preview'), card('minimax', 'MiniMax-M3.1'), card('minimax', 'MiniMax-M3'), card('openRouter', 'minimax/minimax-m3.1')],
+			high: payload?.({ type: 'effort_slider_value', isReasoningEnabled: true, reasoningEffort: 'high' }),
+		}, {
+			cards: [
+				'MiniMax-M3.1-Flash-Preview ← MiniMax-M3.1-Flash-Preview | false | low/medium/high/xhigh/max | high',
+				'MiniMax-M3.1 ← MiniMax-M3.1-Flash-Preview | false | low/medium/high/xhigh/max | high',
+				'MiniMax-M3 ← MiniMax-M3 | true | adaptive/enabled | adaptive',
+				'minimax/minimax-m3.1 ← MiniMax-M3.1-Flash-Preview | false | low/medium/high/xhigh/max | high',
+			],
+			high: { reasoning_effort: 'high' },
+		});
+	});
 });

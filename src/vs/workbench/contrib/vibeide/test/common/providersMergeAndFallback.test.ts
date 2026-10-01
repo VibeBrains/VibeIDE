@@ -9,7 +9,7 @@ import { API_PROTOCOL_TO_SDK_NPM, sdkNpmOfFileProtocol } from '../../common/mode
 import { mergeProvidersLists, VibeProviderEntry } from '../../common/vibeProvidersFile.js';
 import { autoFallbackProviderIds, autoModelFallbackProviderOrder, isBuiltinProviderId, isFeatureNameDisabled, SettingsOfProvider } from '../../common/vibeideSettingsTypes.js';
 import { isLocalProvider } from '../../common/isLocalProvider.js';
-import { VibeideSettingsState } from '../../common/vibeideSettingsService.js';
+import { builtinProviderModelOptions, VibeideSettingsState } from '../../common/vibeideSettingsService.js';
 import { ensureNoDisposablesAreLeakedInTestSuite } from '../../../../../base/test/common/utils.js';
 
 suite('Config providers — merged rights (global+workspace, auto-fallback)', () => {
@@ -163,6 +163,25 @@ suite('Config providers — merged rights (global+workspace, auto-fallback)', ()
 				anthropic: { apiKey: '', _didFillInProviderSettings: false, models: [] },
 			});
 			assert.strictEqual(isFeatureNameDisabled('Chat', state), 'addProvider');
+		});
+	});
+	/**
+	 * Файл, правящий встроенного провайдера, добавляет в выбор модели, которых каталог вендора не отдаёт: так выбирается
+	 * MiniMax M3.1 Flash Preview, доступная только по подписке. Выключенное в файле не показывается, повтор не дублируется
+	 */
+	suite('builtinProviderModelOptions — static-модели файла у встроенного провайдера', () => {
+		test('каталог, затем модели файла, которых в каталоге нет; active:false прячет из обоих', () => {
+			const options = builtinProviderModelOptions(
+				'minimax',
+				'minimax',
+				[{ modelName: 'MiniMax-M3', isHidden: false }, { modelName: 'MiniMax-M2', isHidden: true }, { modelName: 'MiniMax-M2.7', isHidden: false }],
+				new Set(['MiniMax-M2.7', 'old-preview']),
+				[{ id: 'MiniMax-M3.1-Flash-Preview', name: 'MiniMax M3.1 Flash Preview (M Plan)' }, { id: 'MiniMax-M3' }, { id: 'old-preview' }],
+			);
+			assert.deepStrictEqual(options.map(o => `${o.selection.modelName} | ${o.name} | ${o.fileNote ?? '—'}`), [
+				'MiniMax-M3 | MiniMax-M3 (minimax) | —',
+				'MiniMax-M3.1-Flash-Preview | MiniMax M3.1 Flash Preview (M Plan) (minimax) | manual',
+			]);
 		});
 	});
 });

@@ -399,6 +399,11 @@ export interface VibeProviderActiveOverrides {
 	/** Wire declarations of files that patch a BUILT-IN provider — see `BuiltinWireHints`. */
 	readonly builtinWireHints?: Record<string, BuiltinWireHints>;
 	/**
+	 * `static` models a file declares for a BUILT-IN provider, by provider id
+	 * A model the vendor's catalogue does not list (a subscription-only preview) is selectable only this way
+	 */
+	readonly builtinStaticModels?: Record<string, readonly { readonly id: string; readonly name?: string }[]>;
+	/**
 	 * `runsLocally` declared by files that patch a BUILT-IN provider — a liteLLM on localhost in front of a cloud model
 	 * Merged into the built-in's settings as a derived field, which `_storeState` never persists
 	 */
@@ -431,6 +436,33 @@ export type DynamicProviderSeed = {
 	/** The provider's models run on this machine (`runsLocallyOf`) — what `isLocalProvider` reads first */
 	runsLocally: boolean;
 };
+
+/**
+ * The picker entries of one BUILT-IN provider: its catalogue models, then the file's `static` models the catalogue lacks
+ * A file `active: false` hides a model from both; a hidden catalogue model stays hidden, a static one is the file's choice
+ */
+export function builtinProviderModelOptions(
+	providerName: ProviderName,
+	providerTitle: string,
+	models: readonly { readonly modelName: string; readonly isHidden: boolean }[],
+	disabledModels: ReadonlySet<string> | undefined,
+	fileStaticModels: readonly { readonly id: string; readonly name?: string }[] | undefined,
+): ModelOption[] {
+	const options: ModelOption[] = [];
+	const listed = new Set<string>();
+	for (const { modelName, isHidden } of models) {
+		listed.add(modelName);
+		if (isHidden || disabledModels?.has(modelName)) { continue; }
+		options.push({ name: `${modelName} (${providerTitle})`, selection: { providerName, modelName } });
+	}
+	for (const { id, name } of fileStaticModels ?? []) {
+		if (listed.has(id) || disabledModels?.has(id)) { continue; }
+		listed.add(id);
+		options.push({ name: `${name || id} (${providerTitle})`, selection: { providerName, modelName: id }, fileNote: 'manual' });
+	}
+	return options;
+}
+
 let _providerActiveOverrides: VibeProviderActiveOverrides | undefined = undefined;
 
 /** Providers whose API key was found in the OS environment — built-ins via the canonical
@@ -513,12 +545,13 @@ const _validatedModelState = (state: Omit<VibeideSettingsState, '_modelOptions'>
 		if (_providerActiveOverrides?.disabledProviders.has(providerName)) { continue; } // .vibe/providers.json: active:false
 		const providerTitle = providerName; // displayInfoOfProviderName(providerName).title.toLowerCase() // looks better lowercase, best practice to not use raw providerName
 		if (!newSettingsOfProvider[providerName]._didFillInProviderSettings) { continue; } // if disabled, don't display model options
-		const disabledModelsForProvider = _providerActiveOverrides?.disabledModels.get(providerName);
-		for (const { modelName, isHidden } of newSettingsOfProvider[providerName].models) {
-			if (isHidden) { continue; }
-			if (disabledModelsForProvider?.has(modelName)) { continue; } // .vibe/providers.json: model active:false
-			newModelOptions.push({ name: `${modelName} (${providerTitle})`, selection: { providerName, modelName } });
-		}
+		newModelOptions.push(...builtinProviderModelOptions(
+			providerName,
+			providerTitle,
+			newSettingsOfProvider[providerName].models,
+			_providerActiveOverrides?.disabledModels.get(providerName),
+			_providerActiveOverrides?.builtinStaticModels?.[providerName],
+		));
 	}
 
 	// now that model options are updated, make sure the selection is valid

@@ -773,7 +773,7 @@ const extensiveModelOptionsFallback: VoidStaticProviderInfo['modelOptionsFallbac
 	// MiniMax (M3 = 1M ctx, multimodal, toggleable thinking; M2 = thinking, 204k). Recognized across ANY
 	// openai-compatible provider (built-in aggregators + dynamic .vibe/providers.json) so vision/reasoning/
 	// tool-format come from the knowledge base, not per-model file config.
-	if (lower.includes('minimax')) { return toFallback(minimaxModelOptions, /m-?3/i.test(modelName) ? 'MiniMax-M3' : 'MiniMax-M2'); }
+	if (lower.includes('minimax')) { return toFallback(minimaxModelOptions, minimaxProfileOf(modelName)); }
 
 	if (lower.includes('llama3')) { return toFallback(openSourceModelOptions_assumingOAICompat, 'llama3'); }
 	if (lower.includes('llama3.1')) { return toFallback(openSourceModelOptions_assumingOAICompat, 'llama3.1'); }
@@ -2321,6 +2321,23 @@ const minimaxModelOptions = {
 		supportsSystemMessage: 'system-role',
 		reasoningCapabilities: { supportsReasoning: true, canTurnOffReasoning: true, canIOReasoning: true, stripThinkTagsFromContent: ['<think>', '</think>'], reasoningSlider: { type: 'effort_slider', values: ['adaptive', 'enabled'], default: 'adaptive' } },
 	},
+	// M3.1 Flash Preview: served through the M Plan and MiniMax Code only; the vendor catalogue does not list it, and
+	// there is no pay-as-you-go price yet (platform.minimax.io/docs/guides/models-intro and pricing-paygo, checked 01.10.2026)
+	// Thinking cannot be switched off: `reasoning_effort: "none"` and `thinking: disabled` answer 400. Levels low…max; without
+	// one the vendor thinks at `max`, which burns the subscription, so the slider always sends a level
+	// (platform.minimax.io/docs/api-reference/text-openai-api). Reasoning comes in `reasoning_content`, not inline tags
+	// The price is the M3 rate as an estimate: a zero would read as a free model to cost routing
+	'MiniMax-M3.1-Flash-Preview': {
+		contextWindow: 1_000_000,
+		reservedOutputTokenSpace: 8_192,
+		cost: { input: 0.30, output: 1.20, cache_read: 0.06 },
+		downloadable: false,
+		supportsFIM: false,
+		supportsVision: true,
+		specialToolFormat: 'openai-style',
+		supportsSystemMessage: 'system-role',
+		reasoningCapabilities: { supportsReasoning: true, canTurnOffReasoning: false, canIOReasoning: true, reasoningSlider: { type: 'effort_slider', values: ['low', 'medium', 'high', 'xhigh', 'max'], default: 'high' } },
+	},
 	'MiniMax-M2': {
 		contextWindow: 204_800,
 		reservedOutputTokenSpace: 8_192,
@@ -2343,13 +2360,19 @@ const minimaxModelOptions = {
 	},
 } as const satisfies { [s: string]: VibeideStaticModelInfo };
 
+/**
+ * The MiniMax profile of an id outside the table, by generation: `m3.1` → M3.1, `m3` → the 1M-context M3, anything else → M2
+ * M3.1 comes first: its thinking cannot be switched off, and the M3 profile would send `thinking: disabled`, a 400
+ */
+function minimaxProfileOf(modelName: string): keyof typeof minimaxModelOptions {
+	return /m-?3[.-]1/i.test(modelName) ? 'MiniMax-M3.1-Flash-Preview' : /m-?3/i.test(modelName) ? 'MiniMax-M3' : 'MiniMax-M2';
+}
+
 const minimaxSettings: VoidStaticProviderInfo = {
 	modelOptions: minimaxModelOptions,
-	// Recognise the generation so an unlisted id gets the right profile: `m3` → 1M-context
-	// M3 profile; everything else (M2, M2.x, …) → the M2 profile. The catalog (/v1/models)
-	// still wins for an exact id.
+	// The catalog (/v1/models) still wins for an exact id
 	modelOptionsFallback: (modelName) => {
-		const recognized = /m-?3/i.test(modelName) ? 'MiniMax-M3' : 'MiniMax-M2';
+		const recognized = minimaxProfileOf(modelName);
 		return { modelName, recognizedModelName: recognized, ...minimaxModelOptions[recognized] };
 	},
 	providerReasoningIOSettings: {
