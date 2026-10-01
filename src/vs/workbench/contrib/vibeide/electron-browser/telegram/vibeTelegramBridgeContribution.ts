@@ -4,8 +4,9 @@
  *--------------------------------------------------------------------------------------------*/
 
 
-import { Disposable, DisposableStore, IDisposable } from '../../../../../base/common/lifecycle.js';
+import { Disposable, DisposableStore, IDisposable, toDisposable } from '../../../../../base/common/lifecycle.js';
 import { disposableTimeout } from '../../../../../base/common/async.js';
+import { CancellationTokenSource } from '../../../../../base/common/cancellation.js';
 import { ProxyChannel } from '../../../../../base/parts/ipc/common/ipc.js';
 import { Action2, registerAction2 } from '../../../../../platform/actions/common/actions.js';
 import { ServicesAccessor } from '../../../../../platform/instantiation/common/instantiation.js';
@@ -21,6 +22,7 @@ import { INativeHostService } from '../../../../../platform/native/common/native
 import { basename } from '../../../../../base/common/resources.js';
 import { IWorkbenchContribution, registerWorkbenchContribution2, WorkbenchPhase } from '../../../../common/contributions.js';
 import { IChatThreadService } from '../../browser/chatThreadService.js';
+import { watchChatRun } from '../../browser/chatRunWatch.js';
 import { IVibeAgentRunLedgerService } from '../../common/vibeAgentRunLedgerService.js';
 import { buildAgentDailyDigest, formatAgentDailyDigest } from '../../common/agentDailyDigest.js';
 import { vibeLog } from '../../common/vibeLog.js';
@@ -73,6 +75,8 @@ export class VibeTelegramBridgeContribution extends Disposable implements IWorkb
 	private readonly _main: IVibeTelegramMain;
 	/** Runs started from Telegram: thread id → the chat and progress message to update. */
 	private readonly _activeRuns = new Map<string, { chatId: number; progressMessageId?: number; startedAtMs: number; lastEditMs: number }>();
+	/** Cancels the watches over runs when the window goes away: nobody is left to deliver their answers */
+	private readonly _lifetime = new CancellationTokenSource();
 	/** Approval requests currently shown in a chat, by the token carried on their buttons. */
 	private readonly _pendingApprovals = new Map<string, PendingApproval>();
 	/** Threads whose next chat message is a correction of a refused tool call, not a new task. */
@@ -126,6 +130,7 @@ export class VibeTelegramBridgeContribution extends Disposable implements IWorkb
 		@IVibeAcpRegistryService private readonly _acpRegistry: IVibeAcpRegistryService,
 	) {
 		super();
+		this._register(toDisposable(() => this._lifetime.dispose(true)));
 		this._main = ProxyChannel.toService<IVibeTelegramMain>(mainProcessService.getChannel(VIBE_TELEGRAM_CHANNEL));
 
 		this._register(this._main.onDidReceiveCommand(e => {
@@ -718,8 +723,8 @@ export class VibeTelegramBridgeContribution extends Disposable implements IWorkb
 			await this._reply(chatId, 'Нечего останавливать.');
 			return;
 		}
+		// The «stopped» reply comes from the run watch: one message, the same as for a stop pressed in the IDE
 		await this._chatThreadService.abortRunning(entry[0]);
-		await this._reply(chatId, 'Прогон остановлен.');
 	}
 
 	private async _run(chatId: number, prompt: string): Promise<void> {
@@ -743,6 +748,38 @@ export class VibeTelegramBridgeContribution extends Disposable implements IWorkb
 		} catch (e) {
 			this._activeRuns.delete(threadId);
 			await this._reply(chatId, `Не смог запустить: ${(e as Error).message}`);
+			return;
+		}
+		void this._deliverOutcome(threadId, now);
+	}
+
+	/**
+	 * Waits for the run to end and sends the outcome to its chat
+	 *
+	 * The end is the run settling, not a blank stream state:
+	 * A blank state also means a rate-limit pause or a turn about to be re-sent: «готово» came too early
+	 * A newer task in the same thread takes over the entry; this watch then ends silently, and the newer one answers
+	 */
+	private async _deliverOutcome(threadId: string, startedAtMs: number): Promise<void> {
+		const outcome = await watchChatRun(this._chatThreadService, threadId, {
+			sinceMs: startedAtMs,
+			answerCap: Number.POSITIVE_INFINITY,
+			token: this._lifetime.token,
+		});
+		const run = this._activeRuns.get(threadId);
+		if (!outcome || !run || run.startedAtMs !== startedAtMs) {
+			return;
+		}
+		this._activeRuns.delete(threadId);
+		switch (outcome.phase) {
+			case 'failed':
+				await this._reply(run.chatId, `❌ Прогон завершился ошибкой: ${outcome.error ?? 'причина неизвестна'}`);
+				return;
+			case 'aborted':
+				await this._reply(run.chatId, '⏹ Прогон остановлен.');
+				return;
+			default:
+				await this._reply(run.chatId, outcome.answer?.text ?? '✅ Готово.');
 		}
 	}
 
@@ -764,9 +801,9 @@ export class VibeTelegramBridgeContribution extends Disposable implements IWorkb
 	// --- run progress ----------------------------------------------------------------------
 
 	/**
-	 * Mirrors a run into the chat: the progress line is edited in place while the run is alive,
-	 * and the final answer is sent once it ends. Editing rather than sending keeps a long run
-	 * from turning into a wall of notifications on the phone.
+	 * Mirrors a run into the chat: the progress line is edited in place while the run is alive
+	 * Editing rather than sending keeps a long run from turning into a wall of notifications on the phone
+	 * The final answer is not sent from here — `_deliverOutcome` sends it once the run has settled
 	 */
 	private async _onStreamStateChanged(threadId: string): Promise<void> {
 		const run = this._activeRuns.get(threadId);
@@ -801,15 +838,7 @@ export class VibeTelegramBridgeContribution extends Disposable implements IWorkb
 				editMessageId: run.progressMessageId,
 				text: formatProgressLine(now - run.startedAtMs, activity),
 			});
-			return;
 		}
-
-		this._activeRuns.delete(threadId);
-		if (state?.error) {
-			await this._reply(run.chatId, `❌ Прогон завершился ошибкой: ${state.error.message}`);
-			return;
-		}
-		await this._reply(run.chatId, this._lastAssistantText(threadId) ?? '✅ Готово.');
 	}
 
 	// --- approvals -------------------------------------------------------------------------
@@ -952,19 +981,6 @@ export class VibeTelegramBridgeContribution extends Disposable implements IWorkb
 		if (pending.messageId !== undefined) {
 			void this._main.send({ chatId: pending.chatId, editMessageId: pending.messageId, text: escapeTelegramHtml(outcome) });
 		}
-	}
-
-	/** Text of the last assistant message, for delivering the answer to the phone. */
-	private _lastAssistantText(threadId: string): string | undefined {
-		const thread = this._chatThreadService.state.allThreads[threadId];
-		const messages = thread?.messages ?? [];
-		for (let i = messages.length - 1; i >= 0; i--) {
-			const message = messages[i];
-			if (message.role === 'assistant' && message.displayContent) {
-				return message.displayContent;
-			}
-		}
-		return undefined;
 	}
 
 	private async _reply(chatId: number, markdown: string): Promise<void> {

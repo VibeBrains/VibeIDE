@@ -5,7 +5,7 @@
 
 
 import { vibeLog } from '../common/vibeLog.js';
-import { Disposable, MutableDisposable, toDisposable } from '../../../../base/common/lifecycle.js';
+import { Disposable, DisposableMap, IDisposable, MutableDisposable, toDisposable } from '../../../../base/common/lifecycle.js';
 import { RunOnceScheduler, timeout } from '../../../../base/common/async.js';
 import { registerSingleton, InstantiationType } from '../../../../platform/instantiation/common/extensions.js';
 import { createDecorator } from '../../../../platform/instantiation/common/instantiation.js';
@@ -56,6 +56,7 @@ import { CancellationToken } from '../../../../base/common/cancellation.js';
 import { ILanguageFeaturesService } from '../../../../editor/common/services/languageFeatures.js';
 import { ChatMessage, ChatImageAttachment, ChatPDFAttachment, CheckpointEntry, CodespanLocationLink, StagingSelectionItem, ToolMessage, PlanMessage, PlanStep, StepStatus, ReviewMessage, PendingInjection, ReviewChecklist, ReviewChecklistItem, EditBatch, EditBatchItem, normalizePendingInjections, ScoutLead, ScoutMessage } from '../common/chatThreadServiceTypes.js';
 import { refusedToolMessage, withRefusalKind } from '../common/toolRefusal.js';
+import { ThreadRunTracker } from '../common/chatRunOutcome.js';
 import { trimThreadMessages, capToolResultSizes } from '../common/chatThreadTrim.js';
 import { Position } from '../../../../editor/common/core/position.js';
 import { IMetricsService } from '../common/metricsService.js';
@@ -715,7 +716,10 @@ export interface IChatThreadService {
 
 	dangerousSetState: (newState: ThreadsState) => void;
 
-	/** Append a display-only assistant message (e.g. a Vibe Agents report) to a thread — no LLM call. */
+	/**
+	 * Append a display-only assistant message (e.g. a Vibe Agents report) to a thread — no LLM call
+	 * Marked `notice`, so it is never reported as the agent's answer outside the chat
+	 */
 	addAssistantNotice(threadId: string, markdown: string): void;
 	resetState: () => void;
 
@@ -732,6 +736,18 @@ export interface IChatThreadService {
 	// entry pts
 	abortRunning(threadId: string): Promise<void>;
 	dismissStreamError(threadId: string): void;
+
+	/**
+	 * Resolves once no agent run of the thread is in flight, automatic re-sends of the turn included
+	 * The end of a run for anyone outside the chat; a cleared stream state alone cannot tell it:
+	 * It may be a rate-limit pause or a re-send about to start
+	 * And the run's last state change comes before the run itself has finished
+	 */
+	whenRunSettled(threadId: string): Promise<void>;
+	/** An agent run of the thread, or a scheduled automatic re-send of its turn, has not settled yet */
+	isRunInFlight(threadId: string): boolean;
+	/** The last run was stopped by a person (stop, reset, refused approval) and no run started since */
+	wasRunAborted(threadId: string): boolean;
 
 	// Recover from a stalled stream: discard the partial assistant output and re-send the last user message.
 	retryStalledStream(threadId: string): Promise<void>;
@@ -980,9 +996,14 @@ class ChatThreadService extends Disposable implements IChatThreadService {
 	// Consecutive auto-waits on minute-window rate limits per thread (autopilot resume).
 	// Bounded by `vibeide.chat.rateLimitAutoWaitMaxRetries`; reset on any successful reply.
 	private readonly _rateLimitAutoWaitStreak = new Map<string, number>();
-	// Pending rate-limit resume timers per thread, so "Продолжить сейчас" / a new submit / forceReset
-	// can cancel the scheduled auto-resume instead of letting it fire on top of manual action.
-	private readonly _rateLimitResumeTimers = new Map<string, ReturnType<typeof setTimeout>>();
+	// Scheduled automatic re-sends of a turn per thread (rate-limit resume, stall retry, tool-format downgrade)
+	// Kept so "Продолжить сейчас" / stop / a new submit / forceReset can cancel them rather than race them
+	// Held as restart handles, not bare timers: cancelling must also release whoever waits for the run to settle
+	private readonly _scheduledRestarts = this._register(new DisposableMap<string>());
+	// Agent runs in flight per thread, scheduled re-sends included — the end-of-run signal for outside callers
+	private readonly _runsInFlight = new ThreadRunTracker();
+	// Threads whose last run a person stopped; cleared when the next run starts
+	private readonly _abortedRuns = new Set<string>();
 	// Consecutive hard-stall auto-retries per thread (`vibeide.chat.hardStallAutoRetry`).
 	// Capped at HARD_STALL_AUTO_RETRY_MAX; reset on any successful reply.
 	private readonly _hardStallAutoRetryStreak = new Map<string, number>();
@@ -2221,6 +2242,8 @@ class ChatThreadService extends Disposable implements IChatThreadService {
 
 		const errorMessage = this.toolErrMsgs.rejected;
 		this._updateLatestTool(threadId, { role: 'tool', type: 'rejected', params: params, name: name, content: errorMessage, result: null, id, rawParams, mcpServerName });
+		// A refused action ends the run by a person's decision, not by the agent finishing its task
+		this._abortedRuns.add(threadId);
 		this._setStreamState(threadId, undefined);
 	}
 
@@ -3740,6 +3763,10 @@ Output ONLY the JSON, no other text. Start with { and end with }.`;
 		// User-initiated stop: suppress the run-end notification sound for this thread (the user is
 		// at the keyboard). Covers the several undefined-transitions one abort can produce.
 		this._suppressStopSound(threadId);
+		// The stop clears the state exactly as a finished run does; without the mark outside callers read «completed»
+		this._abortedRuns.add(threadId);
+		// A stop also cancels a re-send scheduled by a pause or a stall: it would restart the run stopped here
+		this._cancelScheduledRestart(threadId);
 
 		// add assistant message
 		if (this.streamState[threadId]?.isRunning === 'LLM') {
@@ -3827,8 +3854,12 @@ Output ONLY the JSON, no other text. Start with { and end with }.`;
 		}
 		// Clear the age tracker so the next send doesn't see this thread as "stuck".
 		this._streamStateSetAt.delete(threadId);
-		// Cancel any pending rate-limit auto-resume so it can't fire after a manual reset.
-		this._clearRateLimitResumeTimer(threadId);
+		// Cancel any scheduled automatic re-send so it can't fire after a manual reset
+		this._cancelScheduledRestart(threadId);
+		// A reset ends whatever ran by decision, not by completion
+		if (actuallyResetSomething) {
+			this._abortedRuns.add(threadId);
+		}
 		// Final: flip streamState to undefined. _setStreamState fires
 		// onDidChangeStreamState so the UI's error block disappears.
 		this._setStreamState(threadId, undefined);
@@ -3860,18 +3891,17 @@ Output ONLY the JSON, no other text. Start with { and end with }.`;
 		}
 	}
 
-	/** Cancel a pending rate-limit auto-resume timer (if any) so it can't fire on top of manual action. */
-	private _clearRateLimitResumeTimer(threadId: string): void {
-		const t = this._rateLimitResumeTimers.get(threadId);
-		if (t !== undefined) { clearTimeout(t); this._rateLimitResumeTimers.delete(threadId); }
+	/** Cancel a scheduled automatic re-send of the turn (if any) so it can't fire on top of manual action */
+	private _cancelScheduledRestart(threadId: string): void {
+		this._scheduledRestarts.deleteAndDispose(threadId);
 	}
 
 	/** "Продолжить сейчас" on the rate-limit pause banner: skip the remaining wait and resume the turn now. */
 	async resumeRateLimitPauseNow(threadId: string): Promise<void> {
-		this._clearRateLimitResumeTimer(threadId);
+		this._cancelScheduledRestart(threadId);
 		if (this.streamState[threadId]?.isRunning !== undefined) { return; } // already running / not paused
 		this._setStreamState(threadId, { isRunning: undefined }); // clear pauseInfo before resuming
-		this._runChatAgent({ threadId, ...this._currentModelSelectionProps() });
+		this._continueRun(threadId);
 	}
 
 	/** Plain-data snapshot for the stall diagnostics report (read by the collect command). */
@@ -5160,7 +5190,7 @@ Output ONLY the JSON, no other text. Start with { and end with }.`;
 					'vibeide.agent.blockedByBreaker',
 					'⛔ Агент не запущен: сработал защитный предохранитель.\n\n{0}\n\nЧто с этим делать:\n• разово — снять предохранитель кнопкой в уведомлении или командой «VibeIDE: Предохранители агента», и повторить запрос;\n• навсегда — выключить сработавшее правило: настройка «vibeide.secretDetection.disabledPatternIds», в неё вписывается идентификатор правила из строки выше (для закрытых путей — «.vibe/constraints.json» и «.vibe/permissions.json»).\n\nПерезапуск IDE предохранитель не снимает: это защита, а не сбой.',
 					list);
-				this._addMessageToThread(threadId, { role: 'assistant', displayContent: note, reasoning: '', anthropicReasoning: null });
+				this.addAssistantNotice(threadId, note);
 				// Сообщение в треде уезжает вверх с каждым следующим запросом, а предохранитель залипает и
 				// переживает перезапуск IDE — человек остаётся с неработающим агентом и без способа его вернуть.
 				// Кнопка ведёт туда, где предохранитель снимается (жалоба пользователя 20.09.2026: «как чинить?»).
@@ -5207,7 +5237,11 @@ Output ONLY the JSON, no other text. Start with { and end with }.`;
 					},
 				});
 				vibeLog.warn('circuitBreaker', `прогон отклонён: открыты предохранители ${blocking.join(', ')}`);
-				this._setStreamState(threadId, { isRunning: undefined });
+				// The note above explains; the error state says «not run» to the HTTP API and the Telegram bridge
+				this._setStreamState(threadId, {
+					isRunning: undefined,
+					error: { message: localize('vibeide.agent.blockedByBreaker.error', 'Агент не запущен: сработал защитный предохранитель'), fullError: null },
+				});
 				return;
 			}
 		}
@@ -5220,9 +5254,7 @@ Output ONLY the JSON, no other text. Start with { and end with }.`;
 		// Resolve "auto" model selection using shared utility
 		const resolved = this._settingsService.resolveAutoModelSelection(resolvedModelSelection);
 		if (!resolved) {
-			// No models available
-			this._notificationService.error('No models available. Please configure at least one model provider in settings.');
-			this._setStreamState(threadId, { isRunning: 'idle', interrupt: 'not_needed' });
+			this._endRunBeforeStart(threadId, this._noModelsMessage());
 			return;
 		}
 		resolvedModelSelection = resolved;
@@ -5447,7 +5479,7 @@ Output ONLY the JSON, no other text. Start with { and end with }.`;
 			const note = verdict.decision === 'notify-complete'
 				? `⚠️ ПРОВЕРКИ ХОДА: ход завершён, но кое-что стоит посмотреть.\n\n${list}`
 				: `⛔ ПРОВЕРКИ ХОДА: ход завершён с проблемами, а вернуть агента на исправление уже некуда — он закончил без вызова инструмента.\n\n${list}`;
-			this._addMessageToThread(threadId, { role: 'assistant', displayContent: note, reasoning: '', anthropicReasoning: null });
+			this.addAssistantNotice(threadId, note);
 		};
 		const noteToolCall = (toolName: string, rawParams?: unknown): void => {
 			calledToolsThisRun.push(toolName);
@@ -6361,7 +6393,7 @@ Output ONLY the JSON, no other text. Start with { and end with }.`;
 						// Non-terminal clear: the turn is about to be re-sent — don't play a run-end sound.
 						this._suppressStopSound(threadId);
 						this._setStreamState(threadId, { isRunning: undefined });
-						const retryTimer = setTimeout(async () => {
+						this._scheduleRunRestart(threadId, 2_000, async () => {
 							if (this.streamState[threadId]?.isRunning !== undefined) { return; }
 							// Phase-3 durable fix: a silent stall on a cloud provider is most often a wedged
 							// shared undici keep-alive pool — reusing it would just stall again. Recreate the
@@ -6369,10 +6401,9 @@ Output ONLY the JSON, no other text. Start with { and end with }.`;
 							// restart, both of which got a fresh pool). Gated so it can be disabled.
 							await this._maybeResetTransportForStall(threadId, 'auto-retry');
 							if (this.streamState[threadId]?.isRunning === undefined) {
-								this._runChatAgent({ threadId, ...this._currentModelSelectionProps() });
+								this._continueRun(threadId);
 							}
-						}, 2_000);
-						this._register(toDisposable(() => clearTimeout(retryTimer)));
+						});
 						return;
 					}
 
@@ -7017,16 +7048,12 @@ Output ONLY the JSON, no other text. Start with { and end with }.`;
 									severity: Severity.Info,
 									message: localize('vibeide.chatThread.rateLimitAutoWait', 'Провайдер взял паузу (лимит запросов) на {0}с — продолжу автоматически (попытка {1} из {2}).', String(waitSec), String(streak + 1), String(waitMaxRetries)),
 								});
-								this._clearRateLimitResumeTimer(threadId);
-								const resumeTimer = setTimeout(() => {
-									this._rateLimitResumeTimers.delete(threadId);
+								this._scheduleRunRestart(threadId, waitSec * 1000, () => {
 									// Resume only if the user hasn't already restarted the thread manually.
 									if (this.streamState[threadId]?.isRunning === undefined) {
-										this._runChatAgent({ threadId, ...this._currentModelSelectionProps() });
+										this._continueRun(threadId);
 									}
-								}, waitSec * 1000);
-								this._rateLimitResumeTimers.set(threadId, resumeTimer);
-								this._register(toDisposable(() => clearTimeout(resumeTimer)));
+								});
 								return;
 							}
 						}
@@ -7060,12 +7087,11 @@ Output ONLY the JSON, no other text. Start with { and end with }.`;
 									message: localize('vibeide.chatThread.noToolsEndpointDowngrade', 'Эндпоинт модели {0} не поддерживает native-вызов инструментов (типично для free-вариантов OpenRouter) — переключаю на XML-формат тулов и повторяю ход автоматически.', modelSelection.modelName),
 								});
 								this._setStreamState(threadId, { isRunning: undefined });
-								const downgradeRetryTimer = setTimeout(() => {
+								this._scheduleRunRestart(threadId, 1_000, () => {
 									if (this.streamState[threadId]?.isRunning === undefined) {
-										this._runChatAgent({ threadId, ...this._currentModelSelectionProps() });
+										this._continueRun(threadId);
 									}
-								}, 1_000);
-								this._register(toDisposable(() => clearTimeout(downgradeRetryTimer)));
+								});
 								return;
 							} catch (e) {
 								this._agentActivityLog.logError(`No-tools downgrade failed for ${modelKey}: ${getErrorMessage(e)}`);
@@ -7443,14 +7469,14 @@ Output ONLY the JSON, no other text. Start with { and end with }.`;
 						}
 						if (decision === 'stop' && verify) {
 							const note = `⛔ VERIFY-GATE: верификация всё ещё падает после ${verifyGateAttempts} попыток (команда «${verify.command}», exit ${verify.exitCode ?? 'timeout'}). Прогон остановлен — доработай вручную.\n\nВывод команды:\n${verify.output}`;
-							this._addMessageToThread(threadId, { role: 'assistant', displayContent: note, reasoning: '', anthropicReasoning: null });
+							this.addAssistantNotice(threadId, note);
 							this._finalizePlanIfComplete(threadId);
 							this._setStreamState(threadId, { isRunning: undefined });
 							return;
 						}
 						if (decision === 'warn-complete' && verify) {
 							const note = `⚠️ VERIFY-GATE (режим предупреждения): команда «${verify.command}» завершилась с ошибкой (exit ${verify.exitCode ?? 'timeout'}), но ход завершён. Проверь результат.\n\nВывод команды:\n${verify.output}`;
-							this._addMessageToThread(threadId, { role: 'assistant', displayContent: note, reasoning: '', anthropicReasoning: null });
+							this.addAssistantNotice(threadId, note);
 						}
 						// decision === 'complete' → gate inert / verify passed: fall through to normal completion.
 					}
@@ -7474,14 +7500,14 @@ Output ONLY the JSON, no other text. Start with { and end with }.`;
 						}
 						if (turnDecision === 'stop') {
 							const note = `⛔ ПРОВЕРКИ ХОДА: после ${turnChecksAttempts} попыток проблемы остались. Прогон остановлен — посмотрите сами.\n\n${failures.map(f => `• ${f.detail}`).join('\n')}`;
-							this._addMessageToThread(threadId, { role: 'assistant', displayContent: note, reasoning: '', anthropicReasoning: null });
+							this.addAssistantNotice(threadId, note);
 							this._finalizePlanIfComplete(threadId);
 							this._setStreamState(threadId, { isRunning: undefined });
 							return;
 						}
 						if (turnDecision === 'notify-complete') {
 							const note = `⚠️ ПРОВЕРКИ ХОДА: ход завершён, но кое-что стоит посмотреть.\n\n${failures.map(f => `• ${f.detail}`).join('\n')}`;
-							this._addMessageToThread(threadId, { role: 'assistant', displayContent: note, reasoning: '', anthropicReasoning: null });
+							this.addAssistantNotice(threadId, note);
 						}
 					}
 
@@ -7491,7 +7517,7 @@ Output ONLY the JSON, no other text. Start with { and end with }.`;
 					// the turn is already over, and stopping it retroactively is not a thing.
 					const turnHooks = await this._hooksService.run('turnEnd', { changedFiles: [...touchedPathsThisRun] });
 					if (turnHooks.agentMessage) {
-						this._addMessageToThread(threadId, { role: 'assistant', displayContent: `🪝 ПРОВЕРКА ПРОЕКТА\n\n${turnHooks.agentMessage}`, reasoning: '', anthropicReasoning: null });
+						this.addAssistantNotice(threadId, `🪝 ПРОВЕРКА ПРОЕКТА\n\n${turnHooks.agentMessage}`);
 					}
 
 					// DESIGN-HOOK: measure the page the run just changed, without being asked. Fires only
@@ -7549,7 +7575,7 @@ Output ONLY the JSON, no other text. Start with { and end with }.`;
 							const tail = counts.total > DESIGN_HOOK_NOTE_LIMIT
 								? `\n… и ещё ${counts.total - DESIGN_HOOK_NOTE_LIMIT}. Полный список — инструментом design_review.`
 								: '';
-							this._addMessageToThread(threadId, { role: 'assistant', displayContent: `${head}\n\n${list}${tail}`, reasoning: '', anthropicReasoning: null });
+							this.addAssistantNotice(threadId, `${head}\n\n${list}${tail}`);
 						}
 						// decision === 'quiet' → hook off, page unreachable, or nothing to report.
 					}
@@ -7829,6 +7855,7 @@ Output ONLY the JSON, no other text. Start with { and end with }.`;
 							reasoning: '',
 							anthropicReasoning: null,
 							agentStoppedNoToolCall: true,
+							notice: true,
 						});
 						this._setStreamState(threadId, { isRunning: undefined });
 						return;
@@ -7944,6 +7971,7 @@ Output ONLY the JSON, no other text. Start with { and end with }.`;
 						reasoning: '',
 						anthropicReasoning: null,
 						agentStoppedNoToolCall: true,
+						notice: true,
 					});
 					this._setStreamState(threadId, { isRunning: undefined });
 					return;
@@ -8677,14 +8705,14 @@ Output ONLY the JSON, no other text. Start with { and end with }.`;
 		}
 		if (decision === 'report') {
 			const note = localize('vibeide.slopGate.notify', "✍️ НЕЙРОСЛОП: текст, записанный в этом ходе, не прошёл проверку.\n\n{0}\n\nНаходки целиком — инструментом vibe_text_slop_check или действием редактора «Нейрослоп в тексте».{1}", summaryLines, uncheckedNote);
-			this._addMessageToThread(threadId, { role: 'assistant', displayContent: note, reasoning: '', anthropicReasoning: null });
+			this.addAssistantNotice(threadId, note);
 		} else if (decision === 'stop') {
 			const note = localize('vibeide.slopGate.stop', "⛔ НЕЙРОСЛОП: текст не прошёл проверку и после {0} попыток. Дальше решаете вы.\n\n{1}{2}", maxAttempts, summaryLines, uncheckedNote);
-			this._addMessageToThread(threadId, { role: 'assistant', displayContent: note, reasoning: '', anthropicReasoning: null });
+			this.addAssistantNotice(threadId, note);
 		} else if (unchecked.length > 0 && failing.length === 0) {
 			// «Not checked» must never read as «clean»
 			const note = localize('vibeide.slopGate.onlyUnchecked', "✍️ НЕЙРОСЛОП: текст, записанный в этом ходе, не проверен.{0}", uncheckedNote);
-			this._addMessageToThread(threadId, { role: 'assistant', displayContent: note, reasoning: '', anthropicReasoning: null });
+			this.addAssistantNotice(threadId, note);
 		}
 		return 'done';
 	}
@@ -9147,7 +9175,73 @@ We only need to do it for files that were edited since `from`, ie files between 
 	}
 
 
+	whenRunSettled(threadId: string): Promise<void> {
+		return this._runsInFlight.whenSettled(threadId);
+	}
+
+	isRunInFlight(threadId: string): boolean {
+		return this._runsInFlight.isInFlight(threadId);
+	}
+
+	wasRunAborted(threadId: string): boolean {
+		return this._abortedRuns.has(threadId);
+	}
+
+	/** A run a person or the IDE starts anew: tracked, and the previous run's stop no longer describes the thread */
+	private _beginRun(threadId: string, run: Promise<void>): void {
+		this._abortedRuns.delete(threadId);
+		this._runsInFlight.track(threadId, run);
+	}
+
+	/**
+	 * Re-send the turn after a delay, keeping the thread in flight meanwhile
+	 *
+	 * The run that schedules this returns at once, and the gap until the timer fires looked like a finished run:
+	 * The state is cleared, the promise settled
+	 * The gap is tracked until the restarted run is tracked in turn
+	 * One restart per thread: a new one replaces the pending one
+	 * Cancelling releases the gap too, so a waiter never hangs on a timer that will not fire
+	 */
+	private _scheduleRunRestart(threadId: string, delayMs: number, restart: () => Promise<void> | void): void {
+		let release!: () => void;
+		this._runsInFlight.track(threadId, new Promise<void>(resolve => { release = resolve; }));
+		const timer = setTimeout(async () => {
+			if (this._scheduledRestarts.get(threadId) === handle) {
+				this._scheduledRestarts.deleteAndLeak(threadId);
+			}
+			try {
+				await restart();
+			} finally {
+				release();
+			}
+		}, delayMs);
+		const handle: IDisposable = toDisposable(() => {
+			clearTimeout(timer);
+			release();
+		});
+		this._scheduledRestarts.set(threadId, handle);
+	}
+
+	/**
+	 * A run that cannot start (no model, a model that cannot read the attachment) ends with an error state
+	 * Parking it at 'idle' left the chat looking busy and told an outside caller the run had completed
+	 */
+	private _endRunBeforeStart(threadId: string, message: string): void {
+		this._notificationService.error(message);
+		this._setStreamState(threadId, { isRunning: undefined, error: { message, fullError: null } });
+	}
+
+	private _noModelsMessage(): string {
+		return localize('vibeide.chatThread.noModelsAvailable', 'Нет доступных моделей. Настройте хотя бы одного провайдера моделей в настройках.');
+	}
+
+	/** Start the agent loop as a continuation of the current run: tracked, but not a fresh start */
+	private _continueRun(threadId: string): void {
+		this._runsInFlight.track(threadId, this._runChatAgent({ threadId, ...this._currentModelSelectionProps() }));
+	}
+
 	private _wrapRunAgentToNotify(p: Promise<void>, threadId: string) {
+		this._beginRun(threadId, p);
 		const notify = ({ error }: { error: string | null }) => {
 			const thread = this.state.allThreads[threadId];
 			if (!thread) { return; }
@@ -9378,9 +9472,9 @@ We only need to do it for files that were edited since `from`, ie files between 
 		const thread = this.state.allThreads[threadId];
 		if (!thread) { return; } // should never happen
 
-		// A fresh submit supersedes any pending rate-limit auto-resume — cancel it so it can't
+		// A fresh submit supersedes any scheduled automatic re-send — cancel it so it can't
 		// fire a duplicate turn on top of this one.
-		this._clearRateLimitResumeTimer(threadId);
+		this._cancelScheduledRestart(threadId);
 
 		// Submit-level watchdog: start a safety timer covering the whole prep pipeline
 		// (file reads in chat_userMessageContent, search-mention resolution, PDF processing,
@@ -9451,6 +9545,8 @@ We only need to do it for files that were edited since `from`, ie files between 
 		} else if (this.streamState[threadId]?.isRunning) {
 			await this.abortRunning(threadId);
 		}
+		// The stop above belongs to the previous run; this request is a new one even if it fails before starting
+		this._abortedRuns.delete(threadId);
 
 		// add dummy before this message to keep checkpoint before user message idea consistent
 		if (thread.messages.length === 0) {
@@ -9626,8 +9722,7 @@ We only need to do it for files that were edited since `from`, ie files between 
 					this._notificationService.warn('Auto model selection failed. Using fallback model. Please configure your model providers.');
 				} else {
 					// Last resort: show error and don't proceed
-					this._notificationService.error('No models available. Please configure at least one model provider in settings.');
-					this._setStreamState(threadId, { isRunning: 'idle', interrupt: 'not_needed' });
+					this._endRunBeforeStart(threadId, this._noModelsMessage());
 					return;
 				}
 			}
@@ -9637,8 +9732,7 @@ We only need to do it for files that were edited since `from`, ie files between 
 
 		// Final validation: ensure modelSelection is not null before proceeding
 		if (!modelSelection) {
-			this._notificationService.error('No model selected. Please select a model in settings.');
-			this._setStreamState(threadId, { isRunning: 'idle', interrupt: 'not_needed' });
+			this._endRunBeforeStart(threadId, localize('vibeide.chatThread.noModelSelected', 'Модель не выбрана. Выберите модель в настройках.'));
 			return;
 		}
 
@@ -9660,8 +9754,7 @@ We only need to do it for files that were edited since `from`, ie files between 
 					const message = isAutoMode
 						? localize('vibeide.chat.autoModelNoImageSupport', 'Авто-выбранная модель ({0}) не поддерживает изображения. Настройте vision-провайдера (Anthropic, OpenAI, Gemini или OpenRouter с vision-моделью) и повторите отправку.', modelLabel)
 						: localize('vibeide.chat.selectedModelNoImageSupport', 'Выбранная модель ({0}) не поддерживает изображения. Переключитесь на vision-модель (Claude, GPT-4o/4.1/5, Gemini, vision-модель OpenRouter или Ollama llava/bakllava) либо удалите вложение.', modelLabel);
-					this._notificationService.error(message);
-					this._setStreamState(threadId, { isRunning: 'idle', interrupt: 'not_needed' });
+					this._endRunBeforeStart(threadId, message);
 					return;
 				}
 				// PDFs are sent as extracted text, so they work fine with non-vision models
@@ -9732,14 +9825,17 @@ We only need to do it for files that were edited since `from`, ie files between 
 		// Now call the original method to add the user message and stream the response
 		await this._addUserMessageAndStreamResponse({ userMessage, _chatSelections, threadId, images, pdfs, noPlan, displayContent, forceScout });
 
-		// Safety: ensure stream state is cleared when the stream finishes (unless awaiting user approval)
-		const s = this.streamState[threadId];
-		if (!s || s.isRunning === undefined || s.isRunning === 'idle' || s.isRunning === 'awaiting_user') {
-			return;
-		}
-		// If still running after completion, clear it (stream should have been handled by _addUserMessageAndStreamResponse)
-		this._setStreamState(threadId, undefined);
-
+		// Safety net for a run that ended without clearing its state (unless it awaits user approval)
+		// Checked once the run has settled: the call above returns as soon as the run is launched
+		// Clearing at that point wiped a live run: the stop button vanished, observers took it for the end
+		void this.whenRunSettled(threadId).then(() => {
+			if (this.isRunInFlight(threadId)) { return; } // a newer run owns the state now
+			const s = this.streamState[threadId];
+			if (!s || s.isRunning === undefined || s.isRunning === 'idle' || s.isRunning === 'awaiting_user') {
+				return;
+			}
+			this._setStreamState(threadId, undefined);
+		});
 	}
 
 	editUserMessageAndStreamResponse: IChatThreadService['editUserMessageAndStreamResponse'] = async ({ userMessage, messageIdx, threadId }) => {
@@ -10628,7 +10724,7 @@ We only need to do it for files that were edited since `from`, ie files between 
 	}
 
 	addAssistantNotice(threadId: string, markdown: string): void {
-		this._addMessageToThread(threadId, { role: 'assistant', displayContent: markdown, reasoning: '', anthropicReasoning: null });
+		this._addMessageToThread(threadId, { role: 'assistant', displayContent: markdown, reasoning: '', anthropicReasoning: null, notice: true });
 	}
 
 	private _addMessageToThread(threadId: string, message: ChatMessage) {

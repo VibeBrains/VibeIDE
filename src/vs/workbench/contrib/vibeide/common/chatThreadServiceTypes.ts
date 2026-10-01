@@ -317,6 +317,11 @@ export type ChatMessage =
 		// model returned text with NO tool call (and Autopilot is off / nudge budget spent). The UI
 		// hangs a one-click «Продолжить» on this message while it's the thread's last message.
 		agentStoppedNoToolCall?: boolean;
+		/**
+		 * Written by the IDE, not by the model: finish reasons, check reports, stop explanations
+		 * Whoever reports «what the agent answered» outside the chat skips these, or a note would pose as the answer
+		 */
+		notice?: boolean;
 	}
 	| ToolMessage<ToolName>
 	| DecorativeCanceledTool
