@@ -55,6 +55,9 @@ suite('ModelQuirks — настоящий каталог resources/model-quirks.
 		['kimi-for-coding', { temperature: 1.0, topP: 0.95, mirrorReasoningContent: true }],
 		['kimi-k2', { temperature: 0.6 }],
 		['minimax-m2.7', { temperature: 1.0, topP: 0.95, topK: 40 }],
+		// M3.1 sends reasoning in its own field, not in <think> tags like the rest of the family; thinks adaptively
+		['minimax-m3.1-flash-preview', { mirrorReasoningContent: true, reasoningAsThinkTags: false, adaptiveThinking: true, forcedToolChoiceUnsupported: true }],
+		['minimax-m3', { mirrorReasoningContent: true, reasoningAsThinkTags: true }],
 		['glm-5.1', { temperature: 1.0 }],
 		// Сэмплинг скоуплен на поколения, которые его ещё уважают: Google объявил
 		// temperature/top_p/top_k устаревшими, поэтому Gemini 3.x не должен совпасть ни с чем.
