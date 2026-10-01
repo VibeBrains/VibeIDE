@@ -203,13 +203,6 @@ export interface ParsedPipelineFile {
 	readonly warnings: readonly string[];
 }
 
-/**
- * Parse `.vibe/pipelines.json`.
- *
- * A malformed pipeline is dropped with a warning rather than failing the whole file: one typo in
- * the fifth pipeline must not take away the four that are fine — that is the behaviour the
- * providers file already established, and users expect the same shape of forgiveness.
- */
 /** Non-empty list of non-empty strings, or `undefined` — an empty list is «no restriction». */
 function patternList(raw: unknown): string[] | undefined {
 	if (!Array.isArray(raw)) { return undefined; }
@@ -285,6 +278,13 @@ export function effectiveWriteScope(role: string, stated: WriteScope | undefined
 	return { paths: qaWritePaths, ...(stated?.denyPaths ? { denyPaths: stated.denyPaths } : {}) };
 }
 
+/**
+ * Parse `.vibe/pipelines.json`.
+ *
+ * A malformed pipeline is dropped with a warning rather than failing the whole file: one typo in
+ * the fifth pipeline must not take away the four that are fine — that is the behaviour the
+ * providers file already established, and users expect the same shape of forgiveness.
+ */
 export function parsePipelineFile(raw: unknown, roleRules: PipelineRoleRules): ParsedPipelineFile {
 	const warnings: string[] = [];
 	const empty: VibePipelineFile = { version: VIBE_PIPELINE_FORMAT_VERSION, pipelines: [] };
