@@ -132,6 +132,13 @@ export interface ModelQuirksRule {
 	readonly forcedToolChoiceUnsupported?: boolean;
 
 	/**
+	 * The model id names a router, not a model (`cloudflare/auto`, `openrouter/auto`): it picks a model per request
+	 * Another model answering is its job, not a substitution: no «ответила другая модель» notice is raised
+	 * The spend is priced by the model that answered — the router has no price of its own
+	 */
+	readonly modelRouter?: boolean;
+
+	/**
 	 * Whether a call the model writes into the text of its answer, in its family's own markup, is read as the call
 	 *
 	 * On for every model with native tools, whatever its name (`common/textToolCalls.ts`, vectors shared with VibeIDEA)
@@ -313,6 +320,7 @@ export function validateCatalog(raw: unknown): ModelQuirksCatalog {
 			...readString(rr, 'reasoningEffortInSystemPrompt'),
 			...readEnum(rr, 'forceToolCallFormat', ['native', 'xml', 'auto']),
 			...readBool(rr, 'forcedToolChoiceUnsupported'),
+			...readBool(rr, 'modelRouter'),
 			...readBool(rr, 'toolCallsInText'),
 			...readBool(rr, 'reasoningBoundToModel'),
 			...readBool(rr, 'adaptiveThinking'),
@@ -397,6 +405,7 @@ export function applyUserOverride(catalogQuirks: ResolvedModelQuirks, userOverri
 		...readString(oo, 'reasoningEffortInSystemPrompt'),
 		...readEnum(oo, 'forceToolCallFormat', ['native', 'xml', 'auto']),
 		...readBool(oo, 'forcedToolChoiceUnsupported'),
+		...readBool(oo, 'modelRouter'),
 		...readBool(oo, 'toolCallsInText'),
 		...readBool(oo, 'reasoningBoundToModel'),
 		...readBool(oo, 'adaptiveThinking'),

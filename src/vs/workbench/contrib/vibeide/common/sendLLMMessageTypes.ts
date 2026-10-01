@@ -202,6 +202,7 @@ export type OnText = (p: { fullText: string; fullReasoning: string; toolCall?: R
 // response (passive quota tracking). Optional: not every provider sends the headers, and paths
 // that never reached the network have nothing to report.
 // `answeredModel` — the model the provider says it served (modelEcho.ts reads it off the wire).
+// `answeredByRouter` — the requested id is a router (quirk `modelRouter`): a different `answeredModel` is its choice, not a substitution.
 // A proxy, an aggregator or a failover target can answer with a different model while the price is
 // still counted by the one we asked for, and the substitution is otherwise silent.
 // `systemFingerprint` — the backend configuration where the wire names one (OpenAI-compatible); it
@@ -209,7 +210,7 @@ export type OnText = (p: { fullText: string; fullReasoning: string; toolCall?: R
 // `finishNotice` — the answer stopped for a reason the reader must know about (see LLMFinishNotice).
 // `responseId` — the vendor's id of this answer, sent back next turn to ask why the cache missed; `cacheMiss` — its
 // answer (Anthropic's own API only, common/anthropicCacheDiagnostics.ts).
-export type OnFinalMessage = (p: { fullText: string; fullReasoning: string; toolCall?: RawToolCallObj; anthropicReasoning: AnthropicReasoning[] | null; answeredModel?: string; systemFingerprint?: string; usage?: LLMTokenUsage; providerQuota?: ProviderQuotaSnapshot; finishNotice?: LLMFinishNotice; responseId?: string; cacheMiss?: CacheMissDiagnosis }) => void; // id is tool_use_id
+export type OnFinalMessage = (p: { fullText: string; fullReasoning: string; toolCall?: RawToolCallObj; anthropicReasoning: AnthropicReasoning[] | null; answeredModel?: string; answeredByRouter?: true; systemFingerprint?: string; usage?: LLMTokenUsage; providerQuota?: ProviderQuotaSnapshot; finishNotice?: LLMFinishNotice; responseId?: string; cacheMiss?: CacheMissDiagnosis }) => void; // id is tool_use_id
 
 /**
  * An answer that ended for a reason other than «done», delivered next to the text it cut.

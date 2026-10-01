@@ -230,6 +230,9 @@ const REFUSAL_BODY_PEEK_LIMIT = 64 * 1024;
 /** The `usage` field of a final message, or nothing when there is no usage at all. */
 const usageField = (usage: LLMTokenUsage | undefined): { usage?: LLMTokenUsage } => usage ? { usage } : {};
 
+/** Cloudflare AI Gateway's Auto Router: the model it picked (developers.cloudflare.com/ai-gateway/features/auto-router) */
+const ROUTED_MODEL_HEADER = 'cf-aig-routed-model';
+
 const observeAnsweredModel = (response: Response, onModel: (model: string, fingerprint: string | undefined) => void): Response => {
 	if (!response.body) { return response; }
 	let head = '';
@@ -471,7 +474,13 @@ const makeCustomFetch = (opts: {
 
 	if (opts.onAnsweredModel) {
 		const onAnsweredModel = opts.onAnsweredModel;
-		observed = observeAnsweredModel(observed, (model, fingerprint) => onAnsweredModel(model, fingerprint));
+		// A router names the model it chose in a header (Cloudflare AI Gateway); the body may still carry the router's id
+		const routed = response.headers.get(ROUTED_MODEL_HEADER);
+		if (routed) {
+			onAnsweredModel(routed, undefined);
+		} else {
+			observed = observeAnsweredModel(observed, (model, fingerprint) => onAnsweredModel(model, fingerprint));
+		}
 	}
 	if (opts.onMessageStart && response.ok) {
 		observed = observeAnthropicMessageStart(observed, opts.onMessageStart);
@@ -1901,6 +1910,7 @@ export const sendViaAISdk = async (params: SendChatParams_Internal): Promise<voi
 				...usageField(withOrchestration(lastUsage, lastOrchestrationTokens)),
 				...(lastQuota ? { providerQuota: lastQuota } : {}),
 				...(lastAnsweredModel ? { answeredModel: lastAnsweredModel } : {}),
+				...(quirks.modelRouter === true ? { answeredByRouter: true as const } : {}),
 				...(lastSystemFingerprint ? { systemFingerprint: lastSystemFingerprint } : {}),
 				...(cutToolCall ? { finishNotice: { kind: 'stalled', cutToolName: toolName } satisfies LLMFinishNotice } : {}),
 				...(cutTextCall ? { finishNotice: { kind: 'stalled' } satisfies LLMFinishNotice } : {}),
@@ -1983,6 +1993,7 @@ export const sendViaAISdk = async (params: SendChatParams_Internal): Promise<voi
 			...usageField(withOrchestration(lastUsage, lastOrchestrationTokens)),
 			...(lastQuota ? { providerQuota: lastQuota } : {}),
 			...(lastAnsweredModel ? { answeredModel: lastAnsweredModel } : {}),
+			...(quirks.modelRouter === true ? { answeredByRouter: true as const } : {}),
 			...(lastSystemFingerprint ? { systemFingerprint: lastSystemFingerprint } : {}),
 			...(finishNotice ? { finishNotice } : {}),
 			...(lastMessageStart?.id ? { responseId: lastMessageStart.id } : {}),

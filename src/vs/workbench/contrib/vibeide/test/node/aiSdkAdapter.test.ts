@@ -113,9 +113,9 @@ const responsesStream = (model: string): string => sse([
 	{ type: 'response.completed', response: { usage: { input_tokens: 100, output_tokens: 5, input_tokens_details: { cached_tokens: 20 }, output_tokens_details: { reasoning_tokens: 2 } } } },
 ], false);
 
-const compatibleStream = (): string => sse([
-	{ id: 'c1', object: 'chat.completion.chunk', created: 1, model: 'm', choices: [{ index: 0, delta: { role: 'assistant', content: 'Привет' }, finish_reason: null }] },
-	{ id: 'c1', object: 'chat.completion.chunk', created: 1, model: 'm', choices: [{ index: 0, delta: {}, finish_reason: 'stop' }], usage: { prompt_tokens: 100, completion_tokens: 3, total_tokens: 103, prompt_tokens_details: { cached_tokens: 10, cache_write_tokens: 40 } } },
+const compatibleStream = (model = 'm'): string => sse([
+	{ id: 'c1', object: 'chat.completion.chunk', created: 1, model, choices: [{ index: 0, delta: { role: 'assistant', content: 'Привет' }, finish_reason: null }] },
+	{ id: 'c1', object: 'chat.completion.chunk', created: 1, model, choices: [{ index: 0, delta: {}, finish_reason: 'stop' }], usage: { prompt_tokens: 100, completion_tokens: 3, total_tokens: 103, prompt_tokens_details: { cached_tokens: 10, cache_write_tokens: 40 } } },
 ], false) + 'data: [DONE]\n\n';
 
 /**
@@ -156,6 +156,15 @@ const reasoningFieldStream = (model: string): string => sse([
 	{ id: 'c3', object: 'chat.completion.chunk', created: 1, model, choices: [{ index: 0, delta: {}, finish_reason: 'stop' }], usage: { prompt_tokens: 100, completion_tokens: 20, total_tokens: 120 } },
 ], false) + 'data: [DONE]\n\n';
 
+/**
+ * A router's answer: Cloudflare's Auto Router names its pick in a header and keeps its own id in the body,
+ * OpenRouter's names its pick in the body, a plain model answers under another name in the body
+ */
+const routedHeaders = (model: string): Record<string, string> =>
+	model === 'cloudflare/auto' ? { 'cf-aig-routed-model': 'anthropic/claude-sonnet-5-5' } : {};
+const routedBodyModel = (model: string): string =>
+	model === 'openrouter/auto' ? 'anthropic/claude-opus-5-5' : model === 'cloudflare/auto' ? 'cloudflare/auto' : 'plain-model-2';
+
 const unverifiedOrganisation = JSON.stringify({ error: { message: 'Your organization must be verified to stream this model. Please go to: https://platform.openai.com/settings/organization/general and click on Verify Organization.', type: 'invalid_request_error', param: 'stream', code: 'unsupported_value' } });
 
 const wholeChatCompletion = JSON.stringify({ id: 'chatcmpl-1', object: 'chat.completion', created: 1, model: 'o3', choices: [{ index: 0, message: { role: 'assistant', content: 'Готово без потока.' }, finish_reason: 'stop' }], usage: { prompt_tokens: 80, completion_tokens: 6, total_tokens: 86 } });
@@ -178,6 +187,9 @@ function respond(path: string, body: WireBody | undefined, res: ServerResponse):
 	} else if (path === '/compat/v1/chat/completions') {
 		res.writeHead(200, { 'content-type': 'text/event-stream' });
 		res.end(model.startsWith('text-') ? markupInTextStream(model) : compatibleStream());
+	} else if (path === '/router/v1/chat/completions') {
+		res.writeHead(200, { 'content-type': 'text/event-stream', ...routedHeaders(model) });
+		res.end(compatibleStream(routedBodyModel(model)));
 	} else if (path === '/reasoning/v1/chat/completions') {
 		res.writeHead(200, { 'content-type': 'text/event-stream' });
 		res.end(reasoningFieldStream(model));
@@ -718,6 +730,32 @@ suite('aiSdkAdapter — встроенные провайдеры против �
 				{ call: undefined, notice: undefined, markupShown: false, answer: 'На ветке next.' },
 			]);
 		} finally {
+			setExternalProviders([]);
+		}
+	});
+
+	test('модель-роутер: ответ другой модели — его выбор, а не подмена; заголовок Cloudflare сильнее тела', async () => {
+		const quirks = await import('../../electron-main/modelQuirks/modelQuirksService.js');
+		quirks.__setCatalogForTests({ version: 1, rules: [{ match: 'cloudflare/auto', modelRouter: true }, { match: 'openrouter/auto', modelRouter: true }] });
+		const turn = async (modelName: string) => {
+			const outcome = await send({
+				providerName: 'test-router-gateway' as SendChatParams_Internal['providerName'],
+				modelName,
+				settingsOfProvider: settingsWith({ 'test-router-gateway': { baseURL: `http://127.0.0.1:${port}/router/v1`, apiKey: 'k', protocol: 'openai' } }),
+				messages: [{ role: 'user', content: 'Привет' }],
+			});
+			return { answeredModel: outcome.final?.answeredModel, answeredByRouter: outcome.final?.answeredByRouter, error: outcome.error?.message };
+		};
+		try {
+			assert.deepStrictEqual([await turn('cloudflare/auto'), await turn('openrouter/auto'), await turn('plain-model')], [
+				// The body still names the router: the header is the model that answered
+				{ answeredModel: 'anthropic/claude-sonnet-5-5', answeredByRouter: true, error: undefined },
+				{ answeredModel: 'anthropic/claude-opus-5-5', answeredByRouter: true, error: undefined },
+				// Not a router: another name in the answer stays a substitution for the window to name
+				{ answeredModel: 'plain-model-2', answeredByRouter: undefined, error: undefined },
+			]);
+		} finally {
+			quirks.__resetForTests();
 			setExternalProviders([]);
 		}
 	});

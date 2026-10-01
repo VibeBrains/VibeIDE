@@ -74,6 +74,9 @@ suite('ModelQuirks — настоящий каталог resources/model-quirks.
 		// Sonnet 5.5 (28.09.2026): forced tool_choice answers 400, reasoning bound to the model and the account
 		['claude-sonnet-5-5', { adaptiveThinking: true, forcedToolChoiceUnsupported: true, reasoningBoundToModel: true }],
 		['claude-opus-4-7', { adaptiveThinking: true }],
+		// A router picks the model per request: another model answering is its job, the spend goes to the one that answered
+		['cloudflare/auto', { modelRouter: true }],
+		['openrouter/auto', { modelRouter: true }],
 	];
 
 	for (const [modelId, expected] of cases) {

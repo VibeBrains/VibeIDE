@@ -6600,7 +6600,7 @@ Output ONLY the JSON, no other text. Start with { and end with }.`;
 							this._setStreamState(threadId, { isRunning: 'LLM', llmInfo: { displayContentSoFar: fullText, reasoningSoFar: fullReasoning, toolCallSoFar: toolCall ?? null }, interrupt: Promise.resolve(() => { if (llmCancelToken) { this._llmMessageService.abort(llmCancelToken); } }) });
 						});
 					},
-					onFinalMessage: async ({ fullText, fullReasoning, toolCall, anthropicReasoning, usage, providerQuota, answeredModel, systemFingerprint, finishNotice, responseId, cacheMiss }) => {
+					onFinalMessage: async ({ fullText, fullReasoning, toolCall, anthropicReasoning, usage, providerQuota, answeredModel, answeredByRouter, systemFingerprint, finishNotice, responseId, cacheMiss }) => {
 						vibeLog.debug('llmTurn', 'done', { afterMs: Date.now() - _turnStartMs, toolCall: toolCall?.name ?? null, textLen: fullText?.length ?? 0, reasoningLen: fullReasoning?.length ?? 0 }); recordChatTrace('llmTurn:done', { turn: traceTurn, afterMs: Date.now() - _turnStartMs, toolCall: toolCall?.name ?? null });
 						// Mark message as done to prevent late onText updates
 						messageIsDone = true;
@@ -6657,7 +6657,8 @@ Output ONLY the JSON, no other text. Start with { and end with }.`;
 						// считается по запрошенной — поэтому расхождение называется вслух. В ленте один раз на пару
 						// «просили → ответила» за окно: повтор на каждый ход научил бы эту строку не читать. В журнал
 						// пишется каждый случай — там нужна история, а не заголовок.
-						if (answeredModel && modelSelection && isModelSubstituted(modelSelection.modelName, answeredModel)) {
+						// A router (`cloudflare/auto`, `openrouter/auto`) answering with another model is doing its job, not substituting
+						if (answeredModel && modelSelection && !answeredByRouter && isModelSubstituted(modelSelection.modelName, answeredModel)) {
 							const pair = `${modelSelection.providerName}:${modelSelection.modelName}→${answeredModel}`;
 							if (!saidModelSubstituted.has(pair)) {
 								saidModelSubstituted.add(pair);
@@ -6704,10 +6705,12 @@ Output ONLY the JSON, no other text. Start with { and end with }.`;
 							void (async () => {
 								try {
 									const { getModelCapabilities } = await import('../common/modelCapabilities.js');
-									const capabilities = getModelCapabilities(modelSelection.providerName, modelSelection.modelName, this._settingsService.state.overridesOfModel);
+									// A router has no price of its own: the money went to the model it picked
+									const billedModel = answeredByRouter && answeredModel ? answeredModel : modelSelection.modelName;
+									const capabilities = getModelCapabilities(modelSelection.providerName, billedModel, this._settingsService.state.overridesOfModel);
 									this._spendLedgerService.record({
 										providerId: modelSelection.providerName,
-										modelId: modelSelection.modelName,
+										modelId: billedModel,
 										inputTokens: usage.promptTokens ?? 0,
 										outputTokens: usage.completionTokens ?? 0,
 										cachedInputTokens: usage.cachedInputTokens ?? 0,

@@ -316,6 +316,20 @@
 			"source": "platform.claude.com/docs/en/build-with-claude/adaptive-thinking; правило ADAPTIVE_THINKING VibeIDEA (ModelQuirks.kt)",
 			"observedAt": "2026-09-25",
 			"note": "Мышление Claude этой линейки — адаптивный режим с усилием, бюджет токенов отвечает 400. Нужно маршрутам на проводе Anthropic, которые не встроенный anthropic: OpenCode Zen, шлюз, провайдер из файла; встроенный знает форму по ползунку. Матчится и по датированным id и по id с префиксом агрегатора. Живьём не проверено — ключей нет."
+		},
+		{
+			"match": "cloudflare/auto",
+			"modelRouter": true,
+			"source": "https://developers.cloudflare.com/ai-gateway/features/auto-router/",
+			"observedAt": "2026-10-01",
+			"note": "Cloudflare AI Gateway Auto Router: модель cloudflare/auto сама выбирает модель под запрос и называет её заголовком cf-aig-routed-model. Ответ другой модели — работа роутера, а не подмена: тревоги «ответила другая модель» нет, расход считается по ответившей модели. Живьём не проверено — токена Cloudflare нет."
+		},
+		{
+			"match": "openrouter/auto",
+			"modelRouter": true,
+			"source": "https://openrouter.ai/docs/features/model-routing",
+			"observedAt": "2026-10-01",
+			"note": "OpenRouter Auto Router: модель openrouter/auto выбирает модель под запрос, ответившая модель приходит полем model тела ответа. Тревоги о подмене нет, расход считается по ответившей модели. Живьём не проверено."
 		}
 	]
 }
