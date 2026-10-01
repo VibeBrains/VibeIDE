@@ -19,6 +19,7 @@ import {
 	PipelineStepOutcome,
 	QA_DEFAULT_WRITE_PATHS,
 	shouldRunStep,
+	stepMayDelete,
 	stepMayWrite,
 	VibePipelineStep,
 } from '../../common/pipeline/vibePipelineFile.js';
@@ -357,6 +358,20 @@ suite('vibePipelineFile — каскад и критика', () => {
 				глубоко: stepMayWrite(docs, 'src/nested/notes.md'),
 				чужая: stepMayWrite(docs, 'src/index.ts'),
 			}, { своя: true, вКорне: true, глубоко: true, чужая: false });
+		});
+
+		/** Папка уносит всё содержимое: её удаление судится по каждому файлу внутри, а не по имени папки */
+		test('удаление: файл — как запись, папка — по всему содержимому', () => {
+			const impl = step(['src/**'], ['**/secrets/**']);
+			assert.deepStrictEqual({
+				файл: stepMayDelete(impl, 'src/a.ts', undefined),
+				чужойФайл: stepMayDelete(impl, 'docs/a.md', undefined),
+				папкаСвоя: stepMayDelete(impl, 'src/old', ['src/old/a.ts', 'src/old/b.ts']),
+				папкаССекретом: stepMayDelete(impl, 'src', ['src/a.ts', 'src/secrets/key.pem']),
+				запрещённаяПапка: stepMayDelete(impl, 'src/secrets', []),
+				пустаяСвоя: stepMayDelete(impl, 'src/empty', []),
+				пустаяЧужая: stepMayDelete(impl, 'docs/empty', []),
+			}, { файл: true, чужойФайл: false, папкаСвоя: true, папкаССекретом: false, запрещённаяПапка: false, пустаяСвоя: true, пустаяЧужая: false });
 		});
 
 		/** Запрет проверяется первым и сильнее разрешения — иначе «src/**» открыл бы и секреты. */

@@ -236,6 +236,31 @@ export function stepMayWrite(step: Pick<VibePipelineStep, 'paths' | 'denyPaths'>
 	return createIgnoreMatcher(step.paths.join('\n')).isIgnored(normalised);
 }
 
+/** A name no real file has: «would a file inside this empty folder be writable» */
+const EMPTY_FOLDER_PROBE = '\u0000probe';
+
+/**
+ * Whether a step may delete this path
+ *
+ * A file is judged as a write to it
+ * A folder takes everything inside with it, so every file inside must be writable:
+ * Judging the folder's own path would let one `rm` take a file the step's `denyPaths` protect
+ * An empty folder is judged by a file that would live in it
+ *
+ * @param contents the folder's files, relative to the same root as `relPath`; `undefined` for a file
+ */
+export function stepMayDelete(step: Pick<VibePipelineStep, 'paths' | 'denyPaths'>, relPath: string, contents: readonly string[] | undefined): boolean {
+	if (contents === undefined) {
+		return stepMayWrite(step, relPath);
+	}
+	// A denied folder is denied whole, even when nothing inside it is named by a rule
+	if (!stepMayWrite({ denyPaths: step.denyPaths }, relPath)) {
+		return false;
+	}
+	const inside = contents.length > 0 ? contents : [`${relPath.replace(/[\\/]+$/, '')}/${EMPTY_FOLDER_PROBE}`];
+	return inside.every(path => stepMayWrite(step, path));
+}
+
 /**
  * Where tests live across the stacks the family's IDEs serve: JVM, TS/JS, PHP, Python, Go.
  *

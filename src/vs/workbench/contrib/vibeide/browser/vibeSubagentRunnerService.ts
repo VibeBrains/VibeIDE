@@ -35,7 +35,7 @@ import { IToolsService } from './toolsService.js';
 import { IVibeAgentActivityLogService } from './vibeAgentActivityLogService.js';
 import { URI } from '../../../../base/common/uri.js';
 import { IWorkspaceContextService } from '../../../../platform/workspace/common/workspace.js';
-import { stepMayWrite } from '../common/pipeline/vibePipelineFile.js';
+import { stepMayDelete, stepMayWrite } from '../common/pipeline/vibePipelineFile.js';
 import { isInsideRoot, rebaseParamsIntoWorktree, relativeToRoot } from '../common/worktreeRebase.js';
 import { describeSharedFolderInstall, describeWriteThroughLink, packageInstallSegment } from '../common/worktreeLinkGuard.js';
 import { IFileService } from '../../../../platform/files/common/files.js';
@@ -86,32 +86,21 @@ type HopOutcome =
  * full roles go through an explicit user confirm — the runner never silently writes.
  */
 /**
- * Путь, в который инструмент СОБИРАЕТСЯ писать, или `undefined` для читающего вызова.
+ * Путь, который инструмент СОБИРАЕТСЯ менять на диске (запись или удаление), или `undefined` для читающего вызова.
  *
  * An explicit list rather than «anything with a uri»: `read_file` and `ls_dir` carry a `uri` too,
  * and scoping those would quietly cut a step off from the context it needs to do its job.
  */
 function writeTargetOf(toolName: string, params: unknown): URI | undefined {
-	if (toolName !== 'edit_file' && toolName !== 'rewrite_file' && toolName !== 'create_file_or_folder') {
+	if (toolName !== 'edit_file' && toolName !== 'rewrite_file' && toolName !== 'create_file_or_folder' && toolName !== 'delete_file_or_folder') {
 		return undefined;
 	}
 	const uri = (params as { uri?: URI } | undefined)?.uri;
 	return uri instanceof URI ? uri : undefined;
 }
 
-/**
- * Путь, который инструмент меняет на диске, — для проверки записи сквозь ссылку
- *
- * Шире `writeTargetOf`: удаление через ссылку на `node_modules` проекта — худшая из записей в общую папку
- * Границы записи шага при этом удалений по-прежнему не меряют — их список не меняется
- */
-function diskMutationTargetOf(toolName: string, params: unknown): URI | undefined {
-	if (toolName === 'delete_file_or_folder') {
-		const uri = (params as { uri?: URI } | undefined)?.uri;
-		return uri instanceof URI ? uri : undefined;
-	}
-	return writeTargetOf(toolName, params);
-}
+/** How many files a deleted folder may hold for the step's write scope to be checked file by file */
+const DELETE_SCOPE_FILE_LIMIT = 10_000;
 
 class VibeSubagentRunnerService extends Disposable implements IVibeSubagentRunner {
 	declare readonly _serviceBrand: undefined;
@@ -416,7 +405,7 @@ class VibeSubagentRunnerService extends Disposable implements IVibeSubagentRunne
 			}
 
 			// Лексически путь в дереве, а по ссылке — в общей папке: запись прошла бы мимо изоляции
-			const mutated = req.runRoot ? diskMutationTargetOf(toolName, params) : undefined;
+			const mutated = req.runRoot ? writeTargetOf(toolName, params) : undefined;
 			if (req.runRoot && mutated) {
 				const realTarget = await this._realTargetOutside(mutated, req.runRoot);
 				if (realTarget) {
@@ -429,7 +418,14 @@ class VibeSubagentRunnerService extends Disposable implements IVibeSubagentRunne
 			const scopedPath = req.writeScope ? writeTargetOf(toolName, params) : undefined;
 			if (req.writeScope && scopedPath !== undefined) {
 				const relative = this._runRelative(scopedPath, req.runRoot);
-				if (!stepMayWrite(req.writeScope, relative)) {
+				const contents = toolName === 'delete_file_or_folder' ? await this._folderContents(scopedPath, req.runRoot) : undefined;
+				if (contents === 'tooLarge') {
+					deniedActions++;
+					history.push(this._invalidToolMessage(toolCall, `Папка «${relative}» слишком большая, чтобы проверить границы записи для каждого файла (больше ${DELETE_SCOPE_FILE_LIMIT}). Удаляй её содержимое по частям.`));
+					continue;
+				}
+				const allowed = toolName === 'delete_file_or_folder' ? stepMayDelete(req.writeScope, relative, contents) : stepMayWrite(req.writeScope, relative);
+				if (!allowed) {
 					deniedActions++;
 					history.push(this._invalidToolMessage(toolCall, `Шагу разрешено писать только в ${(req.writeScope.paths ?? ['(без ограничений)']).join(', ')}${req.writeScope.denyPaths ? `, кроме ${req.writeScope.denyPaths.join(', ')}` : ''}. Путь «${relative}» вне этих границ — выбери другой или сообщи, что задача требует выхода за них.`));
 					continue;
@@ -548,6 +544,33 @@ class VibeSubagentRunnerService extends Disposable implements IVibeSubagentRunne
 	/** Корень открытой папки; без открытой папки переносить и мерить не от чего. */
 	private _workspaceRoot(): string | undefined {
 		return this._workspaceContextService.getWorkspace().folders[0]?.uri.fsPath;
+	}
+
+	/**
+	 * Files under a folder about to be deleted, relative to the run root; `undefined` for a file or a missing path
+	 * A folder too large to enumerate is refused rather than deleted unchecked
+	 */
+	private async _folderContents(target: URI, runRoot: string | undefined): Promise<string[] | 'tooLarge' | undefined> {
+		const root = await this._fileService.resolve(target).catch(() => undefined);
+		if (!root?.isDirectory) {
+			return undefined;
+		}
+		const files: string[] = [];
+		const pending = [root];
+		for (let folder = pending.pop(); folder; folder = pending.pop()) {
+			const stat = folder.children ? folder : await this._fileService.resolve(folder.resource);
+			for (const child of stat.children ?? []) {
+				if (child.isDirectory && !child.isSymbolicLink) {
+					pending.push(child);
+				} else {
+					files.push(this._runRelative(child.resource, runRoot));
+					if (files.length > DELETE_SCOPE_FILE_LIMIT) {
+						return 'tooLarge';
+					}
+				}
+			}
+		}
+		return files;
 	}
 
 	/**
