@@ -5,6 +5,7 @@
 
 import { createIgnoreMatcher } from '../vibeIgnore.js';
 import { DENY_RULES_IGNORE_CASE } from '../agentPathResolution.js';
+import { routeKeyOf } from '../modelRouteKeys.js';
 
 /**
  * Pipelines — a sequence of agent steps where each step picks up what the previous one produced.
@@ -70,7 +71,9 @@ export interface VibePipelineStep {
 	 */
 	readonly denyPaths?: readonly string[];
 	/**
-	 * Model this step runs on, as `провайдер/модель`. Absent = whatever the role resolves to.
+	 * Model this step runs on, as `провайдер/модель` or a logical name `@fast`.
+	 * Absent in the step — the model of its role in the pipeline's `roles`,
+	 * And without one whatever the role resolves to.
 	 *
 	 * Exists for the cheap half of a cascade: the point of drafting with a small model is lost if
 	 * the step silently uses the same model as everything else.
@@ -85,6 +88,17 @@ export interface VibePipelineStep {
 	 * shaped like «yes».
 	 */
 	readonly escalateTo?: string;
+	/**
+	 * Run this step only when the gate did not accept the result before it
+	 * The cascade as a step of its own — VibeIDEA's form of it
+	 *
+	 * The gate is the `pipelineStepEnd` hook asked after every successful step: accepted (exit 0) skips this step,
+	 * Refused (exit 2) or no verdict at all — no hook, hooks off, only broken hooks — runs it
+	 * Without a gate there is nothing to accept with, so the expensive step runs every time rather than never
+	 * The opposite default of `escalateTo`, whose draft stays when nothing judged it:
+	 * There the cheap result already is the step's answer, here it is a step of its own that something must accept
+	 */
+	readonly escalation?: boolean;
 	/**
 	 * Model that reviews this step's result, as `провайдер/модель`.
 	 *
@@ -153,6 +167,16 @@ export function parseModelRef(ref: string | undefined): { readonly providerName:
 	return providerName && modelName ? { providerName, modelName } : undefined;
 }
 
+/**
+ * What a model field of the pipeline file may hold: `провайдер/модель`, or a logical name `@fast`
+ *
+ * The name is looked up only when the step starts: the table lives in the provider files and settings,
+ * And a name missing there stops the step with the known names listed — the file itself is not wrong for it
+ */
+export function isModelReference(ref: unknown): ref is string {
+	return typeof ref === 'string' && (parseModelRef(ref) !== undefined || routeKeyOf(ref) !== undefined);
+}
+
 export interface VibePipeline {
 	readonly id: string;
 	readonly name?: string;
@@ -163,6 +187,14 @@ export interface VibePipeline {
 export interface VibePipelineFile {
 	readonly version: number;
 	readonly pipelines: readonly VibePipeline[];
+}
+
+/** What the pipeline file needs to know about roles from outside it. */
+export interface PipelineRoleRules {
+	/** Whether the role exists: a key of `roles` naming no role is a typo that would quietly change nothing. */
+	readonly isKnownRole: (role: string) => boolean;
+	/** Whether the role writes files: VibeIDEA refuses such a role a model of its own, and the load must say so. */
+	readonly roleMayWrite: (role: string) => boolean;
 }
 
 export interface ParsedPipelineFile {
@@ -253,7 +285,7 @@ export function effectiveWriteScope(role: string, stated: WriteScope | undefined
 	return { paths: qaWritePaths, ...(stated?.denyPaths ? { denyPaths: stated.denyPaths } : {}) };
 }
 
-export function parsePipelineFile(raw: unknown): ParsedPipelineFile {
+export function parsePipelineFile(raw: unknown, roleRules: PipelineRoleRules): ParsedPipelineFile {
 	const warnings: string[] = [];
 	const empty: VibePipelineFile = { version: VIBE_PIPELINE_FORMAT_VERSION, pipelines: [] };
 	if (!raw || typeof raw !== 'object' || Array.isArray(raw)) {
@@ -295,10 +327,15 @@ export function parsePipelineFile(raw: unknown): ParsedPipelineFile {
 			warnings.push(`pipelines[${i}] «${id}»: больше ${MAX_PIPELINE_STEPS} шагов — пропущен`);
 			continue;
 		}
+		const roles = parseRoleModels(p['roles'], roleRules);
+		if (!roles.ok) {
+			warnings.push(`pipelines[${i}] «${id}»: ${roles.reason} — пайплайн пропущен`);
+			continue;
+		}
 		const steps: VibePipelineStep[] = [];
 		let stepsOk = true;
 		for (let j = 0; j < rawSteps.length; j++) {
-			const parsedStep = parseStep(rawSteps[j]);
+			const parsedStep = parseStep(rawSteps[j], roles.models);
 			if (!parsedStep.ok) {
 				warnings.push(`pipelines[${i}] «${id}», шаг ${j + 1}: ${parsedStep.reason} — пайплайн пропущен`);
 				stepsOk = false;
@@ -307,6 +344,7 @@ export function parsePipelineFile(raw: unknown): ParsedPipelineFile {
 			steps.push(parsedStep.value);
 		}
 		if (!stepsOk) { continue; }
+		warnings.push(...roles.warnings.map(warning => `pipelines[${i}] «${id}»: ${warning}`));
 		seenIds.add(id);
 		pipelines.push({
 			id,
@@ -318,7 +356,59 @@ export function parsePipelineFile(raw: unknown): ParsedPipelineFile {
 	return { file: { version, pipelines }, warnings };
 }
 
-function parseStep(raw: unknown): { ok: true; value: VibePipelineStep } | { ok: false; reason: string } {
+/**
+ * `roles` of a pipeline: the model each role runs on when its step names none
+ * VibeIDEA's field, agreed between the products
+ *
+ * Refused as a whole pipeline, not per entry, as VibeIDEA does:
+ * An unknown role is a typo that would quietly change nothing
+ * A half address (a provider without a model, a bare model name) would send the step to the role's default unannounced
+ * A model on a writing role is accepted: here a step on its own model is still an agent with tools and files
+ * VibeIDEA sends such a step to the model directly, without either, and skips the pipeline — said once, at load
+ * A `roles` that is not an object is ignored out loud rather than guessed at
+ */
+function parseRoleModels(raw: unknown, rules: PipelineRoleRules): { ok: true; models: ReadonlyMap<string, string>; warnings: readonly string[] } | { ok: false; reason: string } {
+	if (raw === undefined) {
+		return { ok: true, models: new Map(), warnings: [] };
+	}
+	if (!raw || typeof raw !== 'object' || Array.isArray(raw)) {
+		return { ok: true, models: new Map(), warnings: ['поле roles должно быть объектом «роль → { "model": "провайдер/модель" }» — проигнорировано'] };
+	}
+	const models = new Map<string, string>();
+	const warnings: string[] = [];
+	for (const [role, entry] of Object.entries(raw)) {
+		if (!rules.isKnownRole(role)) {
+			return { ok: false, reason: `roles: неизвестная роль «${role}»` };
+		}
+		const model = roleModelOf(entry);
+		if (model === undefined) {
+			return { ok: false, reason: `roles.${role}: нужна модель «провайдер/модель» — полем model одной строкой или парой provider + model` };
+		}
+		if (rules.roleMayWrite(role)) {
+			warnings.push(`roles.${role}: модель у пишущей роли — VibeIDE её примет, VibeIDEA этот пайплайн пропустит`);
+		}
+		models.set(role, model);
+	}
+	return { ok: true, models, warnings };
+}
+
+/**
+ * One `roles` entry as a model reference, or nothing
+ * `{ "model": "p/m" }` is the form of both products, `{ "provider": "p", "model": "m" }` is VibeIDEA's older pair
+ */
+function roleModelOf(entry: unknown): string | undefined {
+	if (!entry || typeof entry !== 'object' || Array.isArray(entry)) {
+		return undefined;
+	}
+	const fields = entry as Record<string, unknown>;
+	const provider = typeof fields['provider'] === 'string' ? fields['provider'].trim() : '';
+	const model = typeof fields['model'] === 'string' ? fields['model'].trim() : '';
+	// A provider is joined only to a model: alone it is half an address, not a choice.
+	const reference = provider ? (model ? `${provider}/${model}` : '') : model;
+	return isModelReference(reference) ? reference : undefined;
+}
+
+function parseStep(raw: unknown, roleModels: ReadonlyMap<string, string>): { ok: true; value: VibePipelineStep } | { ok: false; reason: string } {
 	if (!raw || typeof raw !== 'object' || Array.isArray(raw)) { return { ok: false, reason: 'не объект' }; }
 	const s = raw as Record<string, unknown>;
 	const role = typeof s['role'] === 'string' ? s['role'].trim() : '';
@@ -335,13 +425,21 @@ function parseStep(raw: unknown): { ok: true; value: VibePipelineStep } | { ok: 
 	// alternative is a step that runs on the role's default model while the file says otherwise —
 	// and the whole point of naming a model here is that a cheap draft is actually cheap.
 	for (const key of ['model', 'escalateTo', 'reviewWith'] as const) {
-		if (s[key] !== undefined && !parseModelRef(s[key] as string | undefined)) {
-			return { ok: false, reason: `поле ${key} должно быть «провайдер/модель»` };
+		if (s[key] !== undefined && !isModelReference(s[key])) {
+			return { ok: false, reason: `поле ${key} должно быть «провайдер/модель» или логическим именем «@имя»` };
 		}
 	}
-	if (s['offPeak'] === true && !parseModelRef(s['model'] as string | undefined)) {
+	// The step's OWN model, not one taken from `roles`: VibeIDEA checks it so, and the shared file must load the same.
+	if (s['offPeak'] === true && !isModelReference(s['model'])) {
 		return { ok: false, reason: 'поле offPeak требует model «провайдер/модель» — расписание цены есть только у модели' };
 	}
+	// Refused rather than ignored like the other flags:
+	// `"escalation": "true"` read as absent would run the expensive step every time.
+	if (s['escalation'] !== undefined && typeof s['escalation'] !== 'boolean') {
+		return { ok: false, reason: 'поле escalation — true или false' };
+	}
+	// The step's own model wins; a step without one takes its role's model from `roles`.
+	const model = isModelReference(s['model']) ? s['model'].trim() : roleModels.get(role);
 	return {
 		ok: true,
 		value: {
@@ -354,9 +452,10 @@ function parseStep(raw: unknown): { ok: true; value: VibePipelineStep } | { ok: 
 			...(s['ignorePreviousArtifacts'] === true ? { ignorePreviousArtifacts: true } : {}),
 			...(patternList(s['paths']) ? { paths: patternList(s['paths']) } : {}),
 			...(patternList(s['denyPaths']) ? { denyPaths: patternList(s['denyPaths']) } : {}),
-			...(parseModelRef(s['model'] as string | undefined) ? { model: (s['model'] as string).trim() } : {}),
-			...(parseModelRef(s['escalateTo'] as string | undefined) ? { escalateTo: (s['escalateTo'] as string).trim() } : {}),
-			...(parseModelRef(s['reviewWith'] as string | undefined) ? { reviewWith: (s['reviewWith'] as string).trim() } : {}),
+			...(model !== undefined ? { model } : {}),
+			...(isModelReference(s['escalateTo']) ? { escalateTo: s['escalateTo'].trim() } : {}),
+			...(s['escalation'] === true ? { escalation: true } : {}),
+			...(isModelReference(s['reviewWith']) ? { reviewWith: s['reviewWith'].trim() } : {}),
 			...(s['offPeak'] === true ? { offPeak: true } : {}),
 			...(typeof s['wave'] === 'string' && s['wave'].trim() ? { wave: s['wave'].trim() } : {}),
 		},
@@ -381,6 +480,13 @@ export interface PipelineStepOutcome {
 	readonly unmergedBranches?: readonly string[];
 	/** Set when the cheap draft did not pass and the step was retried on this model. */
 	readonly escalatedTo?: string;
+	/**
+	 * Set on an `escalation` step the gate made unnecessary: the result before it was accepted
+	 *
+	 * Not a failure — the tail runs and the run counts as complete — and not done work either:
+	 * The next step hears the accepted result as the previous one, and a resumed run starts this step again
+	 */
+	readonly skippedByGate?: true;
 	/** Set when a second model reviewed the result: what it decided, and on which model. */
 	readonly review?: {
 		readonly by: string;
@@ -413,14 +519,16 @@ export const EARLIER_STEP_NOTE_CHARS = 300;
  * there is nothing to say — an agent told "предыдущий шаг ничего не изменил" as a matter of routine
  * starts to ignore the section.
  *
- * Every step of a wave is built from the same `previous` — what was known before the wave: a
+ * Every step of a wave is built from the same `before` — what was known before the wave: a
  * neighbour's work does not exist yet when the wave starts.
  */
 export function buildStepInput(
 	step: VibePipelineStep,
-	previous: readonly PipelineStepOutcome[],
+	before: readonly PipelineStepOutcome[],
 	totalSteps: number,
 ): PipelineStepInput {
+	// A step the gate skipped did nothing: the result it would have replaced is what the next step builds on.
+	const previous = before.filter(outcome => !outcome.skippedByGate);
 	if (step.ignorePreviousArtifacts || previous.length === 0) {
 		return { goal: composeGoal(step), contextItems: [] };
 	}
@@ -580,5 +688,10 @@ export function composeReworkRequest(reviewNotes: string): string {
  */
 export function shouldRunStep(step: VibePipelineStep, previous: readonly PipelineStepOutcome[]): boolean {
 	if (step.continueOnFailure) { return true; }
-	return previous.every(o => o.status === 'success');
+	return previous.every(stepCountsAsDone);
+}
+
+/** Whether the step leaves the pipeline on course: it succeeded, or the gate made it unnecessary. */
+export function stepCountsAsDone(outcome: PipelineStepOutcome): boolean {
+	return outcome.status === 'success' || outcome.skippedByGate === true;
 }

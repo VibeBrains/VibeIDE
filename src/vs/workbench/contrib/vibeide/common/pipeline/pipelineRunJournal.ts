@@ -35,7 +35,11 @@ export interface PipelineRunRecord {
 /** An interrupted run a person may continue */
 export interface ResumableRun {
 	readonly record: PipelineRunRecord;
-	/** Indices (from 0) of the steps that finished successfully */
+	/**
+	 * Indices (from 0) of the steps that finished successfully
+	 * A step the gate skipped is not among them: the verdict it was skipped on is not kept,
+	 * And a resumed run starts it again
+	 */
 	readonly done: ReadonlySet<number>;
 	/** The first step to run, from 0 */
 	readonly fromStep: number;

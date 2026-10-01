@@ -26,12 +26,13 @@ export type VibeHookEvent =
 	/** After a turn finished (the agent stopped calling tools). */
 	| 'turnEnd'
 	/**
-	 * After a cascade step produced a draft, before the pipeline decides to escalate.
+	 * After every successful pipeline step
+	 * And after the cheap draft of an `escalateTo` step, before the step decides to escalate
 	 *
-	 * The acceptance gate of a cascade: exit 0 accepts the draft and the expensive model is never
-	 * called; exit 2 rejects it and the step escalates. It exists because the alternative gate is
-	 * asking a model whether its own answer was good enough, and that question has one answer.
-	 * `tools` does not apply — the event is not about a tool call.
+	 * The acceptance gate of both cascades: exit 0 accepts the result and the expensive model is not called
+	 * Exit 2 rejects it — the step escalates to `escalateTo`, or the next `escalation` step runs
+	 * The alternative gate is asking a model whether its own answer was good enough, and that question has one answer
+	 * `tools` does not apply — the event is not about a tool call
 	 */
 	| 'pipelineStepEnd';
 

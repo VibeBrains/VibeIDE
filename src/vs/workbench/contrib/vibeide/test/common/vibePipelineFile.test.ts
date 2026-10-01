@@ -11,6 +11,7 @@ import {
 	composeReworkRequest,
 	EARLIER_STEP_NOTE_CHARS,
 	effectiveWriteScope,
+	isModelReference,
 	parseModelRef,
 	parsePipelineFile,
 	parseReviewVerdict,
@@ -21,7 +22,9 @@ import {
 	stepMayWrite,
 	VibePipelineStep,
 } from '../../common/pipeline/vibePipelineFile.js';
-import { isSubagentType } from '../../common/vibeSubagentService.js';
+import { isSubagentType, roleMayWrite } from '../../common/vibeSubagentService.js';
+
+const parse = (raw: unknown) => parsePipelineFile(raw, { isKnownRole: isSubagentType, roleMayWrite });
 
 const ok = (over: Partial<PipelineStepOutcome> = {}): PipelineStepOutcome => ({
 	role: 'coder', step: 1, status: 'success', summary: 'сделал', artifacts: ['src/a.ts'], ...over,
@@ -32,7 +35,7 @@ suite('vibePipelineFile — parsing', () => {
 	ensureNoDisposablesAreLeakedInTestSuite();
 
 	test('a valid file is parsed with optional fields preserved', () => {
-		const parsed = parsePipelineFile({
+		const parsed = parse({
 			version: 1,
 			pipelines: [{
 				id: 'review', name: 'Ревью', steps: [
@@ -57,7 +60,7 @@ suite('vibePipelineFile — parsing', () => {
 
 	test('one broken pipeline is skipped, the good ones survive', () => {
 		// The whole file failing over a single typo is what makes people stop using config files.
-		const parsed = parsePipelineFile({
+		const parsed = parse({
 			pipelines: [
 				{ id: 'good', steps: [{ role: 'coder', task: 'делай' }] },
 				{ steps: [{ role: 'coder', task: 'без id' }] },
@@ -82,7 +85,7 @@ suite('vibePipelineFile — parsing', () => {
 
 	test('a non-object root and a non-array pipelines field are reported, not thrown', () => {
 		assert.deepStrictEqual(
-			[parsePipelineFile(null), parsePipelineFile([]), parsePipelineFile({ pipelines: {} })].map(p => p.warnings),
+			[parse(null), parse([]), parse({ pipelines: {} })].map(p => p.warnings),
 			[
 				['pipelines.json: корень должен быть объектом'],
 				['pipelines.json: корень должен быть объектом'],
@@ -92,7 +95,7 @@ suite('vibePipelineFile — parsing', () => {
 	});
 
 	test('the wave label is read trimmed, and an empty one is no label', () => {
-		const parsed = parsePipelineFile({
+		const parsed = parse({
 			pipelines: [{
 				id: 'w', steps: [
 					{ role: 'code-reviewer', task: 'а', wave: ' review ' },
@@ -106,7 +109,7 @@ suite('vibePipelineFile — parsing', () => {
 
 	test('more than twenty steps is refused — a runaway file must not spawn a fleet', () => {
 		const steps = Array.from({ length: 21 }, () => ({ role: 'coder', task: 'go' }));
-		const parsed = parsePipelineFile({ pipelines: [{ id: 'huge', steps }] });
+		const parsed = parse({ pipelines: [{ id: 'huge', steps }] });
 		assert.deepStrictEqual(
 			{ count: parsed.file.pipelines.length, warning: parsed.warnings[0] },
 			{ count: 0, warning: 'pipelines[0] «huge»: больше 20 шагов — пропущен' },
@@ -252,7 +255,7 @@ suite('vibePipelineFile — каскад и критика', () => {
 
 	ensureNoDisposablesAreLeakedInTestSuite();
 
-	const step = (over: Record<string, unknown>) => parsePipelineFile({
+	const step = (over: Record<string, unknown>) => parse({
 		version: 1,
 		pipelines: [{ id: 'p', steps: [{ role: 'coder', task: 'сделай', ...over }] }],
 	});
@@ -378,7 +381,7 @@ suite('vibePipelineFile — каскад и критика', () => {
 		});
 
 		test('пустой список — это отсутствие ограничения, а не запрет всего', () => {
-			const parsed = parsePipelineFile({ version: 1, pipelines: [{ id: 'p', steps: [{ role: 'coder', task: 't', paths: [] }] }] });
+			const parsed = parse({ version: 1, pipelines: [{ id: 'p', steps: [{ role: 'coder', task: 't', paths: [] }] }] });
 			assert.strictEqual(parsed.file.pipelines[0]?.steps[0]?.paths, undefined);
 			assert.strictEqual(stepMayWrite(parsed.file.pipelines[0].steps[0], 'anything.ts'), true);
 		});
@@ -440,5 +443,95 @@ suite('vibePipelineFile — роли, которые общие с VibeIDEA', ()
 
 	test('критик — известная роль: шаг из общего cascade-review больше не падает на её имени', () => {
 		assert.deepStrictEqual([isSubagentType('critic'), isSubagentType('criitc')], [true, false]);
+	});
+});
+
+/**
+ * Поля общего с VibeIDEA каскада: шаг `escalation` и модели ролей `roles`.
+ *
+ * Один и тот же `pipelines.json` читают оба продукта, поэтому опечатка в этих полях роняет пайплайн вслух:
+ * молча проигнорированная модель роли или флаг эскалации меняют счёт, а не поведение, и этого никто не заметит.
+ */
+suite('vibePipelineFile — escalation, roles и логические имена', () => {
+
+	ensureNoDisposablesAreLeakedInTestSuite();
+
+	const pipeline = (over: Record<string, unknown>, steps: Record<string, unknown>[]) => {
+		const parsed = parse({ version: 1, pipelines: [{ id: 'p', ...over, steps }] });
+		return { steps: parsed.file.pipelines[0]?.steps, warnings: parsed.warnings };
+	};
+
+	test('escalation — только булево: true ставит поле, false — нет, строка роняет пайплайн', () => {
+		assert.deepStrictEqual([true, false, 'true'].map(escalation => pipeline({}, [{ role: 'critic', task: 'а', escalation }])), [
+			{ steps: [{ role: 'critic', task: 'а', escalation: true }], warnings: [] },
+			{ steps: [{ role: 'critic', task: 'а' }], warnings: [] },
+			{ steps: undefined, warnings: ['pipelines[0] «p», шаг 1: поле escalation — true или false — пайплайн пропущен'] },
+		]);
+	});
+
+	test('roles: шаг без своей модели берёт модель роли, своя сильнее, пара provider + model — синоним', () => {
+		const parsed = pipeline({ roles: { 'code-reviewer': { model: ' minimax/MiniMax-M3 ' }, critic: { provider: 'anthropic', model: 'claude-fable-5-1' } } }, [
+			{ role: 'code-reviewer', task: 'а' },
+			{ role: 'code-reviewer', task: 'б', model: 'zai/glm-5.3-flash' },
+			{ role: 'critic', task: 'в', escalation: true },
+			{ role: 'planner', task: 'г' },
+		]);
+		assert.deepStrictEqual({ models: parsed.steps?.map(step => step.model), warnings: parsed.warnings }, {
+			models: ['minimax/MiniMax-M3', 'zai/glm-5.3-flash', 'anthropic/claude-fable-5-1', undefined],
+			warnings: [],
+		});
+	});
+
+	test('roles: неизвестная роль и неполный адрес пропускают пайплайн, roles не объектом — игнорируется вслух', () => {
+		const tried = [
+			{ critc: { model: 'anthropic/claude-fable-5-1' } },
+			{ critic: { provider: 'anthropic' } },
+			{ critic: { model: 'claude-fable-5-1' } },
+			{ critic: 'anthropic/claude-fable-5-1' },
+			['critic'],
+		].map(roles => pipeline({ roles }, [{ role: 'critic', task: 'а' }]));
+		const halfAddress = 'pipelines[0] «p»: roles.critic: нужна модель «провайдер/модель» — полем model одной строкой или парой provider + model — пайплайн пропущен';
+		assert.deepStrictEqual(tried, [
+			{ steps: undefined, warnings: ['pipelines[0] «p»: roles: неизвестная роль «critc» — пайплайн пропущен'] },
+			{ steps: undefined, warnings: [halfAddress] },
+			{ steps: undefined, warnings: [halfAddress] },
+			{ steps: undefined, warnings: [halfAddress] },
+			{ steps: [{ role: 'critic', task: 'а' }], warnings: ['pipelines[0] «p»: поле roles должно быть объектом «роль → { "model": "провайдер/модель" }» — проигнорировано'] },
+		]);
+	});
+
+	test('roles: модель пишущей роли принимается, но с предупреждением, что VibeIDEA пайплайн пропустит', () => {
+		assert.deepStrictEqual(pipeline({ roles: { 'backend-dev': { model: 'openai/gpt-6-luna' } } }, [{ role: 'backend-dev', task: 'а' }]), {
+			steps: [{ role: 'backend-dev', task: 'а', model: 'openai/gpt-6-luna' }],
+			warnings: ['pipelines[0] «p»: roles.backend-dev: модель у пишущей роли — VibeIDE её примет, VibeIDEA этот пайплайн пропустит'],
+		});
+	});
+
+	test('offPeak требует собственной модели шага — модель из roles не считается', () => {
+		assert.deepStrictEqual(pipeline({ roles: { planner: { model: 'deepseek/deepseek-flash' } } }, [{ role: 'planner', task: 'а', offPeak: true }]), {
+			steps: undefined,
+			warnings: ['pipelines[0] «p», шаг 1: поле offPeak требует model «провайдер/модель» — расписание цены есть только у модели — пайплайн пропущен'],
+		});
+	});
+
+	test('логическое имя @fast годится везде, где ждут модель, а parseModelRef по-прежнему не гадает', () => {
+		assert.deepStrictEqual({
+			parsed: pipeline({ roles: { critic: { model: '@smart' } } }, [
+				{ role: 'backend-dev', task: 'а', model: '@fast', escalateTo: '@smart', reviewWith: ' @review ', offPeak: true },
+				{ role: 'critic', task: 'б' },
+			]),
+			references: ['@fast', 'zai/glm', '@', 'glm', 7].map(isModelReference),
+			bare: parseModelRef('@fast'),
+		}, {
+			parsed: {
+				steps: [
+					{ role: 'backend-dev', task: 'а', model: '@fast', escalateTo: '@smart', reviewWith: '@review', offPeak: true },
+					{ role: 'critic', task: 'б', model: '@smart' },
+				],
+				warnings: [],
+			},
+			references: [true, true, false, false, false],
+			bare: undefined,
+		});
 	});
 });

@@ -116,6 +116,9 @@ export interface AuditEvent {
 	| 'job_pr_creation'
 	| 'run_tests:start' | 'run_tests:complete'
 	| 'verify_gate:result'
+	// An `escalation` step of a pipeline not run because the gate accepted the result before it:
+	// without it a cascade's savings cannot be counted — accepted results show, expensive runs avoided do not.
+	| 'pipeline_escalation_skipped'
 	| 'project_command:start' | 'project_command:complete' | 'project_command:trust_granted' | 'project_command:trust_revoked'
 	// Agent tool access. Arguments and command bodies are never recorded — see `toolCallAudit.ts`.
 	| 'tool_call:start' | 'tool_call:done'

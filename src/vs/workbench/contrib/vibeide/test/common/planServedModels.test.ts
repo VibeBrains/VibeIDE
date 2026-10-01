@@ -7,6 +7,9 @@ import * as assert from 'assert';
 import { ensureNoDisposablesAreLeakedInTestSuite } from '../../../../../base/test/common/utils.js';
 import { mergeServedModels, parseServedModels, planModelDrift } from '../../common/vibePersistedPlanService.js';
 import { parsePipelineFile } from '../../common/pipeline/vibePipelineFile.js';
+import { isSubagentType, roleMayWrite } from '../../common/vibeSubagentService.js';
+
+const parse = (raw: unknown) => parsePipelineFile(raw, { isKnownRole: isSubagentType, roleMayWrite });
 
 /**
  * План помнит, кто на самом деле отвечал; шаг пайплайна может ждать конца пиковых цен.
@@ -36,7 +39,7 @@ suite('planServedModels — ответившие модели плана и offP
 	});
 
 	test('offPeak шага: разбирается с model, без model шаг отвергнут', () => {
-		const parsed = parsePipelineFile({
+		const parsed = parse({
 			version: 1,
 			pipelines: [
 				{ id: 'ok', steps: [{ role: 'planner', task: 'план', model: 'deepseek/deepseek-flash', offPeak: true }] },

@@ -28,7 +28,7 @@ export interface VibeHookPayload {
 	readonly params?: { readonly [name: string]: unknown };
 	/** Absolute path of the workspace folder the hook runs in. */
 	readonly cwd: string;
-	/** Files changed during the turn — only for `turnEnd`. */
+	/** Files changed during the turn (`turnEnd`) or by the pipeline step being judged (`pipelineStepEnd`). */
 	readonly changedFiles?: readonly string[];
 	/**
 	 * Calls that came before this one, oldest first.
@@ -42,11 +42,12 @@ export interface VibeHookPayload {
 	readonly pipeline?: string;
 	readonly step?: number;
 	readonly role?: string;
+	/** The model of the judged result, as `провайдер/модель`; absent when the step ran on its role's default. */
 	readonly model?: string;
 	/** The wave the step runs in — the hook is asked about each step of a wave on its own. */
 	readonly wave?: string;
 	/**
-	 * The draft the gate is judging, truncated. Full text is not sent: a hook decides on a sample,
+	 * The result the gate is judging, truncated. Full text is not sent: a hook decides on a sample,
 	 * and a megabyte through stdin is a way to hang the turn, not to inform the script.
 	 */
 	readonly answer?: string;

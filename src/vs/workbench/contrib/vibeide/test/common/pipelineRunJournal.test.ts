@@ -51,6 +51,12 @@ suite('pipeline run journal', () => {
 		);
 	});
 
+	test('a step the gate skipped is not done: a resumed run starts from it, the accepted draft before it is kept', () => {
+		const spared: PipelineStepOutcome = { ...outcome(2, 'skipped'), skippedByGate: true, artifacts: [] };
+		const resumable = resumableRunOf([run({ status: 'failed', outcomes: [outcome(1), spared, outcome(3, 'failed')] })], pipeline, 'now', now, stale);
+		assert.deepStrictEqual(resumable && { from: resumable.fromStep, done: [...resumable.done], reason: resumable.reason }, { from: 1, done: [0], reason: 'failed' });
+	});
+
 	test('the journal keeps the newest runs within the retention, and never drops a run under way', () => {
 		const day = 24 * 60 * 60 * 1000;
 		const records = [run({ runId: 'old', startedAt: now - 40 * day }), run({ runId: 'live', startedAt: now - 40 * day, status: 'running' }), run({ runId: 'a', startedAt: now - day }), run({ runId: 'b', startedAt: now })];

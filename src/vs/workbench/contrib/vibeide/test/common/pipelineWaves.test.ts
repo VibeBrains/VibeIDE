@@ -7,7 +7,9 @@ import assert from 'assert';
 import { ensureNoDisposablesAreLeakedInTestSuite } from '../../../../../base/test/common/utils.js';
 import { applyWaveRules, checkWaves, literalPrefix, pipelineGroups, provablyDisjoint, WaveRules } from '../../common/pipeline/pipelineWaves.js';
 import { parsePipelineFile, QA_DEFAULT_WRITE_PATHS, VibePipelineStep } from '../../common/pipeline/vibePipelineFile.js';
-import { roleMayWrite } from '../../common/vibeSubagentService.js';
+import { isSubagentType, roleMayWrite } from '../../common/vibeSubagentService.js';
+
+const parse = (raw: unknown) => parsePipelineFile(raw, { isKnownRole: isSubagentType, roleMayWrite });
 
 /**
  * Waves: which steps run at once, and every reason two of them must not.
@@ -52,6 +54,18 @@ suite('pipelineWaves', () => {
 		assert.deepStrictEqual(checkWaves([step('backend-dev', 'build'), step('frontend-dev', 'build', ['src/ui/**'])], { ...rules, writersIsolated: true }), {
 			problems: [],
 			warnings: ['волна «build»: «backend-dev» (**) и «frontend-dev» (src/ui/**) могут писать в одно место — каждый пишет в своём дереве git, но сведение их веток может дать конфликт, и такая ветка останется вам'],
+		});
+	});
+
+	test('an escalation step cannot share a wave; with a label of its own it runs as an ordinary step', () => {
+		// VibeIDEA refuses it the same way (`pipeline.warn.waveEscalation`):
+		// A wave starts whole, and an escalation step may be spared by the gate
+		assert.deepStrictEqual({
+			inWave: checkWaves([step('code-reviewer', 'review'), step('critic', 'review', undefined, { escalation: true })], rules),
+			alone: checkWaves([step('code-reviewer'), step('critic', 'solo', undefined, { escalation: true })], rules),
+		}, {
+			inWave: { problems: ['волна «review»: шаг «critic» с escalation зависит от вердикта гейта о шаге перед ним, а шаги волны независимы и стартуют разом — поставьте его отдельным шагом после волны'], warnings: [] },
+			alone: { problems: [], warnings: ['волна «solo» из одного шага — он идёт как обычный'] },
 		});
 	});
 
@@ -141,7 +155,7 @@ suite('pipelineWaves', () => {
 	});
 
 	test('a pipeline whose wave cannot run is skipped with the reason, the rest load with their warnings', () => {
-		const parsed = applyWaveRules(parsePipelineFile({
+		const parsed = applyWaveRules(parse({
 			pipelines: [
 				{ id: 'bad', steps: [{ role: 'backend-dev', task: 'а', wave: 'w' }, { role: 'frontend-dev', task: 'б', wave: 'w' }] },
 				{ id: 'lone', steps: [{ role: 'planner', task: 'в', wave: 'x' }] },

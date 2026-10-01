@@ -14,14 +14,16 @@ import { effectiveWriteScope, ParsedPipelineFile, VibePipeline, VibePipelineStep
  * they could:
  * - the label must not come back after another step — a wave is one run of steps, not a set scattered
  *   over the file;
+ * - `escalation` depends on the gate's verdict about the step before it, and a wave is steps that depend on
+ *   nothing in each other and start whole — one member spared by the gate would leave half a wave;
  * - `offPeak` holds a step until its model's price drops, which would start the wave's steps at
  *   different times;
  * - two steps that write must write to provably separate places: each write is checked against its own
  *   step's boundary only, and two steps allowed the same file would race for it.
  *
- * VibeIDEA also refuses `escalation` and `context: "shared"` in a wave. Neither exists here: our cascade
- * lives on the step itself (`escalateTo`, `reviewWith`), so a wave step escalates and is reviewed like
- * any other, and every step already runs in its own conversation.
+ * VibeIDEA also refuses `context: "shared"` in a wave. There is no such field here: every step already runs
+ * in its own conversation. The cascade on the step itself (`escalateTo`, `reviewWith`) works in a wave:
+ * a wave step escalates and is reviewed like any other.
  *
  * Pure: steps in, verdicts out.
  */
@@ -100,6 +102,10 @@ export function checkWaves(steps: readonly VibePipelineStep[], rules: WaveRules)
 		if (members.length === 1) {
 			warnings.push(`волна «${label}» из одного шага — он идёт как обычный`);
 			continue;
+		}
+		const escalation = members.find(step => step.escalation);
+		if (escalation) {
+			problems.push(`волна «${label}»: шаг «${escalation.role}» с escalation зависит от вердикта гейта о шаге перед ним, а шаги волны независимы и стартуют разом — поставьте его отдельным шагом после волны`);
 		}
 		const offPeak = members.find(step => step.offPeak);
 		if (offPeak) {

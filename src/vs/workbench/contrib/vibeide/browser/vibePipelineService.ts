@@ -20,6 +20,8 @@ import { Disposable, DisposableStore, toDisposable } from '../../../../base/comm
 import { generateUuid } from '../../../../base/common/uuid.js';
 import { safeParseConfigJson } from '../common/vibeConfigJsonParser.js';
 import { IVibeHooksService } from '../common/hooks/vibeHookTypes.js';
+import { VibeHookDecision } from '../common/hooks/hookOutcome.js';
+import { IAuditLogService } from '../common/auditLogService.js';
 import { CancellationToken, CancellationTokenSource } from '../../../../base/common/cancellation.js';
 import { Emitter, Event } from '../../../../base/common/event.js';
 import { URI } from '../../../../base/common/uri.js';
@@ -51,11 +53,12 @@ import {
 	pipelineStepLabel,
 	PipelineStepOutcome,
 	QA_DEFAULT_WRITE_PATHS,
-	shouldRunStep,
+	stepCountsAsDone,
 	VibePipeline,
 	VibePipelineStep,
 } from '../common/pipeline/vibePipelineFile.js';
 import { applyWaveRules, pipelineGroups, StepGroup } from '../common/pipeline/pipelineWaves.js';
+import { GatedOutcome, gateVerdictOf, GateVerdict, stepStart, verdictAfterGroup } from '../common/pipeline/pipelineGate.js';
 import { composeDiffBlock, receivesRunDiff, runDiffBudgetChars, wantsRunDiff } from '../common/pipeline/pipelineRunDiff.js';
 import { readRolesFile } from '../common/pipeline/vibeRolesFile.js';
 import { IVibeideSettingsService } from '../common/vibeideSettingsService.js';
@@ -87,7 +90,7 @@ Registry.as<IConfigurationRegistry>(ConfigurationExtensions.Configuration).regis
 export interface PipelineRunResult {
 	readonly pipelineId: string;
 	readonly outcomes: readonly PipelineStepOutcome[];
-	/** True when every step that ran succeeded and none was skipped by a failure. */
+	/** True when every step succeeded or the gate made it unnecessary, and none was skipped by a failure. */
 	readonly completed: boolean;
 }
 
@@ -153,6 +156,12 @@ interface PipelineRunContext {
 	readonly baseline: string | undefined;
 	/** Whether anything was pinned — then the run's pins are released at its end. */
 	pinned: boolean;
+	/**
+	 * The run that gave the result of a step followed by an `escalation` step, by step index
+	 * The escalation step's run is recorded as escalated from it:
+	 * The cascade report then counts a ladder of steps the way it counts `escalateTo`
+	 */
+	readonly drafts: Map<number, { readonly runId: string; readonly model?: string }>;
 }
 
 export class VibePipelineService extends Disposable implements IVibePipelineService {
@@ -172,6 +181,7 @@ export class VibePipelineService extends Disposable implements IVibePipelineServ
 		@IVibeRunDiffService private readonly _runDiff: IVibeRunDiffService,
 		@IVibeVerifyGateService private readonly _verifyGate: IVibeVerifyGateService,
 		@IVibeDynamicProvidersService private readonly _dynamicProviders: IVibeDynamicProvidersService,
+		@IAuditLogService private readonly _audit: IAuditLogService,
 	) {
 		super();
 	}
@@ -224,7 +234,8 @@ export class VibePipelineService extends Disposable implements IVibePipelineServ
 	 * price by the hour starts at once and says why — the field cannot defer to a schedule nobody declared.
 	 */
 	private async _waitForOffPeak(step: VibePipelineStep, pipelineId: string, stepIndex: number, totalSteps: number, token: CancellationToken): Promise<'run' | 'cancelled'> {
-		const model = parseModelRef(step.model);
+		// A logical name has a price schedule only through the model it names today.
+		const model = parseModelRef(this._modelRefOf(step.model, `шаг ${step.role}, model`));
 		if (!model) {
 			return 'run';
 		}
@@ -297,7 +308,7 @@ export class VibePipelineService extends Disposable implements IVibePipelineServ
 		// Whether two steps of a wave may write at once depends on where `qa` writes, and that is the
 		// project's `.vibe/roles.json` — the same file a run reads.
 		const roles = await readRolesFile(this._fileService, this._workspace);
-		const parsed = applyWaveRules(parsePipelineFile(result.value), { roleMayWrite, qaWritePaths: roles.qaWritePaths ?? QA_DEFAULT_WRITE_PATHS, writersIsolated });
+		const parsed = applyWaveRules(parsePipelineFile(result.value, { isKnownRole: isSubagentType, roleMayWrite }), { roleMayWrite, qaWritePaths: roles.qaWritePaths ?? QA_DEFAULT_WRITE_PATHS, writersIsolated });
 		return { pipelines: parsed.file.pipelines, warnings: parsed.warnings };
 	}
 
@@ -427,6 +438,7 @@ export class VibePipelineService extends Disposable implements IVibePipelineServ
 			verify: new Sequencer(),
 			baseline,
 			pinned: baseline !== undefined,
+			drafts: new Map(),
 		};
 		// «Стоп» stops every step under way, a whole wave included. A limit of a step (`maxTokens`,
 		// `maxSteps`) stops only that step — inside the subagent, not here.
@@ -436,10 +448,14 @@ export class VibePipelineService extends Disposable implements IVibePipelineServ
 			}
 		});
 		let stopped = false;
+		// What the gate said about the last group — the word an `escalation` step runs or is skipped on.
+		let verdict: GateVerdict;
 		try {
 			for (const group of groups) {
 				if (cancellation.token.isCancellationRequested) { break; }
-				outcomes.push(...await this._runGroup(ctx, pipeline, group, [...outcomes], finished));
+				const members = await this._runGroup(ctx, pipeline, group, [...outcomes], finished, verdict);
+				outcomes.push(...members.map(member => member.outcome));
+				verdict = verdictAfterGroup(verdict, members);
 				await journal('running');
 			}
 		} finally {
@@ -451,26 +467,27 @@ export class VibePipelineService extends Disposable implements IVibePipelineServ
 				await this._runDiff.release(runId);
 			}
 		}
-		const everyStepSucceeded = outcomes.length === pipeline.steps.length && outcomes.every(o => o.status === 'success');
+		const everyStepSucceeded = outcomes.length === pipeline.steps.length && outcomes.every(stepCountsAsDone);
 		await journal(stopped ? 'stopped' : everyStepSucceeded ? 'completed' : 'failed', Date.now());
 
 		return {
 			pipelineId,
 			outcomes,
-			completed: outcomes.length > 0 && outcomes.every(o => o.status === 'success'),
+			completed: outcomes.length > 0 && outcomes.every(stepCountsAsDone),
 		};
 	}
 
 	/**
 	 * One group: a single step, or a wave whose steps start together from the same `before` — what was
 	 * known before the wave — and are recorded in file order, whichever finishes first.
+	 * `verdict` is the gate's word on the group before, which an `escalation` step runs or is skipped on.
 	 */
-	private async _runGroup(ctx: PipelineRunContext, pipeline: VibePipeline, group: StepGroup, before: readonly PipelineStepOutcome[], finished: ReadonlyMap<number, PipelineStepOutcome>): Promise<PipelineStepOutcome[]> {
+	private async _runGroup(ctx: PipelineRunContext, pipeline: VibePipeline, group: StepGroup, before: readonly PipelineStepOutcome[], finished: ReadonlyMap<number, PipelineStepOutcome>, verdict: GateVerdict): Promise<GatedOutcome[]> {
 		const members: { readonly index: number; readonly step: VibePipelineStep }[] = [];
 		for (let index = group.start; index <= group.end; index++) {
 			members.push({ index, step: pipeline.steps[index] });
 		}
-		const results: PipelineStepOutcome[] = new Array(members.length);
+		const results: GatedOutcome[] = new Array(members.length);
 		const runnable: number[] = [];
 		members.forEach((member, k) => {
 			const done = finished.get(member.index);
@@ -479,13 +496,22 @@ export class VibePipelineService extends Disposable implements IVibePipelineServ
 				// its unfinished members, as in VibeIDEA
 				vibeLog.info('Pipeline', `${ctx.pipelineId}: шаг ${member.index + 1} (${member.step.role}) уже сделан в прерванном прогоне — пропущен`);
 				this._onProgress.fire({ pipelineId: ctx.pipelineId, stepIndex: member.index, totalSteps: ctx.totalSteps, role: member.step.role, state: 'skipped', ...(group.wave ? { wave: group.wave } : {}) });
-				results[k] = done;
-			} else if (shouldRunStep(member.step, before)) {
-				runnable.push(k);
-			} else {
-				// Recorded rather than dropped: a reader of the result must see WHY the tail did not
-				// run, otherwise a stopped pipeline looks like a shorter pipeline.
-				results[k] = this._skipped(ctx, member.index, member.step, group.wave, localize('vibeide.pipeline.skipped', 'Пропущен: предыдущий шаг не удался'));
+				// Its verdict is not in the journal: an `escalation` step after it runs, as VibeIDEA's resumed run does
+				results[k] = { outcome: done, verdict: undefined };
+				return;
+			}
+			switch (stepStart(member.step, before, verdict)) {
+				case 'run':
+					runnable.push(k);
+					break;
+				case 'skipAfterFailure':
+					// Recorded rather than dropped: a reader of the result must see WHY the tail did not
+					// run, otherwise a stopped pipeline looks like a shorter pipeline.
+					results[k] = { outcome: this._skipped(ctx, member.index, member.step, group.wave, localize('vibeide.pipeline.skipped', 'Пропущен: предыдущий шаг не удался')), verdict: undefined };
+					break;
+				case 'skipByGate':
+					results[k] = { outcome: this._skippedByGate(ctx, member.index, member.step), verdict: undefined };
+					break;
 			}
 		});
 		if (group.wave !== undefined && runnable.length > 0) {
@@ -495,11 +521,14 @@ export class VibePipelineService extends Disposable implements IVibePipelineServ
 			if (refusal) {
 				vibeLog.info('Pipeline', `${ctx.pipelineId}: волна «${group.wave}» не запущена — ${refusal}`);
 				for (const k of runnable) {
-					results[k] = this._skipped(ctx, members[k].index, members[k].step, group.wave, localize('vibeide.pipeline.waveRefused', 'Волна «{0}» не запущена: {1}', group.wave, refusal));
+					results[k] = { outcome: this._skipped(ctx, members[k].index, members[k].step, group.wave, localize('vibeide.pipeline.waveRefused', 'Волна «{0}» не запущена: {1}', group.wave, refusal)), verdict: undefined };
 				}
 				return results;
 			}
 		}
+		// A single step followed by an `escalation` step is that step's draft. A wave before one is many runs,
+		// and there is no single run to say the escalation came from.
+		const draftsForNext = group.wave === undefined && pipeline.steps[group.end + 1]?.escalation === true;
 		// Every judge of the group sees the same state — the one before the group — so the diff is taken
 		// once, as large as the largest budget, and each judge is cut to its own.
 		const judges = runnable.filter(k => receivesRunDiff(members[k].step, before));
@@ -507,7 +536,7 @@ export class VibePipelineService extends Disposable implements IVibePipelineServ
 		await Promise.all(runnable.map(async k => {
 			const { index, step } = members[k];
 			const diffBlock = runDiff && judges.includes(k) ? composeDiffBlock('run', runDiff, runDiffBudgetChars(step.maxTokens)) : undefined;
-			results[k] = await this._runStep(ctx, index, step, group.wave, before, diffBlock);
+			results[k] = await this._runStep(ctx, index, step, group.wave, before, diffBlock, draftsForNext);
 		}));
 		return results;
 	}
@@ -538,6 +567,44 @@ export class VibePipelineService extends Disposable implements IVibePipelineServ
 	private _skipped(ctx: PipelineRunContext, index: number, step: VibePipelineStep, wave: string | undefined, summary: string): PipelineStepOutcome {
 		this._onProgress.fire({ pipelineId: ctx.pipelineId, stepIndex: index, totalSteps: ctx.totalSteps, role: step.role, state: 'skipped', ...(wave ? { wave } : {}) });
 		return { role: step.role, step: index + 1, ...(wave ? { wave } : {}), status: 'skipped', summary, artifacts: [] };
+	}
+
+	/**
+	 * An `escalation` step the gate made unnecessary
+	 * Written to the audit beside the progress: accepted results alone do not show what the cascade saved,
+	 * The runs it avoided do
+	 */
+	private _skippedByGate(ctx: PipelineRunContext, index: number, step: VibePipelineStep): PipelineStepOutcome {
+		vibeLog.info('Pipeline', `${ctx.pipelineId} шаг ${index + 1} (${step.role}): гейт принял результат перед ним — эскалация не нужна`);
+		void this._audit.append({
+			ts: Date.now(),
+			actor: 'system',
+			actorId: ctx.runId,
+			action: 'pipeline_escalation_skipped',
+			ok: true,
+			meta: { event: 'pipelineEscalationSkipped', pipeline: ctx.pipelineId, step: index + 1, role: step.role },
+		});
+		return {
+			...this._skipped(ctx, index, step, undefined, localize('vibeide.pipeline.skippedByGate', 'Пропущен: гейт pipelineStepEnd принял результат шага перед ним')),
+			skippedByGate: true,
+		};
+	}
+
+	/**
+	 * Ask the project's `pipelineStepEnd` hooks about a result of the step
+	 * The model is named as resolved: the hook judges an answer by who gave it, and `@fast` does not say that
+	 */
+	private _stepEndGate(ctx: PipelineRunContext, step: VibePipelineStep, stepNumber: number, wave: string | undefined, modelRef: string | undefined, result: SubagentResult): Promise<VibeHookDecision> {
+		const model = this._modelRefOf(modelRef, `шаг ${step.role}`);
+		return this._hooks.run('pipelineStepEnd', {
+			pipeline: ctx.pipelineId,
+			step: stepNumber,
+			role: step.role,
+			...(model ? { model } : {}),
+			...(wave ? { wave } : {}),
+			answer: result.summary,
+			changedFiles: result.artifacts ?? [],
+		});
 	}
 
 	/**
@@ -592,7 +659,7 @@ export class VibePipelineService extends Disposable implements IVibePipelineServ
 		return composeDiffBlock('step', diff, budget);
 	}
 
-	private async _runStep(ctx: PipelineRunContext, index: number, step: VibePipelineStep, wave: string | undefined, before: readonly PipelineStepOutcome[], diffBlock: string | undefined): Promise<PipelineStepOutcome> {
+	private async _runStep(ctx: PipelineRunContext, index: number, step: VibePipelineStep, wave: string | undefined, before: readonly PipelineStepOutcome[], diffBlock: string | undefined, draftsForNext: boolean): Promise<GatedOutcome> {
 		const { pipelineId, totalSteps } = ctx;
 		const stepNumber = index + 1;
 		const progress = { pipelineId, stepIndex: index, totalSteps, role: step.role, ...(wave ? { wave } : {}) };
@@ -604,6 +671,7 @@ export class VibePipelineService extends Disposable implements IVibePipelineServ
 		// is what a rework continues, and disposing a run releases it.
 		const stepRunIds: string[] = [];
 		let outcome: PipelineStepOutcome;
+		let verdict: GateVerdict;
 		try {
 			// An unknown role must fail loudly here. Cast into the union and the subagent would
 			// look up a tool whitelist that does not exist — an agent with no tools, silently
@@ -661,7 +729,8 @@ export class VibePipelineService extends Disposable implements IVibePipelineServ
 				ctx.pinned = true;
 			}
 			const drafting = step.escalateTo !== undefined;
-			const first = await runStep(step.model, drafting);
+			// An `escalation` step takes over from the run before it, the way `escalateTo` takes over from its draft
+			const first = await runStep(step.model, drafting || draftsForNext, step.escalation ? ctx.drafts.get(index - 1) : undefined);
 			let result = first.result;
 			let authorRunId = first.subagentId;
 			let escalated = false;
@@ -673,17 +742,13 @@ export class VibePipelineService extends Disposable implements IVibePipelineServ
 			// the `pipelineStepEnd` hook, whose exit 2 rejects the draft. No check, no hook, hooks off,
 			// or a broken script — the outcome decides as before.
 			let rejectedByGate: string | undefined;
+			// The hook's word on the draft, kept: when the draft stays the step's result, it is the step's verdict too.
+			let draftGate: { readonly result: SubagentResult; readonly decision: VibeHookDecision } | undefined;
 			if (drafting && result.status === 'success' && !ctx.token.isCancellationRequested) {
 				rejectedByGate = await this._verifyDraft(ctx, result);
 				if (rejectedByGate === undefined) {
-					const gate = await this._hooks.run('pipelineStepEnd', {
-						pipeline: pipelineId,
-						step: stepNumber,
-						role: step.role,
-						model: step.model,
-						...(wave ? { wave } : {}),
-						answer: result.summary,
-					});
+					const gate = await this._stepEndGate(ctx, step, stepNumber, wave, step.model, result);
+					draftGate = { result, decision: gate };
 					if (gate.blocked) {
 						rejectedByGate = gate.agentMessage ?? localize('vibeide.pipeline.gateRefused', 'хук pipelineStepEnd не принял черновик');
 					}
@@ -697,7 +762,7 @@ export class VibePipelineService extends Disposable implements IVibePipelineServ
 				this._onProgress.fire({ ...progress, state: 'started' });
 				// The draft's model is named only when the step named it: an empty string would look
 				// like a model in the report, and «ran on the role's default» is the honest answer.
-				const second = await runStep(step.escalateTo, false, { runId: first.subagentId, ...(step.model ? { model: step.model } : {}) });
+				const second = await runStep(step.escalateTo, draftsForNext, { runId: first.subagentId, ...(step.model ? { model: step.model } : {}) });
 				result = second.result;
 				authorRunId = second.subagentId;
 				escalated = true;
@@ -722,6 +787,21 @@ export class VibePipelineService extends Disposable implements IVibePipelineServ
 					branchesOfResult = [...branchesOfResult, ...unmergedBranchOf(revised.result)];
 				}
 			}
+			// The gate on the step's result, asked after every successful step:
+			// The `escalation` step after it runs or is skipped on this word
+			// A draft the hook already judged may be that result — asking again would run the check twice on one answer
+			if (result.status === 'success' && !ctx.token.isCancellationRequested) {
+				const finalModel = escalated ? step.escalateTo : step.model;
+				const decision = draftGate?.result === result ? draftGate.decision : await this._stepEndGate(ctx, step, stepNumber, wave, finalModel, result);
+				verdict = gateVerdictOf(decision);
+				if (verdict !== undefined) {
+					vibeLog.info('Pipeline', `${pipelineId} шаг ${stepNumber}: гейт ${verdict ? 'принял' : 'не принял'} результат`);
+				}
+				if (draftsForNext) {
+					const model = this._modelRefOf(finalModel, `шаг ${step.role}`);
+					ctx.drafts.set(index, { runId: authorRunId, ...(model ? { model } : {}) });
+				}
+			}
 			outcome = {
 				...identity,
 				status: result.status,
@@ -735,6 +815,8 @@ export class VibePipelineService extends Disposable implements IVibePipelineServ
 			// A step that could not even start is a failed step, not a crashed pipeline: the
 			// outcomes collected so far are the user's answer to "what did it manage to do".
 			vibeLog.error('Pipeline', `${pipelineId} шаг ${stepNumber} (${step.role}): ${err}`);
+			// A failed step has no result to have accepted, whatever the gate said before the failure.
+			verdict = undefined;
 			outcome = {
 				...identity,
 				status: ctx.token.isCancellationRequested ? 'stopped' : 'failed',
@@ -747,7 +829,7 @@ export class VibePipelineService extends Disposable implements IVibePipelineServ
 			}
 		}
 		this._onProgress.fire({ ...progress, state: 'finished' });
-		return outcome;
+		return { outcome, verdict };
 	}
 }
 
@@ -845,8 +927,9 @@ registerAction2(class VibeRunPipeline extends Action2 {
 		}));
 		try {
 			const result = await pipelineService.run(pipelineId, parentThreadId, cancellation.token, resume);
-			const done = result.outcomes.filter(o => o.status === 'success').length;
-			const failed = result.outcomes.filter(o => o.status !== 'success');
+			// An escalation the gate made unnecessary is the pipeline working as written, not a hitch.
+			const done = result.outcomes.filter(stepCountsAsDone).length;
+			const failed = result.outcomes.filter(o => !stepCountsAsDone(o));
 			notifications.notify({
 				severity: failed.length === 0 && !cancellation.token.isCancellationRequested ? Severity.Info : Severity.Warning,
 				message: cancellation.token.isCancellationRequested
