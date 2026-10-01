@@ -55,8 +55,10 @@ export type ClaudeThinkingOptions = {
  * `reasoningBoundToModel`). The prefix still changes when old history is folded into a summary or the project's rules
  * change mid-conversation, and a replayed block would answer 400 on accounts where the vendor enforces the binding;
  * the request asks to drop such a block instead.
+ * @param offEffort the effort for the «off» position (`reasoningOffEffort`); only low…high go out — the vendor refuses
+ * higher ones with Sonnet 5.5's `between_tools`, the one «off» that takes an effort
  */
-export function claudeThinkingOptions(reasoning: SendableReasoningInfo, display: ClaudeThinkingDisplay, dropStaleBlocks: boolean): ClaudeThinkingOptions {
+export function claudeThinkingOptions(reasoning: SendableReasoningInfo, display: ClaudeThinkingDisplay, dropStaleBlocks: boolean, offEffort?: string): ClaudeThinkingOptions {
 	const blockBinding: ClaudeBlockBinding | undefined = dropStaleBlocks ? { prefixMismatchBehavior: 'drop_block' } : undefined;
 	if (reasoning?.type === 'budget_slider_value') {
 		return { thinking: { type: 'enabled', budgetTokens: reasoning.reasoningBudget } };
@@ -70,8 +72,15 @@ export function claudeThinkingOptions(reasoning: SendableReasoningInfo, display:
 	}
 	// Reasoning off, or a model without it: no thinking mode is named, exactly as before. The binding request
 	// still goes out on its own — the SDK sends it without changing the model's default mode.
-	return blockBinding ? { thinking: { blockBinding } } : {};
+	const effort = CLAUDE_OFF_EFFORTS.find(level => level === offEffort);
+	return {
+		...(blockBinding ? { thinking: { blockBinding } } : {}),
+		...(effort ? { effort } : {}),
+	};
 }
+
+/** Efforts the «off» position may carry: `between_tools` answers 400 to xhigh and max */
+const CLAUDE_OFF_EFFORTS: readonly ClaudeEffort[] = ['low', 'medium', 'high'];
 
 /** Thinking budget per level for a route whose model thinks with a budget — VibeIDEA's numbers, `ReasoningMode.budgetTokens` */
 const COMPATIBLE_THINKING_BUDGET = { low: 2_000, medium: 8_000, high: 24_000 } as const;

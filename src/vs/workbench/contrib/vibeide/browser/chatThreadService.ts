@@ -1051,7 +1051,10 @@ class ChatThreadService extends Disposable implements IChatThreadService {
 		tokenCount: number;
 		contextSize: number;
 		timestamp: number;
+		reasoningPrefix?: string;
 	}> = new Map();
+	/** Fingerprint of the prefix of the last request prepared per thread — the answer to it keeps it, see reasoningPrefix.ts */
+	private readonly _lastReasoningPrefix = new Map<string, string>();
 	private static readonly MESSAGE_PREP_CACHE_TTL = 5000; // 5 seconds - messages can change during agent loops
 	private static readonly MESSAGE_PREP_CACHE_MAX_SIZE = 50; // Limit cache size
 
@@ -5983,6 +5986,7 @@ Output ONLY the JSON, no other text. Start with { and end with }.`;
 				separateSystemMessage = cached.separateSystemMessage;
 				promptTokens = cached.tokenCount;
 				contextSize = cached.contextSize;
+				this._rememberReasoningPrefix(threadId, cached.reasoningPrefix);
 			} else {
 				// Prepare messages (expensive operation)
 				const prepResult = await this._convertToLLMMessagesService.prepareLLMChatMessages({
@@ -5994,6 +5998,7 @@ Output ONLY the JSON, no other text. Start with { and end with }.`;
 				messages = prepResult.messages;
 				separateSystemMessage = prepResult.separateSystemMessage;
 				this._storeTurnContext(threadId, prepResult.turnContext);
+				this._rememberReasoningPrefix(threadId, prepResult.reasoningPrefix);
 
 				// Compute token count and context size
 				const tokenResult = this._computeTokenCount(messages);
@@ -6013,7 +6018,8 @@ Output ONLY the JSON, no other text. Start with { and end with }.`;
 					separateSystemMessage,
 					tokenCount: promptTokens,
 					contextSize,
-					timestamp: now
+					timestamp: now,
+					reasoningPrefix: prepResult.reasoningPrefix,
 				});
 			}
 
@@ -6144,6 +6150,7 @@ Output ONLY the JSON, no other text. Start with { and end with }.`;
 								separateSystemMessage = switchCached.separateSystemMessage;
 								promptTokens = switchCached.tokenCount;
 								contextSize = switchCached.contextSize;
+								this._rememberReasoningPrefix(threadId, switchCached.reasoningPrefix);
 							} else {
 								// Prepare messages (cache miss)
 								const prepResult = await this._convertToLLMMessagesService.prepareLLMChatMessages({
@@ -6155,6 +6162,7 @@ Output ONLY the JSON, no other text. Start with { and end with }.`;
 								messages = prepResult.messages;
 								separateSystemMessage = prepResult.separateSystemMessage;
 								this._storeTurnContext(threadId, prepResult.turnContext);
+								this._rememberReasoningPrefix(threadId, prepResult.reasoningPrefix);
 
 								// Compute token count
 								const tokenResult = this._computeTokenCount(messages);
@@ -6173,7 +6181,8 @@ Output ONLY the JSON, no other text. Start with { and end with }.`;
 									separateSystemMessage,
 									tokenCount: promptTokens,
 									contextSize,
-									timestamp: switchNow
+									timestamp: switchNow,
+									reasoningPrefix: prepResult.reasoningPrefix,
 								});
 							}
 
@@ -8779,6 +8788,14 @@ Output ONLY the JSON, no other text. Start with { and end with }.`;
 	 * Keep the context a request built for the last real user message on that message — see common/turnContext.ts
 	 * A later request repeats it instead of rebuilding it from the editor as it is then, and the prefix stays cached
 	 */
+	private _rememberReasoningPrefix(threadId: string, prefix: string | undefined): void {
+		if (prefix) {
+			this._lastReasoningPrefix.set(threadId, prefix);
+		} else {
+			this._lastReasoningPrefix.delete(threadId);
+		}
+	}
+
 	private _storeTurnContext(threadId: string, turnContext: string | undefined): void {
 		if (turnContext === undefined) { return; }
 		const messages = this.state.allThreads[threadId]?.messages;
@@ -10691,6 +10708,11 @@ We only need to do it for files that were edited since `from`, ie files between 
 		const { allThreads } = this.state;
 		const oldThread = allThreads[threadId];
 		if (!oldThread) { return; } // should never happen
+		// An answer with thinking blocks keeps the fingerprint of the prefix it was produced under — see reasoningPrefix.ts
+		const prefix = this._lastReasoningPrefix.get(threadId);
+		if (message.role === 'assistant' && message.anthropicReasoning?.length && !message.reasoningPrefix && prefix) {
+			message = { ...message, reasoningPrefix: prefix };
+		}
 		// stamp createdAt for the message variants that opt into it (user / assistant / checkpoint)
 		const stampedMessage: ChatMessage = (
 			(message.role === 'user' || message.role === 'assistant' || message.role === 'checkpoint')

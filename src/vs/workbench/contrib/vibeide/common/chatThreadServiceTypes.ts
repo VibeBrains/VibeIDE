@@ -307,6 +307,11 @@ export type ChatMessage =
 		anthropicReasoning: AnthropicReasoning[] | null; // anthropic reasoning
 		/** Vendor signature of the reasoning behind this turn's tool call (Gemini 3) — sent back with that call. */
 		thoughtSignature?: { toolCallId: string; signature: string };
+		/**
+		 * Fingerprint of the prefix this turn was produced under, kept with its thinking blocks — see common/reasoningPrefix.ts
+		 * A later request strips the blocks when the prefix changed and it cannot ask the vendor to drop them
+		 */
+		reasoningPrefix?: string;
 		createdAt?: number; // unix ms when message was added to thread
 		// Set on the synthetic notice the agent appends when it stops in agent mode because the
 		// model returned text with NO tool call (and Autopilot is off / nudge budget spent). The UI

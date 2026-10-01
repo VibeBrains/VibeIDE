@@ -315,7 +315,7 @@ suite('aiSdkAdapter — встроенные провайдеры против �
 		});
 	});
 
-	test('Claude Sonnet 5.5: «выключено» — thinking between_tools вместо всего объекта, принудительного выбора инструмента нет', async () => {
+	test('Claude Sonnet 5.5: «выключено» — thinking between_tools с уровнем low, без привязки блоков; принудительного выбора инструмента нет', async () => {
 		// The shipped catalogue carries the same rule (modelQuirksCatalog.test.ts)
 		const quirks = await import('../../electron-main/modelQuirks/modelQuirksService.js');
 		quirks.__setCatalogForTests({ version: 1, rules: [{ match: 'sonnet-5-5', forcedToolChoiceUnsupported: true, reasoningBoundToModel: true }] });
@@ -330,13 +330,15 @@ suite('aiSdkAdapter — встроенные провайдеры против �
 				messages: [{ role: 'user', content: 'Прочитай файл' }],
 			});
 			const body = requests.find(r => r.path === '/v1/messages')?.body;
-			return { thinking: body?.thinking, outputConfig: body?.output_config, toolChoice: body?.tool_choice };
+			const beta = String(requests.find(r => r.path === '/v1/messages')?.headers['anthropic-beta'] ?? '');
+			return { thinking: body?.thinking, outputConfig: body?.output_config, toolChoice: body?.tool_choice, bindingBeta: beta.includes('thinking-binding') };
 		};
 		try {
 			assert.deepStrictEqual([await turn(false), await turn(true)], [
-				// between_tools takes no block_binding, display or budget: the body replaces the whole thinking object
-				{ thinking: { type: 'between_tools' }, outputConfig: undefined, toolChoice: { type: 'auto' } },
-				{ thinking: { type: 'adaptive', display: 'summarized', block_binding: { prefix_mismatch_behavior: 'drop_block' } }, outputConfig: { effort: 'low' }, toolChoice: { type: 'auto' } },
+				// between_tools takes no block_binding, display or budget: the body replaces the whole thinking object,
+				// the effort is low as in VibeIDEA, and the binding beta is not asked for
+				{ thinking: { type: 'between_tools' }, outputConfig: { effort: 'low' }, toolChoice: { type: 'auto' }, bindingBeta: false },
+				{ thinking: { type: 'adaptive', display: 'summarized', block_binding: { prefix_mismatch_behavior: 'drop_block' } }, outputConfig: { effort: 'low' }, toolChoice: { type: 'auto' }, bindingBeta: true },
 			]);
 		} finally {
 			quirks.__resetForTests();

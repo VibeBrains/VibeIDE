@@ -91,6 +91,7 @@ import { URI } from '../../../../base/common/uri.js';
 import { EndOfLinePreference } from '../../../../editor/common/model.js';
 import { ToolName } from '../common/toolsServiceTypes.js';
 import { IMCPService } from '../common/mcpService.js';
+import { guardReasoningPrefix, reasoningPrefixHeadOf } from '../common/reasoningPrefix.js';
 import { memoryProjectPromptLines, teamMemoryPromptLines } from '../common/vibeMemoryProject.js';
 import { IRepoIndexerService, QueryMetrics } from './repoIndexerService.js';
 import { IVibeDocsGraphService } from './vibeDocsGraphService.js';
@@ -156,6 +157,8 @@ type SimpleLLMMessage = {
 	reasoning?: string;
 	/** Signature of the reasoning behind this turn's tool call — see ChatMessage `thoughtSignature`. */
 	thoughtSignature?: { toolCallId: string; signature: string };
+	/** Fingerprint of the prefix this turn was produced under — see common/reasoningPrefix.ts */
+	reasoningPrefix?: string;
 };
 
 
@@ -1373,7 +1376,11 @@ export interface IConvertToLLMMessageService {
 	/** Build a composition breakdown of the prompt for the selected model (powers the Context Report command). Read-only — sends nothing. */
 	buildContextBreakdown(modelSelection: ModelSelection | null): Promise<ContextBreakdown>;
 	prepareLLMSimpleMessages: (opts: { simpleMessages: SimpleLLMMessage[]; systemMessage: string; modelSelection: ModelSelection | null; featureName: FeatureName }) => { messages: LLMChatMessage[]; separateSystemMessage: string | undefined };
-	prepareLLMChatMessages: (opts: { chatMessages: ChatMessage[]; chatMode: ChatMode; modelSelection: ModelSelection | null; repoIndexerPromise?: Promise<{ results: string[]; metrics: QueryMetrics } | null>; skipContextGuardUpdate?: boolean }) => Promise<{ messages: LLMChatMessage[]; separateSystemMessage: string | undefined; turnContext?: string }>;
+	/**
+	 * `reasoningPrefix` — fingerprint of the prefix the answer to this request is produced under, for Anthropic-shaped
+	 * models; the caller keeps it on the answer so a later request can tell its thinking blocks are still valid
+	 */
+	prepareLLMChatMessages: (opts: { chatMessages: ChatMessage[]; chatMode: ChatMode; modelSelection: ModelSelection | null; repoIndexerPromise?: Promise<{ results: string[]; metrics: QueryMetrics } | null>; skipContextGuardUpdate?: boolean }) => Promise<{ messages: LLMChatMessage[]; separateSystemMessage: string | undefined; turnContext?: string; reasoningPrefix?: string }>;
 	prepareFIMMessage(opts: { messages: LLMFIMMessage; modelSelection: ModelSelection | null; featureName: FeatureName; languageId?: string }): { prefix: string; suffix: string; stopTokens: string[] };
 	startRepoIndexerQuery: (chatMessages: ChatMessage[], chatMode: ChatMode) => Promise<{ results: string[]; metrics: QueryMetrics } | null>;
 	/** Feed back a provider-reported prompt token count so the token-budget estimator can self-calibrate per (provider×model). No-op until a prompt has been built for that model this session. */
@@ -1771,6 +1778,7 @@ class ConvertToLLMMessageService extends Disposable implements IConvertToLLMMess
 					reasoning: m.reasoning || undefined,
 					pinned: m.pinned,
 					...(m.thoughtSignature ? { thoughtSignature: m.thoughtSignature } : {}),
+					...(m.reasoningPrefix ? { reasoningPrefix: m.reasoningPrefix } : {}),
 				});
 			}
 			else if (m.role === 'tool') {
@@ -2004,6 +2012,7 @@ class ConvertToLLMMessageService extends Disposable implements IConvertToLLMMess
 			specialToolFormat,
 			contextWindow,
 			supportsSystemMessage,
+			reasoningCapabilities,
 		} = getModelCapabilities(validProviderName, modelName, overridesOfModel, catalogInfo);
 
 		const { disableSystemMessage } = this.vibeideSettingsService.state.globalSettings;
@@ -2472,7 +2481,9 @@ class ConvertToLLMMessageService extends Disposable implements IConvertToLLMMess
 		// hardCap and the final overflow window are in REAL tokens; our currentTokens is a raw
 		// length/4 estimate. Divide by the calibration factor so the comparison happens in the
 		// same (estimate) space — an under-counting estimator therefore trips the guard sooner.
-		const hardCap = Math.floor((contextWindow * 0.92) / calibrationFactor); // 8% headroom for output/reasoning
+		// 8% headroom for output, but never less than the model's own output reserve: with a 128K reserve on a 1M window
+		// the prompt and max_tokens together would outgrow the window
+		const hardCap = Math.floor(Math.min(contextWindow * 0.92, contextWindow - rot) / calibrationFactor);
 		const TOOL_RESULT_TOKEN_THRESHOLD = 5000;
 		let currentTokens = approximateTotalTokens(llmMessages, systemMessage, aiInstructions);
 
@@ -2580,13 +2591,32 @@ class ConvertToLLMMessageService extends Disposable implements IConvertToLLMMess
 			});
 		}
 
+		// Thinking blocks bound to their prefix: in Sonnet 5.5's «off» mode (`between_tools`) the request cannot ask the vendor
+		// to drop a stale block, so blocks produced under a different prefix are stripped here — see common/reasoningPrefix.ts
+		const supportsAnthropicReasoning = validProviderName === 'anthropic' || specialToolFormat === 'anthropic-style';
+		let reasoningPrefix: string | undefined;
+		if (supportsAnthropicReasoning) {
+			const offPayload = reasoningCapabilities ? reasoningCapabilities.reasoningOffPayload as { thinking?: { type?: unknown } } | undefined : undefined;
+			const unprotected = validProviderName === 'anthropic' && !isReasoningEnabled && offPayload?.thinking?.type === 'between_tools';
+			const head = reasoningPrefixHeadOf({
+				model: modelName,
+				system: systemMessage,
+				instructions: aiInstructions,
+				chatMode,
+				extraTools: this.mcpService.getMCPTools()?.map(tool => tool.name) ?? [],
+			});
+			const guarded = guardReasoningPrefix(llmMessages, head, unprotected);
+			llmMessages = guarded.messages;
+			reasoningPrefix = guarded.prefix;
+		}
+
 		const { messages, separateSystemMessage } = prepareMessages({
 			messages: llmMessages,
 			systemMessage,
 			aiInstructions,
 			supportsSystemMessage,
 			specialToolFormat,
-			supportsAnthropicReasoning: validProviderName === 'anthropic' || specialToolFormat === 'anthropic-style',
+			supportsAnthropicReasoning,
 			contextWindow,
 			reservedOutputTokenSpace,
 			maxInputTokensSafety: this.configurationService.getValue<number>('vibeide.chat.maxInputTokensSafety') ?? 0,
@@ -2739,7 +2769,7 @@ class ConvertToLLMMessageService extends Disposable implements IConvertToLLMMess
 		}
 
 		// Only a block made now is handed back: the caller stores it on the message, the stored ones are already there
-		return { messages, separateSystemMessage, ...(newTurnContext !== undefined ? { turnContext: newTurnContext } : {}) };
+		return { messages, separateSystemMessage, ...(newTurnContext !== undefined ? { turnContext: newTurnContext } : {}), ...(reasoningPrefix ? { reasoningPrefix } : {}) };
 	};
 
 

@@ -1989,7 +1989,14 @@ export const sendViaAISdk = async (params: SendChatParams_Internal): Promise<voi
 	// OpenAI-compatible wire got its share in the body above (`openAICompatExtraBody`).
 	const providerOptions: Record<string, JSONObject> = {};
 	if (anthropicWire && providerName === 'anthropic') {
-		providerOptions.anthropic = claudeThinkingOptions(reasoningInfo, runtimeOptions?.claudeThinkingDisplay ?? DEFAULT_CLAUDE_THINKING_DISPLAY, quirks.reasoningBoundToModel === true);
+		// An «off» that names its own thinking mode (Sonnet 5.5's `between_tools`) refuses `block_binding`: the body replaces
+		// the thinking object anyway, and asking for the binding would only add its beta header
+		providerOptions.anthropic = claudeThinkingOptions(
+			reasoningInfo,
+			runtimeOptions?.claudeThinkingDisplay ?? DEFAULT_CLAUDE_THINKING_DISPLAY,
+			quirks.reasoningBoundToModel === true && !offPayloadForWire,
+			reasoningOff && reasoningCapabilities ? reasoningCapabilities.reasoningOffEffort : undefined,
+		);
 	} else if (anthropicWire && reasoningCapabilities && reasoningCapabilities.supportsReasoning) {
 		// Another route on the same wire (OpenCode Zen, a gateway, a provider from a file): thinking goes when the model
 		// declares reasoning, in the spelling the MODEL takes — adaptive for Claude 5, a token budget for the rest

@@ -15,7 +15,7 @@ suite('wireReasoning — выбор рассуждения по проводам
 
 	ensureNoDisposablesAreLeakedInTestSuite();
 
-	test('Claude: уровень — adaptive с показом, бюджет — enabled, выключено — ничего, привязка — drop_block', () => {
+	test('Claude: уровень — adaptive с показом, бюджет — enabled, выключено — ничего или свой уровень до high, привязка — drop_block', () => {
 		assert.deepStrictEqual([
 			claudeThinkingOptions({ type: 'effort_slider_value', isReasoningEnabled: true, reasoningEffort: 'xhigh' }, 'summarized', false),
 			claudeThinkingOptions({ type: 'effort_slider_value', isReasoningEnabled: true, reasoningEffort: 'max' }, 'updates', true),
@@ -23,6 +23,8 @@ suite('wireReasoning — выбор рассуждения по проводам
 			claudeThinkingOptions({ type: 'budget_slider_value', isReasoningEnabled: true, reasoningBudget: 4096 }, 'summarized', true),
 			claudeThinkingOptions(null, 'summarized', false),
 			claudeThinkingOptions(null, 'summarized', true),
+			claudeThinkingOptions(null, 'summarized', false, 'low'),
+			claudeThinkingOptions(null, 'summarized', false, 'max'),
 		], [
 			{ thinking: { type: 'adaptive', display: 'summarized' }, effort: 'xhigh' },
 			{ thinking: { type: 'adaptive', display: 'updates', blockBinding: { prefixMismatchBehavior: 'drop_block' } }, effort: 'max' },
@@ -31,6 +33,9 @@ suite('wireReasoning — выбор рассуждения по проводам
 			{ thinking: { type: 'enabled', budgetTokens: 4096 } },
 			{},
 			{ thinking: { blockBinding: { prefixMismatchBehavior: 'drop_block' } } },
+			// «Выключено» Sonnet 5.5 несёт уровень low; выше high вендор с between_tools отвергает — не уходит
+			{ effort: 'low' },
+			{},
 		]);
 	});
 

@@ -248,9 +248,10 @@ export type VibeideStaticModelInfo = { // not stateful
 		| { type: 'budget_slider'; min: number; max: number; default: number } // anthropic supports this (reasoning budget)
 		| { type: 'effort_slider'; values: string[]; default: string }; // openai-compatible supports this (reasoning effort)
 		/**
-		 * The effort value that switches reasoning OFF, when the model has one (GPT-6 Sol and Luna: `none`).
+		 * The effort value sent in the «off» position, when the model has one (GPT-6 Sol and Luna: `none`).
 		 * Without it «off» sends no effort at all, and the server applies its own default — which on those
 		 * models is `medium`, so the switch would read off and run on.
+		 * On Anthropic's own wire it rides next to `reasoningOffPayload`: Sonnet 5.5's `between_tools` with effort `low`
 		 */
 		readonly reasoningOffEffort?: string;
 		/**
@@ -939,10 +940,11 @@ const anthropicModelOptions = {
 	// Sonnet 5.5 (2026-09-28, platform.claude.com/docs/en/models/sonnet-5-5/migration-guide): `disabled` answers 400
 	// Its lowest setting is `thinking: {type: "between_tools"}`, which the SDK does not know, so «off» goes in the body
 	// That mode takes no budget, `display` or `block_binding` and only the low…high efforts: the body replaces the whole
-	// `thinking` object, and «off» sends no effort, leaving the vendor default `high`
+	// `thinking` object, and «off» sends effort `low` — the vendor default would be `high`, and VibeIDEA sends `low` too
+	// Output reserve 128K: the vendor maximum, and the vendor tells agentic coding to set `max_tokens` to it
 	'claude-sonnet-5-5': {
 		contextWindow: 1_000_000,
-		reservedOutputTokenSpace: 64_000,
+		reservedOutputTokenSpace: 128_000,
 		cost: { input: 2.00, cache_read: 0.20, cache_write: 2.50, output: 10.00 },
 		downloadable: false,
 		supportsFIM: false,
@@ -952,8 +954,9 @@ const anthropicModelOptions = {
 			supportsReasoning: true,
 			canTurnOffReasoning: true,
 			reasoningOffPayload: { thinking: { type: 'between_tools' } },
+			reasoningOffEffort: 'low',
 			canIOReasoning: true,
-			reasoningReservedOutputTokenSpace: 64_000,
+			reasoningReservedOutputTokenSpace: 128_000,
 			// The vendor default is high, with the levels recalibrated against Sonnet 5
 			reasoningSlider: { type: 'effort_slider', values: ['low', 'medium', 'high', 'xhigh', 'max'], default: 'high' },
 		},

@@ -266,7 +266,7 @@
 			"reasoningBoundToModel": true,
 			"source": "platform.claude.com/docs/en/models/sonnet-5-5/migration-guide",
 			"observedAt": "2026-09-30",
-			"note": "Claude Sonnet 5.5 (28.09.2026): tool_choice any/tool отвечает 400 — «tool_choice: type \"tool\" and \"any\" are not supported for this model», замена — auto. Блоки рассуждения привязаны к модели и к аккаунту: Sonnet 5.5 не читает блоки Opus 5 / 5.5 / Fable / Mythos (API их отбрасывает с 200), а у аккаунтов с 31.08.2026 правка истории перед блоком — 400. «Выключено» — thinking between_tools, это запись каталога, а не квирк. Правило opus-5-5 сюда не попадает. Живьём не проверено — ключа Anthropic нет."
+			"note": "Claude Sonnet 5.5 (28.09.2026): tool_choice any/tool отвечает 400 — «tool_choice: type \"tool\" and \"any\" are not supported for this model», замена — auto. Блоки рассуждения привязаны к модели и к аккаунту: Sonnet 5.5 не читает блоки Opus 5 / 5.5 / Fable / Mythos (API их отбрасывает с 200), а у аккаунтов с 31.08.2026 правка истории перед блоком — 400. «Выключено» — thinking between_tools с усилием low, это запись каталога, а не квирк; в этом режиме block_binding не принимается, поэтому блоки, рождённые под другим префиксом, срезаются перед отправкой (common/reasoningPrefix.ts). Правило opus-5-5 сюда не попадает. Живьём не проверено — ключа Anthropic нет."
 		},
 		{
 			"match": "claude-opus-5",
