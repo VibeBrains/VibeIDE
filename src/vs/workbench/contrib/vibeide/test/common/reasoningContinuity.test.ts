@@ -16,7 +16,7 @@ import { reasoningLostOnSwitch } from '../../common/reasoningContinuity.js';
 suite('reasoning continuity', () => {
 	ensureNoDisposablesAreLeakedInTestSuite();
 
-	const bound = (model: string) => model.includes('fable') || model.includes('mythos');
+	const bound = (model: string) => /fable|mythos|opus-5-5|sonnet-5-5/.test(model);
 
 	test('switching away from a model-bound family loses the reasoning', () => {
 		assert.strictEqual(
@@ -38,6 +38,25 @@ suite('reasoning continuity', () => {
 			reasoningLostOnSwitch({ fromModel: 'claude-opus-5', toModel: 'minimax-m3', reasoningBoundToModel: bound }),
 			false,
 		);
+	});
+
+	/**
+	 * The vendor names pairs whose blocks the next model reads: Opus 5.5 → Fable or Mythos 5.1, and Sonnet 5.5 → Opus 5.5 on the
+	 * Claude API only. The blocks are bound to the account too, so another provider loses them
+	 */
+	test('pairs the vendor names as readable keep the reasoning, on the same provider only', () => {
+		const lost = (fromModel: string, toModel: string, fromProvider?: string, toProvider?: string) =>
+			reasoningLostOnSwitch({ fromModel, toModel, fromProvider, toProvider, reasoningBoundToModel: bound });
+		assert.deepStrictEqual([
+			lost('claude-opus-5-5', 'claude-fable-5-1', 'anthropic', 'anthropic'),
+			lost('claude-opus-5-5', 'claude-mythos-5-1'),
+			lost('claude-opus-5-5', 'claude-opus-5'),
+			lost('claude-sonnet-5-5', 'claude-opus-5-5', 'anthropic', 'anthropic'),
+			lost('claude-sonnet-5-5', 'claude-opus-5-5', 'openRouter', 'openRouter'),
+			lost('claude-sonnet-5-5', 'claude-opus-5-5'),
+			lost('claude-opus-5-5', 'claude-fable-5-1', 'anthropic', 'openRouter'),
+			lost('claude-fable-5-1', 'claude-opus-5-5', 'anthropic', 'anthropic'),
+		], [false, false, true, false, true, true, true, true]);
 	});
 
 	/** Same model on a new provider keeps everything — warning there would be noise. */

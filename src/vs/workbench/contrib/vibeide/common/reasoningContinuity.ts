@@ -15,6 +15,8 @@
  * The verdict comes from the quirks catalogue rather than a list of model names here — which family
  * behaves this way is an observation about a vendor, and observations belong in the catalogue where
  * they carry a source and a date.
+ * The exceptions below are the one part kept here: they are pairs of models, not a property of one,
+ * and the catalogue has no field for a pair
  */
 
 export interface ReasoningContinuityInput {
@@ -24,19 +26,44 @@ export interface ReasoningContinuityInput {
 	readonly toModel: string;
 	/** Does the model's quirk entry mark its reasoning as model-bound? */
 	readonly reasoningBoundToModel: (model: string) => boolean;
+	/** Provider the conversation has been running on, when known */
+	readonly fromProvider?: string;
+	/** Provider it is about to continue on, when known */
+	readonly toProvider?: string;
+}
+
+/**
+ * Switches the vendor names as readable despite the binding: the next model reads the earlier blocks
+ * The blocks are also bound to the account, so a pair holds only when the provider stays the same
+ */
+const READABLE_SWITCHES: readonly { readonly from: RegExp; readonly to: RegExp; readonly onlyOn?: string }[] = [
+	// «Opus 5.5 thinking blocks are readable by Claude Fable 5.1 and Claude Mythos 5.1»
+	// (platform.claude.com/docs/en/models/opus-5-5/migration-guide, checked 01.10.2026)
+	{ from: /opus-?5[-.]5/i, to: /(fable|mythos)-?5[-.]1/i },
+	// Opus 5.5 reads Sonnet 5.5 blocks on the Claude API only (platform.claude.com/docs/en/models/sonnet-5-5/migration-guide)
+	{ from: /sonnet-?5[-.]5/i, to: /opus-?5[-.]5/i, onlyOn: 'anthropic' },
+];
+
+function readableSwitch(input: ReasoningContinuityInput): boolean {
+	const { fromModel, toModel, fromProvider, toProvider } = input;
+	if (fromProvider && toProvider && fromProvider !== toProvider) {
+		return false;
+	}
+	return READABLE_SWITCHES.some(pair => pair.from.test(fromModel) && pair.to.test(toModel)
+		&& (!pair.onlyOn || (fromProvider === pair.onlyOn && toProvider === pair.onlyOn)));
 }
 
 /**
  * True when continuing on `toModel` silently discards `fromModel`'s reasoning.
  *
  * A switch to the same model keeps everything, so it is never a loss. A switch away from a
- * model-bound family always is — including a switch to another model of that same family, because
- * the binding is to the model, not the vendor.
+ * model-bound family is — including a switch to another model of that same family, because
+ * the binding is to the model, not the vendor — unless the vendor names the pair as readable.
  */
 export function reasoningLostOnSwitch(input: ReasoningContinuityInput): boolean {
 	const { fromModel, toModel, reasoningBoundToModel } = input;
 	if (!fromModel || !toModel || fromModel === toModel) {
 		return false;
 	}
-	return reasoningBoundToModel(fromModel);
+	return reasoningBoundToModel(fromModel) && !readableSwitch(input);
 }

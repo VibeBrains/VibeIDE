@@ -149,7 +149,8 @@ export class VibeProviderFailoverContribution extends Disposable implements IWor
 				return;
 			}
 			const bound = await this._quirks.isReasoningBoundToModel(fromModel, fromProvider);
-			if (!reasoningLostOnSwitch({ fromModel, toModel: `${toProvider}:*`, reasoningBoundToModel: () => bound })) {
+			// Failover changes the provider and keeps no model of its own choosing, so the target model is unknown
+			if (!reasoningLostOnSwitch({ fromModel, toModel: `${toProvider}:*`, fromProvider, toProvider, reasoningBoundToModel: () => bound })) {
 				return;
 			}
 			this._notifications.notify({
