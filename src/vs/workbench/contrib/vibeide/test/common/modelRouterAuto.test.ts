@@ -7,10 +7,11 @@ import * as assert from 'assert';
 import { Event } from '../../../../../base/common/event.js';
 import { DisposableStore } from '../../../../../base/common/lifecycle.js';
 import { ensureNoDisposablesAreLeakedInTestSuite } from '../../../../../base/test/common/utils.js';
-import { InMemoryStorageService } from '../../../../../platform/storage/common/storage.js';
+import { InMemoryStorageService, StorageScope, StorageTarget } from '../../../../../platform/storage/common/storage.js';
 import { autoFallbackCandidates, RoutingDecision, TaskAwareModelRouter, TaskContext } from '../../common/modelRouter.js';
+import { RoutingEvaluationService } from '../../common/routingEvaluation.js';
 import { IVibeideSettingsService, VibeideSettingsState } from '../../common/vibeideSettingsService.js';
-import { defaultGlobalSettings, defaultSettingsOfProvider } from '../../common/vibeideSettingsTypes.js';
+import { defaultGlobalSettings, defaultSettingsOfProvider, ModelSelection } from '../../common/vibeideSettingsTypes.js';
 
 /**
  * «Авто» отвечает моделью, которую взвешивание поставило первой
@@ -111,5 +112,75 @@ suite('«Авто»: отвечает лучшая по весу модель, �
 			candidates: ranking(decision),
 			abstained: [],
 		});
+	});
+});
+
+/**
+ * Обученная часть веса слышит только исходы, которым ход вынес вердикт
+ * Решение без вердикта (ход прервали, запись из старых версий) модель не наказывает
+ * Нейтральный априор весом в четыре исхода не даёт одной ошибке обнулить свежую модель
+ */
+suite('«Авто»: обученная часть веса считает только оценённые исходы', () => {
+
+	const store = ensureNoDisposablesAreLeakedInTestSuite();
+
+	const sonnet: ModelSelection = { providerName: 'anthropic', modelName: 'claude-sonnet-5' };
+	const outcomesKey = 'vibeide.routing.outcomes';
+
+	function createJournal(storedOutcomes?: unknown[]): RoutingEvaluationService {
+		const storage = store.add(new InMemoryStorageService());
+		if (storedOutcomes) {
+			storage.store(outcomesKey, JSON.stringify(storedOutcomes), StorageScope.APPLICATION, StorageTarget.MACHINE);
+		}
+		return new RoutingEvaluationService(storage);
+	}
+
+	test('записи старых версий без вердикта и свежие решения без вердикта — нейтральные 0.5', () => {
+		const legacy = createJournal(Array.from({ length: 5 }, (_, index) => ({ timestamp: index, modelSelection: sonnet, taskType: 'code', confidence: 0.9 })));
+		const fresh = createJournal();
+		fresh.recordOutcome({ id: 'a', timestamp: 1, modelSelection: sonnet, taskType: 'code', confidence: 0.9 });
+		assert.deepStrictEqual([legacy.getModelSuccessRate(sonnet), fresh.getModelSuccessRate(sonnet)], [0.5, 0.5]);
+	});
+
+	test('вердикт находит исход по ключу, первый вердикт окончательный, одна ошибка не обнуляет модель', () => {
+		const journal = createJournal();
+		const rates: number[] = [];
+		journal.recordOutcome({ id: 'a', timestamp: 1, modelSelection: sonnet, taskType: 'code', confidence: 0.9 });
+		journal.recordOutcome({ id: 'b', timestamp: 1, modelSelection: sonnet, taskType: 'code', confidence: 0.9 });
+		journal.updateOutcome('a', { success: false, escalated: true });
+		rates.push(journal.getModelSuccessRate(sonnet));
+		journal.updateOutcome('a', { success: true });
+		journal.updateOutcome('missing', { success: true });
+		rates.push(journal.getModelSuccessRate(sonnet));
+		journal.updateOutcome('b', { success: true });
+		rates.push(journal.getModelSuccessRate(sonnet));
+		assert.deepStrictEqual(rates, [0.4, 0.4, 0.5]);
+	});
+
+	test('решение роутера несёт ключ исхода, и решение из кэша получает свой', async () => {
+		const disposables = store.add(new DisposableStore());
+		const state = {
+			settingsOfProvider: {
+				openAI: {
+					...defaultSettingsOfProvider.openAI,
+					apiKey: 'k',
+					_didFillInProviderSettings: true,
+					models: ['gpt-5', 'gpt-5-mini'].map(modelName => ({ modelName, type: 'default', isHidden: false })),
+				},
+			},
+			overridesOfModel: {},
+			globalSettings: defaultGlobalSettings,
+		} as unknown as VibeideSettingsState;
+		const settings = { state, onDidChangeState: Event.None } as unknown as IVibeideSettingsService;
+		const router = disposables.add(new TaskAwareModelRouter(settings, disposables.add(new InMemoryStorageService())));
+		const context: TaskContext = { taskType: 'general', requiresComplexReasoning: true };
+		const first = await router.route(context);
+		const cached = await router.route(context);
+		assert.deepStrictEqual({
+			firstHasId: typeof first.outcomeId === 'string',
+			cachedHasId: typeof cached.outcomeId === 'string',
+			distinct: first.outcomeId !== cached.outcomeId,
+			sameModel: cached.modelSelection.modelName === first.modelSelection.modelName,
+		}, { firstHasId: true, cachedHasId: true, distinct: true, sameModel: true });
 	});
 });

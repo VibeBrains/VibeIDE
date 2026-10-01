@@ -61,3 +61,20 @@ export function pinnedAutoModel(pin: AutoModelPin | undefined, situation: AutoMo
 	}
 	return pin.selection;
 }
+
+/**
+ * The pin after «Авто» switched to a fallback model and that model answered, or `undefined` to keep the pin
+ *
+ * The answering model takes the pin: the pinned one has just failed, and the prompt cache now lives with the new one
+ * The conditions are those of the current message, so the usual revisit rules keep working from here on
+ */
+export function pinAfterFallback(pin: AutoModelPin | undefined, answered: AutoModelPin): AutoModelPin | undefined {
+	if (pin
+		&& pin.selection.providerName === answered.selection.providerName
+		&& pin.selection.modelName === answered.selection.modelName
+		&& pin.chatMode === answered.chatMode
+		&& pin.vision === answered.vision) {
+		return undefined;
+	}
+	return answered;
+}

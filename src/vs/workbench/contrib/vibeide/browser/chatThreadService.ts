@@ -39,7 +39,8 @@ import { translateProviderError } from '../common/providerErrorTranslator.js';
 import { generateUuid } from '../../../../base/common/uuid.js';
 import { autoFallbackProviderIds, ChatMode, FeatureName, ModelSelection, ModelSelectionOptions, ProviderName } from '../common/vibeideSettingsTypes.js';
 import { isModelVisionCapable } from '../common/modelVisionHeuristics.js';
-import { AutoModelPin, pinnedAutoModel } from '../common/autoModelStickiness.js';
+import { AutoModelPin, pinAfterFallback, pinnedAutoModel } from '../common/autoModelStickiness.js';
+import { RoutingVerdict } from '../common/routingEvaluation.js';
 import { detectVisionDropResponse } from '../common/visionDropDetector.js';
 import { IVibeideSettingsService } from '../common/vibeideSettingsService.js';
 import { BuiltinToolCallParams, BuiltinToolResultType, TerminalResolveReason, ToolCallParams, ToolName, ToolResult } from '../common/toolsServiceTypes.js';
@@ -601,6 +602,8 @@ type AutoModelChoice = {
 	 * Absent when the router was not asked: the run ranks on its first error with the same task context
 	 */
 	readonly fallbackRanking?: readonly ModelSelection[];
+	/** Journal entry of the router's decision, settled with the verdict of the turn; absent when the router was not asked */
+	readonly outcomeId?: string;
 };
 
 
@@ -1787,7 +1790,11 @@ class ChatThreadService extends Disposable implements IChatThreadService {
 				}
 			}
 
-			return { selection: routingDecision.modelSelection, fallbackRanking: autoFallbackCandidates(routingDecision) };
+			return {
+				selection: routingDecision.modelSelection,
+				fallbackRanking: autoFallbackCandidates(routingDecision),
+				outcomeId: routingDecision.outcomeId,
+			};
 		} catch (error) {
 			vibeLog.error('chatThread', '[Auto Model Select] Error:', error);
 			// Fall back to user's manual selection or null
@@ -1818,6 +1825,49 @@ class ChatThreadService extends Disposable implements IChatThreadService {
 				[threadId]: { ...thread, state: { ...thread.state, autoModelPin: pin } },
 			},
 		});
+	}
+
+	/** The pin «Авто» would record for this model under the current chat mode */
+	private _autoModelPinOf(selection: ModelSelection): AutoModelPin {
+		// Vision is recorded WITH the pin: an attachment in a later message must be able to
+		// tell «the pinned model cannot read this» without re-deriving capabilities then
+		const capabilities = getModelCapabilities(selection.providerName, selection.modelName, this._settingsService.state.overridesOfModel);
+		return {
+			selection,
+			chatMode: this._settingsService.state.globalSettings.chatMode,
+			vision: this._isModelVisionCapable(selection, capabilities),
+		};
+	}
+
+	/**
+	 * The model «Авто» answers this thread's message with: the thread's pin while it holds, else the router
+	 * One path for a new message and for a continued turn, so neither can bypass the pin or the router
+	 */
+	private async _chooseAutoModelForThread(
+		threadId: string,
+		userMessage: string,
+		images?: ChatImageAttachment[],
+		pdfs?: ChatPDFAttachment[]
+	): Promise<AutoModelChoice | null> {
+		// Липкость: пока условия выбора не изменились, разговор остаётся на той же модели —
+		// иначе каждое сообщение роняет кэш промпта предыдущей и меняет голос ответов.
+		const needsVision = !!(images && images.length > 0) || !!(pdfs && pdfs.length > 0);
+		const pinned = pinnedAutoModel(this.state.allThreads[threadId]?.state.autoModelPin, {
+			chatMode: this._settingsService.state.globalSettings.chatMode,
+			needsVision,
+			isAvailable: selection => this._settingsService.state._modelOptions.some(option =>
+				option.selection.providerName === selection.providerName && option.selection.modelName === selection.modelName),
+			isRetired: selection => retiredForAutoPick(getModelCapabilities(selection.providerName, selection.modelName, this._settingsService.state.overridesOfModel), Date.now()),
+		});
+		if (pinned) {
+			vibeLog.info('chatThread', `[Auto Model Select] source=pinned ${pinned.providerName}/${pinned.modelName} — разговор остаётся на выбранной ранее модели`);
+			return { selection: pinned };
+		}
+		const choice = await this._autoSelectModel(userMessage, images, pdfs);
+		if (choice) {
+			this._setThreadAutoModelPin(threadId, this._autoModelPinOf(choice.selection));
+		}
+		return choice;
 	}
 
 	private _isModelVisionCapable(modelSelection: ModelSelection, capabilities: { supportsVision?: boolean } | undefined): boolean {
@@ -5141,6 +5191,7 @@ Output ONLY the JSON, no other text. Start with { and end with }.`;
 		isAutoMode,
 		repoIndexerPromise,
 		fallbackRanking,
+		routingOutcomeId,
 	}: {
 		threadId: string;
 		modelSelection: ModelSelection | null;
@@ -5151,6 +5202,8 @@ Output ONLY the JSON, no other text. Start with { and end with }.`;
 		repoIndexerPromise?: Promise<{ results: string[]; metrics: QueryMetrics } | null>;
 		/** «Авто»: the router's ranking that chose this run's model; absent when the router was not asked */
 		fallbackRanking?: readonly ModelSelection[];
+		/** «Авто»: journal entry of the router's decision for this run's model; absent when the router was not asked */
+		routingOutcomeId?: string;
 	}) {
 
 		// Concurrency guard: ONE agent loop per thread. Observed (2026-06-07): a hard-stall
@@ -5243,6 +5296,20 @@ Output ONLY the JSON, no other text. Start with { and end with }.`;
 					error: { message: localize('vibeide.agent.blockedByBreaker.error', 'Агент не запущен: сработал защитный предохранитель'), fullError: null },
 				});
 				return;
+			}
+		}
+
+		// A continued turn (tool approval, «продолжи», automatic retries) arrives with the bare «Авто» setting
+		// It chooses the way a new message does — the thread's pin, else the router — and not by the first model on the list
+		if (modelSelection && modelSelection.providerName === 'auto' && modelSelection.modelName === 'auto') {
+			const lastUserMessage = findLast(this.state.allThreads[threadId]?.messages ?? [], message => message.role === 'user' && !message.isSyntheticNudge);
+			const choice = lastUserMessage?.role === 'user'
+				? await this._chooseAutoModelForThread(threadId, lastUserMessage.content, lastUserMessage.images, lastUserMessage.pdfs)
+				: null;
+			if (choice) {
+				modelSelection = choice.selection;
+				fallbackRanking = choice.fallbackRanking;
+				routingOutcomeId = choice.outcomeId;
 			}
 		}
 
@@ -6161,6 +6228,18 @@ Output ONLY the JSON, no other text. Start with { and end with }.`;
 			let _retryLastTextLen = 0;
 			// «Авто»: models to switch to when the current one fails with an error, best first
 			let autoFallbackRanking = fallbackRanking;
+			// «Авто»: the router's journal entry waits for the first verdict on the model it chose
+			// A per-file routing rule may have replaced that model, and its verdict would be misattributed
+			let pendingRoutingOutcomeId = modelSelection && resolvedModelSelection.providerName === modelSelection.providerName
+				&& resolvedModelSelection.modelName === modelSelection.modelName ? routingOutcomeId : undefined;
+			const settleRouting = (verdict: RoutingVerdict) => {
+				if (pendingRoutingOutcomeId) {
+					this._modelRouter.reportOutcome(pendingRoutingOutcomeId, verdict);
+					pendingRoutingOutcomeId = undefined;
+				}
+			};
+			// «Авто» switched to a fallback model in this run; once it answers, it takes the thread's pin
+			let answeringAfterFallback = false;
 			// Track if we're in auto mode (user selected "auto")
 			const isAutoMode = !modelSelection || (modelSelection.providerName === 'auto' && modelSelection.modelName === 'auto') ||
 				(this._settingsService.state.modelSelectionOfFeature['Chat']?.providerName === 'auto' &&
@@ -7283,6 +7362,8 @@ Output ONLY the JSON, no other text. Start with { and end with }.`;
 								// Fall through to show error
 							} else {
 								vibeLog.info('chatThread', `[ChatThreadService] Auto mode: Model ${modelSelection?.providerName}/${modelSelection?.modelName} failed, trying fallback: ${nextModel.providerName}/${nextModel.modelName}`);
+								settleRouting({ success: false, escalated: true });
+								answeringAfterFallback = true;
 								modelSelection = nextModel;
 								// Update resolvedModelSelection and options for next iteration
 								resolvedModelSelection = nextModel;
@@ -7357,6 +7438,7 @@ Output ONLY the JSON, no other text. Start with { and end with }.`;
 					}
 					// error, but too many attempts or no fallback available in auto mode
 					else {
+						settleRouting({ success: false });
 						const { displayContentSoFar, reasoningSoFar, toolCallSoFar } = this.streamState[threadId].llmInfo;
 						this._addMessageToThread(threadId, { role: 'assistant', displayContent: displayContentSoFar, reasoning: reasoningSoFar, anthropicReasoning: null });
 						if (toolCallSoFar) { this._addMessageToThread(threadId, { role: 'interrupted_streaming_tool', name: toolCallSoFar.name, mcpServerName: this._computeMCPServerOfToolName(toolCallSoFar.name) }); }
@@ -7364,6 +7446,17 @@ Output ONLY the JSON, no other text. Start with { and end with }.`;
 						this._setStreamState(threadId, { isRunning: undefined, error });
 						await this._addUserCheckpoint({ threadId });
 						return;
+					}
+				}
+
+				// The model answered: settle the router's verdict, and a fallback that answered takes the pin
+				settleRouting({ success: true });
+				if (answeringAfterFallback) {
+					answeringAfterFallback = false;
+					const repinned = pinAfterFallback(this.state.allThreads[threadId]?.state.autoModelPin, this._autoModelPinOf(resolvedModelSelection));
+					if (repinned) {
+						vibeLog.info('chatThread', `[Auto Model Select] закрепление перешло на ответившую запасную модель ${repinned.selection.providerName}/${repinned.selection.modelName}`);
+						this._setThreadAutoModelPin(threadId, repinned);
 					}
 				}
 
@@ -9660,6 +9753,7 @@ We only need to do it for files that were edited since `from`, ie files between 
 		const earlyRequestId = isAutoMode ? generateUuid() : undefined;
 		let modelSelection: ModelSelection | null;
 		let fallbackRanking: readonly ModelSelection[] | undefined;
+		let routingOutcomeId: string | undefined;
 
 		// PERFORMANCE: Start prompt prep in parallel with router decision for auto mode
 		// This can save 50-200ms by doing work that doesn't need model selection
@@ -9685,21 +9779,8 @@ We only need to do it for files that were edited since `from`, ie files between 
 			// Start router decision and repo indexer query in parallel
 			// PERFORMANCE: Repo indexer query doesn't need model selection - start it early
 			//
-			// Липкость: пока условия выбора не изменились, разговор остаётся на той же модели —
-			// иначе каждое сообщение роняет кэш промпта предыдущей и меняет голос ответов.
-			const pinnedThread = this.state.allThreads[threadId];
-			const needsVision = !!(images && images.length > 0) || !!(pdfs && pdfs.length > 0);
-			const pinned = pinnedAutoModel(pinnedThread?.state.autoModelPin, {
-				chatMode: this._settingsService.state.globalSettings.chatMode,
-				needsVision,
-				isAvailable: selection => this._settingsService.state._modelOptions.some(option =>
-					option.selection.providerName === selection.providerName && option.selection.modelName === selection.modelName),
-				isRetired: selection => retiredForAutoPick(getModelCapabilities(selection.providerName, selection.modelName, this._settingsService.state.overridesOfModel), Date.now()),
-			});
-			if (pinned) {
-				vibeLog.info('chatThread', `[Auto Model Select] source=pinned ${pinned.providerName}/${pinned.modelName} — разговор остаётся на выбранной ранее модели`);
-			}
-			const routerPromise: Promise<AutoModelChoice | null> = pinned ? Promise.resolve({ selection: pinned }) : this._autoSelectModel(instructions, images, pdfs);
+			// The pin or the router — the same choice a continued turn makes
+			const routerPromise = this._chooseAutoModelForThread(threadId, instructions, images, pdfs);
 			const thread = this.state.allThreads[threadId];
 			const chatMessages = thread?.messages ?? [];
 			const { chatMode } = this._settingsService.state.globalSettings;
@@ -9713,17 +9794,7 @@ We only need to do it for files that were edited since `from`, ie files between 
 			const autoSelectedModel = autoChoice?.selection ?? null;
 			modelSelection = autoSelectedModel;
 			fallbackRanking = autoChoice?.fallbackRanking;
-			if (autoSelectedModel && !pinned) {
-				// Vision is recorded WITH the pin: an attachment in a later message must be able to
-				// tell «the pinned model cannot read this» without re-deriving capabilities then.
-				const { getModelCapabilities } = await import('../common/modelCapabilities.js');
-				const capabilities = getModelCapabilities(autoSelectedModel.providerName, autoSelectedModel.modelName, this._settingsService.state.overridesOfModel);
-				this._setThreadAutoModelPin(threadId, {
-					selection: autoSelectedModel,
-					chatMode: this._settingsService.state.globalSettings.chatMode,
-					vision: this._isModelVisionCapable(autoSelectedModel, capabilities),
-				});
-			}
+			routingOutcomeId = autoChoice?.outcomeId;
 
 			// CRITICAL: If auto selection failed, we need a fallback to prevent null modelSelection
 			// This ensures we never send empty messages to the API (which causes "invalid message format" error)
@@ -9801,7 +9872,7 @@ We only need to do it for files that were edited since `from`, ie files between 
 
 		// Pass earlyRequestId, isAutoMode, and repoIndexerPromise to _runChatAgent for latency tracking
 		this._wrapRunAgentToNotify(
-			this._runChatAgent({ threadId, modelSelection, modelSelectionOptions, earlyRequestId, isAutoMode, repoIndexerPromise, fallbackRanking }),
+			this._runChatAgent({ threadId, modelSelection, modelSelectionOptions, earlyRequestId, isAutoMode, repoIndexerPromise, fallbackRanking, routingOutcomeId }),
 			threadId,
 		);
 

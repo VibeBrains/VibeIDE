@@ -11,12 +11,21 @@ import { IStorageService, StorageScope, StorageTarget } from '../../../../platfo
  * Routing outcome tracking for evaluation loop
  */
 export interface RoutingOutcome {
+	/**
+	 * Key the verdict of the turn finds this outcome by
+	 * Absent in records written before verdicts existed: those stay unrated forever
+	 */
+	id?: string;
 	timestamp: number;
 	modelSelection: ModelSelection;
 	taskType: string;
 	confidence: number;
 	latencyMs?: number;
-	success?: boolean; // true if user accepted/applied, false if rejected/undone
+	/**
+	 * Verdict of the turn: true when the model answered, false when it failed and «Авто» moved on
+	 * Absent until the turn settles — an unrated outcome says nothing about the model
+	 */
+	success?: boolean;
 	escalated?: boolean; // true if escalated to another model
 	timedOut?: boolean; // true if request timed out
 	retryCount?: number; // number of retries
@@ -28,7 +37,7 @@ export interface RoutingOutcome {
  */
 export interface RoutingQualityReport {
 	totalRequests: number;
-	winRate: number; // percentage of successful routings
+	winRate: number; // share of successful routings among rated ones
 	avgLatency: number; // average latency in ms
 	escalationRate: number; // percentage of requests that escalated
 	timeoutRate: number; // percentage of requests that timed out
@@ -39,6 +48,30 @@ export interface RoutingQualityReport {
 		avgLatency: number;
 	}>;
 	recentChanges: RoutingOutcome[]; // last 20 outcomes
+}
+
+/** How many recent rated outcomes of a model its success rate is computed over */
+const SUCCESS_RATE_WINDOW = 100;
+
+/** Success rate of a model nobody has rated yet: neither rewards nor punishes it */
+const NEUTRAL_SUCCESS_RATE = 0.5;
+
+/**
+ * Weight of the neutral prior in pseudo-outcomes
+ * A Bayesian average: one failure moves a fresh model from 0.5 to 0.4, not to 0,
+ * And the prior fades as real verdicts accumulate
+ */
+const SUCCESS_PRIOR_WEIGHT = 4;
+
+/** What the turn tells about the model the router chose */
+export interface RoutingVerdict {
+	readonly success: boolean;
+	readonly escalated?: boolean;
+	readonly timedOut?: boolean;
+}
+
+function modelKeyOf(modelSelection: ModelSelection): string {
+	return `${modelSelection.providerName}:${modelSelection.modelName}`;
 }
 
 /**
@@ -71,14 +104,16 @@ export class RoutingEvaluationService {
 	}
 
 	/**
-	 * Update an existing outcome (e.g., when user accepts/rejects)
+	 * Settle the outcome recorded under this id with the verdict of its turn
+	 * The first verdict wins: a later one for the same turn would rate the fallback model under the routed one
 	 */
-	updateOutcome(timestamp: number, updates: Partial<RoutingOutcome>): void {
-		const index = this.outcomes.findIndex(o => o.timestamp === timestamp);
-		if (index !== -1) {
-			this.outcomes[index] = { ...this.outcomes[index], ...updates };
-			this.saveOutcomes();
+	updateOutcome(id: string, verdict: RoutingVerdict): void {
+		const index = this.outcomes.findIndex(o => o.id === id);
+		if (index === -1 || this.outcomes[index].success !== undefined) {
+			return;
 		}
+		this.outcomes[index] = { ...this.outcomes[index], ...verdict };
+		this.saveOutcomes();
 	}
 
 	/**
@@ -100,7 +135,8 @@ export class RoutingEvaluationService {
 			};
 		}
 
-		const successful = recent.filter(o => o.success === true).length;
+		const rated = recent.filter(o => o.success !== undefined);
+		const successful = rated.filter(o => o.success === true).length;
 		const escalated = recent.filter(o => o.escalated === true).length;
 		const timedOut = recent.filter(o => o.timedOut === true).length;
 		const retried = recent.filter(o => (o.retryCount ?? 0) > 0).length;
@@ -111,11 +147,12 @@ export class RoutingEvaluationService {
 			: 0;
 
 		// Model performance map
-		const modelPerf = new Map<string, { count: number; successes: number; latencies: number[] }>();
+		const modelPerf = new Map<string, { count: number; rated: number; successes: number; latencies: number[] }>();
 		for (const outcome of recent) {
-			const key = `${outcome.modelSelection.providerName}:${outcome.modelSelection.modelName}`;
-			const existing = modelPerf.get(key) || { count: 0, successes: 0, latencies: [] as number[] };
+			const key = modelKeyOf(outcome.modelSelection);
+			const existing = modelPerf.get(key) || { count: 0, rated: 0, successes: 0, latencies: [] as number[] };
 			existing.count++;
+			if (outcome.success !== undefined) { existing.rated++; }
 			if (outcome.success === true) { existing.successes++; }
 			if (outcome.latencyMs !== undefined) { existing.latencies.push(outcome.latencyMs); }
 			modelPerf.set(key, existing);
@@ -126,7 +163,7 @@ export class RoutingEvaluationService {
 		for (const [key, data] of modelPerf.entries()) {
 			modelPerformance.set(key, {
 				count: data.count,
-				successRate: data.count > 0 ? data.successes / data.count : 0,
+				successRate: data.rated > 0 ? data.successes / data.rated : 0,
 				avgLatency: data.latencies.length > 0
 					? data.latencies.reduce((a, b) => a + b, 0) / data.latencies.length
 					: 0,
@@ -135,7 +172,7 @@ export class RoutingEvaluationService {
 
 		return {
 			totalRequests: recent.length,
-			winRate: successful / recent.length,
+			winRate: rated.length > 0 ? successful / rated.length : 0,
 			avgLatency,
 			escalationRate: escalated / recent.length,
 			timeoutRate: timedOut / recent.length,
@@ -146,19 +183,16 @@ export class RoutingEvaluationService {
 	}
 
 	/**
-	 * Get success rate for a specific model
+	 * Success rate of a model over its recent rated outcomes, pulled toward neutral by a prior
+	 * Unrated outcomes do not count: a decision whose turn never reported back is not a failure
 	 */
 	getModelSuccessRate(modelSelection: ModelSelection): number {
-		const key = `${modelSelection.providerName}:${modelSelection.modelName}`;
-		const recent = this.outcomes.slice(-100);
-		const modelOutcomes = recent.filter(o =>
-			`${o.modelSelection.providerName}:${o.modelSelection.modelName}` === key
-		);
-
-		if (modelOutcomes.length === 0) { return 0.5; } // Default to neutral if no data
-
-		const successful = modelOutcomes.filter(o => o.success === true).length;
-		return successful / modelOutcomes.length;
+		const key = modelKeyOf(modelSelection);
+		const rated = this.outcomes
+			.filter(o => o.success !== undefined && modelKeyOf(o.modelSelection) === key)
+			.slice(-SUCCESS_RATE_WINDOW);
+		const successes = rated.filter(o => o.success === true).length;
+		return (successes + NEUTRAL_SUCCESS_RATE * SUCCESS_PRIOR_WEIGHT) / (rated.length + SUCCESS_PRIOR_WEIGHT);
 	}
 
 	private loadOutcomes(): void {

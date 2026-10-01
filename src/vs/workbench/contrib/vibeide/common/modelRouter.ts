@@ -13,7 +13,8 @@ import { IVibeideSettingsService, VibeideSettingsState } from './vibeideSettings
 import { Disposable } from '../../../../base/common/lifecycle.js';
 import { createDecorator } from '../../../../platform/instantiation/common/instantiation.js';
 import { registerSingleton, InstantiationType } from '../../../../platform/instantiation/common/extensions.js';
-import { RoutingEvaluationService } from './routingEvaluation.js';
+import { RoutingEvaluationService, RoutingVerdict } from './routingEvaluation.js';
+import { generateUuid } from '../../../../base/common/uuid.js';
 import { IStorageService } from '../../../../platform/storage/common/storage.js';
 import { getPerformanceHarness } from './performanceHarness.js';
 
@@ -125,6 +126,11 @@ export interface RoutingDecision {
 	shouldAbstain?: boolean; // true if should ask for clarification
 	abstainReason?: string; // reason for abstaining
 	timeoutMs?: number; // per-model timeout in milliseconds
+	/**
+	 * Key of the outcome journal entry this decision was recorded under
+	 * The turn reports its verdict by it, so the learned score sees what came of the choice
+	 */
+	outcomeId?: string;
 }
 
 /** How many runners-up a scored decision keeps for the error fallback */
@@ -151,6 +157,8 @@ export interface ITaskAwareModelRouter {
 	route(context: TaskContext): Promise<RoutingDecision>;
 	getQualityReport(): import('./routingEvaluation.js').RoutingQualityReport;
 	getRoutingExplanation(context: TaskContext): Promise<string>;
+	/** Settle the journal entry of a decision with what came of its turn */
+	reportOutcome(outcomeId: string, verdict: RoutingVerdict): void;
 }
 
 export const ITaskAwareModelRouter = createDecorator<ITaskAwareModelRouter>('TaskAwareModelRouter');
@@ -248,6 +256,10 @@ export class TaskAwareModelRouter extends Disposable implements ITaskAwareModelR
 			if (perfSettings?.enable) {
 				const harness = getPerformanceHarness(true);
 				harness.recordRouter(performance.now() - startTime, true);
+			}
+			// A cached decision serves a new turn: it gets its own journal entry, or two verdicts would fight over one
+			if (cached.decision.outcomeId) {
+				return { ...cached.decision, outcomeId: this.recordDecision(cached.decision.modelSelection, context.taskType, cached.decision.confidence) };
 			}
 			return cached.decision;
 		}
@@ -470,14 +482,17 @@ export class TaskAwareModelRouter extends Disposable implements ITaskAwareModelR
 			// Very high confidence - use it immediately without further processing
 			const best = scored[0];
 			const timeoutMs = this.getModelTimeout(best.model, context, settingsState);
+			const confidence = Math.min(1.0, best.score / 100);
+			// Journaled like the full path: the learned score weighs this choice too, so it must hear back
 			const decision = {
 				modelSelection: best.model,
 				source: 'scored' as const,
-				confidence: Math.min(1.0, best.score / 100),
+				confidence,
 				reasoning: this.generateReasoning(best.model, context, best.score, settingsState),
 				fallbackChain: fallbackChainOf(scored),
 				qualityTier,
 				timeoutMs,
+				outcomeId: this.recordDecision(best.model, context.taskType, confidence),
 			};
 			this.routingCache.set(cacheKey, { decision, timestamp: Date.now() });
 			return decision;
@@ -543,12 +558,7 @@ export class TaskAwareModelRouter extends Disposable implements ITaskAwareModelR
 		}
 
 		// Record routing decision for evaluation
-		this.evaluationService.recordOutcome({
-			timestamp: startTime,
-			modelSelection: best.model,
-			taskType: context.taskType,
-			confidence,
-		});
+		const outcomeId = this.recordDecision(best.model, context.taskType, confidence);
 
 		const reasoning = this.generateReasoning(best.model, context, best.score, settingsState);
 
@@ -578,6 +588,7 @@ export class TaskAwareModelRouter extends Disposable implements ITaskAwareModelR
 			fallbackChain,
 			qualityTier,
 			timeoutMs,
+			outcomeId,
 		};
 
 		// Record router metrics (cache miss)
@@ -671,6 +682,17 @@ export class TaskAwareModelRouter extends Disposable implements ITaskAwareModelR
 		// (Removed the abstain check for codebase questions - they should always proceed to routing)
 
 		return { shouldAbstain: false };
+	}
+
+	/** Journal a decision unrated; the turn settles it through `reportOutcome` */
+	private recordDecision(modelSelection: ModelSelection, taskType: string, confidence: number): string {
+		const id = generateUuid();
+		this.evaluationService.recordOutcome({ id, timestamp: Date.now(), modelSelection, taskType, confidence });
+		return id;
+	}
+
+	reportOutcome(outcomeId: string, verdict: RoutingVerdict): void {
+		this.evaluationService.updateOutcome(outcomeId, verdict);
 	}
 
 	/**
