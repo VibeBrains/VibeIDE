@@ -402,6 +402,15 @@ if (Test-Path $smokeCli) {
     exit 1
 }
 
+# Vendor packages can arrive at packaging time, past dependencies, where the source gates cannot see them.
+Step "Scanning the built application for vendor AI packages..."
+node "$Root\scripts\vibe-copilot-free-check.mjs" --artifact $appRoot
+if ($LASTEXITCODE -ne 0) {
+    Write-Error "[release] Vendor AI packages found in the built application (see above)"
+    exit 1
+}
+OK "No vendor AI packages in the built application"
+
 if ($SkipPublish) {
     OK "Test build complete (-SkipPublish): tag + GitHub release SKIPPED."
     Write-Host "`n📦 Artifacts ready for manual smoke-test:" -ForegroundColor Cyan

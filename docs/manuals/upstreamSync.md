@@ -153,6 +153,14 @@ Node 24 на всех трёх машинах; Electron 42 + полная пер
 - запрет путей/пакетов/строк (`copilot_internal`, `api.githubcopilot.com`, `mcp_registry`);
 - **пост-сборочный скан артефакта** (`.app`/`.exe`) на `@github/copilot`, `foundry-local`, `codex`, `mxc-bin` — потому что бинарь Copilot CLI материализуется при упаковке мимо `dependencies`, и скан исходников его не увидит.
 
+**Сделано 01.10.2026:** гейт — `scripts/vibe-copilot-free-check.mjs` (`npm run vendor-free-check`), к прежним поимённым запретам
+добавлены снимок импортов barrel-файлов (`workbench.common.main.ts`, `workbench.desktop.main.ts`, `terminal.all.ts`,
+`chat.shared.contribution.ts`), инвентарь регистраций вне нашего кода и тестов, вхождения вендорных строк (`copilot_internal`,
+`mcp_registry`, `hydraFusion`, `autoTier`; хосты стережёт `privacy-ci-check`). Снимок — `build/vendorFreeBaseline.json`, при синке
+новые строки разбираются и принимаются `npm run vendor-free-check:update` в том же коммите. Скан собранного приложения
+(`--artifact`, включая содержимое `.asar`) стоит в обоих релизных скриптах после смоука; на PR — workflow `vendor-free.yml`.
+Голое `codex` в исходниках не запрещается: у нас есть модели `gpt-5-codex`; в артефакте ищется пакет `@openai/codex`.
+
 ### Этап 7. Верификация (2–4 дня)
 Предусловие: **в дереве нет конфликт-маркеров** (иначе инварианты тавтологичны — на пробном merge обе стороны лежат в файле дословно).
 - **И-1**: 1917 наших файлов blob-в-blob (+ режимы, symlink'и, бинарные ассеты).

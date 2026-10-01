@@ -1,0 +1,44 @@
+name: vendor-free
+
+# Upstream VS Code returns vendor AI surfaces (Copilot, agent host, cloud dictation) not as conflicts but as new
+# files, registrations and barrel imports. The gate compares them against build/vendorFreeBaseline.json;
+# a new entry needs a human decision, recorded by `npm run vendor-free-check:update` in the same PR.
+
+on:
+  push:
+    branches: [main, next]
+    paths-ignore:
+      - '**/*.md'
+      - 'docs/**'
+      - 'media/**'
+  pull_request:
+    branches:
+      - main
+      - next
+      - 'release/*'
+    paths-ignore:
+      - '**/*.md'
+      - 'docs/**'
+      - 'media/**'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: vendor-free-${{ github.event.pull_request.number || github.sha }}
+  cancel-in-progress: true
+
+jobs:
+  vendor-free:
+    name: vendor AI surfaces stay out
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+
+      - name: Setup Node.js
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
+        with:
+          node-version-file: .nvmrc
+
+      - name: Run scripts/vibe-copilot-free-check.mjs
+        run: node scripts/vibe-copilot-free-check.mjs

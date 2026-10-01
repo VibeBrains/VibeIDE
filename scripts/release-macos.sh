@@ -329,6 +329,14 @@ else
 	die 'App would fail on launch: some main-process imports are unreachable (see above)'
 fi
 
+# Vendor packages can arrive at packaging time, past dependencies, where the source gates cannot see them.
+step 'Scanning the built application for vendor AI packages...'
+if node "$ROOT/scripts/vibe-copilot-free-check.mjs" --artifact "$APP"; then
+	ok 'No vendor AI packages in the built application'
+else
+	die 'Vendor AI packages found in the built application (see above)'
+fi
+
 if [[ "$SKIP_PUBLISH" == '1' ]]; then
 	ok 'Test build complete (--skip-publish): tag + GitHub release SKIPPED.'
 	printf '\n\033[36m📦 Artifacts ready for manual smoke-test:\033[0m\n   %s\n   %s\n' "$DMG_PATH" "$ZIP_PATH"

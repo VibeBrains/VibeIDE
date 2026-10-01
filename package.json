@@ -163,7 +163,9 @@
     "coverage:vibeide:ci": "c8 --config .c8rc --check-coverage scripts/test.bat",
     "coverage:report": "c8 report --config .c8rc",
     "privacy:check": "node scripts/privacy-ci-check.mjs",
-    "privacy:check:json": "node scripts/privacy-ci-check.mjs --json"
+    "privacy:check:json": "node scripts/privacy-ci-check.mjs --json",
+    "vendor-free-check": "node scripts/vibe-copilot-free-check.mjs",
+    "vendor-free-check:update": "node scripts/vibe-copilot-free-check.mjs --update"
   },
   "dependencies": {
     "@ai-sdk/anthropic": "^3.0.121",
