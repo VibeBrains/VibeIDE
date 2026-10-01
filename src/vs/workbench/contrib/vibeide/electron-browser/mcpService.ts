@@ -54,7 +54,8 @@ import { IMCPService, MCPServiceState } from '../common/mcpService.js';
 import { FoundHeadersHelper, FoundMemoryServer, FoundTeamServer, teamServerOfSidecar, VIBE_MEMORY_DIR_ENV, VIBE_MEMORY_SERVER_NAME, VIBE_MEMORY_TEAM_SERVER_PREFIX, VIBE_MEMORY_TEAM_SIDECAR, VIBE_MEMORY_TOKENS_FOLDER, vibeMemoryEngine, VibeMemoryEngine, vibeMemoryHelperPathSegments, vibeMemoryServerPathSegments, withDiscoveredMemoryServer, withDiscoveredTeamServers } from '../common/vibeMemoryServerDiscovery.js';
 import { IShellEnvironmentService } from '../../../services/environment/electron-browser/shellEnvironmentService.js';
 import { MEMORY_PROJECT_RESOLVE_TOOL, MemoryProjectAnswer, parseProjectResolveAnswer, TeamMemoryProject } from '../common/vibeMemoryProject.js';
-import { joinPath } from '../../../../base/common/resources.js';
+import { dirname, isEqual, joinPath } from '../../../../base/common/resources.js';
+import { ResourceSet } from '../../../../base/common/map.js';
 import { isWindows } from '../../../../base/common/platform.js';
 
 const MCP_CONFIG_FILE_NAME = 'mcp.json';
@@ -497,7 +498,7 @@ class MCPService extends Disposable implements IMCPService {
 
 
 	private async _addMCPConfigFileWatcher(): Promise<void> {
-		void this._watchTeamTokens();
+		void this._watchVibeMemory();
 		const mcpConfigUri = await this._getMCPConfigFilePath();
 		this._register(
 			this.fileService.watch(mcpConfigUri)
@@ -749,36 +750,53 @@ class MCPService extends Disposable implements IMCPService {
 	}
 
 	/**
-	 * `connect` and `disconnect` take effect without a restart: the tokens folder is watched, or, before the first
-	 * team, the VibeMemory folder until the tokens folder appears
+	 * The memory server and the team tokens take effect without a restart or a window reload:
+	 * Installing or removing VibeMemory's server, `connect` and `disconnect` all refresh the servers
+	 *
+	 * A missing path is watched through its nearest existing folder, the engine's parent at most,
+	 * and the watch moves down a level as each folder of the path appears
 	 */
-	private readonly _teamTokensWatcher = this._register(new MutableDisposable<DisposableStore>());
+	private readonly _vibeMemoryWatcher = this._register(new MutableDisposable<DisposableStore>());
 
-	private async _watchTeamTokens(): Promise<void> {
+	private async _watchVibeMemory(): Promise<void> {
 		const engine = await this._vibeMemoryEngine();
+		const binary = joinPath(engine.dir, ...vibeMemoryServerPathSegments(isWindows));
 		const tokens = joinPath(engine.dir, VIBE_MEMORY_TOKENS_FOLDER);
-		const hasTokens = await this.fileService.exists(tokens);
-		const target = hasTokens ? tokens : engine.dir;
-		if (!hasTokens && !await this.fileService.exists(target)) {
-			this._teamTokensWatcher.clear();
-			return;
-		}
+		const chain = [engine.dir, dirname(binary), binary, tokens];
 		const store = new DisposableStore();
-		if (hasTokens) {
+		if (await this.fileService.exists(tokens)) {
 			// A sidecar lies two levels down, and only a plain watch goes deep; the folder is small
 			store.add(this.fileService.watch(tokens, { recursive: true, excludes: [] }));
 			store.add(this.fileService.onDidFilesChange(e => {
 				if (e.affects(tokens)) { this._scheduleMcpConfigRefresh.schedule(); }
 			}));
-		} else {
-			const watcher = store.add(this.fileService.createWatcher(target, { recursive: false, excludes: [] }));
+		}
+		const anchors = new ResourceSet();
+		for (const target of [dirname(binary), engine.dir]) {
+			const anchor = await this._nearestExistingFolder(target, dirname(engine.dir));
+			if (anchor) { anchors.add(anchor); }
+		}
+		for (const anchor of anchors) {
+			const watcher = store.add(this.fileService.createWatcher(anchor, { recursive: false, excludes: [] }));
 			store.add(watcher.onDidChange(e => {
-				if (!e.affects(tokens)) { return; }
-				void this._watchTeamTokens();
+				if (!chain.some(path => e.contains(path))) { return; }
+				void this._watchVibeMemory();
 				this._scheduleMcpConfigRefresh.schedule();
 			}));
 		}
-		this._teamTokensWatcher.value = store;
+		this._vibeMemoryWatcher.value = store;
+	}
+
+	/** The folder itself or its nearest existing parent, not above `stop` */
+	private async _nearestExistingFolder(folder: URI, stop: URI): Promise<URI | undefined> {
+		for (let probe = folder; ; probe = dirname(probe)) {
+			if (await this.fileService.exists(probe)) {
+				return probe;
+			}
+			if (isEqual(probe, stop) || isEqual(dirname(probe), probe)) {
+				return undefined;
+			}
+		}
 	}
 
 	private async _refreshMCPServers(): Promise<void> {
