@@ -7470,8 +7470,7 @@ Output ONLY the JSON, no other text. Start with { and end with }.`;
 						if (decision === 'stop' && verify) {
 							const note = `⛔ VERIFY-GATE: верификация всё ещё падает после ${verifyGateAttempts} попыток (команда «${verify.command}», exit ${verify.exitCode ?? 'timeout'}). Прогон остановлен — доработай вручную.\n\nВывод команды:\n${verify.output}`;
 							this.addAssistantNotice(threadId, note);
-							this._finalizePlanIfComplete(threadId);
-							this._setStreamState(threadId, { isRunning: undefined });
+							this._endRunStoppedByCheck(threadId, localize('vibeide.chatThread.stoppedByVerifyGate', "Прогон остановлен: проверка VERIFY-GATE падает и после повторов"));
 							return;
 						}
 						if (decision === 'warn-complete' && verify) {
@@ -7501,8 +7500,7 @@ Output ONLY the JSON, no other text. Start with { and end with }.`;
 						if (turnDecision === 'stop') {
 							const note = `⛔ ПРОВЕРКИ ХОДА: после ${turnChecksAttempts} попыток проблемы остались. Прогон остановлен — посмотрите сами.\n\n${failures.map(f => `• ${f.detail}`).join('\n')}`;
 							this.addAssistantNotice(threadId, note);
-							this._finalizePlanIfComplete(threadId);
-							this._setStreamState(threadId, { isRunning: undefined });
+							this._endRunStoppedByCheck(threadId, localize('vibeide.chatThread.stoppedByTurnChecks', "Прогон остановлен: проверки хода не пройдены и после повторов"));
 							return;
 						}
 						if (turnDecision === 'notify-complete') {
@@ -7581,12 +7579,17 @@ Output ONLY the JSON, no other text. Start with { and end with }.`;
 					}
 
 					// The prose this turn wrote goes through the neural-slop detector, as in VibeIDEA (`vibeide.agent.slop.*`).
-					if (await this._slopGate(threadId, touchedPathsThisRun, slopGateAttempts, true) === 'bounced') {
+					const slopVerdict = await this._slopGate(threadId, touchedPathsThisRun, slopGateAttempts, true);
+					if (slopVerdict === 'bounced') {
 						slopGateAttempts += 1;
 						traceAgentStep({ threadId, kind: 'nudge' });
 						shouldSendAnotherMessage = true;
 						this._setStreamState(threadId, { isRunning: 'idle', interrupt: 'not_needed' });
 						continue;
+					}
+					if (slopVerdict === 'stopped') {
+						this._endRunStoppedByCheck(threadId, localize('vibeide.chatThread.stoppedBySlopGate', "Прогон остановлен: текст не прошёл проверку на нейрослоп и после повторов"));
+						return;
 					}
 
 					// Run-end via explicit completion: finalize the plan (status/lease/.plan.md) so an
@@ -8673,7 +8676,7 @@ Output ONLY the JSON, no other text. Start with { and end with }.`;
 	 * Files come from the agent's own edits, which `.vibe/ignore` already gates, so nothing here reads past it.
 	 * @param canBounce false on an exit where the model stopped calling tools: there is nothing to send it back to
 	 */
-	private async _slopGate(threadId: string, touchedPaths: readonly string[], attemptsUsed: number, canBounce: boolean): Promise<'bounced' | 'done'> {
+	private async _slopGate(threadId: string, touchedPaths: readonly string[], attemptsUsed: number, canBounce: boolean): Promise<'bounced' | 'stopped' | 'done'> {
 		const mode = slopGateModeOf(this._configurationService.getValue<unknown>(SLOP_GATE_MODE_KEY));
 		const prose = mode === 'off' ? [] : prosePaths(touchedPaths);
 		if (prose.length === 0) {
@@ -8709,6 +8712,7 @@ Output ONLY the JSON, no other text. Start with { and end with }.`;
 		} else if (decision === 'stop') {
 			const note = localize('vibeide.slopGate.stop', "⛔ НЕЙРОСЛОП: текст не прошёл проверку и после {0} попыток. Дальше решаете вы.\n\n{1}{2}", maxAttempts, summaryLines, uncheckedNote);
 			this.addAssistantNotice(threadId, note);
+			return 'stopped';
 		} else if (unchecked.length > 0 && failing.length === 0) {
 			// «Not checked» must never read as «clean»
 			const note = localize('vibeide.slopGate.onlyUnchecked', "✍️ НЕЙРОСЛОП: текст, записанный в этом ходе, не проверен.{0}", uncheckedNote);
@@ -9228,6 +9232,15 @@ We only need to do it for files that were edited since `from`, ie files between 
 	 */
 	private _endRunBeforeStart(threadId: string, message: string): void {
 		this._notificationService.error(message);
+		this._setStreamState(threadId, { isRunning: undefined, error: { message, fullError: null } });
+	}
+
+	/**
+	 * A run a project check stopped after its retries ran out ends in an error state, not as a finished run
+	 * The note above it explains; the error tells the HTTP API and the Telegram bridge the work was not done
+	 */
+	private _endRunStoppedByCheck(threadId: string, message: string): void {
+		this._finalizePlanIfComplete(threadId);
 		this._setStreamState(threadId, { isRunning: undefined, error: { message, fullError: null } });
 	}
 
