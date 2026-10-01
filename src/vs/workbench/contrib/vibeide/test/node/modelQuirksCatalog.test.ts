@@ -45,8 +45,8 @@ suite('ModelQuirks — настоящий каталог resources/model-quirks.
 		['ling-3.0-flash', { temperature: 0.6, topP: 0.95, topK: 20 }],
 		// A call written as text is read for every model with native tools, not by a quirk
 		// The catalogue leaves the flag unset
-		['deepseek-v4-pro', { forceEmptyReasoning: true, mirrorReasoningContent: true, toolCallsInText: undefined }],
-		['deepseek-flash', { forceEmptyReasoning: true, mirrorReasoningContent: true, toolCallsInText: undefined }],
+		['deepseek-v4-pro', { forceEmptyReasoning: true, mirrorReasoningContent: true, toolCallsInText: undefined, forcedToolChoiceUnsupported: true }],
+		['deepseek-flash', { forceEmptyReasoning: true, mirrorReasoningContent: true, toolCallsInText: undefined, forcedToolChoiceUnsupported: true }],
 		['kimi-k2.6', { temperature: 1.0, topP: 0.95, mirrorReasoningContent: true }],
 		// K3 — preserved-thinking-history: наследует зеркалирование, а не общий пресет `kimi`.
 		['kimi-k3', { temperature: 1.0, topP: 0.95, mirrorReasoningContent: true }],

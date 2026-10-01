@@ -178,7 +178,10 @@
 			"match": "deepseek",
 			"forceEmptyReasoning": true,
 			"mirrorReasoningContent": true,
-			"note": "DeepSeek family (all providers) — every assistant message must carry a reasoning slot (HTTP 400 otherwise); reasoning text must be mirrored on top-level message field. A call DeepSeek writes into the text in DSML with native tools is read for every model, not by a quirk (common/textToolCalls.ts). No tool-format force here: the built-in DeepSeek profiles declare native FC themselves (modelCapabilities.ts) — until 2026-09-30 they did not, and the direct API silently ran in XML mode, where the model writes DSML calls into the text. The openCode-scoped rule above sets auto for that aggregator."
+			"forcedToolChoiceUnsupported": true,
+			"source": "живьём 01.10.2026: api.deepseek.com, deepseek-flash, tool_choice required → 400 «Thinking mode does not support this tool_choice»; api-docs.deepseek.com/guides/thinking_mode — мышление включено по умолчанию",
+			"observedAt": "2026-10-01",
+			"note": "Forced tool_choice is refused in thinking mode, which is on by default, so autopilot sends auto. DeepSeek family (all providers) — every assistant message must carry a reasoning slot (HTTP 400 otherwise); reasoning text must be mirrored on top-level message field. A call DeepSeek writes into the text in DSML with native tools is read for every model, not by a quirk (common/textToolCalls.ts). No tool-format force here: the built-in DeepSeek profiles declare native FC themselves (modelCapabilities.ts) — until 2026-09-30 they did not, and the direct API silently ran in XML mode, where the model writes DSML calls into the text. The openCode-scoped rule above sets auto for that aggregator."
 		},
 		{
 			"match": "qwen",

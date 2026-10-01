@@ -6682,6 +6682,9 @@ platform.minimax.io. Каждое утверждение о нас сверен�
 - [x] **Бамп сидов до `add4f31`** — ✅ (01.10.2026, `next`, 7272269cd; VibeBrains `add4f31`)
       GPT-6.1 Sol в образце, причуда `EFFORT_BY_UPDATE`, векторы входа ChatGPT. `providers/chatgpt.jsonc` адресован
       только VibeIDEA (`products.json`): входа по подписке у нас нет, засеянный провайдер не смог бы войти
+- [x] **DeepSeek: автопилот падал на `tool_choice: required`** — ✅ (01.10.2026, `next`) в режиме мышления, а он у DeepSeek
+      включён по умолчанию, вендор отвечает 400 «Thinking mode does not support this tool_choice» (живьём, deepseek-flash).
+      Семейству `deepseek` поставлен квирк `forcedToolChoiceUnsupported`: автопилот шлёт `auto`, как у Sonnet 5.5
 - [ ] **Вход по подписке ChatGPT (`"auth": "chatgpt"`)** — паритет с VibeIDEA: вход «Продолжить с ChatGPT»
       (открытый клиент регистрируется сам), токен вместо ключа, запрос приводится к правилам плана по общим векторам
       `testVectors/chatgptPlan.json` (только Responses и поток, без `temperature`, `top_p`, `max_output_tokens`,
