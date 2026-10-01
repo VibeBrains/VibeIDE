@@ -60,12 +60,59 @@ export interface VibeHttpRunRequest {
 	readonly wait?: boolean;
 }
 
+/**
+ * Where a run started over HTTP stands
+ *
+ * `started` exists only as the answer to `POST /run` without `wait`; the rest is what `GET /run/<sessionId>` shows
+ * `awaiting_approval` is not an end:
+ * The agent waits for a person to allow an action, and the approval starts the next leg of the same run
+ */
+export type VibeHttpRunStatus = 'started' | 'running' | 'awaiting_approval' | 'completed' | 'failed' | 'aborted';
+
+/** Statuses after which the run changes no more */
+export function isTerminalHttpRunStatus(status: VibeHttpRunStatus): boolean {
+	return status === 'completed' || status === 'failed' || status === 'aborted';
+}
+
+/** Longest answer returned over HTTP, in characters; a longer one is cut and flagged `answerTruncated` */
+export const MAX_ANSWER_CHARS = 100_000;
+
 export interface VibeHttpRunResponse {
 	readonly sessionId: string;
-	readonly status: 'started' | 'completed' | 'failed';
-	/** Final answer when `wait` was set and the run finished. */
+	readonly status: VibeHttpRunStatus;
+	/** The agent's final answer, once the run has ended */
 	readonly answer?: string;
+	/** The answer was longer than {@link MAX_ANSWER_CHARS} and was cut */
+	readonly answerTruncated?: boolean;
 	readonly error?: string;
+}
+
+/** What `GET /run/<sessionId>` returns: the latest run of the session */
+export interface VibeHttpRunSnapshot extends VibeHttpRunResponse {
+	/** ISO 8601 */
+	readonly startedAt: string;
+	/** ISO 8601 */
+	readonly updatedAt: string;
+	/** ISO 8601, set once the status is terminal */
+	readonly finishedAt?: string;
+}
+
+/** A window telling the main process where a run stands */
+export interface VibeHttpRunReport extends VibeHttpRunResponse {
+	/** The `POST /run` the run came from: tells the next run of the same session from a late word about this one */
+	readonly requestId: string;
+	/** The window instance executing it: when that window reloads or closes, its runs are dead */
+	readonly instanceId: string;
+}
+
+/** HTTP code for a run answer: an unfinished run is accepted, not done */
+export function httpStatusOfRun(status: VibeHttpRunStatus): number {
+	switch (status) {
+		case 'failed': return 500;
+		case 'running':
+		case 'awaiting_approval': return 202;
+		default: return 200;
+	}
 }
 
 export interface VibeHttpApiStatus {
@@ -74,9 +121,29 @@ export interface VibeHttpApiStatus {
 	readonly error?: string;
 }
 
-/** A request handed to a window to run. */
+/**
+ * A window offering to serve the API
+ *
+ * `instanceId` is new on every load of the window:
+ * A reload keeps `windowId`, and the main process must still tell the dead instance from the one that replaced it
+ */
+export interface VibeHttpApiRegistration {
+	readonly windowId: number;
+	readonly instanceId: string;
+	readonly port: number;
+	readonly token: string;
+}
+
+export interface VibeHttpApiRegistrationResult extends VibeHttpApiStatus {
+	/** This instance serves the requests; the others stand by until it goes away */
+	readonly owner: boolean;
+}
+
+/** A request handed to the owner window to run */
 export interface VibeHttpApiPendingRun {
 	readonly requestId: string;
+	/** The instance that must execute it; every other window ignores the event */
+	readonly instanceId: string;
 	readonly request: VibeHttpRunRequest;
 }
 
@@ -86,14 +153,22 @@ export interface VibeHttpApiPendingRun {
  * Declared here rather than next to the implementation so neither side imports the other's layer:
  * the window would otherwise reach into `electron-main` for a type and the dependency direction
  * would exist on paper even if the compiler tolerated it.
+ *
+ * One window serves the API at a time — the one registered longest
+ * Every window with the API enabled registers, the rest stand by:
+ * They take over when the owner reloads, closes or turns the API off, so a task never runs in two windows at once
  */
 export interface IVibeHttpApiMain {
 	readonly onRun: Event<VibeHttpApiPendingRun>;
-	start(port: number, token: string): Promise<VibeHttpApiStatus>;
-	stop(): Promise<void>;
+	/** Offer this window instance to serve the API; the listener follows whoever owns it */
+	register(registration: VibeHttpApiRegistration): Promise<VibeHttpApiRegistrationResult>;
+	/** Withdraw the instance (API turned off, window going away); the next one takes over, or the listener stops */
+	unregister(instanceId: string): Promise<void>;
 	getStatus(): Promise<VibeHttpApiStatus>;
 	/** A window answers a request it was handed. */
 	completeRun(requestId: string, response: VibeHttpRunResponse): Promise<void>;
+	/** A window records where a run stands, for `GET /run/<sessionId>` */
+	reportRun(report: VibeHttpRunReport): Promise<void>;
 	/** Generate a token; the caller stores it in SecretStorage and shows it to the user once. */
 	generateToken(): Promise<string>;
 }
@@ -170,4 +245,27 @@ export function parseRunRequest(body: string): { readonly ok: true; readonly val
 			...(typeof wait === 'boolean' ? { wait } : {}),
 		},
 	};
+}
+
+const RUN_PATH_PREFIX = '/run/';
+
+/**
+ * A session id as it may appear in `GET /run/<sessionId>`
+ * Session ids are UUIDs; the pattern leaves room for other id shapes and nothing for paths, dots or escapes
+ */
+const SESSION_ID_IN_PATH = /^[A-Za-z0-9-]{1,64}$/;
+
+/**
+ * Read `GET /run/<sessionId>` out of a request URL (the query part is ignored)
+ *
+ * `undefined` — not this route at all; `{ ok: false }` — the route with an id that is not a session id
+ * The id is checked, not merely looked up: it goes into responses, and nothing a caller sends gets there unvetted
+ */
+export function parseRunPath(url: string): { readonly ok: true; readonly sessionId: string } | { readonly ok: false } | undefined {
+	const path = url.split('?')[0];
+	if (!path.startsWith(RUN_PATH_PREFIX)) {
+		return undefined;
+	}
+	const sessionId = path.slice(RUN_PATH_PREFIX.length);
+	return SESSION_ID_IN_PATH.test(sessionId) ? { ok: true, sessionId } : { ok: false };
 }

@@ -261,7 +261,9 @@ export function registerVibeideMainProcessChannels(
 	// Incoming HTTP API: the listener belongs to the main process for the same reason as the
 	// Telegram poller — one process per application, so two windows cannot fight over the port and
 	// leave the second one broken with EADDRINUSE.
-	const httpApiService = disposables.add(new VibeHttpApiMainService());
+	// The window service tells it when a window reloads or closes:
+	// That window's runs are gone, and the next window in line takes over serving the API
+	const httpApiService = disposables.add(new VibeHttpApiMainService(accessor.get(IWindowsMainService)));
 	mainProcessElectronServer.registerChannel(
 		VIBE_HTTP_API_CHANNEL,
 		ProxyChannel.fromService(httpApiService, disposables),

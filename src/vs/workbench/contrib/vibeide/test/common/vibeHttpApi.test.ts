@@ -7,8 +7,10 @@ import assert from 'assert';
 import { ensureNoDisposablesAreLeakedInTestSuite } from '../../../../../base/test/common/utils.js';
 import {
 	admitRequest,
+	httpStatusOfRun,
 	isLoopbackHost,
 	isRemoteLoopback,
+	parseRunPath,
 	parseRunRequest,
 	secretEquals,
 } from '../../common/httpApi/vibeHttpApiTypes.js';
@@ -137,6 +139,51 @@ suite('vibeHttpApi — request parsing', () => {
 				{ ok: false, reason: 'Поле sessionId, если указано, — непустая строка' },
 				{ ok: false, reason: 'Поле wait, если указано, — булево' },
 			],
+		);
+	});
+});
+
+suite('vibeHttpApi — run status route', () => {
+
+	ensureNoDisposablesAreLeakedInTestSuite();
+
+	test('GET /run/<id> is told from other paths, and only a plain id passes', () => {
+		assert.deepStrictEqual(
+			[
+				'/run/0b6c1f2e-6f1a-4c55-9d2e-2b1e7a9c4d10',
+				'/run/abc?verbose=1',
+				'/run/' + 'a'.repeat(64),
+				'/run/' + 'a'.repeat(65),
+				'/run/',
+				'/run/../health',
+				'/run/a.b',
+				'/run/a%2Fb',
+				'/run/a/b',
+				'/run',
+				'/health',
+				'/runs/abc',
+			].map(parseRunPath),
+			[
+				{ ok: true, sessionId: '0b6c1f2e-6f1a-4c55-9d2e-2b1e7a9c4d10' },
+				{ ok: true, sessionId: 'abc' },
+				{ ok: true, sessionId: 'a'.repeat(64) },
+				{ ok: false },
+				{ ok: false },
+				{ ok: false },
+				{ ok: false },
+				{ ok: false },
+				{ ok: false },
+				undefined,
+				undefined,
+				undefined,
+			],
+		);
+	});
+
+	test('an unfinished run is 202, a failed one 500, the rest 200', () => {
+		assert.deepStrictEqual(
+			(['started', 'running', 'awaiting_approval', 'completed', 'failed', 'aborted'] as const).map(httpStatusOfRun),
+			[200, 202, 202, 200, 500, 200],
 		);
 	});
 });
