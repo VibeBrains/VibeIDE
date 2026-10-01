@@ -166,9 +166,18 @@ export function verdictOf(run: VibeHookRun): VibeHookVerdict {
 export interface VibeHookDecision {
 	/**
 	 * True when a refusal stops something that has not happened yet: the tool call (`preToolUse`) or
-	 * the acceptance of a cascade draft (`pipelineStepEnd`, which then escalates the step).
+	 * the acceptance of a step's result (`pipelineStepEnd`, which then escalates the step
+	 * or runs the next `escalation` step).
 	 */
 	readonly blocked: boolean;
+	/**
+	 * At least one hook ran to an answer: allowed (exit 0) or refused (exit 2)
+	 *
+	 * A broken hook does not count — it has no opinion, the same as no hook at all
+	 * Without this field «no hook» and «exit 0 with nothing to say» look the same
+	 * To a gate they mean opposite things: nothing judged the result, or it was judged and accepted
+	 */
+	readonly ran: boolean;
 	/** Text handed to the agent, or `undefined` when the hooks had nothing to say. */
 	readonly agentMessage: string | undefined;
 	/** Problems with the hooks themselves, for the user rather than the model. */
@@ -185,6 +194,7 @@ export function decideHooks(event: VibeHookEvent, verdicts: readonly VibeHookVer
 	const refusals = verdicts.filter(v => v.kind === 'refuse').map(v => v.text);
 	const notes = verdicts.filter(v => v.kind === 'note').map(v => v.text);
 	const broken = verdicts.filter(v => v.kind === 'broken').map(v => v.text);
+	const ran = verdicts.some(v => v.kind !== 'broken');
 
 	if (refusals.length) {
 		const head = event === 'preToolUse'
@@ -192,7 +202,7 @@ export function decideHooks(event: VibeHookEvent, verdicts: readonly VibeHookVer
 			: 'Проверка проекта нашла проблему в том, что только что сделано:';
 		// The cascade gate blocks too: its refusal is the whole point of the event, and read as a mere
 		// note it let every draft through — the hook's exit code 2 escalated nothing.
-		return { blocked: event === 'preToolUse' || event === 'pipelineStepEnd', agentMessage: [head, ...refusals].join('\n'), brokenHooks: broken };
+		return { blocked: event === 'preToolUse' || event === 'pipelineStepEnd', ran, agentMessage: [head, ...refusals].join('\n'), brokenHooks: broken };
 	}
-	return { blocked: false, agentMessage: notes.length ? notes.join('\n') : undefined, brokenHooks: broken };
+	return { blocked: false, ran, agentMessage: notes.length ? notes.join('\n') : undefined, brokenHooks: broken };
 }

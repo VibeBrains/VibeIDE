@@ -37,7 +37,7 @@ const PIPELINE_ANSWER_LIMIT = 4000;
  */
 const SEQUENCE_REPEAT_SILENCE_MS = 10 * 60 * 1000;
 
-const NOTHING: VibeHookDecision = { blocked: false, agentMessage: undefined, brokenHooks: [] };
+const NOTHING: VibeHookDecision = { blocked: false, ran: false, agentMessage: undefined, brokenHooks: [] };
 
 /**
  * Project hooks: deterministic commands around the agent loop.

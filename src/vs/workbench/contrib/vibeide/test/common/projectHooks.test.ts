@@ -147,6 +147,18 @@ suite('Project hooks — verdicts', () => {
 		);
 	});
 
+	test('«ran» tells «no hook» from «exit 0»: a hook that answered counts, a broken one does not', () => {
+		const ok = verdictOf(run());
+		const note = verdictOf(run({ stdout: 'поправил формат' }));
+		const refuse = verdictOf(run({ exitCode: VIBE_HOOK_REFUSE_EXIT_CODE, stderr: 'нет' }));
+		const broken = verdictOf(run({ exitCode: 1 }));
+		const ask = verdictOf(run({ stdout: '{"hookSpecificOutput":{"permissionDecision":"ask"}}' }));
+		assert.deepStrictEqual(
+			[[], [ok], [note], [refuse], [broken], [ask], [broken, ok]].map(verdicts => decideHooks('pipelineStepEnd', verdicts).ran),
+			[false, true, true, true, false, false, true],
+		);
+	});
+
 	test('a refusal outranks notes, and blocks only what has not happened yet', () => {
 		const verdicts = [
 			{ kind: 'note' as const, text: 'заметка' },
