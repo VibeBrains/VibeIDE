@@ -6,7 +6,7 @@
 
 **Суть.**
 - **Модель владения:** keymap авторизован для VibeIDE по **публичной схеме клавиш JetBrains** (горячие клавиши — функциональный факт) с привязкой к командам VibeIDE/VS Code и стандартным `when`-контекстам VS Code. Это НЕ порт чужого расширения; чужого копирайта не несёт.
-- **Лицензия:** MIT © VibeIDE Team (`LICENSE.txt`). Никакой сторонней атрибуции.
+- **Лицензия:** AGPL-3.0 © VibeIDE Team (`LICENSE.txt`, с 03.10.2026; до этого MIT — переход всего продукта на AGPL, см. [thirdPartyLicensing.md](thirdPartyLicensing.md)). Никакой сторонней атрибуции.
 - **Состав:** `extensions/vibe-keybindings/` = `package.json` (только `contributes.keybindings`, без `main`/`commands`/deps) + `LICENSE.txt` + `README.md`. **213** биндингов. Манифест: `publisher:"vibeide"`, `categories:["Keymaps"]`, `engines.vscode:"*"`, `repository` → репо VibeIDE.
 - Билд подхватывает папку автоматически (`build/lib/extensions.ts`, glob `extensions/*/package.json`); регистрация не нужна.
 - **Word-motion** использует стандартные `cursorWord*`/`deleteWord*` без «camel humps»-тумблера (раньше был дубль на `config.intellij-idea-keybindings.useCamelHumpsWords` — namespace чужого расширения, у нас всегда ложь → схлопнуто).

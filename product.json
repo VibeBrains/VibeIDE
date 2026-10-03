@@ -13,7 +13,7 @@
 	"dataFolderName": ".vibeide",
 	"sharedDataFolderName": ".vibeide-shared",
 	"win32MutexName": "vibeide",
-	"licenseName": "MIT",
+	"licenseName": "AGPL-3.0-only",
 	"licenseUrl": "https://github.com/VibeBrains/VibeIDE/blob/main/LICENSE.txt",
 	"serverLicenseUrl": "https://github.com/VibeBrains/VibeIDE/blob/main/LICENSE.txt",
 	"serverGreeting": [],

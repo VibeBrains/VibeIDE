@@ -1,3 +1,15 @@
+> **VibeIDE — форк VS Code.** Ниже — унаследованный текст апстрима про сам VS Code.
+> Руководство по вкладу именно в VibeIDE: [docs/manuals/howToContribute.md](docs/manuals/howToContribute.md).
+
+## Права на вклад
+
+Отправляя pull request, вы подтверждаете, что вклад — ваш и что вы передаёте его под лицензией [AGPL-3.0](LICENSE.txt).
+Вы также разрешаете автору проекта распространять ваш вклад в составе VibeIDE и под другой лицензией: так проект может предлагать коммерческую лицензию тем, кому AGPL не подходит, и на эти деньги развиваться дальше.
+
+Код апстрима (Code-OSS) остаётся под своей лицензией MIT — [LICENSE-MIT.txt](LICENSE-MIT.txt).
+
+---
+
 # Contributing to VS Code
 
 Welcome, and thank you for your interest in contributing to VS Code!

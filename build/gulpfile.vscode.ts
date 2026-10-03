@@ -321,7 +321,10 @@ function packageTask(platform: string, arch: string, sourceFolderName: string, d
 				this.emit('data', file);
 			}));
 
-		const license = gulp.src([product.licenseFileName, 'ThirdPartyNotices.txt', 'licenses/**'], { base: '.', allowEmpty: true });
+		// VibeIDE ships two licenses: our own code is AGPL-3.0 (`product.licenseFileName`, the file the
+		// product metadata points at), while the upstream Code-OSS code stays MIT. The MIT notice must
+		// travel with every distributed copy, so its file goes next to the AGPL one.
+		const license = gulp.src([product.licenseFileName, 'LICENSE-MIT.txt', 'ThirdPartyNotices.txt', 'licenses/**'], { base: '.', allowEmpty: true });
 
 		// TODO the API should be copied to `out` during compile, not here
 		const api = gulp.src('src/vscode-dts/vscode.d.ts').pipe(rename('out/vscode-dts/vscode.d.ts'));

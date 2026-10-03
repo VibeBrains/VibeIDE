@@ -34,7 +34,7 @@ This comparison is based on:
 | **Reasoning Models Support** | ✅ Yes (verified in code: `modelCapabilities.ts`) | ✅ Yes | ❓ Unknown | ❌ No | ❓ Unknown | ❓ Unknown | ❓ Unknown |
 | **JSON/Structured Output Handling** | ❓ Unknown | ❓ Unknown | ❓ Unknown | ❌ No | ❓ Unknown | ❓ Unknown | ❓ Unknown |
 | **Customizable UI** | ✅ Yes (VS Code base) | ✅ Yes | ❓ Unknown | ✅ Yes | ✅ Yes (VS Code extension) | ❌ No | ❓ Unknown |
-| **Cost / Licensing** | ✅ Open Source (MIT) | 💰 Proprietary | 💰 Proprietary | ⚠️ Source-available | ✅ Free/Open Source | 💰 Proprietary | 💰 Proprietary |
+| **Cost / Licensing** | ✅ Open Source (AGPL-3.0) | 💰 Proprietary | 💰 Proprietary | ⚠️ Source-available | ✅ Free/Open Source | 💰 Proprietary | 💰 Proprietary |
 
 **Legend:**
 - ✅ Yes - Feature confirmed
@@ -47,7 +47,7 @@ This comparison is based on:
 
 ### Open Source
 
-**VibeIDE**: ✅ **Yes** - MIT License (verified in `product.json`). Full source code available on GitHub.
+**VibeIDE**: ✅ **Yes** - AGPL-3.0 License (verified in `product.json`; решение владельца 03.10.2026, до него — MIT). Full source code available on GitHub.
 
 **Cursor**: ❌ **No** - Proprietary, closed-source.
 
@@ -402,7 +402,7 @@ This comparison is based on:
 Based on verified code, VibeIDE offers several unique advantages:
 
 ### 1. **Open Source with Full Feature Parity**
-- Complete source code available under MIT license
+- Complete source code available under AGPL-3.0 license
 - No vendor lock-in
 - Community-driven development
 

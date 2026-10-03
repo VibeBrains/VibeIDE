@@ -31,4 +31,4 @@ the affected entries here. See
 
 ## License
 
-MIT — see [LICENSE.txt](./LICENSE.txt). © VibeIDE Team.
+AGPL-3.0 — see [LICENSE.txt](./LICENSE.txt). © VibeIDE Team.

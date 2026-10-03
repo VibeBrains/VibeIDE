@@ -9,7 +9,7 @@
 </p>
 
 <p align="center">
-  <a href="LICENSE.txt"><img src="https://img.shields.io/badge/license-MIT-blue.svg" alt="MIT License" /></a>
+  <a href="LICENSE.txt"><img src="https://img.shields.io/badge/license-AGPL--3.0-blue.svg" alt="AGPL-3.0" /></a>
   <a href="https://github.com/VibeBrains/VibeIDE/releases"><img src="https://img.shields.io/badge/версия-1.23.1-green.svg" alt="Версия" /></a>
   <a href="https://github.com/VibeBrains/VibeIDE/issues"><img src="https://img.shields.io/github/issues/VibeBrains/VibeIDE.svg" alt="Issues" /></a>
   <a href="https://open-vsx.org"><img src="https://img.shields.io/badge/extensions-Open%20VSX-purple.svg" alt="Open VSX" /></a>
@@ -423,6 +423,10 @@ Pull request'ы приветствуются. Перед началом знач
 
 ## Лицензия
 
-MIT — см. [LICENSE.txt](LICENSE.txt).
+[GNU AGPL-3.0](LICENSE.txt).
 
-VibeIDE построен на базе [VS Code open source (Code-OSS)](https://github.com/microsoft/vscode), который также распространяется под лицензией MIT. Сторонние компоненты: [ThirdPartyNotices.txt](ThirdPartyNotices.txt).
+Пользоваться, ставить у себя и менять под себя бесплатно, в том числе внутри компании. Условие одно: если изменённую версию дают пользоваться другим по сети, её исходники открываются под той же лицензией.
+
+Нужна лицензия без условий AGPL — для закрытого продукта или сервиса на базе VibeIDE — напишите: i@borodatych.ru.
+
+VibeIDE построен на базе [VS Code open source (Code-OSS)](https://github.com/microsoft/vscode): код апстрима остаётся под своей лицензией MIT — [LICENSE-MIT.txt](LICENSE-MIT.txt). Сторонние компоненты: [ThirdPartyNotices.txt](ThirdPartyNotices.txt). Шапка исходных файлов унаследована от Code-OSS, и строка `Licensed under the MIT License` в ней описывает код апстрима, а не наш.

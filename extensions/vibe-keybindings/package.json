@@ -4,7 +4,7 @@
   "description": "JetBrains/IntelliJ IDEA keymap for VibeIDE, mapping the JetBrains default shortcut scheme onto VibeIDE commands.",
   "version": "1.0.0",
   "publisher": "vibeide",
-  "license": "MIT",
+  "license": "AGPL-3.0-only",
   "categories": [
     "Keymaps"
   ],
