@@ -80,15 +80,17 @@
 Если VibeIDE оказалось полезным — буду рад благодарности.
 <!-- сюда вставляется одна активная фраза из docs/release-donation-phrases.md -->
 
-<a href="https://raw.githubusercontent.com/VibeBrains/VibeIDE/main/media/QR-Code.jpg" target="_blank">
-  <img src="https://raw.githubusercontent.com/VibeBrains/VibeIDE/main/media/QR-Code.jpg" width="120" alt="QR-код для поддержки проекта">
-</a>
+Поддержать можно на [Boosty](https://boosty.to/borodatych/donate) — подписка или разовый донат, — либо переводом по СБП.
+
+| Boosty | Перевод |
+|:---:|:---:|
+| <a href="https://boosty.to/borodatych/donate" target="_blank"><img src="https://raw.githubusercontent.com/VibeBrains/VibeIDE/main/media/QR-Boosty.png" width="120" alt="QR-код Boosty — поддержать проект"></a> | <a href="https://raw.githubusercontent.com/VibeBrains/VibeIDE/main/media/QR-Code.jpg" target="_blank"><img src="https://raw.githubusercontent.com/VibeBrains/VibeIDE/main/media/QR-Code.jpg" width="120" alt="QR-код для поддержки проекта"></a> |
 ```
 
 **Важно:**
 - Версия в заголовке тега: `vX.Y.Z`.
 - Не добавлять секции, для которых нет изменений в этом релизе.
-- Блок поддержки — **всегда последний**.
+- Блок поддержки — **всегда последний**. В нём обязательны обе ссылки и оба QR: Boosty (`https://boosty.to/borodatych/donate` + `media/QR-Boosty.png`) и перевод по СБП (`media/QR-Code.jpg`). Наличие стережёт `node scripts/vibe-release-lint.js`.
 - Перед каждым релизом — пройти по алгоритму выбора фразы из `AGENTS.md`.
 - **Перед `gh release edit --notes-file` — `node scripts/vibe-release-lint.js <файл заметок>`:** формат, блок поддержки и нейрослоп (детектор продукта с дом-стилем `scripts/slopHouseStyle.json`). Не прошло — править по навыку `anti-slop`, а не публиковать.
 - **Догоняющая платформа = артефакт + НОТЫ.** Кросс-платформенный догон (вторая платформа доливает артефакты в существующий релиз тега) считается сделанным **только** когда в тело релиза добавлена строка про эту платформу в секции `## 📦 Сборка` (installer/portable + специфика запуска: macOS → Gatekeeper «Open Anyway»; Windows → SmartScreen «неизвестный издатель»). Релиз-скрипт доливает **только файлы** и не трогает ноты — после его успешного завершения **всегда** прочитать `gh release view vX.Y.Z --json body`, дописать платформу в «📦 Сборка» через `gh release edit --notes-file` и проверить фактом (`grep` секции). Успех скрипта ≠ завершённый релиз.

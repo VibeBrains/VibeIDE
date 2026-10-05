@@ -12,7 +12,7 @@
  *   2. Only allowed section headers with emoji are used.
  *   3. No empty sections.
  *   4. The "Поддержать проект" donation block is present at the very end.
- *   5. The donation block contains the QR <img> link.
+ *   5. The donation block carries the Boosty link plus both QR images (Boosty and the СБП transfer).
  *   6. No neural slop: the text passes the product's own detector (scripts/vibe-text-slop.ts) with the house style of
  *      the repository's texts (scripts/slopHouseStyle.json) — the order of a rewrite is in the anti-slop skill.
  *
@@ -42,6 +42,8 @@ const ALLOWED_HEADERS = new Set([
 ]);
 
 const QR_URL = 'https://raw.githubusercontent.com/VibeBrains/VibeIDE/main/media/QR-Code.jpg';
+const BOOSTY_URL = 'https://boosty.to/borodatych/donate';
+const BOOSTY_QR_URL = 'https://raw.githubusercontent.com/VibeBrains/VibeIDE/main/media/QR-Boosty.png';
 
 const args = process.argv.slice(2);
 let tag = null;
@@ -122,6 +124,12 @@ function lint(text) {
 	}
 	if (!tail.includes(QR_URL)) {
 		errors.push(`Donation block missing the QR image URL ${QR_URL}.`);
+	}
+	if (!tail.includes(BOOSTY_URL)) {
+		errors.push(`Donation block missing the Boosty link ${BOOSTY_URL}.`);
+	}
+	if (!tail.includes(BOOSTY_QR_URL)) {
+		errors.push(`Donation block missing the Boosty QR image URL ${BOOSTY_QR_URL}.`);
 	}
 	// The donation block must come after every other section
 	const lastDonationIdx = Math.max(

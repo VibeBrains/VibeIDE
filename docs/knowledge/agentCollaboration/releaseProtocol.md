@@ -100,6 +100,20 @@ gh auth switch -u VibeBrains   # вернуть active по умолчанию
 
 ---
 
+## Состав донатного блока: Boosty + перевод, и это стережёт lint [release] [donation]
+
+**Контекст.** 05.10.2026 владелец попросил добавить в блок «Поддержать проект» QR и ссылку на Boosty (`https://boosty.to/borodatych/donate`) — до этого блок знал только QR перевода по СБП (`media/QR-Code.jpg`). Просьба шла с оговоркой «включи это в правило»: поправить README мало, блок собирается в нескольких местах и проверяется гейтом.
+
+**Суть.** Блок = постоянная вступительная строка, одна активная фраза, ссылка на Boosty и таблица с двумя QR: Boosty (`media/QR-Boosty.png`) и перевод (`media/QR-Code.jpg`). QR Boosty проверен декодированием: ведёт на `https://boosty.to/borodatych/donate?qr=true`, в тексте даётся чистый адрес без `?qr=true`. Картинка непрозрачная, 150×150, с белым полем — читается и на тёмной теме.
+
+**Применение.**
+- Блок живёт в пяти местах, и правки держат в согласии: README (`### Поддержать проект`), правило релиза в `CLAUDE.md`, шаблон в [`docs/release-donation-phrases.md`](../../release-donation-phrases.md), футер генератора `scripts/vibe-changelog.js` и сид-правило `.vibe-defaults/rules/release.mdc` (общее с VibeIDEA).
+- Гейт — `scripts/vibe-release-lint.js`: требует и ссылку Boosty, и оба адреса картинок. Правка блока без обновления lint пройдёт молча, а заметки без Boosty будут отклонены.
+- Картинки отдаются с `raw.githubusercontent.com` ветки `main`: на `next` адрес ещё не живёт, поэтому в README и в заметках картинка появится после слияния `next` → `main`.
+- `.github/FUNDING.yml` (кнопка Sponsor) держит тот же адрес Boosty.
+
+---
+
 ## Пер-файловый diff working tree от прошлой сессии [release] [memory-loss]
 
 **Контекст.** На v0.12.0 (2026-05-19) сессия началась с uncommitted working tree ~513 строк, оставшимся от прошлой сессии после OOM-краша + hardreset. Пользователь сказал «в прошлый раз мы упали» — ассистент воспринял как диагностический вопрос про OOM, а не как «вся uncommitted работа — твоя из прошлой сессии». Ассистент не помнил контекст и оформил release notes по беглому осмотру (`git diff --stat` + новые файлы). Пропустил подсветку `/skill:` через двухслойный overlay (inputs.tsx +125 / SidebarChat.tsx +36 / vibeide.css +53) и orphan-tool guard в aiSdkAdapter.ts (+90). Пользователь заметил, пришлось переписывать notes.
