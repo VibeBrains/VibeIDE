@@ -6765,17 +6765,17 @@ VibeIDEA разобрала те же сводки раньше (`docs/vibe/refe
 - Таблицы бенчмарков, MiniMax-трекер, финансирование — к коду IDE отношения не имеют
 
 **Найдено и ждёт работы:**
-- [ ] **Claude Haiku 5.5 (07.10)** — у нас нет ни записи модели, ни правила причуд. Вендор: окно 1M, вывод 128K, мышление
+- [x] **Claude Haiku 5.5 (07.10)** — ✅ (08.10.2026, `next`) запись `claude-haiku-5-5` во встроенном Anthropic, строка распознавания, правило причуд `haiku-5-5` (адаптивное мышление, блоки привязаны к аккаунту), пары чтения рассуждения Haiku 5.5 → Opus 5.5 и Sonnet 5.5 на API Anthropic. Было: у нас нет ни записи модели, ни правила причуд. Вендор: окно 1M, вывод 128K, мышление
       адаптивное и включено, умолчание усилия `medium`, уровни low…max; «выключено» — `thinking: {"type": "disabled"}`
       при усилии до `high`; `temperature`/`top_p`/`top_k` — 400 на любом запросе; принудительный `tool_choice`
       принимается. Цена по длине промпта: до 100 000 токенов $0.10 / $0.50, кэш $0.01, запись $0.125 и $0.20, длиннее —
       всё впятеро (`long_context`). Источник: platform.claude.com pricing, effort, thinking (08.10). Хендофф VibeIDEA
       `haiku-55-from-vibeidea`
-- [ ] **Sonnet 5.5: чтение кэша $0.20 → $0.10 с 07.10** — у нас `cache_read: 0.20` в `modelCapabilities.ts`
-- [ ] **Указатель набора до `7fb001c`** — Haiku 5.5 и цена Sonnet 5.5 в `anthropic.jsonc`, API-кредиты подписки Max
+- [x] **Sonnet 5.5: чтение кэша $0.20 → $0.10 с 07.10** — ✅ (08.10.2026, `next`) `cache_read: 0.10`
+- [x] **Указатель набора до `7fb001c`** — ✅ (08.10.2026, `next`, 69ca08aca) — Haiku 5.5 и цена Sonnet 5.5 в `anthropic.jsonc`, API-кредиты подписки Max
       (с 07.10 Max 5x — $100, Max 20x — $200 в месяц на обычный ключ Console; Pro не получает), причуда
       `EFFORT_BY_SYSTEM_MESSAGE` в образце
-- [ ] **Claude: смена усилия посреди треда без сгоревшего кэша** — бета `mid-conversation-output-config-2026-07-01`:
+- [x] **Claude: смена усилия посреди треда без сгоревшего кэша** — ✅ (08.10.2026, `next`) причуда `effortBySystemMessage`, план `planAnthropicEffortUpdates`: только собственный API Anthropic, только адаптивное мышление; смена, пришедшаяся на ход, склеенный с результатами инструментов, уходит уровнем в запросе. Живьём не проверено — ключа Anthropic нет ⚠ перепроверить. — бета `mid-conversation-output-config-2026-07-01`:
       системное сообщение `{"role": "system", "content": [], "output_config": {"effort": …}}` перед сообщением
       пользователя, верхний `output_config.effort` не меняется. Fable 5.1, Mythos 5.1, Opus 5.5, Opus 5, Sonnet 5.5,
       Haiku 5.5 на API Anthropic и Google Cloud. Нельзя: Sonnet 5.5 с `between_tools`, Haiku 5.5 с `disabled` — 400.
