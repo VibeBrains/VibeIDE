@@ -62,7 +62,7 @@ function uint8ArrayToBase64(data: Uint8Array): string {
 	}
 }
 import { getIsReasoningEnabledState, getReservedOutputTokenSpace, getModelCapabilities } from '../common/modelCapabilities.js';
-import { reParsedToolXMLString, chat_systemMessage, chat_systemMessage_local, chat_turnContext, systemToolsXMLPrompt } from '../common/prompt/prompts.js';
+import { reParsedToolXMLString, ModelIdentity, chat_systemMessage, chat_systemMessage_local, chat_turnContext, systemToolsXMLPrompt } from '../common/prompt/prompts.js';
 import { detectModelFamily } from '../common/prompt/modelFamily.js';
 import { computeLastExchangePinSet } from '../common/prompt/lastExchangePin.js';
 import { isPinnedContextMessage } from '../common/prompt/pinnedContext.js';
@@ -79,7 +79,7 @@ import { localize } from '../../../../nls.js';
 const TOKEN_CALIBRATION_STORAGE_KEY = 'vibeide.chat.tokenCalibrationFactors';
 import { AnthropicLLMChatMessage, AnthropicReasoning, LLMChatMessage, LLMFIMMessage, OpenAILLMChatMessage, RawToolParamsObj } from '../common/sendLLMMessageTypes.js';
 import { IVibeideSettingsService } from '../common/vibeideSettingsService.js';
-import { autoFallbackProviderIds, ChatMode, FeatureName, ModelSelection, ProviderId } from '../common/vibeideSettingsTypes.js';
+import { autoFallbackProviderIds, ChatMode, displayInfoOfProviderName, FeatureName, ModelSelection, ProviderId } from '../common/vibeideSettingsTypes.js';
 import { ILLMMessageService } from '../common/sendLLMMessageService.js';
 import { hash } from '../../../../base/common/hash.js';
 import { isLocalProvider } from '../common/isLocalProvider.js';
@@ -1662,6 +1662,16 @@ class ConvertToLLMMessageService extends Disposable implements IConvertToLLMMess
 		return lines.length > 0 ? lines.join('\n') : undefined;
 	}
 
+	/** The picked model as it is named to itself in the system prompt */
+	private _modelIdentity(providerName: string | undefined, modelName: string | undefined): ModelIdentity | undefined {
+		if (!providerName || !modelName) {
+			return undefined;
+		}
+		const providerId = providerName as ProviderId;
+		const name = this.remoteCatalogService.getCachedModelInfo(providerId, modelName)?.name || modelName;
+		return { name, id: modelName, provider: displayInfoOfProviderName(providerId).title };
+	}
+
 	private _generateChatMessagesSystemMessage = async (chatMode: ChatMode, specialToolFormat: 'openai-style' | 'anthropic-style' | 'gemini-style' | undefined, providerName?: string, modelName?: string) => {
 		const workspaceFolders = this.workspaceContextService.getWorkspace().folders.map(f => f.uri.fsPath);
 		const preferJsonToolArguments = this.configurationService.getValue<boolean>('vibeide.agent.preferJsonToolArguments') ?? false;
@@ -1693,7 +1703,7 @@ class ConvertToLLMMessageService extends Disposable implements IConvertToLLMMess
 		// The tool budget of this model; `providerName`/`modelName` are part of the cache key, so it cannot leak into another
 		// model's cached prompt.
 		const { maxTools } = this._promptBudgets(providerName, modelName);
-		const systemMessage = chat_systemMessage({ workspaceFolders, chatMode, mcpTools, includeXMLToolDefinitions, strictJsonToolArguments: preferJsonToolArguments, minimalismMode, brevity, modelFamily, memoryProjects, maxTools });
+		const systemMessage = chat_systemMessage({ workspaceFolders, chatMode, mcpTools, includeXMLToolDefinitions, strictJsonToolArguments: preferJsonToolArguments, minimalismMode, brevity, modelFamily, memoryProjects, maxTools, modelIdentity: this._modelIdentity(providerName, modelName) });
 
 		// Cache the result
 		this._systemMessageCache.set(cacheKey, { message: systemMessage, timestamp: now });
@@ -2038,7 +2048,7 @@ class ConvertToLLMMessageService extends Disposable implements IConvertToLLMMess
 			const modelFamily = detectModelFamily(validProviderName, modelName, specialToolFormat);
 			const mcpTools = this.mcpService.getMCPTools();
 			const memoryProjects = await this._memoryProjects(workspaceFolders);
-			systemMessage = chat_systemMessage_local({ memoryProjects, workspaceFolders, chatMode, mcpTools, includeXMLToolDefinitions, strictJsonToolArguments: preferJsonToolArguments, minimalismMode: this.vibeideSettingsService.state.globalSettings.minimalismMode ?? 'lite', brevity: brevityLevelOf(this.configurationService.getValue(BREVITY_SETTING)), modelFamily, maxTools: this._promptBudgets(providerName, modelName).maxTools });
+			systemMessage = chat_systemMessage_local({ memoryProjects, workspaceFolders, chatMode, mcpTools, includeXMLToolDefinitions, strictJsonToolArguments: preferJsonToolArguments, minimalismMode: this.vibeideSettingsService.state.globalSettings.minimalismMode ?? 'lite', brevity: brevityLevelOf(this.configurationService.getValue(BREVITY_SETTING)), modelFamily, maxTools: this._promptBudgets(providerName, modelName).maxTools, modelIdentity: this._modelIdentity(validProviderName, modelName) });
 		} else {
 			// Use full system message for cloud models
 			systemMessage = await this._generateChatMessagesSystemMessage(chatMode, specialToolFormat, validProviderName, modelName);

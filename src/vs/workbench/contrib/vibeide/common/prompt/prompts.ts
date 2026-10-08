@@ -348,8 +348,28 @@ ${MINIMALISM_RULES_PRECEDENCE}
 
 // ======================================================== chat (normal, gather, agent) ========================================================
 
+/** The model that answers the conversation, as the user picked it */
+export interface ModelIdentity {
+	/** Human name from the catalog, the id when the catalog has none */
+	name: string;
+	id: string;
+	/** Provider title as the user sees it */
+	provider: string;
+}
 
-export const chat_systemMessage = ({ memoryProjects, maxTools, workspaceFolders, chatMode: mode, mcpTools, includeXMLToolDefinitions, strictJsonToolArguments, minimalismMode, brevity, modelFamily: _modelFamily }: { workspaceFolders: string[]; chatMode: ChatMode; mcpTools: InternalToolInfo[] | undefined; includeXMLToolDefinitions: boolean; strictJsonToolArguments?: boolean; minimalismMode?: MinimalismMode; brevity?: BrevityLevel; modelFamily?: ModelFamily; maxTools?: number; memoryProjects?: string }) => {
+/**
+ * Names the model to itself
+ *
+ * Without it a model asked who it is answers from training, and models trained on many Claude answers call themselves Claude
+ * The line changes only with the model, and a model switch starts the provider's cache anew anyway
+ */
+export function modelIdentityLine({ name, id, provider }: ModelIdentity): string {
+	const model = name === id ? id : `${name} (${id})`;
+	return `You are the model ${model}, served by ${provider}. If asked who you are, name this model, not what your training suggests.`;
+}
+
+
+export const chat_systemMessage = ({ modelIdentity, memoryProjects, maxTools, workspaceFolders, chatMode: mode, mcpTools, includeXMLToolDefinitions, strictJsonToolArguments, minimalismMode, brevity, modelFamily: _modelFamily }: { workspaceFolders: string[]; chatMode: ChatMode; mcpTools: InternalToolInfo[] | undefined; includeXMLToolDefinitions: boolean; strictJsonToolArguments?: boolean; minimalismMode?: MinimalismMode; brevity?: BrevityLevel; modelFamily?: ModelFamily; maxTools?: number; memoryProjects?: string; modelIdentity?: ModelIdentity }) => {
 	const header = (`You are an expert coding ${mode === 'agent' ? 'agent' : 'assistant'} running inside VibeIDE whose job is \
 ${mode === 'agent' ? `to help the user develop, run, and make changes to their codebase.`
 			: mode === 'gather' ? `to search, understand, and reference files in the user's codebase.`
@@ -430,6 +450,9 @@ ${details.map((d) => `- ${d}`).join('\n\n')}`);
 	// return answer
 	const ansStrs: string[] = [];
 	ansStrs.push(header);
+	if (modelIdentity) {
+		ansStrs.push(modelIdentityLine(modelIdentity));
+	}
 	ansStrs.push(sysInfo);
 	// In Agent Mode, put tool definitions prominently early in the message
 	if (toolDefinitions) {
@@ -458,7 +481,7 @@ ${toolDefinitions}
 
 // Minimal chat system message for local models (drastically reduced)
 // Used for local models to minimize token usage and latency
-export const chat_systemMessage_local = ({ memoryProjects, maxTools, workspaceFolders, chatMode: mode, includeXMLToolDefinitions, mcpTools, strictJsonToolArguments, minimalismMode, brevity, modelFamily: _modelFamily }: { workspaceFolders: string[]; chatMode: ChatMode; mcpTools: InternalToolInfo[] | undefined; includeXMLToolDefinitions: boolean; strictJsonToolArguments?: boolean; minimalismMode?: MinimalismMode; brevity?: BrevityLevel; modelFamily?: ModelFamily; maxTools?: number; memoryProjects?: string }) => {
+export const chat_systemMessage_local = ({ modelIdentity, memoryProjects, maxTools, workspaceFolders, chatMode: mode, includeXMLToolDefinitions, mcpTools, strictJsonToolArguments, minimalismMode, brevity, modelFamily: _modelFamily }: { workspaceFolders: string[]; chatMode: ChatMode; mcpTools: InternalToolInfo[] | undefined; includeXMLToolDefinitions: boolean; strictJsonToolArguments?: boolean; minimalismMode?: MinimalismMode; brevity?: BrevityLevel; modelFamily?: ModelFamily; maxTools?: number; memoryProjects?: string; modelIdentity?: ModelIdentity }) => {
 	const header = mode === 'agent'
 		? 'Coding agent. Use tools for actions.'
 		: mode === 'gather'
@@ -494,7 +517,7 @@ export const chat_systemMessage_local = ({ memoryProjects, maxTools, workspaceFo
 
 	const importantDetails = details.length > 0 ? `\n${details.join('\n')}` : '';
 
-	const ansStrs: string[] = [header, sysInfo];
+	const ansStrs: string[] = modelIdentity ? [header, modelIdentityLine(modelIdentity), sysInfo] : [header, sysInfo];
 	if (toolDefinitions) {
 		ansStrs.push(`\n<tools>\n${toolDefinitions}\n</tools>`);
 	}
