@@ -221,6 +221,9 @@ class EditCodeService extends Disposable implements IEditCodeService {
 	private readonly _onDidAddOrDeleteDiffZones = new Emitter<{ uri: URI }>();
 	onDidAddOrDeleteDiffZones = this._onDidAddOrDeleteDiffZones.event;
 
+	private readonly _onWillResolveDiff = new Emitter<{ uri: URI; diffid: number }>();
+	onWillResolveDiff = this._onWillResolveDiff.event;
+
 	// diffZone: [uri], diffs, isStreaming  // listen on change diffs, change streaming (uri is const)
 	private readonly _onDidChangeDiffsInDiffZoneNotStreaming = new Emitter<{ uri: URI; diffareaid: number }>();
 	private readonly _onDidChangeStreamingInDiffZone = new Emitter<{ uri: URI; diffareaid: number }>();
@@ -2314,6 +2317,7 @@ class EditCodeService extends Disposable implements IEditCodeService {
 		if (diffArea.type !== 'DiffZone') { return; }
 
 		const uri = diffArea._URI;
+		this._onWillResolveDiff.fire({ uri, diffid });
 
 		// add to history
 		const { onFinishEdit } = this._addToHistory(uri);
@@ -2397,6 +2401,7 @@ class EditCodeService extends Disposable implements IEditCodeService {
 		if (diffArea.type !== 'DiffZone') { return; }
 
 		const uri = diffArea._URI;
+		this._onWillResolveDiff.fire({ uri, diffid });
 
 		// add to history
 		const { onFinishEdit } = this._addToHistory(uri);

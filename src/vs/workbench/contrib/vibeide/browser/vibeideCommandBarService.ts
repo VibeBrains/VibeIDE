@@ -29,6 +29,7 @@ import { KeyCode } from '../../../../base/common/keyCodes.js';
 import { ScrollType } from '../../../../editor/common/editorCommon.js';
 import { IVibeideModelService } from '../common/vibeideModelService.js';
 import { VIBE_COMMAND_CATEGORY } from '../common/vibeCommandCategory.js';
+import { diffIdxAfterResolve } from '../common/diffNavigation.js';
 
 type VibeCommandBarModule = typeof import('./react/out/vibe-editor-widgets-tsx/index.js');
 let mountVibeCommandBarPromise: Promise<VibeCommandBarModule['mountVibeCommandBar']> | undefined;
@@ -94,6 +95,8 @@ export class VibeideCommandBarService extends Disposable implements IVibeideComm
 	public stateOfURI: { [uri: string]: CommandBarStateType } = {};
 	public sortedURIs: URI[] = []; // keys of state (depends on diffZones in the uri)
 	private readonly _listenToTheseURIs = new Set<URI>(); // uriFsPaths
+	/** Where the change being accepted or rejected stood in its file's list, until the list drops it */
+	private readonly _resolvedDiffIdxOfURI = new Map<string, number>();
 
 	// Emits when a URI's stream state changes between idle, streaming, and acceptRejectAll
 	private readonly _onDidChangeState = new Emitter<{ uri: URI }>();
@@ -199,8 +202,11 @@ export class VibeideCommandBarService extends Disposable implements IVibeideComm
 				const newSortedDiffIds = this._computeSortedDiffs(newSortedDiffZoneIds);
 				const isStreaming = this._isAnyDiffZoneStreaming(currentDiffZones);
 
-				// When diffZones are added/removed, reset the diffIdx to 0 if we have diffs
-				const newDiffIdx = newSortedDiffIds.length > 0 ? 0 : null;
+				// A resolved change keeps the reader's place; new zones from the agent start from the top
+				const resolvedIdx = this._takeResolvedDiffIdx(uri, currState.sortedDiffIds.length, newSortedDiffIds.length);
+				const newDiffIdx = resolvedIdx !== undefined
+					? diffIdxAfterResolve(resolvedIdx, newSortedDiffIds.length)
+					: newSortedDiffIds.length > 0 ? 0 : null;
 
 				this._setState(uri, {
 					sortedDiffZoneIds: newSortedDiffZoneIds,
@@ -208,6 +214,9 @@ export class VibeideCommandBarService extends Disposable implements IVibeideComm
 					isStreaming: isStreaming,
 					diffIdx: newDiffIdx
 				});
+				if (resolvedIdx !== undefined) {
+					this._revealDiffIdx(uri, newDiffIdx);
+				}
 				this._onDidChangeState.fire({ uri });
 			}
 
@@ -224,16 +233,14 @@ export class VibeideCommandBarService extends Disposable implements IVibeideComm
 				const oldSortedDiffIds = currState.sortedDiffIds;
 				const newSortedDiffIds = this._computeSortedDiffs(sortedDiffZoneIds);
 
-				// Handle diffIdx adjustment when diffs change
+				// A resolved change hands the turn to its follower; any other shrink only clamps the index
+				const resolvedIdx = this._takeResolvedDiffIdx(uri, oldSortedDiffIds.length, newSortedDiffIds.length);
 				let newDiffIdx = currState.diffIdx;
-
-				// Check if diffs were removed
-				if (oldSortedDiffIds.length > newSortedDiffIds.length && currState.diffIdx !== null) {
-					// If currently selected diff was removed or we have fewer diffs than the current index
-					if (currState.diffIdx >= newSortedDiffIds.length) {
-						// Select the last diff if available, otherwise null
-						newDiffIdx = newSortedDiffIds.length > 0 ? newSortedDiffIds.length - 1 : null;
-					}
+				if (resolvedIdx !== undefined) {
+					newDiffIdx = diffIdxAfterResolve(resolvedIdx, newSortedDiffIds.length);
+				}
+				else if (newDiffIdx !== null && newDiffIdx >= newSortedDiffIds.length) {
+					newDiffIdx = newSortedDiffIds.length > 0 ? newSortedDiffIds.length - 1 : null;
 				}
 
 				this._setState(uri, {
@@ -242,7 +249,16 @@ export class VibeideCommandBarService extends Disposable implements IVibeideComm
 					// sortedDiffZoneIds, // no change
 					// isStreaming, // no change
 				});
+				if (resolvedIdx !== undefined) {
+					this._revealDiffIdx(uri, newDiffIdx);
+				}
 				this._onDidChangeState.fire({ uri });
+			}
+		}));
+		this._register(this._editCodeService.onWillResolveDiff(({ uri, diffid }) => {
+			const idx = this.stateOfURI[uri.fsPath]?.sortedDiffIds.indexOf(String(diffid)) ?? -1;
+			if (idx >= 0) {
+				this._resolvedDiffIdxOfURI.set(uri.fsPath, idx);
 			}
 		}));
 		this._register(this._editCodeService.onDidChangeStreamingInDiffZone(e => {
@@ -264,6 +280,34 @@ export class VibeideCommandBarService extends Disposable implements IVibeideComm
 
 	}
 
+
+	/** The pending resolve of this file, consumed by the first list update that actually dropped a change */
+	private _takeResolvedDiffIdx(uri: URI, oldLength: number, newLength: number): number | undefined {
+		const idx = this._resolvedDiffIdxOfURI.get(uri.fsPath);
+		if (idx === undefined || newLength >= oldLength) {
+			return undefined;
+		}
+		this._resolvedDiffIdxOfURI.delete(uri.fsPath);
+		return idx;
+	}
+
+	/** Brings the current change into view in this file's editor, without moving a change that is already visible */
+	private _revealDiffIdx(uri: URI, idx: number | null): void {
+		if (idx === null) {
+			return;
+		}
+		const diffid = this.stateOfURI[uri.fsPath]?.sortedDiffIds[idx];
+		const diff = diffid === undefined ? undefined : this._editCodeService.diffOfId[diffid];
+		if (!diff) {
+			return;
+		}
+		const focused = this._codeEditorService.getFocusedCodeEditor();
+		const editor = focused?.getModel()?.uri.fsPath === uri.fsPath
+			? focused
+			: this._codeEditorService.listCodeEditors().find(e => e.getModel()?.uri.fsPath === uri.fsPath);
+		const endLine = diff.type === 'deletion' ? diff.startLine : diff.endLine;
+		editor?.revealLinesInCenterIfOutsideViewport(diff.startLine, endLine, ScrollType.Smooth);
+	}
 
 	setDiffIdx(uri: URI, newIdx: number | null): void {
 		this._setState(uri, { diffIdx: newIdx });
@@ -630,11 +674,7 @@ registerAction2(class extends Action2 {
 		metricsService.capture('Accept Diff', { diffid, keyboard: true });
 		editCodeService.acceptDiff({ diffid: parseInt(diffid) });
 
-		// After accepting the diff, navigate to the next diff
-		const nextDiffIdx = commandBarService.getNextDiffIdx(1);
-		if (nextDiffIdx !== null) {
-			commandBarService.goToDiffIdx(nextDiffIdx);
-		}
+		// The service moves to the follower itself (onWillResolveDiff); stepping here too skipped one change
 	}
 });
 
@@ -673,11 +713,7 @@ registerAction2(class extends Action2 {
 		metricsService.capture('Reject Diff', { diffid, keyboard: true });
 		editCodeService.rejectDiff({ diffid: parseInt(diffid) });
 
-		// After rejecting the diff, navigate to the next diff
-		const nextDiffIdx = commandBarService.getNextDiffIdx(1);
-		if (nextDiffIdx !== null) {
-			commandBarService.goToDiffIdx(nextDiffIdx);
-		}
+		// The service moves to the follower itself (onWillResolveDiff); stepping here too skipped one change
 	}
 });
 

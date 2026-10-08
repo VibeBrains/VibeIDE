@@ -484,6 +484,14 @@ suite('vibePipelineFile — escalation, roles и логические имена
 		]);
 	});
 
+	test('любой флаг шага строкой роняет пайплайн, а не становится false', () => {
+		assert.deepStrictEqual(['continueOnFailure', 'ignorePreviousArtifacts', 'offPeak'].map(flag => pipeline({}, [{ role: 'critic', task: 'а', model: 'zai/glm-5.3', [flag]: 'true' }]).warnings), [
+			['pipelines[0] «p», шаг 1: поле continueOnFailure — true или false — пайплайн пропущен'],
+			['pipelines[0] «p», шаг 1: поле ignorePreviousArtifacts — true или false — пайплайн пропущен'],
+			['pipelines[0] «p», шаг 1: поле offPeak — true или false — пайплайн пропущен'],
+		]);
+	});
+
 	test('roles: шаг без своей модели берёт модель роли, своя сильнее, пара provider + model — синоним', () => {
 		const parsed = pipeline({ roles: { 'code-reviewer': { model: ' minimax/MiniMax-M3 ' }, critic: { provider: 'anthropic', model: 'claude-fable-5-1' } } }, [
 			{ role: 'code-reviewer', task: 'а' },

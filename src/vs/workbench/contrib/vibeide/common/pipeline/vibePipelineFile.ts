@@ -303,6 +303,10 @@ export function effectiveWriteScope(role: string, stated: WriteScope | undefined
 	return { paths: qaWritePaths, ...(stated?.denyPaths ? { denyPaths: stated.denyPaths } : {}) };
 }
 
+
+/** The step's yes/no fields; each must be a real boolean */
+const STEP_FLAGS = ['continueOnFailure', 'ignorePreviousArtifacts', 'escalation', 'offPeak'] as const;
+
 /**
  * Parse `.vibe/pipelines.json`.
  *
@@ -454,14 +458,16 @@ function parseStep(raw: unknown, roleModels: ReadonlyMap<string, string>): { ok:
 			return { ok: false, reason: `поле ${key} должно быть «провайдер/модель» или логическим именем «@имя»` };
 		}
 	}
+	// A flag that is not a boolean is refused, not read as absent: a typo that silently became `false` changes the run —
+	// `"escalation": "true"` runs the expensive step every time, `"continueOnFailure": "true"` stops the pipeline
+	for (const key of STEP_FLAGS) {
+		if (s[key] !== undefined && typeof s[key] !== 'boolean') {
+			return { ok: false, reason: `поле ${key} — true или false` };
+		}
+	}
 	// The step's OWN model, not one taken from `roles`: VibeIDEA checks it so, and the shared file must load the same.
 	if (s['offPeak'] === true && !isModelReference(s['model'])) {
 		return { ok: false, reason: 'поле offPeak требует model «провайдер/модель» — расписание цены есть только у модели' };
-	}
-	// Refused rather than ignored like the other flags:
-	// `"escalation": "true"` read as absent would run the expensive step every time.
-	if (s['escalation'] !== undefined && typeof s['escalation'] !== 'boolean') {
-		return { ok: false, reason: 'поле escalation — true или false' };
 	}
 	// The step's own model wins; a step without one takes its role's model from `roles`.
 	const model = isModelReference(s['model']) ? s['model'].trim() : roleModels.get(role);

@@ -63,6 +63,8 @@ export interface IEditCodeService {
 
 	// events
 	onDidAddOrDeleteDiffZones: Event<{ uri: URI }>;
+	/** A change is about to be accepted or rejected; fires before it leaves the list */
+	onWillResolveDiff: Event<{ uri: URI; diffid: number }>;
 	onDidChangeDiffsInDiffZoneNotStreaming: Event<{ uri: URI; diffareaid: number }>; // only fires when not streaming!!! streaming would be too much
 	onDidChangeStreamingInDiffZone: Event<{ uri: URI; diffareaid: number }>;
 	onDidChangeStreamingInCtrlKZone: Event<{ uri: URI; diffareaid: number }>;

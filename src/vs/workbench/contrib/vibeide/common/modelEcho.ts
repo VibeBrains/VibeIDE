@@ -64,10 +64,22 @@ export function modelFromGeminiEvent(event: unknown): string | undefined {
 	return nonEmptyString(asRecord(event)?.modelVersion);
 }
 
-/** `openai/gpt-4o` and `gpt-4o` are one model behind an aggregator's namespace. */
+/** A floating alias asks for the current build: `~openai/gpt-5-latest`, `claude-opus-5:latest` */
+const FLOATING_PREFIX = '~';
+const FLOATING_SUFFIXES = ['-latest', ':latest'];
+
+/**
+ * The model name an id comes down to
+ *
+ * `openai/gpt-4o` and `gpt-4o` are one model behind an aggregator's namespace
+ * A floating alias is reduced to its base: the vendor honestly answers it with a dated build,
+ * And comparing `gpt-5-latest` with `gpt-5-2026-08-01` would cry «substituted» on every turn through the alias
+ */
 function tail(id: string): string {
-	const slash = id.lastIndexOf('/');
-	return slash >= 0 ? id.slice(slash + 1) : id;
+	const unpinned = id.startsWith(FLOATING_PREFIX) ? id.slice(FLOATING_PREFIX.length) : id;
+	const name = unpinned.slice(unpinned.lastIndexOf('/') + 1);
+	const suffix = FLOATING_SUFFIXES.find(s => name.endsWith(s));
+	return suffix ? name.slice(0, -suffix.length) : name;
 }
 
 /**

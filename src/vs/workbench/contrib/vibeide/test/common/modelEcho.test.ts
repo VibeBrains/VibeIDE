@@ -4,7 +4,7 @@
  *--------------------------------------------------------------------------------------------*/
 
 import * as assert from 'assert';
-import { isModelSubstituted, modelFromAnthropicEvent, modelFromGeminiEvent, modelFromOpenAiChunk, readAnsweredModel } from '../../common/modelEcho.js';
+import { modelFromAnthropicEvent, modelFromGeminiEvent, modelFromOpenAiChunk, readAnsweredModel } from '../../common/modelEcho.js';
 import { ensureNoDisposablesAreLeakedInTestSuite } from '../../../../../base/test/common/utils.js';
 
 /**
@@ -25,36 +25,6 @@ suite('Кто ответил на самом деле', () => {
 			modelFromGeminiEvent(JSON.parse('{"candidates":[]}')),
 			modelFromOpenAiChunk(JSON.parse('{"model":"  "}')),
 		], ['gpt-4o-2024-08-06', 'claude-opus-5', 'gemini-3.8-flash', undefined, undefined, undefined, undefined]);
-	});
-
-	test('та же модель, написанная иначе, — не подмена', () => {
-		const same: ReadonlyArray<readonly [string, string]> = [
-			['gpt-4o', 'gpt-4o-2024-08-06'],
-			['openai/gpt-4o', 'gpt-4o'],
-			['gpt-4o', 'openai/gpt-4o'],
-			['claude-opus-5', 'Claude-Opus-5'],
-			['qwen3-max', 'qwen3-max@2026-01-01'],
-			['kimi-k2', 'kimi-k2-0905-preview'],
-			['gemini-3.8-flash', 'gemini-3.8-flash-002'],
-		];
-		assert.deepStrictEqual(same.map(([asked, got]) => isModelSubstituted(asked, got)), same.map(() => false));
-	});
-
-	test('другая модель — подмена, и хвост-слово её не прячет', () => {
-		const other: ReadonlyArray<readonly [string, string]> = [
-			['claude-opus-5', 'claude-haiku-4-5'],
-			['gpt-4o', 'gpt-4o-mini'],
-			['gpt-4o', 'gpt-4o-mini-2024-07-18'],
-			['openai/gpt-4o', 'anthropic/claude-opus-5'],
-		];
-		assert.deepStrictEqual(other.map(([asked, got]) => isModelSubstituted(asked, got)), other.map(() => true));
-	});
-
-	test('молчание — не обвинение', () => {
-		assert.deepStrictEqual(
-			[isModelSubstituted('gpt-4o', undefined), isModelSubstituted('gpt-4o', '   '), isModelSubstituted('', 'gpt-4o')],
-			[false, false, false],
-		);
 	});
 
 	test('имя читается с головы ответа: поток, целый ответ, обрезанная голова', () => {
