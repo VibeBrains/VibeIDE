@@ -19,6 +19,7 @@ import { ChatMarkdownRender, ChatMessageLocation, getApplyBoxId } from '../markd
 import { URI } from '../../../../../../../base/common/uri.js';
 import { VSBuffer } from '../../../../../../../base/common/buffer.js';
 import { threadToMarkdown } from '../../../../common/chatThreadToMarkdown.js';
+import { nudgeHeadlineOf } from '../../../../common/agentNudges.js';
 import { IDisposable } from '../../../../../../../base/common/lifecycle.js';
 import { ErrorDisplay } from './ErrorDisplay.js';
 import { BlockCode, TextAreaFns, VibeCustomDropdownBox, VibeInputBox2, VibeSlider, VibeSwitch, VibeDiffEditor } from '../util/inputs.js';
@@ -2902,6 +2903,24 @@ const AssistantMessageComponent = React.memo(({ chatMessage, isCheckpointGhost, 
 		prev.messageIdx === next.messageIdx;
 });
 
+/**
+ * A service message the agent loop sent the model (`isSyntheticNudge`): folded to its headline, the full text on click
+ * Drawn as a user bubble it read as if the person had written «ЗАПРЕЩЕНО: придумывать новую работу…»
+ */
+const SyntheticNudgeComponent = ({ chatMessage }: { chatMessage: ChatMessage & { role: 'user' } }) => {
+	const [isOpen, setIsOpen] = useState(false);
+	const text = chatMessage.displayContent || chatMessage.content || '';
+	return <div className='px-2 opacity-80'>
+		<ToolHeaderWrapper title={nudgeHeadlineOf(text)} desc1='' isOpen={isOpen} onClick={() => setIsOpen(v => !v)}>
+			<ToolChildrenWrapper>
+				<div className='!select-text cursor-auto whitespace-pre-wrap text-xs text-vibe-fg-3'>
+					{text}
+				</div>
+			</ToolChildrenWrapper>
+		</ToolHeaderWrapper>
+	</div>;
+};
+
 const ReasoningWrapper = ({ isDoneReasoning, isStreaming, children }: { isDoneReasoning: boolean; isStreaming: boolean; children: React.ReactNode }) => {
 	const isDone = isDoneReasoning || !isStreaming;
 	const isWriting = !isDone;
@@ -5057,6 +5076,9 @@ const _ChatBubble = React.memo(({ threadId, chatMessage, currCheckpointIdx, isCo
 
 	const isCheckpointGhost = messageIdx > (currCheckpointIdx ?? Infinity) && !chatIsRunning; // whether to show as gray (if chat is running, for good measure just dont show any ghosts)
 
+	if (role === 'user' && chatMessage.isSyntheticNudge) {
+		return <SyntheticNudgeComponent chatMessage={chatMessage} />;
+	}
 	if (role === 'user') {
 		return <UserMessageComponent
 			chatMessage={chatMessage}

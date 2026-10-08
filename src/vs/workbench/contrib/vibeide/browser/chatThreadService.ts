@@ -104,6 +104,7 @@ import { IVibeVerifyGateService } from './vibeVerifyGateService.js';
 import { decideVerifyGate } from '../common/verifyGatePolicy.js';
 import { IVibeTurnChecksService } from './vibeTurnChecksService.js';
 import { decideTurnChecks, evaluateTurnChecks, renderTurnChecksCorrective, TurnCheckResult, TurnChecksDecision } from '../common/agentTurnChecks.js';
+import { AUTOPILOT_EMPTY_TURN_NUDGE, AUTOPILOT_QUESTION_NUDGE, AUTOPILOT_TEXT_TURN_NUDGE, AUTOPILOT_XML_COMPLETE_HINT, designHookNudge, slopGateNudge, unparsedToolCallNudge, verifyGateNudge, XML_REPAIR_NUDGE } from '../common/agentNudges.js';
 import { breakerName, IVibeCircuitBreakerService, PROTECTIVE_BREAKERS } from '../common/agentCircuitBreakers.js';
 import { DesignHookMode, decideDesignHook, floorFindings, touchesUi } from '../common/designReview/designHookPolicy.js';
 import { Finding, ViewportLabel, mergeViewportFindings, reviewDesign, summarize } from '../common/designReview/designSlopRules.js';
@@ -7562,7 +7563,7 @@ Output ONLY the JSON, no other text. Start with { and end with }.`;
 						});
 						if (decision === 'bounce' && verify) {
 							verifyGateAttempts += 1;
-							const corrective = `⛔ VERIFY-GATE: команда «${verify.command}» завершилась с ошибкой (exit ${verify.exitCode ?? 'timeout'}). Задача НЕ считается выполненной — не вызывай vibe_complete, пока не станет зелёно. Исправь причину и продолжай работу инструментами (попытка ${verifyGateAttempts} из ${maxAttempts}).\n\nВывод команды:\n${verify.output}`;
+							const corrective = verifyGateNudge(verify.command, verify.exitCode, verifyGateAttempts, maxAttempts, verify.output);
 							traceAgentStep({ threadId, kind: 'nudge' });
 							this._addMessageToThread(threadId, { role: 'user', content: corrective, displayContent: corrective, selections: null, isSyntheticNudge: true, state: defaultMessageState });
 							shouldSendAnotherMessage = true;
@@ -7653,13 +7654,7 @@ Output ONLY the JSON, no other text. Start with { and end with }.`;
 						if (decision === 'bounce') {
 							designHookAttempts += 1;
 							const list = floorFindings(findings).map(f => `• ${f.message} — ${f.selector} (${f.evidence})`).join('\n');
-							// Про карту напоминаем ТОЛЬКО когда она в проекте есть: совет «проверьте карту»
-							// в проекте без карты — это совет открыть несуществующий файл, и он учит
-							// игнорировать весь остальной текст сообщения.
-							const uiKitReminder = context.uiKit
-								? '\n\nПеред тем как чинить: если правка требует элемента интерфейса, найдите его в карте UI (.vibe/design/uiKit.md) и используйте существующий, а не заводите новый.'
-								: '';
-							const corrective = `⛔ DESIGN-HOOK: страница после правок нарушает пол качества — это дефекты, а не вкус. Задача НЕ закрыта: исправь и продолжай инструментами (попытка ${designHookAttempts}).\n\n${list}${uiKitReminder}\n\nЕсли что-то из перечисленного — намеренный выбор продукта, впиши правило в раздел «Детектор» файла .vibe/design/design.md с причиной, а не игнорируй молча.`;
+							const corrective = designHookNudge(list, designHookAttempts, !!context.uiKit);
 							traceAgentStep({ threadId, kind: 'nudge' });
 							this._addMessageToThread(threadId, { role: 'user', content: corrective, displayContent: corrective, selections: null, isSyntheticNudge: true, state: defaultMessageState });
 							shouldSendAnotherMessage = true;
@@ -7774,7 +7769,7 @@ Output ONLY the JSON, no other text. Start with { and end with }.`;
 						reasoning: info.fullReasoning || '',
 						anthropicReasoning: info.anthropicReasoning ?? null,
 					});
-					const corrective = '⚙️ Авто-исправление: твой предыдущий tool-call был в некорректном/обрезанном XML и не распознан. Переотправь РОВНО ОДИН валидный tool-call в каноническом формате. Если инструмент не нужен — ответь обычным текстом.';
+					const corrective = XML_REPAIR_NUDGE;
 					this._addMessageToThread(threadId, { role: 'user', content: corrective, displayContent: corrective, selections: null, isSyntheticNudge: true, state: defaultMessageState });
 					shouldSendAnotherMessage = true;
 					this._setStreamState(threadId, { isRunning: 'idle', interrupt: 'not_needed' });
@@ -7945,7 +7940,7 @@ Output ONLY the JSON, no other text. Start with { and end with }.`;
 						if (unparsedToolCallRetries < UNPARSED_TOOL_CALL_RETRIES) {
 							unparsedToolCallRetries += 1;
 							vibeLog.warn('chatThread', `[agent] tool call written as text in unrecognised markup (${modelSelection?.providerName ?? '?'}/${modelSelection?.modelName ?? '?'}) — asking to repeat it as a real call.`);
-							const retry = localize('vibeide.agent.retryUnparsedToolCall', '⚙️ Вызов инструмента не выполнен: он пришёл текстом, в разметке, которую IDE не разобрала. Повтори этот же вызов через механизм вызова инструментов, в формате из системных инструкций, — не текстом ответа.');
+							const retry = unparsedToolCallNudge();
 							this._addMessageToThread(threadId, { role: 'user', content: retry, displayContent: retry, selections: null, isSyntheticNudge: true, state: defaultMessageState });
 							shouldSendAnotherMessage = true;
 							forceToolUseNextTurn = this._configurationService.getValue<boolean>('vibeide.agent.forceToolUseOnNudge') !== false;
@@ -8011,25 +8006,14 @@ Output ONLY the JSON, no other text. Start with { and end with }.`;
 								const { getModelCapabilities } = await import('../common/modelCapabilities.js');
 								const caps = getModelCapabilities(modelSelection.providerName, modelSelection.modelName, overridesOfModel);
 								if (!caps.specialToolFormat) {
-									xmlCompleteHint = '\n\nТы в XML-режиме инструментов: чтобы ЗАВЕРШИТЬ ход, выведи РОВНО это и больше ничего —\n<vibe_complete>\n<summary>что сделано, 1–3 предложения</summary>\n</vibe_complete>';
+									xmlCompleteHint = AUTOPILOT_XML_COMPLETE_HINT;
 								}
 							}
 						} catch { /* capabilities unavailable → plain nudge */ }
+						// Which reading goes first and why — at AUTOPILOT_TEXT_TURN_NUDGE
 						let corrective = askedQuestion
-							? '⚙️ Авто-продолжение (автопилот): ты завершил ход вопросом, но автопилот включён — пользователь в этом режиме не отвечает. Прими решение самостоятельно (выбери разумный вариант по умолчанию, зафиксируй его одной строкой) и продолжай работу инструментами. Не жди подтверждения.'
-							: info.fullText.trim().length === 0
-								? '⚙️ Авто-продолжение (автопилот): твой предыдущий ход пришёл ПУСТЫМ (ни текста, ни вызова инструмента) — вероятно, сбой доставки ответа. Продолжай выполнение задачи с того места, где остановился: вызови следующий нужный инструмент или дай финальный ответ.'
-									// Completion branch goes FIRST and is the default reading: a weak caller takes the
-									// first imperative as the instruction and loses the condition attached to it. The old
-									// wording opened with «НЕ закончена — продолжай» and closed with «прими разумное
-									// решение сам и продолжай» — the freshest line in context, read as a licence to
-									// invent. Observed 2026-07-31: MiniMax answered «понял, автопилот, пошёл дальше»
-									// on a FINISHED task and started fabricating `.vibe/servers.json` out of thin air.
-									// See docs/knowledge/chatUx/chatInterruptAndInject.md.
-									: '⚙️ Авто-продолжение (автопилот): ход не закрывается текстом — только вызовом инструмента.\n\n'
-									+ 'Задача выполнена → вызови `vibe_complete`. Это единственный способ закончить. Перед вызовом перепроверь: правки применены, сборка и тесты проходят, шагов не осталось.\n\n'
-									+ 'Задача НЕ выполнена → продолжай ровно её: вызови нужный инструмент.\n\n'
-									+ 'ЗАПРЕЩЕНО: придумывать новую работу, о которой не просили; создавать файлы «на всякий случай»; выдумывать данные, которых нет в проекте. Если не знаешь, что делать дальше, — значит работа закончена: вызывай `vibe_complete`. Если для ПОСТАВЛЕННОЙ задачи не хватает данных — выбери разумный вариант из тех, что уже известны из проекта, назови его одной строкой и продолжай.';
+							? AUTOPILOT_QUESTION_NUDGE
+							: info.fullText.trim().length === 0 ? AUTOPILOT_EMPTY_TURN_NUDGE : AUTOPILOT_TEXT_TURN_NUDGE;
 						// Text-only completion case only (not the question / empty-turn variants) gets the XML hint.
 						if (!askedQuestion && info.fullText.trim().length !== 0) { corrective += xmlCompleteHint; }
 						// Задача называется дословно. Без этого «продолжай поставленную работу» в треде с оборвавшимся
@@ -8804,7 +8788,7 @@ Output ONLY the JSON, no other text. Start with { and end with }.`;
 		const summaryLines = failing.map(f => localize('vibeide.slopGate.file', "• {0} — {1}/100 ({2})", f.path, Math.round(f.report.score * 10) / 10, [...new Set(f.report.findings.map(x => x.rule))].slice(0, 6).join(', '))).join('\n');
 		if (decision === 'bounce') {
 			const details = failing.map(f => `### ${f.path}\n${renderSlopReport(f.report, f.warnings, SLOP_GATE_FINDINGS_PER_FILE)}`).join('\n\n');
-			const corrective = localize('vibeide.slopGate.corrective', "⛔ НЕЙРОСЛОП: текст, записанный в этом ходе, не прошёл проверку — попытка {0} из {1}. Перепиши найденное и продолжай инструментами.\n\n{2}\n\nНе добавляй фактов, чисел, имён и источников, которых нет в исходном тексте, и не меняй смысл. Порядок правки — в навыке anti-slop.", attemptsUsed + 1, maxAttempts, details);
+			const corrective = slopGateNudge(attemptsUsed + 1, maxAttempts, details);
 			this._addMessageToThread(threadId, { role: 'user', content: corrective, displayContent: corrective, selections: null, isSyntheticNudge: true, state: defaultMessageState });
 			return 'bounced';
 		}
