@@ -42,6 +42,10 @@ const READABLE_SWITCHES: readonly { readonly from: RegExp; readonly to: RegExp; 
 	{ from: /opus-?5[-.]5/i, to: /(fable|mythos)-?5[-.]1/i },
 	// Opus 5.5 reads Sonnet 5.5 blocks on the Claude API only (platform.claude.com/docs/en/models/sonnet-5-5/migration-guide)
 	{ from: /sonnet-?5[-.]5/i, to: /opus-?5[-.]5/i, onlyOn: 'anthropic' },
+	// Opus 5.5 and Sonnet 5.5 read Haiku 5.5 blocks on the Claude API and Google Cloud
+	// (platform.claude.com/docs/en/build-with-claude/thinking, «Switching models mid-conversation», checked 08.10.2026)
+	{ from: /haiku-?5[-.]5/i, to: /opus-?5[-.]5/i, onlyOn: 'anthropic' },
+	{ from: /haiku-?5[-.]5/i, to: /sonnet-?5[-.]5/i, onlyOn: 'anthropic' },
 ];
 
 function readableSwitch(input: ReasoningContinuityInput): boolean {

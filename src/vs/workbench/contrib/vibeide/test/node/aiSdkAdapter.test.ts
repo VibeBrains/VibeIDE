@@ -337,6 +337,34 @@ suite('aiSdkAdapter — встроенные провайдеры против �
 		});
 	});
 
+	test('Claude: смена усилия посреди треда уходит только на собственный API Anthropic — прокси получает уровень в запросе', async () => {
+		const quirks = await import('../../electron-main/modelQuirks/modelQuirksService.js');
+		quirks.__setCatalogForTests({ version: 1, rules: [{ match: 'sonnet-5-5', effortBySystemMessage: true }] });
+		try {
+			// ANTHROPIC_BASE_URL points the built-in provider at this test server: a proxy, not Anthropic's own address
+			const outcome = await send({
+				providerName: 'anthropic',
+				modelName: 'claude-sonnet-5-5',
+				settingsOfProvider: settingsWith({ anthropic: { apiKey: 'sk-ant-test' } }),
+				modelSelectionOptions: { reasoningEnabled: true, reasoningEffort: 'high' },
+				messages: [
+					{ role: 'user', content: 'Первый вопрос' },
+					{ role: 'assistant', content: 'Первый ответ', effortMark: 'anthropic/claude-sonnet-5-5#low' } as unknown as LLMChatMessage,
+					{ role: 'user', content: 'Второй вопрос' },
+				],
+			});
+			const request = requests.filter(r => r.path === '/v1/messages').at(-1);
+			assert.deepStrictEqual({
+				effort: (request?.body?.output_config as { effort?: string } | undefined)?.effort,
+				roles: (request?.body?.messages as { role: string }[] | undefined)?.map(message => message.role),
+				beta: /mid-conversation-output-config/.test(String(request?.headers['anthropic-beta'] ?? '')),
+				mark: outcome.final?.effortMark,
+			}, { effort: 'high', roles: ['user', 'assistant', 'user'], beta: false, mark: undefined });
+		} finally {
+			quirks.__resetForTests();
+		}
+	});
+
 	test('Claude Sonnet 5.5: «выключено» — thinking between_tools с уровнем low, без привязки блоков; принудительного выбора инструмента нет', async () => {
 		// The shipped catalogue carries the same rule (modelQuirksCatalog.test.ts)
 		const quirks = await import('../../electron-main/modelQuirks/modelQuirksService.js');

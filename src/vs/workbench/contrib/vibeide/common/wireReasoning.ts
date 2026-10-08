@@ -80,6 +80,12 @@ export function claudeThinkingOptions(reasoning: SendableReasoningInfo, display:
 	};
 }
 
+/** The options with the request-level effort replaced, when `effort` is a level Claude knows; otherwise as they are */
+export function withClaudeEffort(options: ClaudeThinkingOptions, effort: string): ClaudeThinkingOptions {
+	const level = CLAUDE_EFFORTS.find(known => known === effort);
+	return level ? { ...options, effort: level } : options;
+}
+
 /** Efforts the «off» position may carry: `between_tools` answers 400 to xhigh and max */
 const CLAUDE_OFF_EFFORTS: readonly ClaudeEffort[] = ['low', 'medium', 'high'];
 

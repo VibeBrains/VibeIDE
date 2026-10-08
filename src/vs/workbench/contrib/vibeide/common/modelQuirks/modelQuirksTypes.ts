@@ -139,6 +139,13 @@ export interface ModelQuirksRule {
 	readonly effortByUpdate?: boolean;
 
 	/**
+	 * On Anthropic's own API the effort changes mid-conversation by an effort-only system message (Claude 5.5 and Opus 5):
+	 * The request keeps the effort of the thread's first answer, so moving the slider does not rewrite the cached prefix
+	 * See common/effortUpdates.ts
+	 */
+	readonly effortBySystemMessage?: boolean;
+
+	/**
 	 * The model answers on the Responses wire only: chat/completions refuses every request (o1-pro, o3-pro, gpt-5-pro)
 	 * A route that would send it there does not send it, and the error names the protocol to declare
 	 * The wire is not guessed: a provider's endpoint may serve one wire and not the other
@@ -328,6 +335,7 @@ export function validateCatalog(raw: unknown): ModelQuirksCatalog {
 			...readEnum(rr, 'forceToolCallFormat', ['native', 'xml', 'auto']),
 			...readBool(rr, 'forcedToolChoiceUnsupported'),
 			...readBool(rr, 'effortByUpdate'),
+			...readBool(rr, 'effortBySystemMessage'),
 			...readBool(rr, 'responsesOnly'),
 			...readBool(rr, 'toolCallsInText'),
 			...readBool(rr, 'reasoningBoundToModel'),
@@ -414,6 +422,7 @@ export function applyUserOverride(catalogQuirks: ResolvedModelQuirks, userOverri
 		...readEnum(oo, 'forceToolCallFormat', ['native', 'xml', 'auto']),
 		...readBool(oo, 'forcedToolChoiceUnsupported'),
 		...readBool(oo, 'effortByUpdate'),
+		...readBool(oo, 'effortBySystemMessage'),
 		...readBool(oo, 'responsesOnly'),
 		...readBool(oo, 'toolCallsInText'),
 		...readBool(oo, 'reasoningBoundToModel'),

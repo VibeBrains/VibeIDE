@@ -148,7 +148,7 @@ suite('builtin model profiles — имя на проводе, профиль, п
 	 * которое вендор отвергает с 400, K3 — пятую часть своей цены, GPT-6.1 Sol — уровень `none`, которого у него нет,
 	 * а Sonnet 5.5 — профиль Sonnet 5 без своего «выключено»
 	 */
-	test('новые поколения по имени: Sonnet 5.5, GPT-6.1 Sol, Kimi K3 и Kimi Code, GLM-5.3', () => {
+	test('новые поколения по имени: Sonnet 5.5, Haiku 5.5, GPT-6.1 Sol, Kimi K3 и Kimi Code, GLM-5.3', () => {
 		const card = (provider: 'anthropic' | 'openAI' | 'openRouter', modelName: string) => {
 			const caps = getModelCapabilities(provider, modelName, undefined);
 			const reasoning = caps.reasoningCapabilities || undefined;
@@ -165,6 +165,8 @@ suite('builtin model profiles — имя на проводе, профиль, п
 		assert.deepStrictEqual([
 			card('anthropic', 'claude-sonnet-5-5'),
 			card('anthropic', 'claude-sonnet-5-5-20260928'),
+			card('anthropic', 'claude-haiku-5-5'),
+			card('openRouter', 'anthropic/claude-haiku-5.5'),
 			card('openAI', 'gpt-6.1-sol'),
 			card('openRouter', 'moonshotai/kimi-k3'),
 			card('openRouter', 'k3-256k'),
@@ -172,8 +174,11 @@ suite('builtin model profiles — имя на проводе, профиль, п
 			card('openRouter', 'z-ai/glm-5.3'),
 			card('openRouter', 'z-ai/glm-5.3-flash'),
 		], [
-			{ model: 'anthropic/claude-sonnet-5-5 ← claude-sonnet-5-5', canTurnOff: true, off: { thinking: { type: 'between_tools' } }, levels: 'low/medium/high/xhigh/max', default: 'high', cost: '2/10/0.2' },
-			{ model: 'anthropic/claude-sonnet-5-5-20260928 ← claude-sonnet-5-5', canTurnOff: true, off: { thinking: { type: 'between_tools' } }, levels: 'low/medium/high/xhigh/max', default: 'high', cost: '2/10/0.2' },
+			{ model: 'anthropic/claude-sonnet-5-5 ← claude-sonnet-5-5', canTurnOff: true, off: { thinking: { type: 'between_tools' } }, levels: 'low/medium/high/xhigh/max', default: 'high', cost: '2/10/0.1' },
+			{ model: 'anthropic/claude-sonnet-5-5-20260928 ← claude-sonnet-5-5', canTurnOff: true, off: { thinking: { type: 'between_tools' } }, levels: 'low/medium/high/xhigh/max', default: 'high', cost: '2/10/0.1' },
+			// Haiku 5.5: «off» is `disabled` with no effort of its own — the vendor default (medium) is within what it takes
+			{ model: 'anthropic/claude-haiku-5-5 ← claude-haiku-5-5', canTurnOff: true, off: { thinking: { type: 'disabled' } }, levels: 'low/medium/high/xhigh/max', default: 'medium', cost: '0.1/0.5/0.01' },
+			{ model: 'openRouter/anthropic/claude-haiku-5.5 ← claude-haiku-5-5', canTurnOff: true, off: { thinking: { type: 'disabled' } }, levels: 'low/medium/high/xhigh/max', default: 'medium', cost: '0.1/0.5/0.01' },
 			{ model: 'openAI/gpt-6.1-sol ← gpt-6.1-sol', canTurnOff: false, off: undefined, levels: 'low/medium/high/xhigh/max', default: 'medium', cost: '2/10/0.1' },
 			{ model: 'openRouter/moonshotai/kimi-k3 ← kimiK3', canTurnOff: false, off: undefined, levels: 'low/high/max', default: 'high', cost: '3/15/0.3' },
 			{ model: 'openRouter/k3-256k ← kimiK3', canTurnOff: false, off: undefined, levels: 'low/high/max', default: 'high', cost: '3/15/0.3' },

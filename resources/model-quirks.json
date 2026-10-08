@@ -264,6 +264,7 @@
 		},
 		{
 			"match": "opus-5-5",
+			"effortBySystemMessage": true,
 			"forcedToolChoiceUnsupported": true,
 			"reasoningBoundToModel": true,
 			"source": "platform.claude.com/docs/en/models/opus-5-5/migration-guide (breaking changes 2 и 3)",
@@ -272,6 +273,7 @@
 		},
 		{
 			"match": "sonnet-5-5",
+			"effortBySystemMessage": true,
 			"forcedToolChoiceUnsupported": true,
 			"reasoningBoundToModel": true,
 			"source": "platform.claude.com/docs/en/models/sonnet-5-5/migration-guide",
@@ -279,7 +281,17 @@
 			"note": "Claude Sonnet 5.5 (28.09.2026): tool_choice any/tool отвечает 400 — «tool_choice: type \"tool\" and \"any\" are not supported for this model», замена — auto. Блоки рассуждения привязаны к модели и к аккаунту: Sonnet 5.5 не читает блоки Opus 5 / 5.5 / Fable / Mythos (API их отбрасывает с 200), а у аккаунтов с 31.08.2026 правка истории перед блоком — 400. «Выключено» — thinking between_tools с усилием low, это запись каталога, а не квирк; в этом режиме block_binding не принимается, поэтому блоки, рождённые под другим префиксом, срезаются перед отправкой (common/reasoningPrefix.ts). Правило opus-5-5 сюда не попадает. Живьём не проверено — ключа Anthropic нет."
 		},
 		{
+			"match": "haiku-5-5",
+			"effortBySystemMessage": true,
+			"adaptiveThinking": true,
+			"reasoningBoundToModel": true,
+			"source": "platform.claude.com/docs/en/build-with-claude/thinking (таблица «Configuring thinking», «Preserved thinking»), /effort, /about-claude/pricing; правило VibeIDEA (решение №131)",
+			"observedAt": "2026-10-08",
+			"note": "Claude Haiku 5.5 (07.10.2026): мышление адаптивное и включено по умолчанию, бюджет токенов — 400; «выключено» — thinking disabled, принимается при усилии до high, выше — 400 (запись каталога, а не причуда). Блоки рассуждения привязаны к аккаунту, а у аккаунтов с 31.08.2026 правка истории перед блоком — 400. Принудительный tool_choice принимается — ответ тогда начинается с вызова, без мышления; temperature, top_p и top_k — 400 на любом запросе, IDE их Claude не шлёт. Живьём не проверено — ключа Anthropic нет."
+		},
+		{
 			"match": "claude-opus-5",
+			"effortBySystemMessage": true,
 			"adaptiveThinking": true,
 			"source": "platform.claude.com/docs/en/build-with-claude/adaptive-thinking; правило ADAPTIVE_THINKING VibeIDEA (ModelQuirks.kt)",
 			"observedAt": "2026-09-25",
@@ -361,6 +373,20 @@
 			"source": "карточка модели на developers.openai.com: v1/responses и v1/batch, Chat Completions — Not supported; причуда RESPONSES_ONLY набора VibeBrains",
 			"observedAt": "2026-10-08",
 			"note": "Модель отвечает только через Responses API. Встроенный OpenAI и так шлёт её туда; провайдер из файла с протоколом openai запрос не отправляет и называет выход — объявить модели \"protocol\": \"openai-responses\". Провод не угадывается: эндпоинт провайдера может не уметь Responses."
+		},
+		{
+			"match": "fable-5-1",
+			"effortBySystemMessage": true,
+			"source": "platform.claude.com/docs/en/build-with-claude/effort#change-effort-mid-conversation-beta; причуда EFFORT_BY_SYSTEM_MESSAGE набора VibeBrains",
+			"observedAt": "2026-10-08",
+			"note": "Смена усилия посреди треда без сгоревшего кэша: запрос держит уровень первого ответа модели в треде, а новый уровень уходит системным сообщением без текста с output_config.effort перед сообщением пользователя (бета mid-conversation-output-config-2026-07-01). Только собственный API Anthropic и только при адаптивном мышлении: у Sonnet 5.5 с between_tools и у Haiku 5.5 с disabled смена уровня — 400. Живьём не проверено — ключа Anthropic нет."
+		},
+		{
+			"match": "mythos-5-1",
+			"effortBySystemMessage": true,
+			"source": "platform.claude.com/docs/en/build-with-claude/effort#change-effort-mid-conversation-beta; причуда EFFORT_BY_SYSTEM_MESSAGE набора VibeBrains",
+			"observedAt": "2026-10-08",
+			"note": "Смена усилия посреди треда без сгоревшего кэша: запрос держит уровень первого ответа модели в треде, а новый уровень уходит системным сообщением без текста с output_config.effort перед сообщением пользователя (бета mid-conversation-output-config-2026-07-01). Только собственный API Anthropic и только при адаптивном мышлении: у Sonnet 5.5 с between_tools и у Haiku 5.5 с disabled смена уровня — 400. Живьём не проверено — ключа Anthropic нет."
 		}
 	]
 }

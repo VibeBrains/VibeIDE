@@ -73,6 +73,8 @@ suite('ModelQuirks — настоящий каталог resources/model-quirks.
 		['claude-sonnet-5', { adaptiveThinking: true }],
 		// Sonnet 5.5 (28.09.2026): forced tool_choice answers 400, reasoning bound to the model and the account
 		['claude-sonnet-5-5', { adaptiveThinking: true, forcedToolChoiceUnsupported: true, reasoningBoundToModel: true }],
+		// Haiku 5.5 (07.10.2026): adaptive, reasoning bound to the account; forced tool_choice is accepted
+		['claude-haiku-5-5', { adaptiveThinking: true, reasoningBoundToModel: true, forcedToolChoiceUnsupported: undefined }],
 		['claude-opus-4-7', { adaptiveThinking: true }],
 		// 4.6 takes the adaptive mode; its token budget is deprecated, and sampling is not refused outright (08.10.2026)
 		['claude-opus-4-6', { adaptiveThinking: true }],

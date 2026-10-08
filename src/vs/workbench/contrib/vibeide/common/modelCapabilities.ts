@@ -945,7 +945,8 @@ const anthropicModelOptions = {
 	'claude-sonnet-5-5': {
 		contextWindow: 1_000_000,
 		reservedOutputTokenSpace: 128_000,
-		cost: { input: 2.00, cache_read: 0.20, cache_write: 2.50, output: 10.00 },
+		// A cache read is 0.05x input since 07.10.2026 — $0.10, was $0.20 (platform.claude.com/docs/en/about-claude/pricing)
+		cost: { input: 2.00, cache_read: 0.10, cache_write: 2.50, output: 10.00 },
 		downloadable: false,
 		supportsFIM: false,
 		specialToolFormat: 'anthropic-style',
@@ -959,6 +960,28 @@ const anthropicModelOptions = {
 			reasoningReservedOutputTokenSpace: 128_000,
 			// The vendor default is high, with the levels recalibrated against Sonnet 5
 			reasoningSlider: { type: 'effort_slider', values: ['low', 'medium', 'high', 'xhigh', 'max'], default: 'high' },
+		},
+	},
+	// Haiku 5.5 (2026-10-07; platform.claude.com pricing, effort and thinking pages, checked 08.10.2026)
+	// Priced by prompt length: past 100,000 tokens every rate of the request is five times the base
+	// Thinking is adaptive and on by default; `disabled` turns it off at high effort or below and is a 400 above
+	// «Off» names no effort, so the vendor default (medium) applies and the request stays within what `disabled` takes
+	'claude-haiku-5-5': {
+		contextWindow: 1_000_000,
+		reservedOutputTokenSpace: 128_000,
+		cost: { input: 0.10, cache_read: 0.01, cache_write: 0.125, cache_write_1h: 0.20, output: 0.50, long_context: { over_input_tokens: 100_000, input: 5, cache: 5, output: 5 } },
+		downloadable: false,
+		supportsFIM: false,
+		specialToolFormat: 'anthropic-style',
+		supportsSystemMessage: 'separated',
+		reasoningCapabilities: {
+			supportsReasoning: true,
+			canTurnOffReasoning: true,
+			reasoningOffPayload: { thinking: { type: 'disabled' } },
+			canIOReasoning: true,
+			reasoningReservedOutputTokenSpace: 128_000,
+			// The vendor default is medium, as on Opus 5.5
+			reasoningSlider: { type: 'effort_slider', values: ['low', 'medium', 'high', 'xhigh', 'max'], default: 'medium' },
 		},
 	},
 	'claude-sonnet-5': {
@@ -1085,6 +1108,7 @@ const anthropicFallbackProfiles: ReadonlyArray<readonly [RegExp, keyof typeof an
 	[/sonnet-?5/, 'claude-sonnet-5'],
 	[/claude-opus-4-5|claude-4-5-opus|claude-opus.*4\.5/, 'claude-opus-4-5-20251101'],
 	[/claude-sonnet-4-5|claude-4-5-sonnet|claude-sonnet.*4\.5/, 'claude-sonnet-4-5-20250929'],
+	[/haiku-?5[-.]5/, 'claude-haiku-5-5'],
 	[/claude-haiku-4-5|claude-4-5-haiku|claude-haiku.*4\.5/, 'claude-haiku-4-5-20251001'],
 	// Every other 4.x — 4.6 itself and the retired 4.0 and 4.1 a gateway may still serve — takes the 4.6 profile:
 	// the vendor's own replacement, with the family's current price

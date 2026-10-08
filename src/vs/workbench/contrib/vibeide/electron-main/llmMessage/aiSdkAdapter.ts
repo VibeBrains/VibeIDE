@@ -37,8 +37,8 @@ import { OfferedToolSchemas, textToolCallStart } from '../../common/textToolCall
 import { AnthropicMessageStart, CacheMissDiagnosis, readAnthropicMessageStart } from '../../common/anthropicCacheDiagnostics.js';
 import { getModelSdkNpm } from './modelsDevCatalog.js';
 import { buildContextOverflowError, buildEmptyResponseError, isContextOverflow, LLMChatMessage, LLMFinishNotice, LLMTokenUsage, ProviderRefusalDiagnostics, RawToolCallObj, RawToolParamsObj, ThinkingProducer } from '../../common/sendLLMMessageTypes.js';
-import { EffortPlan, planEffortUpdates, withConfigurationUpdates } from '../../common/effortUpdates.js';
-import { claudeThinkingOptions, compatibleClaudeThinkingOptions, DEFAULT_CLAUDE_THINKING_DISPLAY, googleThinkingConfig, isClaudeModelId, openAIReasoningEffort, thinkingBlockReplay, ThinkingReplayTarget, withoutEmptyThinkingSignatures, withThinkTags } from '../../common/wireReasoning.js';
+import { ANTHROPIC_MID_CONVERSATION_EFFORT_BETA, EffortPlan, planAnthropicEffortUpdates, planEffortUpdates, withAnthropicEffortUpdates, withConfigurationUpdates } from '../../common/effortUpdates.js';
+import { claudeThinkingOptions, compatibleClaudeThinkingOptions, DEFAULT_CLAUDE_THINKING_DISPLAY, googleThinkingConfig, isClaudeModelId, openAIReasoningEffort, thinkingBlockReplay, ThinkingReplayTarget, withClaudeEffort, withoutEmptyThinkingSignatures, withThinkTags } from '../../common/wireReasoning.js';
 import { AnthropicReasoningCollector, finishNoticeOf } from '../../common/llmStreamFinish.js';
 import { googleRetryDelaySecondsOf } from '../../common/googleRetryInfo.js';
 import { stripUnknownContentBlocks } from '../../common/anthropicStrictBlocks.js';
@@ -362,6 +362,15 @@ const headersWithout = (headers: HeadersInit | undefined, marker: string): Recor
 	return kept;
 };
 
+/** The headers with `beta` added to `anthropic-beta`, after the betas already named there */
+const withAnthropicBeta = (headers: HeadersInit | undefined, beta: string): Record<string, string> => {
+	const merged: Record<string, string> = {};
+	new Headers(headers).forEach((value, name) => { merged[name] = value; });
+	const current = merged['anthropic-beta'];
+	merged['anthropic-beta'] = current ? `${current},${beta}` : beta;
+	return merged;
+};
+
 /** The request's address with `params` appended; a `Request` object is left as it is — the SDKs pass a string */
 const withQueryOnInput = (input: RequestInfo | URL, params: Readonly<Record<string, string>>): RequestInfo | URL => {
 	if (Object.keys(params).length === 0) {
@@ -424,6 +433,8 @@ const makeCustomFetch = (opts: {
 	 * fetch is made, from the history as the SDK will send it (common/effortUpdates.ts)
 	 */
 	rewriteBody?: (body: string) => string;
+	/** A beta to add to `anthropic-beta`, read when the request goes; undefined — none */
+	extraBeta?: () => string | undefined;
 	onQuota?: (snapshot: ProviderQuotaSnapshot) => void;
 	/** The model named in the answer — a proxy or a failover target may serve a different one. */
 	onAnsweredModel?: (model: string, fingerprint: string | undefined) => void;
@@ -443,7 +454,9 @@ const makeCustomFetch = (opts: {
 	const keyed = fileKey ? { ...init, headers: withFileKeyHeaders(init?.headers, fileKey.headers) } : init;
 	const patched = opts.bodyPatch && typeof keyed?.body === 'string' ? { ...keyed, body: withBodyPatch(keyed.body, opts.bodyPatch) } : keyed;
 	const unsigned = opts.unsignedThinking && typeof patched?.body === 'string' ? { ...patched, body: withoutEmptyThinkingSignatures(patched.body) } : patched;
-	const outgoing = opts.rewriteBody && typeof unsigned?.body === 'string' ? { ...unsigned, body: opts.rewriteBody(unsigned.body) } : unsigned;
+	const rewritten = opts.rewriteBody && typeof unsigned?.body === 'string' ? { ...unsigned, body: opts.rewriteBody(unsigned.body) } : unsigned;
+	const beta = opts.extraBeta?.();
+	const outgoing = beta ? { ...rewritten, headers: withAnthropicBeta(rewritten?.headers, beta) } : rewritten;
 	const undiciInit = { ...(outgoing as unknown as UndiciFetchParams[1]), dispatcher: ensureSystemCADispatcher() };
 	const response = await (undiciFetch(undiciInput, undiciInit) as unknown as Promise<Response>);
 	// Cloned HERE, before the diagnostics tap below starts consuming the stream: `clone()` throws
@@ -680,6 +693,15 @@ function anthropicBaseURLOf(fromEnv: string | undefined): string {
 		return ANTHROPIC_DEFAULT_BASE_URL;
 	}
 	return /\/v\d+$/.test(trimmed) ? trimmed : `${trimmed}/v1`;
+}
+
+/** Whether requests go to Anthropic's own API and not to a proxy set by `ANTHROPIC_BASE_URL` */
+function isAnthropicOwnApi(baseURL: string): boolean {
+	try {
+		return new URL(baseURL).hostname === new URL(ANTHROPIC_DEFAULT_BASE_URL).hostname;
+	} catch {
+		return false;
+	}
 }
 
 // Resolve baseURL/apiKey/headers/queryParams per provider. The one place chat
@@ -1596,6 +1618,9 @@ export const sendViaAISdk = async (params: SendChatParams_Internal): Promise<voi
 	const openAIWire = sdkNpm === '@ai-sdk/openai' || sdkNpm === '@ai-sdk/openai#responses';
 	// GPT-6 on the Responses wire: an effort change mid-thread goes as an update item, not as a new request-level effort
 	const effortByUpdate = sdkNpm === '@ai-sdk/openai#responses' && quirks.effortByUpdate === true;
+	// Claude on Anthropic's own API: the same change goes as an effort-only system message
+	// Another address on this wire never promised the field, and a field it refuses fails the whole turn
+	const effortBySystemMessage = anthropicWire && providerName === 'anthropic' && isAnthropicOwnApi(baseURL) && quirks.effortBySystemMessage === true;
 	let effortPlan: EffortPlan | undefined;
 	const googleWire = sdkNpm === '@ai-sdk/google';
 	// The model refuses chat/completions outright: a request there is a sure 400, so it does not go, and the way out is named
@@ -1646,6 +1671,10 @@ export const sendViaAISdk = async (params: SendChatParams_Internal): Promise<voi
 		...(anthropicBodyPatch && Object.keys(anthropicBodyPatch).length > 0 ? { bodyPatch: anthropicBodyPatch } : {}),
 		...(anthropicWire && quirks.mirrorReasoningContent === true ? { unsignedThinking: true } : {}),
 		...(effortByUpdate ? { rewriteBody: (body: string) => effortPlan ? withConfigurationUpdates(body, effortPlan.updates) : body } : {}),
+		...(effortBySystemMessage ? {
+			rewriteBody: (body: string) => effortPlan ? withAnthropicEffortUpdates(body, effortPlan.updates) : body,
+			extraBeta: () => effortPlan?.updates.length ? ANTHROPIC_MID_CONVERSATION_EFFORT_BETA : undefined,
+		} : {}),
 		onQuota: snapshot => { lastQuota = snapshot; },
 		onAnsweredModel: (model, fingerprint) => { lastAnsweredModel = model; lastSystemFingerprint = fingerprint; },
 		onOrchestrationTokens: tokens => { lastOrchestrationTokens = tokens; },
@@ -1736,7 +1765,7 @@ export const sendViaAISdk = async (params: SendChatParams_Internal): Promise<voi
 		}
 		messagesForWire = strict.messages as unknown as LLMChatMessage[];
 	}
-	const effortMarks = effortByUpdate ? new Map<ModelMessage, string>() : undefined;
+	const effortMarks = effortByUpdate || effortBySystemMessage ? new Map<ModelMessage, string>() : undefined;
 	let modelMessages = convertMessagesToModelMessages(messagesForWire, modelName, providerName, anthropicWire, effortMarks);
 	// Prompt caching for the Anthropic protocol (knowledge/roadmap/tokenEconomy.md, A phase 2).
 	// Anthropic caches NOTHING without explicit `cache_control` breakpoints — every agentic
@@ -2053,12 +2082,18 @@ export const sendViaAISdk = async (params: SendChatParams_Internal): Promise<voi
 	if (anthropicWire && providerName === 'anthropic') {
 		// An «off» that names its own thinking mode (Sonnet 5.5's `between_tools`) refuses `block_binding`: the body replaces
 		// the thinking object anyway, and asking for the binding would only add its beta header
-		providerOptions.anthropic = claudeThinkingOptions(
+		const thinkingOptions = claudeThinkingOptions(
 			reasoningInfo,
 			runtimeOptions?.claudeThinkingDisplay ?? DEFAULT_CLAUDE_THINKING_DISPLAY,
 			quirks.reasoningBoundToModel === true && !offPayloadForWire,
 			reasoningOff && reasoningCapabilities ? reasoningCapabilities.reasoningOffEffort : undefined,
 		);
+		// The request keeps the thread's first effort, and a change goes before the user message it is for
+		// Adaptive thinking only: in «off» (`between_tools`, `disabled`) the vendor answers a changed level with a 400
+		if (effortBySystemMessage && !reasoningOff && thinkingOptions.effort) {
+			effortPlan = planAnthropicEffortUpdates(modelMessages.map(message => ({ role: message.role, effortMark: effortMarks?.get(message) })), `${providerName}/${modelName}`, thinkingOptions.effort);
+		}
+		providerOptions.anthropic = effortPlan ? withClaudeEffort(thinkingOptions, effortPlan.requestEffort) : thinkingOptions;
 	} else if (anthropicWire && reasoningCapabilities && reasoningCapabilities.supportsReasoning) {
 		// Another route on the same wire (OpenCode Zen, a gateway, a provider from a file): thinking goes when the model
 		// declares reasoning, in the spelling the MODEL takes — adaptive for Claude 5, a token budget for the rest
