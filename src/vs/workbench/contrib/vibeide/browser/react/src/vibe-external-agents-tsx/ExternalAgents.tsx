@@ -3,11 +3,11 @@
  *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
 
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useAccessor, useIsDark } from '../util/services.js';
 import { IVibeAcpSessionView } from '../../../acp/vibeAcpSessionsService.js';
 import { AcpLogEntry, IAcpSessionSpend } from '../../../../common/acp/acpSessionLog.js';
-import { AcpStopReason, IAcpConfigChoice, IAcpConfigOption, IAcpDiff } from '../../../../common/acp/acpProtocol.js';
+import { AcpStopReason, IAcpCommand, IAcpConfigChoice, IAcpConfigOption, IAcpDiff } from '../../../../common/acp/acpProtocol.js';
 import { VibeAgentEntry } from '../../../../common/acp/vibeAgentsFile.js';
 import { IAcpAgentUpdate, VIBE_ACP_ADD_FROM_REGISTRY_COMMAND_ID, VIBE_ACP_UPDATE_FROM_REGISTRY_COMMAND_ID } from '../../../../common/acp/vibeAcpRegistryImport.js';
 
@@ -214,10 +214,32 @@ function choiceGroups(option: IAcpConfigOption & { readonly type: 'select' }): r
 	return groups;
 }
 
+/**
+ * The agent's own slash commands: one runs by being the task's text, so a pick puts it at the start of the task
+ * The description and what to type after the command are the agent's own words
+ */
+const AgentCommands = ({ session, onPick }: { session: IVibeAcpSessionView; onPick: (command: IAcpCommand) => void }) => {
+	if (session.commands.length === 0) { return null; }
+	return <div className='flex flex-col gap-1'>
+		<div className='text-root font-medium text-vibe-fg-2'>Команды агента</div>
+		<div className='flex flex-wrap gap-2'>
+			{session.commands.map(command => <PaneButton
+				key={command.name}
+				disabled={session.busy || session.disconnected}
+				title={[command.description, command.hint ? `Дальше: ${command.hint}` : ''].filter(Boolean).join('\n')}
+				onClick={() => onPick(command)}
+			>
+				<span className='font-mono'>/{command.name}</span>
+			</PaneButton>)}
+		</div>
+	</div>;
+};
+
 const SessionCard = ({ session }: { session: IVibeAcpSessionView }) => {
 	const accessor = useAccessor();
 	const sessions = accessor.get('IVibeAcpSessionsService');
 	const [draft, setDraft] = useState('');
+	const taskRef = useRef<HTMLTextAreaElement>(null);
 	// Идентификатор свой на сессию: карточек может быть несколько, а один id на всех связал бы
 	// подпись с чужим полем.
 	const inputId = `vibe-acp-task-${session.sessionId}`;
@@ -258,11 +280,16 @@ const SessionCard = ({ session }: { session: IVibeAcpSessionView }) => {
 		<PermissionCard session={session} onAnswer={optionId => void sessions.answerPermission(session.sessionId, optionId)} />
 
 		<div className='flex flex-col gap-2'>
+			<AgentCommands session={session} onPick={command => {
+				setDraft(`/${command.name} `);
+				taskRef.current?.focus();
+			}} />
 			{/* Подпись видимая, а не плейсхолдер: плейсхолдер исчезает при вводе, и заполненная
 			    форма превращается в набор безымянных прямоугольников. */}
 			<label className='text-root font-medium text-vibe-fg-2' htmlFor={inputId}>Задача агенту</label>
 			<div className='flex items-end gap-3'>
 				<textarea
+					ref={taskRef}
 					id={inputId}
 					className='min-h-[72px] flex-1 rounded-md border border-vibe-border-3 bg-vibe-bg-1 px-3 py-2 text-root text-vibe-fg-1 placeholder:text-vibe-fg-2 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-vibe-border-1'
 					placeholder={session.disconnected

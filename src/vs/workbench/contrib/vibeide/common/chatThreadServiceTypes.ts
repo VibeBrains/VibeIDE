@@ -312,6 +312,8 @@ export type ChatMessage =
 		 * A later request strips the blocks when the prefix changed and it cannot ask the vendor to drop them
 		 */
 		reasoningPrefix?: string;
+		/** The effort this answer's request was sent at, `provider/model#effort` — see common/effortUpdates.ts */
+		effortMark?: string;
 		createdAt?: number; // unix ms when message was added to thread
 		// Set on the synthetic notice the agent appends when it stops in agent mode because the
 		// model returned text with NO tool call (and Autopilot is off / nudge budget spent). The UI

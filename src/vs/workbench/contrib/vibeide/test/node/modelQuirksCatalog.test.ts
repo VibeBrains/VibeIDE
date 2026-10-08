@@ -74,9 +74,13 @@ suite('ModelQuirks — настоящий каталог resources/model-quirks.
 		// Sonnet 5.5 (28.09.2026): forced tool_choice answers 400, reasoning bound to the model and the account
 		['claude-sonnet-5-5', { adaptiveThinking: true, forcedToolChoiceUnsupported: true, reasoningBoundToModel: true }],
 		['claude-opus-4-7', { adaptiveThinking: true }],
-		// A router picks the model per request: another model answering is its job, the spend goes to the one that answered
-		['cloudflare/auto', { modelRouter: true }],
-		['openrouter/auto', { modelRouter: true }],
+		// 4.6 takes the adaptive mode; its token budget is deprecated, and sampling is not refused outright (08.10.2026)
+		['claude-opus-4-6', { adaptiveThinking: true }],
+		['claude-sonnet-4-6', { adaptiveThinking: true }],
+		// GPT-6 changes its effort mid-thread by an update item; the pro models answer on Responses only (08.10.2026)
+		['gpt-6.1-sol', { effortByUpdate: true }],
+		['o3-pro', { responsesOnly: true }],
+		['gpt-5-pro', { responsesOnly: true }],
 	];
 
 	for (const [modelId, expected] of cases) {

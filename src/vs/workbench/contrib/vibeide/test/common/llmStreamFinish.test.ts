@@ -36,7 +36,9 @@ suite('llmStreamFinish — причина остановки и блоки ра�
 	});
 
 	test('блоки в порядке потока: с подписью, скрытые и неподписанные с текстом; пустой неподписанный отброшен', () => {
-		const collector = new AnthropicReasoningCollector();
+		// Каждый блок помнит модель, у которой его просили: подпись читает только её вендор
+		const producedBy = { provider: 'anthropic', model: 'claude-opus-5-5' };
+		const collector = new AnthropicReasoningCollector(producedBy);
 		collector.start('0', undefined);
 		collector.delta('0', 'Сначала прочту ', undefined);
 		collector.delta('0', 'файл.', undefined);
@@ -54,10 +56,10 @@ suite('llmStreamFinish — причина остановки и блоки ра�
 		collector.start('4', undefined);
 		collector.end('4', undefined);
 		assert.deepStrictEqual(collector.blocks(), [
-			{ type: 'thinking', thinking: 'Сначала прочту файл.', signature: 'sig-0' },
-			{ type: 'redacted_thinking', data: 'opaque' },
-			{ type: 'thinking', thinking: '', signature: 'sig-2' },
-			{ type: 'thinking', thinking: 'недодумал' },
+			{ type: 'thinking', thinking: 'Сначала прочту файл.', signature: 'sig-0', producedBy },
+			{ type: 'redacted_thinking', data: 'opaque', producedBy },
+			{ type: 'thinking', thinking: '', signature: 'sig-2', producedBy },
+			{ type: 'thinking', thinking: 'недодумал', producedBy },
 		]);
 		assert.strictEqual(new AnthropicReasoningCollector().blocks(), null);
 	});

@@ -20,11 +20,13 @@ import {
 	AcpStreamDecoder,
 	AcpStopReason,
 	IAcpAuthMethod,
+	IAcpCommand,
 	IAcpConfigOption,
 	JSON_RPC_ERROR,
 	JsonValue,
 	agentSupportsClose,
 	authMethodsOf,
+	cancelledRequestIdOf,
 	configOptionsOf,
 	encodeMessage,
 	errorFrame,
@@ -101,6 +103,8 @@ interface IAgentProcess {
 	closeSupported?: boolean;
 	/** The session's settings as the agent last reported them — a boolean's change has to say its type */
 	configOptions?: readonly IAcpConfigOption[];
+	/** The agent's own slash commands as it last announced them; they may come before the session is handed over */
+	commands?: readonly IAcpCommand[];
 	/**
 	 * Set when we end the process ourselves. Its exit is then the expected outcome, not a broken
 	 * connection: reporting it would log an error on every ordinary close and offer to reconnect a
@@ -114,6 +118,14 @@ interface IAgentProcess {
 	 * in the feed; passing it on would show every message and every edit twice, and journal them twice.
 	 */
 	replaying?: boolean;
+}
+
+/** What the agent told about the session before it was handed over: its settings and its commands */
+function sessionStateOf(agent: IAgentProcess): Pick<IAcpSession, 'configOptions' | 'commands'> {
+	return {
+		...(agent.configOptions ? { configOptions: agent.configOptions } : {}),
+		...(agent.commands ? { commands: agent.commands } : {}),
+	};
 }
 
 /** How long a close waits for the agent to save the session before the process is ended anyway */
@@ -176,7 +188,7 @@ export class VibeAcpMainService extends Disposable implements IVibeAcpMain {
 		}
 		this._adopt(agent, sessionId);
 		vibeLog.info('ACP', `${launch.name}: сессия ${sessionId} в ${launch.cwd}`);
-		return { sessionId, agentName: launch.name, ...(agent.configOptions ? { configOptions: agent.configOptions } : {}) };
+		return { sessionId, agentName: launch.name, ...sessionStateOf(agent) };
 	}
 
 	/**
@@ -197,7 +209,7 @@ export class VibeAcpMainService extends Disposable implements IVibeAcpMain {
 				const sessionId = await this._openSession(agent, mode, previousSessionId, mcpServers);
 				this._adopt(agent, sessionId);
 				vibeLog.info('ACP', `${launch.name}: сессия ${sessionId} восстановлена способом ${mode}`);
-				return { sessionId, agentName: launch.name, mode, ...(agent.configOptions ? { configOptions: agent.configOptions } : {}) };
+				return { sessionId, agentName: launch.name, mode, ...sessionStateOf(agent) };
 			} catch (err) {
 				// A dead process fails every next way too; the last way has nothing to fall back to.
 				if (agent.failed || mode === 'new') {
@@ -336,6 +348,13 @@ export class VibeAcpMainService extends Disposable implements IVibeAcpMain {
 		// Отмена — уведомление, ответа на неё нет: агент прекращает ход и сам сообщит причину
 		// остановки в ответе на текущий prompt.
 		this._send(agent, { jsonrpc: '2.0', method: ACP_AGENT_METHOD.cancel, params: { sessionId } });
+		// ACP asks a client that cancels a turn to answer the turn's open permission requests as cancelled
+		for (const [requestId, pending] of [...this._permissions]) {
+			if (pending.agent !== agent) { continue; }
+			this._permissions.delete(requestId);
+			this._send(agent, resultFrame(pending.rpcId, { outcome: { outcome: 'cancelled' } }));
+			this._onEvent.fire({ kind: 'permissionWithdrawn', sessionId, requestId });
+		}
 	}
 
 	async endSession(sessionId: string): Promise<void> {
@@ -387,6 +406,10 @@ export class VibeAcpMainService extends Disposable implements IVibeAcpMain {
 			}
 			if (isNotification(message) && message.method === ACP_CLIENT_METHOD.sessionUpdate) {
 				this._onUpdate(agent, message.params);
+				continue;
+			}
+			if (isNotification(message) && message.method === ACP_CLIENT_METHOD.cancelRequest) {
+				this._withdraw(agent, cancelledRequestIdOf(message.params));
 			}
 		}
 	}
@@ -407,6 +430,14 @@ export class VibeAcpMainService extends Disposable implements IVibeAcpMain {
 			agent.configOptions = update.options;
 			if (sessionId) {
 				this._onEvent.fire({ kind: 'config', sessionId, options: update.options });
+			}
+			return;
+		}
+		// The commands are the agent's current state too, not history: kept during a replay and before adoption
+		if (update.kind === 'commands') {
+			agent.commands = update.commands;
+			if (sessionId) {
+				this._onEvent.fire({ kind: 'commands', sessionId, commands: update.commands });
 			}
 			return;
 		}
@@ -511,6 +542,24 @@ export class VibeAcpMainService extends Disposable implements IVibeAcpMain {
 				options,
 			},
 		});
+	}
+
+	/**
+	 * The agent withdrew a question it asked (`$/cancel_request`): the card closes, and the request gets `-32800`
+	 * Left open, the question would wait for a person whose answer the agent no longer reads
+	 * A request already answered, or one served at once (a file read or write), has nothing left to withdraw
+	 */
+	private _withdraw(agent: IAgentProcess, rpcId: number | string | undefined): void {
+		if (rpcId === undefined) { return; }
+		for (const [requestId, pending] of this._permissions) {
+			if (pending.agent !== agent || pending.rpcId !== rpcId) { continue; }
+			this._permissions.delete(requestId);
+			this._send(agent, errorFrame(rpcId, JSON_RPC_ERROR.requestCancelled, 'Request cancelled'));
+			if (agent.sessionId) {
+				this._onEvent.fire({ kind: 'permissionWithdrawn', sessionId: agent.sessionId, requestId });
+			}
+			return;
+		}
 	}
 
 	// ── Отправка ─────────────────────────────────────────────────────────────

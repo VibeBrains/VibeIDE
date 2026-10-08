@@ -14,6 +14,7 @@
  */
 
 import type { SendableReasoningInfo } from './modelCapabilities.js';
+import type { ThinkingProducer } from './sendLLMMessageTypes.js';
 
 /** How Claude's adaptive thinking comes back in the stream. Mirrors `vibeide.llm.claudeThinkingDisplay`. */
 export type ClaudeThinkingDisplay = 'summarized' | 'updates' | 'omitted';
@@ -147,17 +148,42 @@ export function googleThinkingConfig(reasoning: SendableReasoningInfo): GoogleTh
 	return undefined;
 }
 
+/** A model a thinking block goes back to, and whether its vendor needs its reasoning back */
+export interface ThinkingReplayTarget {
+	readonly echoReasoning: boolean;
+	readonly claude: boolean;
+	readonly requester: ThinkingProducer;
+}
+
+/** How a past thinking block goes back: as it streamed, signature included; as its text alone; or not at all */
+export type ThinkingBlockReplay = 'asStreamed' | 'asText' | 'none';
+
 /**
- * Who gets a past turn's thinking blocks back on the Anthropic wire — VibeIDEA's rule (`ThinkingReplay`)
+ * How a past turn's thinking block goes back on the Anthropic wire — VibeIDEA's rule (`ThinkingReplay`)
  *
  * Claude verifies a replayed block by its signature, so it gets the signed ones and nothing unsigned: an unsigned
  * block there is a stream cut short, and replaying it is a 400.
  * Kimi, MiMo and DeepSeek on their own `/v1/messages` sign nothing and demand their reasoning back
  * (`mirrorReasoningContent`): they get every block.
  * Any other model gets none — a Claude signature means nothing to it
+ *
+ * A signature can be read only by the vendor that made it, and Anthropic answers an unreadable one with a 400:
+ * A thread may change model mid-way, by hand or down the fallback chain, so a block made by another model goes back
+ * signed only from one Claude to another, which drops a block it cannot use without an error
+ * A model that needs its reasoning back gets another producer's block as its text alone: the reasoning stays,
+ * the signature it cannot read goes
+ * A block without a recorded producer (a thread older than the field) goes back as it always did
  */
-export function replaysThinkingBlock(signed: boolean, target: { readonly echoReasoning: boolean; readonly claude: boolean }): boolean {
-	return target.echoReasoning || (signed && target.claude);
+export function thinkingBlockReplay(block: { readonly signed: boolean; readonly producedBy?: ThinkingProducer }, target: ThinkingReplayTarget): ThinkingBlockReplay {
+	const producer = block.producedBy;
+	const foreign = producer !== undefined && (producer.provider !== target.requester.provider || producer.model !== target.requester.model);
+	if (foreign && target.echoReasoning) {
+		return 'asText';
+	}
+	if (foreign && target.claude) {
+		return block.signed && isClaudeModelId(producer.model) ? 'asStreamed' : 'none';
+	}
+	return target.echoReasoning || (block.signed && target.claude) ? 'asStreamed' : 'none';
 }
 
 /**

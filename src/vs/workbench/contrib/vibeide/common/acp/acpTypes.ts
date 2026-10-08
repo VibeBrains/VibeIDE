@@ -5,7 +5,7 @@
 
 import { AcpMcpServer } from './acpMcpExport.js';
 import { Event } from '../../../../../base/common/event.js';
-import { AcpReconnectMode, AcpStopReason, AcpToolStatus, IAcpAuthMethod, IAcpConfigOption, IAcpDiff } from './acpProtocol.js';
+import { AcpReconnectMode, AcpStopReason, AcpToolStatus, IAcpAuthMethod, IAcpCommand, IAcpConfigOption, IAcpDiff } from './acpProtocol.js';
 
 /**
  * Контракт хоста ACP: VibeIDE как клиент, внешний агент как процесс.
@@ -67,6 +67,8 @@ export type AcpEvent =
 	| { readonly kind: 'text'; readonly sessionId: string; readonly text: string; readonly thought: boolean }
 	/** Агент просит разрешения. */
 	| { readonly kind: 'permission'; readonly request: IAcpPermissionRequest }
+	/** The question is no longer open: the agent withdrew it, or the turn was stopped and it was answered as cancelled */
+	| { readonly kind: 'permissionWithdrawn'; readonly sessionId: string; readonly requestId: string }
 	/** Агент взялся за инструмент: чем занят и что меняет. */
 	| { readonly kind: 'tool'; readonly sessionId: string; readonly toolCallId: string; readonly title: string; readonly name: string; readonly toolKind: string; readonly status: AcpToolStatus; readonly paths: readonly string[]; readonly diffs: readonly IAcpDiff[] }
 	/** Расход контекста и денег за ход. */
@@ -79,6 +81,8 @@ export type AcpEvent =
 	| { readonly kind: 'done'; readonly sessionId: string; readonly stopReason: AcpStopReason }
 	/** The agent changed the session's settings itself (a model switch may change the modes on offer) */
 	| { readonly kind: 'config'; readonly sessionId: string; readonly options: readonly IAcpConfigOption[] }
+	/** The agent's own slash commands, the whole list; it may come again at any time */
+	| { readonly kind: 'commands'; readonly sessionId: string; readonly commands: readonly IAcpCommand[] }
 	/** Связь с агентом оборвалась. */
 	| { readonly kind: 'failed'; readonly sessionId?: string; readonly error: string };
 
@@ -87,6 +91,8 @@ export interface IAcpSession {
 	readonly agentName: string;
 	/** The settings the agent exposes for this session; absent when it exposes none */
 	readonly configOptions?: readonly IAcpConfigOption[];
+	/** The agent's own slash commands, when it announced them before the session was handed over */
+	readonly commands?: readonly IAcpCommand[];
 }
 
 /** A session brought back after its agent process died, and how — which says what the agent remembers. */

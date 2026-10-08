@@ -43,6 +43,8 @@ export const ACP_CLIENT_METHOD = {
 	readTextFile: 'fs/read_text_file',
 	writeTextFile: 'fs/write_text_file',
 	sessionUpdate: 'session/update',
+	/** The agent withdraws a request it sent us; the answer to that request is `requestCancelled` */
+	cancelRequest: '$/cancel_request',
 } as const;
 
 export type JsonValue = string | number | boolean | null | JsonValue[] | { [key: string]: JsonValue };
@@ -75,6 +77,8 @@ export const JSON_RPC_ERROR = {
 	invalidRequest: -32600,
 	methodNotFound: -32601,
 	internal: -32603,
+	/** The request was withdrawn with `$/cancel_request` before it was answered (ACP v1 cancellation) */
+	requestCancelled: -32800,
 } as const;
 
 /**
@@ -421,7 +425,9 @@ export type AcpUpdate =
 	/** Расход контекста и денег за ход. */
 	| { readonly kind: 'usage'; readonly used: number; readonly size: number; readonly costUsd?: number }
 	/** The agent changed the session's settings itself: the full list, as in a response */
-	| { readonly kind: 'config'; readonly options: readonly IAcpConfigOption[] };
+	| { readonly kind: 'config'; readonly options: readonly IAcpConfigOption[] }
+	/** The agent's own slash commands: the whole list, replacing the previous one */
+	| { readonly kind: 'commands'; readonly commands: readonly IAcpCommand[] };
 
 /** Разбор уведомления `session/update`. `undefined` — кадр, который нам нечего показать. */
 export function parseSessionUpdate(params: JsonValue | undefined): AcpUpdate | undefined {
@@ -456,6 +462,10 @@ export function parseSessionUpdate(params: JsonValue | undefined): AcpUpdate | u
 		return options ? { kind: 'config', options } : undefined;
 	}
 
+	if (kind === 'available_commands_update') {
+		return { kind: 'commands', commands: commandsOf(update['availableCommands']) };
+	}
+
 	if (kind === 'usage_update') {
 		const used = numberAt(update, 'used');
 		const size = numberAt(update, 'size');
@@ -465,6 +475,47 @@ export function parseSessionUpdate(params: JsonValue | undefined): AcpUpdate | u
 	}
 
 	return undefined;
+}
+
+/**
+ * An agent's own slash command, announced with `available_commands_update`
+ * It runs by being the prompt's text: `/name arguments`
+ */
+export interface IAcpCommand {
+	/** Without the slash */
+	readonly name: string;
+	readonly description: string;
+	/** What to type after the command, when the agent says */
+	readonly hint?: string;
+}
+
+/** The commands of an update; an entry without a name is skipped, not the whole list */
+function commandsOf(raw: JsonValue | undefined): readonly IAcpCommand[] {
+	if (!Array.isArray(raw)) { return []; }
+	const commands: IAcpCommand[] = [];
+	for (const entry of raw) {
+		const record = asObject(entry);
+		const name = stringAt(record, 'name')?.trim().replace(/^\//, '');
+		if (!record || !name) { continue; }
+		const hint = stringAt(objectAt(record, 'input'), 'hint');
+		commands.push({ name, description: stringAt(record, 'description') ?? '', ...(hint ? { hint } : {}) });
+	}
+	return commands;
+}
+
+/**
+ * The agent command a task runs, or `undefined` when it is not one
+ * Only a whole first word counts: `/reviewed it` is a sentence, not `/review`
+ */
+export function agentCommandOf(text: string, commands: readonly IAcpCommand[]): IAcpCommand | undefined {
+	const word = text.trim().split(/\s/, 1)[0];
+	return commands.find(command => `/${command.name}` === word);
+}
+
+/** The id of the request the agent withdrew with `$/cancel_request`; `undefined` when the notification names none */
+export function cancelledRequestIdOf(params: JsonValue | undefined): number | string | undefined {
+	const id = asObject(params)?.['requestId'];
+	return typeof id === 'number' || (typeof id === 'string' && id) ? id : undefined;
 }
 
 function toolStatusOf(raw: JsonValue | undefined): AcpToolStatus {

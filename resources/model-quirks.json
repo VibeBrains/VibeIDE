@@ -307,6 +307,20 @@
 			"note": "Мышление Claude этой линейки — адаптивный режим с усилием, бюджет токенов отвечает 400. Нужно маршрутам на проводе Anthropic, которые не встроенный anthropic: OpenCode Zen, шлюз, провайдер из файла; встроенный знает форму по ползунку. Матчится и по датированным id и по id с префиксом агрегатора. Живьём не проверено — ключей нет."
 		},
 		{
+			"match": "claude-opus-4-6",
+			"adaptiveThinking": true,
+			"source": "platform.claude.com/docs/en/build-with-claude/thinking — таблица «Configuring thinking»: adaptive — Adaptive thinking, enabled с budget_tokens — Extended thinking (deprecated); правило ADAPTIVE_THINKING VibeIDEA",
+			"observedAt": "2026-10-08",
+			"note": "Модель принимает адаптивное мышление, а бюджет токенов у неё устаревший режим. Нужно маршрутам на проводе Anthropic, которые не встроенный anthropic: OpenCode Zen, шлюз, провайдер из файла. Запрета сэмплинга нет: у 4.6 temperature и top_k несовместимы только с включённым мышлением. Живьём не проверено — ключей нет."
+		},
+		{
+			"match": "claude-sonnet-4-6",
+			"adaptiveThinking": true,
+			"source": "platform.claude.com/docs/en/build-with-claude/thinking — таблица «Configuring thinking»: adaptive — Adaptive thinking, enabled с budget_tokens — Extended thinking (deprecated); правило ADAPTIVE_THINKING VibeIDEA",
+			"observedAt": "2026-10-08",
+			"note": "Модель принимает адаптивное мышление, а бюджет токенов у неё устаревший режим. Нужно маршрутам на проводе Anthropic, которые не встроенный anthropic: OpenCode Zen, шлюз, провайдер из файла. Запрета сэмплинга нет: у 4.6 temperature и top_k несовместимы только с включённым мышлением. Живьём не проверено — ключей нет."
+		},
+		{
 			"match": "claude-opus-4-7",
 			"adaptiveThinking": true,
 			"source": "platform.claude.com/docs/en/build-with-claude/adaptive-thinking; правило ADAPTIVE_THINKING VibeIDEA (ModelQuirks.kt)",
@@ -321,18 +335,32 @@
 			"note": "Мышление Claude этой линейки — адаптивный режим с усилием, бюджет токенов отвечает 400. Нужно маршрутам на проводе Anthropic, которые не встроенный anthropic: OpenCode Zen, шлюз, провайдер из файла; встроенный знает форму по ползунку. Матчится и по датированным id и по id с префиксом агрегатора. Живьём не проверено — ключей нет."
 		},
 		{
-			"match": "cloudflare/auto",
-			"modelRouter": true,
-			"source": "https://developers.cloudflare.com/ai-gateway/features/auto-router/",
-			"observedAt": "2026-10-01",
-			"note": "Cloudflare AI Gateway Auto Router: модель cloudflare/auto сама выбирает модель под запрос и называет её заголовком cf-aig-routed-model. Ответ другой модели — работа роутера, а не подмена: тревоги «ответила другая модель» нет, расход считается по ответившей модели. Живьём не проверено — токена Cloudflare нет."
+			"match": "gpt-6",
+			"effortByUpdate": true,
+			"source": "developers.openai.com/api/docs/guides/reasoning#change-reasoning-mid-conversation; причуда EFFORT_BY_UPDATE набора VibeBrains (modelQuirks.json)",
+			"observedAt": "2026-10-08",
+			"note": "GPT-6 на проводе Responses: уровень рассуждения посреди разговора меняется элементом configuration_update перед сообщением пользователя, а запрос держит уровень первого ответа этой модели в треде. Так ползунок не переписывает префикс и кэш промпта не сгорает. История идёт целиком (store: false), поэтому каждое прежнее обновление повторяется на своём месте. Живьём не проверено — ключа нет."
 		},
 		{
-			"match": "openrouter/auto",
-			"modelRouter": true,
-			"source": "https://openrouter.ai/docs/features/model-routing",
-			"observedAt": "2026-10-01",
-			"note": "OpenRouter Auto Router: модель openrouter/auto выбирает модель под запрос, ответившая модель приходит полем model тела ответа. Тревоги о подмене нет, расход считается по ответившей модели. Живьём не проверено."
+			"match": "o1-pro",
+			"responsesOnly": true,
+			"source": "карточка модели на developers.openai.com: v1/responses и v1/batch, Chat Completions — Not supported; причуда RESPONSES_ONLY набора VibeBrains",
+			"observedAt": "2026-10-08",
+			"note": "Модель отвечает только через Responses API. Встроенный OpenAI и так шлёт её туда; провайдер из файла с протоколом openai запрос не отправляет и называет выход — объявить модели \"protocol\": \"openai-responses\". Провод не угадывается: эндпоинт провайдера может не уметь Responses."
+		},
+		{
+			"match": "o3-pro",
+			"responsesOnly": true,
+			"source": "карточка модели на developers.openai.com: v1/responses и v1/batch, Chat Completions — Not supported; причуда RESPONSES_ONLY набора VibeBrains",
+			"observedAt": "2026-10-08",
+			"note": "Модель отвечает только через Responses API. Встроенный OpenAI и так шлёт её туда; провайдер из файла с протоколом openai запрос не отправляет и называет выход — объявить модели \"protocol\": \"openai-responses\". Провод не угадывается: эндпоинт провайдера может не уметь Responses."
+		},
+		{
+			"match": "gpt-5-pro",
+			"responsesOnly": true,
+			"source": "карточка модели на developers.openai.com: v1/responses и v1/batch, Chat Completions — Not supported; причуда RESPONSES_ONLY набора VibeBrains",
+			"observedAt": "2026-10-08",
+			"note": "Модель отвечает только через Responses API. Встроенный OpenAI и так шлёт её туда; провайдер из файла с протоколом openai запрос не отправляет и называет выход — объявить модели \"protocol\": \"openai-responses\". Провод не угадывается: эндпоинт провайдера может не уметь Responses."
 		}
 	]
 }

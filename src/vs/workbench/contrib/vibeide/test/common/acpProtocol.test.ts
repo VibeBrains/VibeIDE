@@ -7,7 +7,9 @@
 import * as assert from 'assert';
 import {
 	AcpStreamDecoder,
+	agentCommandOf,
 	agentSupportsClose,
+	cancelledRequestIdOf,
 	configOptionsOf,
 	initializeParams,
 	isNotification,
@@ -171,6 +173,36 @@ suite('acpProtocol', () => {
 					{ kind: 'usage', used: 30244, size: 1000000, costUsd: 0.18 },
 					{ kind: 'usage', used: 100, size: 200 },
 				]);
+		});
+
+		test('команды агента: имя без косой, подсказка ввода; запись без имени пропущена, а не весь список', () => {
+			assert.deepStrictEqual(parseSessionUpdate({
+				update: {
+					sessionUpdate: 'available_commands_update', availableCommands: [
+						{ name: 'review', description: 'Ревью изменений' },
+						{ name: '/plan', description: 'План', input: { hint: 'что спланировать' } },
+						{ description: 'без имени' },
+					],
+				},
+			}), {
+				kind: 'commands', commands: [
+					{ name: 'review', description: 'Ревью изменений' },
+					{ name: 'plan', description: 'План', hint: 'что спланировать' },
+				],
+			});
+		});
+
+		test('команда — только целое первое слово задачи', () => {
+			const commands = [{ name: 'review', description: '' }];
+			assert.deepStrictEqual(
+				['/review', '  /review src/a.ts', '/reviewed it', 'сделай /review', '/review\nи ещё'].map(text => agentCommandOf(text, commands)?.name),
+				['review', 'review', undefined, undefined, 'review']);
+		});
+
+		test('отзыв запроса агентом: номер числом или строкой; без номера — ничего', () => {
+			assert.deepStrictEqual(
+				[cancelledRequestIdOf({ requestId: 7 }), cancelledRequestIdOf({ requestId: 'r-7' }), cancelledRequestIdOf({ requestId: '' }), cancelledRequestIdOf(undefined)],
+				[7, 'r-7', undefined, undefined]);
 		});
 
 		test('незнакомый вид обновления и битая форма молчат, а не бросают', () => {

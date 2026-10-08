@@ -36,8 +36,9 @@ import { hasToolCallMarkup } from '../../common/xmlToolNormalize.js';
 import { OfferedToolSchemas, textToolCallStart } from '../../common/textToolCalls.js';
 import { AnthropicMessageStart, CacheMissDiagnosis, readAnthropicMessageStart } from '../../common/anthropicCacheDiagnostics.js';
 import { getModelSdkNpm } from './modelsDevCatalog.js';
-import { buildContextOverflowError, buildEmptyResponseError, isContextOverflow, LLMChatMessage, LLMFinishNotice, LLMTokenUsage, ProviderRefusalDiagnostics, RawToolCallObj, RawToolParamsObj } from '../../common/sendLLMMessageTypes.js';
-import { claudeThinkingOptions, compatibleClaudeThinkingOptions, DEFAULT_CLAUDE_THINKING_DISPLAY, googleThinkingConfig, isClaudeModelId, openAIReasoningEffort, replaysThinkingBlock, withoutEmptyThinkingSignatures, withThinkTags } from '../../common/wireReasoning.js';
+import { buildContextOverflowError, buildEmptyResponseError, isContextOverflow, LLMChatMessage, LLMFinishNotice, LLMTokenUsage, ProviderRefusalDiagnostics, RawToolCallObj, RawToolParamsObj, ThinkingProducer } from '../../common/sendLLMMessageTypes.js';
+import { EffortPlan, planEffortUpdates, withConfigurationUpdates } from '../../common/effortUpdates.js';
+import { claudeThinkingOptions, compatibleClaudeThinkingOptions, DEFAULT_CLAUDE_THINKING_DISPLAY, googleThinkingConfig, isClaudeModelId, openAIReasoningEffort, thinkingBlockReplay, ThinkingReplayTarget, withoutEmptyThinkingSignatures, withThinkTags } from '../../common/wireReasoning.js';
 import { AnthropicReasoningCollector, finishNoticeOf } from '../../common/llmStreamFinish.js';
 import { googleRetryDelaySecondsOf } from '../../common/googleRetryInfo.js';
 import { stripUnknownContentBlocks } from '../../common/anthropicStrictBlocks.js';
@@ -100,6 +101,8 @@ interface ContentPartView {
 	signature?: string;
 	/** Anthropic `redacted_thinking` block. */
 	data?: string;
+	/** The model a thinking block came from; ours, never sent */
+	producedBy?: ThinkingProducer;
 }
 interface ToolCallView {
 	id?: string;
@@ -112,6 +115,8 @@ interface ChatMessageView {
 	tool_call_id?: string;
 	reasoning_content?: string;
 	reasoning?: string;
+	/** The effort an answer's request was sent at — ours, never sent (common/effortUpdates.ts) */
+	effortMark?: string;
 }
 
 // AI SDK content-part element types, derived from the exported `ModelMessage`
@@ -414,6 +419,11 @@ const makeCustomFetch = (opts: {
 	bodyPatch?: Readonly<Record<string, unknown>>;
 	/** Unsigned thinking blocks go back on this request: their empty signatures are removed from the body */
 	unsignedThinking?: boolean;
+	/**
+	 * The last rewrite of the JSON body, read when the request goes: the effort updates are planned after the
+	 * fetch is made, from the history as the SDK will send it (common/effortUpdates.ts)
+	 */
+	rewriteBody?: (body: string) => string;
 	onQuota?: (snapshot: ProviderQuotaSnapshot) => void;
 	/** The model named in the answer — a proxy or a failover target may serve a different one. */
 	onAnsweredModel?: (model: string, fingerprint: string | undefined) => void;
@@ -432,7 +442,8 @@ const makeCustomFetch = (opts: {
 	const undiciInput = (fileKey ? withQueryOnInput(input, fileKey.query) : input) as unknown as UndiciFetchParams[0];
 	const keyed = fileKey ? { ...init, headers: withFileKeyHeaders(init?.headers, fileKey.headers) } : init;
 	const patched = opts.bodyPatch && typeof keyed?.body === 'string' ? { ...keyed, body: withBodyPatch(keyed.body, opts.bodyPatch) } : keyed;
-	const outgoing = opts.unsignedThinking && typeof patched?.body === 'string' ? { ...patched, body: withoutEmptyThinkingSignatures(patched.body) } : patched;
+	const unsigned = opts.unsignedThinking && typeof patched?.body === 'string' ? { ...patched, body: withoutEmptyThinkingSignatures(patched.body) } : patched;
+	const outgoing = opts.rewriteBody && typeof unsigned?.body === 'string' ? { ...unsigned, body: opts.rewriteBody(unsigned.body) } : unsigned;
 	const undiciInit = { ...(outgoing as unknown as UndiciFetchParams[1]), dispatcher: ensureSystemCADispatcher() };
 	const response = await (undiciFetch(undiciInput, undiciInit) as unknown as Promise<Response>);
 	// Cloned HERE, before the diagnostics tap below starts consuming the stream: `clone()` throws
@@ -559,6 +570,9 @@ const makeCustomFetch = (opts: {
 /** A safety classifier's refusal, named with its category when the vendor gives one. */
 const refusalMessage = (modelName: string, category: string | undefined, explanation: string | undefined): string =>
 	`Модель ${modelName} отказалась отвечать: сработал фильтр безопасности вендора${category ? ` (${category})` : ''}.${explanation ? ` ${explanation}` : ''}`;
+
+const responsesOnlyMessage = (modelName: string, providerName: string): string =>
+	`Модель ${modelName} отвечает только через Responses API, а провайдер ${providerName} отправил бы её в chat/completions — запрос не отправлен. Объявите модели "protocol": "openai-responses" в её записи в .vibe/providers.json.`;
 
 /** Every piece of text an SDK error carries: the wrapper, the nested API error, the raw body. */
 const errorTextOf = (error: unknown): string => {
@@ -957,7 +971,11 @@ function hasThinkingBlocks(content: unknown): boolean {
 	return Array.isArray(content) && content.some(part => part?.type === 'thinking' || part?.type === 'redacted_thinking');
 }
 
-const convertMessagesToModelMessages = (messages: LLMChatMessage[], modelName: string, providerName: string, anthropicWire: boolean): ModelMessage[] => {
+/**
+ * `effortMarks`, when given, learns the effort mark of each converted answer: the effort updates are planned over
+ * the messages as they go to the SDK, where a user message of tool results alone is no user message any more
+ */
+const convertMessagesToModelMessages = (messages: LLMChatMessage[], modelName: string, providerName: string, anthropicWire: boolean, effortMarks?: Map<ModelMessage, string>): ModelMessage[] => {
 	const toolNameLookup = buildToolNameLookup(messages);
 	const lastIdx = messages.length - 1;
 	const out: ModelMessage[] = [];
@@ -972,7 +990,7 @@ const convertMessagesToModelMessages = (messages: LLMChatMessage[], modelName: s
 	const needsInterleavedMirror = quirks.mirrorReasoningContent === true;
 	// MiniMax on the OpenAI wire: the reasoning goes back inside the text as tags, not as a field
 	const reasoningInText = needsInterleavedMirror && quirks.reasoningAsThinkTags === true && !anthropicWire;
-	const thinkingReplay = { echoReasoning: needsInterleavedMirror, claude: isClaudeModelId(modelName) };
+	const thinkingReplay: ThinkingReplayTarget = { echoReasoning: needsInterleavedMirror, claude: isClaudeModelId(modelName), requester: { provider: providerName, model: modelName } };
 
 	for (let i = 0; i < messages.length; i++) {
 		const msg = messages[i] as ChatMessageView;
@@ -1054,7 +1072,7 @@ const convertMessagesToModelMessages = (messages: LLMChatMessage[], modelName: s
 				// With reasoningInText it goes into the text below, once the text parts are in place
 				if (!anthropicWire && !reasoningInText) {
 					parts.push({ type: 'reasoning', text: reasoningPayload });
-				} else if (anthropicWire && !hasThinkingBlocks(msg.content) && replaysThinkingBlock(false, thinkingReplay)) {
+				} else if (anthropicWire && !hasThinkingBlocks(msg.content) && thinkingBlockReplay({ signed: false }, thinkingReplay) !== 'none') {
 					// History shaped for chat completions carries the reasoning as text (a model profile, not the wire, picks the
 					// shape). The SDK drops a reasoning part without a signature, so it rides with an empty one, removed by the fetch
 					parts.push({ type: 'reasoning', text: reasoningPayload, providerOptions: { anthropic: { signature: '' } } });
@@ -1079,12 +1097,15 @@ const convertMessagesToModelMessages = (messages: LLMChatMessage[], modelName: s
 						parts.push({ type: 'tool-call', toolCallId: p.id, toolName: p.name, input: p.input ?? {}, ...googleThoughtSignatureOptions((p as { thoughtSignature?: unknown }).thoughtSignature) });
 					} else if (anthropicWire && p?.type === 'thinking') {
 						const signed = typeof p.signature === 'string' && p.signature.length > 0;
-						if (replaysThinkingBlock(signed, thinkingReplay)) {
+						const replay = thinkingBlockReplay({ signed, producedBy: p.producedBy }, thinkingReplay);
+						// Another producer's block goes as its text alone, and a block without text has nothing to give
+						if (replay === 'asStreamed' || (replay === 'asText' && p.thinking)) {
 							// An unsigned block rides with an empty signature: the SDK drops a reasoning part without one,
 							// and the fetch removes the empty field (`withoutEmptyThinkingSignatures`)
-							parts.push({ type: 'reasoning', text: p.thinking ?? '', providerOptions: { anthropic: { signature: signed ? p.signature : '' } } });
+							const signature = replay === 'asStreamed' && signed ? p.signature : '';
+							parts.push({ type: 'reasoning', text: p.thinking ?? '', providerOptions: { anthropic: { signature } } });
 						}
-					} else if (anthropicWire && p?.type === 'redacted_thinking' && typeof p.data === 'string' && replaysThinkingBlock(true, thinkingReplay)) {
+					} else if (anthropicWire && p?.type === 'redacted_thinking' && typeof p.data === 'string' && thinkingBlockReplay({ signed: true, producedBy: p.producedBy }, thinkingReplay) === 'asStreamed') {
 						parts.push({ type: 'reasoning', text: '', providerOptions: { anthropic: { redactedData: p.data } } });
 					}
 				}
@@ -1131,6 +1152,9 @@ const convertMessagesToModelMessages = (messages: LLMChatMessage[], modelName: s
 				} else {
 					out.push({ role: 'assistant', content: parts });
 				}
+			}
+			if (effortMarks && msg.effortMark) {
+				effortMarks.set(out[out.length - 1], msg.effortMark);
 			}
 			continue;
 		}
@@ -1570,7 +1594,15 @@ export const sendViaAISdk = async (params: SendChatParams_Internal): Promise<voi
 	const sdkSource = sdkNpmFromOverride ? 'override' : sdkNpmOfBuiltin ? 'builtin' : sdkNpmFromFile ? 'file' : (sdkNpm ? 'models.dev' : 'fallback');
 	const anthropicWire = sdkNpm === '@ai-sdk/anthropic';
 	const openAIWire = sdkNpm === '@ai-sdk/openai' || sdkNpm === '@ai-sdk/openai#responses';
+	// GPT-6 on the Responses wire: an effort change mid-thread goes as an update item, not as a new request-level effort
+	const effortByUpdate = sdkNpm === '@ai-sdk/openai#responses' && quirks.effortByUpdate === true;
+	let effortPlan: EffortPlan | undefined;
 	const googleWire = sdkNpm === '@ai-sdk/google';
+	// The model refuses chat/completions outright: a request there is a sure 400, so it does not go, and the way out is named
+	if (quirks.responsesOnly === true && !anthropicWire && !googleWire && sdkNpm !== '@ai-sdk/openai#responses') {
+		onError({ message: responsesOnlyMessage(modelName, providerName), fullError: null });
+		return;
+	}
 	// Latest quota the provider reported during THIS call; attached to the final message so the
 	// renderer can show the key's real remaining allowance next to our own token estimate.
 	let lastQuota: ProviderQuotaSnapshot | undefined;
@@ -1613,6 +1645,7 @@ export const sendViaAISdk = async (params: SendChatParams_Internal): Promise<voi
 		...(fileKey && fileKeyPlacement ? { fileKey: { headers: fileKeyPlacement.headers, query: { ...fileKey.query, ...fileKeyPlacement.query } } } : {}),
 		...(anthropicBodyPatch && Object.keys(anthropicBodyPatch).length > 0 ? { bodyPatch: anthropicBodyPatch } : {}),
 		...(anthropicWire && quirks.mirrorReasoningContent === true ? { unsignedThinking: true } : {}),
+		...(effortByUpdate ? { rewriteBody: (body: string) => effortPlan ? withConfigurationUpdates(body, effortPlan.updates) : body } : {}),
 		onQuota: snapshot => { lastQuota = snapshot; },
 		onAnsweredModel: (model, fingerprint) => { lastAnsweredModel = model; lastSystemFingerprint = fingerprint; },
 		onOrchestrationTokens: tokens => { lastOrchestrationTokens = tokens; },
@@ -1703,7 +1736,8 @@ export const sendViaAISdk = async (params: SendChatParams_Internal): Promise<voi
 		}
 		messagesForWire = strict.messages as unknown as LLMChatMessage[];
 	}
-	let modelMessages = convertMessagesToModelMessages(messagesForWire, modelName, providerName, anthropicWire);
+	const effortMarks = effortByUpdate ? new Map<ModelMessage, string>() : undefined;
+	let modelMessages = convertMessagesToModelMessages(messagesForWire, modelName, providerName, anthropicWire, effortMarks);
 	// Prompt caching for the Anthropic protocol (knowledge/roadmap/tokenEconomy.md, A phase 2).
 	// Anthropic caches NOTHING without explicit `cache_control` breakpoints — every agentic
 	// turn re-bills the full prompt (observed: 23k input/turn → org TPM limit in 11 turns).
@@ -1808,7 +1842,8 @@ export const sendViaAISdk = async (params: SendChatParams_Internal): Promise<voi
 	// and a call cut there must never run — half of a file write is worse than no write.
 	let toolCallComplete = false;
 	// Claude's signed thinking, kept whole for the next turn (Anthropic wire only; empty elsewhere).
-	const reasoningCollector = new AnthropicReasoningCollector();
+	// Named by the model it was asked of, as the next request names itself: only that vendor reads the signature
+	const reasoningCollector = new AnthropicReasoningCollector({ provider: providerName, model: modelName });
 	let firstTokenReceived = false;
 	let contentStarted = false;
 	let firstTokenTimeoutId: ReturnType<typeof setTimeout> | null = null;
@@ -1910,7 +1945,7 @@ export const sendViaAISdk = async (params: SendChatParams_Internal): Promise<voi
 				...usageField(withOrchestration(lastUsage, lastOrchestrationTokens)),
 				...(lastQuota ? { providerQuota: lastQuota } : {}),
 				...(lastAnsweredModel ? { answeredModel: lastAnsweredModel } : {}),
-				...(quirks.modelRouter === true ? { answeredByRouter: true as const } : {}),
+				...(effortPlan ? { effortMark: effortPlan.mark } : {}),
 				...(lastSystemFingerprint ? { systemFingerprint: lastSystemFingerprint } : {}),
 				...(cutToolCall ? { finishNotice: { kind: 'stalled', cutToolName: toolName } satisfies LLMFinishNotice } : {}),
 				...(cutTextCall ? { finishNotice: { kind: 'stalled' } satisfies LLMFinishNotice } : {}),
@@ -1993,7 +2028,7 @@ export const sendViaAISdk = async (params: SendChatParams_Internal): Promise<voi
 			...usageField(withOrchestration(lastUsage, lastOrchestrationTokens)),
 			...(lastQuota ? { providerQuota: lastQuota } : {}),
 			...(lastAnsweredModel ? { answeredModel: lastAnsweredModel } : {}),
-			...(quirks.modelRouter === true ? { answeredByRouter: true as const } : {}),
+			...(effortPlan ? { effortMark: effortPlan.mark } : {}),
 			...(lastSystemFingerprint ? { systemFingerprint: lastSystemFingerprint } : {}),
 			...(finishNotice ? { finishNotice } : {}),
 			...(lastMessageStart?.id ? { responseId: lastMessageStart.id } : {}),
@@ -2031,7 +2066,12 @@ export const sendViaAISdk = async (params: SendChatParams_Internal): Promise<voi
 		providerOptions.anthropic = compatibleClaudeThinkingOptions(reasoningInfo, runtimeOptions?.claudeThinkingDisplay ?? DEFAULT_CLAUDE_THINKING_DISPLAY, quirks.adaptiveThinking === true, effortWords);
 	}
 	if (openAIWire) {
-		const reasoningEffort = openAIReasoningEffort(reasoningInfo, reasoningOff, reasoningCapabilities ? reasoningCapabilities.reasoningOffEffort : undefined);
+		const askedEffort = openAIReasoningEffort(reasoningInfo, reasoningOff, reasoningCapabilities ? reasoningCapabilities.reasoningOffEffort : undefined);
+		// The request keeps the thread's first effort, and a change goes as an update item before the user message
+		if (effortByUpdate && askedEffort) {
+			effortPlan = planEffortUpdates(modelMessages.map(message => ({ role: message.role, effortMark: effortMarks?.get(message) })), `${providerName}/${modelName}`, askedEffort);
+		}
+		const reasoningEffort = effortPlan?.requestEffort ?? askedEffort;
 		providerOptions.openai = {
 			...(reasoningEffort ? { reasoningEffort } : {}),
 			// The native SDK takes the cache key as a provider option; the compatible path gets

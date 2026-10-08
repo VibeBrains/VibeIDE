@@ -142,7 +142,7 @@ import { IDialogService } from '../../../../platform/dialogs/common/dialogs.js';
 import { IVibeWorkspaceSnapshotService } from '../common/vibeideSCMTypes.js';
 import { checkpointCoverage, isShellToolName } from '../common/checkpointCoverage.js';
 import { buildToolCallAudit, ToolCallAuditInput } from '../common/toolCallAudit.js';
-import { isModelSubstituted } from '../common/modelEcho.js';
+import { billedModelOf, isModelSubstituted } from '../common/modelEcho.js';
 
 /**
  * Пары «просили → ответила», о которых уже сказано в этом окне. Строка о подмене модели полезна один
@@ -1089,6 +1089,8 @@ class ChatThreadService extends Disposable implements IChatThreadService {
 	}> = new Map();
 	/** Fingerprint of the prefix of the last request prepared per thread — the answer to it keeps it, see reasoningPrefix.ts */
 	private readonly _lastReasoningPrefix = new Map<string, string>();
+	/** The effort the last request of a thread was sent at, where the model changes it by an update — see effortUpdates.ts */
+	private readonly _lastEffortMark = new Map<string, string>();
 	private static readonly MESSAGE_PREP_CACHE_TTL = 5000; // 5 seconds - messages can change during agent loops
 	private static readonly MESSAGE_PREP_CACHE_MAX_SIZE = 50; // Limit cache size
 
@@ -6710,10 +6712,16 @@ Output ONLY the JSON, no other text. Start with { and end with }.`;
 							this._setStreamState(threadId, { isRunning: 'LLM', llmInfo: { displayContentSoFar: fullText, reasoningSoFar: fullReasoning, toolCallSoFar: toolCall ?? null }, interrupt: Promise.resolve(() => { if (llmCancelToken) { this._llmMessageService.abort(llmCancelToken); } }) });
 						});
 					},
-					onFinalMessage: async ({ fullText, fullReasoning, toolCall, anthropicReasoning, usage, providerQuota, answeredModel, answeredByRouter, systemFingerprint, finishNotice, responseId, cacheMiss }) => {
+					onFinalMessage: async ({ fullText, fullReasoning, toolCall, anthropicReasoning, usage, providerQuota, answeredModel, systemFingerprint, finishNotice, responseId, cacheMiss, effortMark }) => {
 						vibeLog.debug('llmTurn', 'done', { afterMs: Date.now() - _turnStartMs, toolCall: toolCall?.name ?? null, textLen: fullText?.length ?? 0, reasoningLen: fullReasoning?.length ?? 0 }); recordChatTrace('llmTurn:done', { turn: traceTurn, afterMs: Date.now() - _turnStartMs, toolCall: toolCall?.name ?? null });
 						// Mark message as done to prevent late onText updates
 						messageIsDone = true;
+						// The answer keeps the effort its request went at: later requests replay the change at its place
+						if (effortMark) {
+							this._lastEffortMark.set(threadId, effortMark);
+						} else {
+							this._lastEffortMark.delete(threadId);
+						}
 
 						// Reset empty-response streak for this (thread × provider × model)
 						// combo on any successful response. The breaker only trips on
@@ -6767,8 +6775,8 @@ Output ONLY the JSON, no other text. Start with { and end with }.`;
 						// считается по запрошенной — поэтому расхождение называется вслух. В ленте один раз на пару
 						// «просили → ответила» за окно: повтор на каждый ход научил бы эту строку не читать. В журнал
 						// пишется каждый случай — там нужна история, а не заголовок.
-						// A router (`cloudflare/auto`, `openrouter/auto`) answering with another model is doing its job, not substituting
-						if (answeredModel && modelSelection && !answeredByRouter && isModelSubstituted(modelSelection.modelName, answeredModel)) {
+						// A router (`cloudflare/auto`, `openrouter/auto`) answering with another model is doing its job: isModelSubstituted says no
+						if (answeredModel && modelSelection && isModelSubstituted(modelSelection.modelName, answeredModel)) {
 							const pair = `${modelSelection.providerName}:${modelSelection.modelName}→${answeredModel}`;
 							if (!saidModelSubstituted.has(pair)) {
 								saidModelSubstituted.add(pair);
@@ -6815,8 +6823,9 @@ Output ONLY the JSON, no other text. Start with { and end with }.`;
 							void (async () => {
 								try {
 									const { getModelCapabilities } = await import('../common/modelCapabilities.js');
-									// A router has no price of its own: the money went to the model it picked
-									const billedModel = answeredByRouter && answeredModel ? answeredModel : modelSelection.modelName;
+									// A router has no price of its own: the money went to the model it picked, when the catalogue knows it
+									const catalogue = (this._settingsService.state.settingsOfProvider[modelSelection.providerName]?.models ?? []).map(m => m.modelName);
+									const billedModel = billedModelOf(modelSelection.modelName, answeredModel, catalogue);
 									const capabilities = getModelCapabilities(modelSelection.providerName, billedModel, this._settingsService.state.overridesOfModel);
 									this._spendLedgerService.record({
 										providerId: modelSelection.providerName,
@@ -10823,6 +10832,11 @@ We only need to do it for files that were edited since `from`, ie files between 
 		const prefix = this._lastReasoningPrefix.get(threadId);
 		if (message.role === 'assistant' && message.anthropicReasoning?.length && !message.reasoningPrefix && prefix) {
 			message = { ...message, reasoningPrefix: prefix };
+		}
+		// An answer keeps the effort its request went at; a notice is ours, not an answer
+		const effortMark = this._lastEffortMark.get(threadId);
+		if (message.role === 'assistant' && !message.notice && !message.effortMark && effortMark) {
+			message = { ...message, effortMark };
 		}
 		// stamp createdAt for the message variants that opt into it (user / assistant / checkpoint)
 		const stampedMessage: ChatMessage = (

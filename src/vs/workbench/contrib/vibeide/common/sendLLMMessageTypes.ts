@@ -148,6 +148,8 @@ export type OpenAILLMChatMessage = {
 	role: 'assistant';
 	content: string | (AnthropicReasoning | { type: 'text'; text: string })[];
 	tool_calls?: { type: 'function'; id: string; function: { name: string; arguments: string } }[];
+	/** The effort this answer's request was sent at, `provider/model#effort` — ours, see common/effortUpdates.ts */
+	effortMark?: string;
 } | {
 	role: 'tool';
 	content: string;
@@ -180,11 +182,15 @@ export type RawToolCallObj = {
 
 import type { ProviderQuotaSnapshot } from './providerQuota.js';
 
+/** The provider and model a thinking block came from: only its own vendor can read the block's signature */
+export type ThinkingProducer = { readonly provider: string; readonly model: string };
+
 /**
  * A thinking block of a past turn, kept to go back on the next request
- * Claude signs its blocks; Kimi, MiMo and DeepSeek on the Anthropic wire do not — who gets which is `replaysThinkingBlock`
+ * Claude signs its blocks; Kimi, MiMo and DeepSeek on the Anthropic wire do not — who gets which is `thinkingBlockReplay`
+ * `producedBy` stays on our side: the request is built from the block's own fields, and a thread older than it has none
  */
-export type AnthropicReasoning = ({ type: 'thinking'; thinking: string; signature?: string } | { type: 'redacted_thinking'; data: string });
+export type AnthropicReasoning = ({ type: 'thinking'; thinking: string; signature?: string } | { type: 'redacted_thinking'; data: string }) & { producedBy?: ThinkingProducer };
 
 // Provider-normalized token usage from the LLM response. AI SDK exposes these as
 // promptTokens / completionTokens / totalTokens; legacy OpenAI / Anthropic shapes
@@ -202,15 +208,16 @@ export type OnText = (p: { fullText: string; fullReasoning: string; toolCall?: R
 // response (passive quota tracking). Optional: not every provider sends the headers, and paths
 // that never reached the network have nothing to report.
 // `answeredModel` — the model the provider says it served (modelEcho.ts reads it off the wire).
-// `answeredByRouter` — the requested id is a router (quirk `modelRouter`): a different `answeredModel` is its choice, not a substitution.
 // A proxy, an aggregator or a failover target can answer with a different model while the price is
 // still counted by the one we asked for, and the substitution is otherwise silent.
 // `systemFingerprint` — the backend configuration where the wire names one (OpenAI-compatible); it
 // tells two backends apart when they answer under the same model name.
 // `finishNotice` — the answer stopped for a reason the reader must know about (see LLMFinishNotice).
+// `effortMark` — the effort this request was sent at, `provider/model#effort`, where the model changes it by an update item
+// (quirk `effortByUpdate`); the answer keeps it so later requests replay the update at its place (common/effortUpdates.ts).
 // `responseId` — the vendor's id of this answer, sent back next turn to ask why the cache missed; `cacheMiss` — its
 // answer (Anthropic's own API only, common/anthropicCacheDiagnostics.ts).
-export type OnFinalMessage = (p: { fullText: string; fullReasoning: string; toolCall?: RawToolCallObj; anthropicReasoning: AnthropicReasoning[] | null; answeredModel?: string; answeredByRouter?: true; systemFingerprint?: string; usage?: LLMTokenUsage; providerQuota?: ProviderQuotaSnapshot; finishNotice?: LLMFinishNotice; responseId?: string; cacheMiss?: CacheMissDiagnosis }) => void; // id is tool_use_id
+export type OnFinalMessage = (p: { fullText: string; fullReasoning: string; toolCall?: RawToolCallObj; anthropicReasoning: AnthropicReasoning[] | null; answeredModel?: string; systemFingerprint?: string; usage?: LLMTokenUsage; providerQuota?: ProviderQuotaSnapshot; finishNotice?: LLMFinishNotice; responseId?: string; cacheMiss?: CacheMissDiagnosis; effortMark?: string }) => void; // id is tool_use_id
 
 /**
  * An answer that ended for a reason other than «done», delivered next to the text it cut.

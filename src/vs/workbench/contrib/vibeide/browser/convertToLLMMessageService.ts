@@ -159,6 +159,8 @@ type SimpleLLMMessage = {
 	thoughtSignature?: { toolCallId: string; signature: string };
 	/** Fingerprint of the prefix this turn was produced under — see common/reasoningPrefix.ts */
 	reasoningPrefix?: string;
+	/** The effort this answer's request was sent at — see common/effortUpdates.ts */
+	effortMark?: string;
 };
 
 
@@ -533,10 +535,11 @@ const prepareMessages_openai_tools = (messages: SimpleLLMMessage[]): AnthropicOr
 					role: 'assistant',
 					content: currMsg.content,
 					reasoning_content: currMsg.reasoning,
+					...(currMsg.effortMark ? { effortMark: currMsg.effortMark } : {}),
 				};
 				newMessages.push(withReasoning);
 			} else {
-				newMessages.push({ role: 'assistant', content: currMsg.content });
+				newMessages.push({ role: 'assistant', content: currMsg.content, ...(currMsg.effortMark ? { effortMark: currMsg.effortMark } : {}) });
 			}
 			continue;
 		}
@@ -1779,6 +1782,7 @@ class ConvertToLLMMessageService extends Disposable implements IConvertToLLMMess
 					pinned: m.pinned,
 					...(m.thoughtSignature ? { thoughtSignature: m.thoughtSignature } : {}),
 					...(m.reasoningPrefix ? { reasoningPrefix: m.reasoningPrefix } : {}),
+					...(m.effortMark ? { effortMark: m.effortMark } : {}),
 				});
 			}
 			else if (m.role === 'tool') {
@@ -1869,7 +1873,7 @@ class ConvertToLLMMessageService extends Disposable implements IConvertToLLMMess
 			aiInstructions,
 			supportsSystemMessage,
 			specialToolFormat,
-			// Any route on the Anthropic wire keeps its thinking blocks; which of them go back is the wire's call (replaysThinkingBlock)
+			// Any route on the Anthropic wire keeps its thinking blocks; which of them go back is the wire's call (thinkingBlockReplay)
 			supportsAnthropicReasoning: providerName === 'anthropic' || specialToolFormat === 'anthropic-style',
 			contextWindow: effectiveContextWindow,
 			reservedOutputTokenSpace: effectiveReservedOutput,

@@ -94,8 +94,44 @@ function variantOf(base: string, longer: string): boolean {
 	return head.length > 0 && /^[0-9]+$/.test(head);
 }
 
-/** True when `answered` is a different model, not another spelling of `requested`. */
+/** The id tail of a router: `cloudflare/auto`, `openrouter/auto`, a gateway's own `auto` */
+const ROUTER_TAIL = 'auto';
+
+/**
+ * The model id names a router, not a model
+ * The router picks the model per request, so another model in the answer is the service asked for
+ *
+ * Read off the id, as in the shared vectors (`testVectors/modelRouters.json`):
+ * A quirk rule matches by substring and could not tell a bare `auto` from a model that merely contains the word
+ */
+export function isModelRouter(requested: string): boolean {
+	return tail((requested ?? '').trim().toLowerCase()) === ROUTER_TAIL;
+}
+
+/**
+ * The catalogue entry an answer is priced by
+ * A router's own entry rarely has a price, and the bill comes for the model that answered:
+ * When the provider's catalogue has that model, its entry counts; otherwise the router's entry stays
+ * Anything that is not a router is priced by what was asked — a substitution is named, not re-billed
+ * Entries are compared by id tail, case-insensitively: a vendor prefix and casing do not make another model
+ */
+export function billedModelOf(requested: string, answered: string | undefined, catalogue: readonly string[]): string {
+	const entryOf = (id: string) => {
+		const wanted = tail(id.trim().toLowerCase());
+		return catalogue.find(entry => tail(entry.trim().toLowerCase()) === wanted);
+	};
+	const askedEntry = entryOf(requested) ?? requested;
+	if (!isModelRouter(requested) || !answered?.trim()) {
+		return askedEntry;
+	}
+	return entryOf(answered) ?? askedEntry;
+}
+
+/** True when `answered` is a different model, not another spelling of `requested`; a router never substitutes */
 export function isModelSubstituted(requested: string, answered: string | undefined): boolean {
+	if (isModelRouter(requested)) {
+		return false;
+	}
 	const asked = tail((requested ?? '').trim().toLowerCase());
 	const got = tail((answered ?? '').trim().toLowerCase());
 	if (!asked || !got) {

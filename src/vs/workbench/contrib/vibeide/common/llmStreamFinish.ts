@@ -12,7 +12,7 @@
  */
 
 import { localize } from '../../../../nls.js';
-import type { AnthropicReasoning, LLMFinishNotice } from './sendLLMMessageTypes.js';
+import type { AnthropicReasoning, LLMFinishNotice, ThinkingProducer } from './sendLLMMessageTypes.js';
 
 /** `providerMetadata.anthropic` as the stream carries it; everything optional, read defensively. */
 interface AnthropicStreamMetadata {
@@ -65,11 +65,14 @@ interface CollectedBlock {
  * Text may be empty: under the `omitted` display a signed block carries no words and is still valid.
  * Kimi, MiMo and DeepSeek on their own `/v1/messages` never sign, and demand their reasoning back all the same:
  * an unsigned block with text is kept too.
- * Which blocks go back to whom is decided at the wire (`replaysThinkingBlock`): Claude gets only signed ones,
+ * Which blocks go back to whom is decided at the wire (`thinkingBlockReplay`): Claude gets only signed ones,
  * since an unsigned block from Claude is a stream cut short, and replaying it is a 400.
+ * Every block names the model it was asked of: a signature is readable only by its own vendor
  */
 export class AnthropicReasoningCollector {
 	private readonly _blocks = new Map<string, CollectedBlock>();
+
+	constructor(private readonly _producedBy?: ThinkingProducer) { }
 
 	start(id: string, providerMetadata: unknown): void {
 		const redactedData = anthropicMetadataOf(providerMetadata)?.redactedData;
@@ -97,13 +100,14 @@ export class AnthropicReasoningCollector {
 	/** Whole blocks in stream order, or null when there are none — the shape `onFinalMessage` carries. */
 	blocks(): AnthropicReasoning[] | null {
 		const out: AnthropicReasoning[] = [];
+		const producedBy = this._producedBy ? { producedBy: this._producedBy } : {};
 		for (const block of this._blocks.values()) {
 			if (block.redactedData !== undefined) {
-				out.push({ type: 'redacted_thinking', data: block.redactedData });
+				out.push({ type: 'redacted_thinking', data: block.redactedData, ...producedBy });
 			} else if (block.signature !== undefined) {
-				out.push({ type: 'thinking', thinking: block.text, signature: block.signature });
+				out.push({ type: 'thinking', thinking: block.text, signature: block.signature, ...producedBy });
 			} else if (block.text.length > 0) {
-				out.push({ type: 'thinking', thinking: block.text });
+				out.push({ type: 'thinking', thinking: block.text, ...producedBy });
 			}
 		}
 		return out.length > 0 ? out : null;

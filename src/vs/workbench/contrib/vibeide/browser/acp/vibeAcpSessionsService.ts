@@ -23,7 +23,7 @@ import { ICommandService } from '../../../../../platform/commands/common/command
 import { IConfigurationService } from '../../../../../platform/configuration/common/configuration.js';
 import { INotificationService, Severity } from '../../../../../platform/notification/common/notification.js';
 import { AcpEvent, IAcpPermissionRequest, IAcpSession } from '../../common/acp/acpTypes.js';
-import { AcpReconnectMode, AcpStopReason, IAcpConfigOption, IAcpDiff } from '../../common/acp/acpProtocol.js';
+import { AcpReconnectMode, AcpStopReason, agentCommandOf, IAcpCommand, IAcpConfigOption, IAcpDiff } from '../../common/acp/acpProtocol.js';
 import { AcpLogEntry, AcpSessionLog, IAcpSessionSnapshot } from '../../common/acp/acpSessionLog.js';
 import { buildAcpPermissionAudit, buildAcpSessionAudit, buildAcpToolCallAudit } from '../../common/acp/acpAudit.js';
 import { AuditEvent, IAuditLogService } from '../../common/auditLogService.js';
@@ -58,6 +58,8 @@ export interface IVibeAcpSessionView {
 	readonly configOptions: readonly IAcpConfigOption[];
 	/** A setting change is on its way to the agent: the controls wait for its answer */
 	readonly configuring: boolean;
+	/** The agent's own slash commands; one runs by being the task's text, `/name arguments` */
+	readonly commands: readonly IAcpCommand[];
 }
 
 export interface IVibeAcpSessionsService {
@@ -99,6 +101,7 @@ interface ISessionState {
 	pending?: { readonly request: IAcpPermissionRequest; readonly snapshotId?: string };
 	configOptions: readonly IAcpConfigOption[];
 	configuring: boolean;
+	commands: readonly IAcpCommand[];
 	/** The «Краткие ответы» level the agent was last given; undefined — it has not been told anything */
 	brevitySent?: BrevityLevel;
 }
@@ -111,6 +114,8 @@ class VibeAcpSessionsService extends Disposable implements IVibeAcpSessionsServi
 
 	private readonly _sessions = new Map<string, ISessionState>();
 	private _surfaceVisible = false;
+	/** Questions withdrawn while their checkpoint was still being taken: they must not open a card afterwards */
+	private readonly _withdrawnBeforeShown = new Set<string>();
 
 	constructor(
 		@IVibeAcpService private readonly _acpService: IVibeAcpService,
@@ -140,6 +145,7 @@ class VibeAcpSessionsService extends Disposable implements IVibeAcpSessionsServi
 			pendingPermission: state.pending?.request,
 			configOptions: state.configOptions,
 			configuring: state.configuring,
+			commands: state.commands,
 		}));
 	}
 
@@ -163,6 +169,7 @@ class VibeAcpSessionsService extends Disposable implements IVibeAcpSessionsServi
 			reconnecting: false,
 			configOptions: session.configOptions ?? [],
 			configuring: false,
+			commands: session.commands ?? [],
 		});
 		this._activityLog.logStarted(localize('vibeide.acp.log.session', "Внешний агент «{0}» открыл сессию", session.agentName));
 		this._audit(buildAcpSessionAudit({ agentId: agent.id, sessionId: session.sessionId, phase: 'started' }, Date.now()));
@@ -184,11 +191,15 @@ class VibeAcpSessionsService extends Disposable implements IVibeAcpSessionsServi
 		state.lastStopReason = undefined;
 		this._onDidChange.fire();
 		// The agent keeps its own history, so the style goes once and again only on a change of level
+		// An agent command runs only as the first word of the task: the note waits for the next ordinary task
 		const brevity = brevityLevelOf(this._configurationService.getValue(BREVITY_SETTING));
-		const note = brevityForAgent(state.brevitySent, brevity);
+		const command = agentCommandOf(text, state.commands);
+		const note = command ? undefined : brevityForAgent(state.brevitySent, brevity);
 		try {
 			state.lastStopReason = await this._acpService.prompt(sessionId, note ? `${note}\n\n${text}` : text);
-			state.brevitySent = brevity;
+			if (!command) {
+				state.brevitySent = brevity;
+			}
 		} catch (err) {
 			state.error = err instanceof Error ? err.message : String(err);
 		} finally {
@@ -272,8 +283,9 @@ class VibeAcpSessionsService extends Disposable implements IVibeAcpSessionsServi
 			}
 			current.disconnected = false;
 			current.busy = false;
-			// A new process may expose other settings; an agent that reported none keeps showing none
+			// A new process may expose other settings and commands; an agent that reported none keeps showing none
 			current.configOptions = back.configOptions ?? [];
+			current.commands = back.commands ?? [];
 			// A fresh session has none of the old history, the style included
 			if (back.mode === 'new') {
 				current.brevitySent = undefined;
@@ -333,6 +345,15 @@ class VibeAcpSessionsService extends Disposable implements IVibeAcpSessionsServi
 			case 'permission':
 				void this._guard(event.request);
 				return;
+			case 'permissionWithdrawn':
+				void this._withdrawn(event.sessionId, event.requestId);
+				return;
+			case 'commands': {
+				const state = this._sessions.get(event.sessionId);
+				if (state) { state.commands = event.commands; }
+				this._onDidChange.fire();
+				return;
+			}
 			case 'wrote':
 				this._activityLog.logFinished(localize('vibeide.acp.log.wrote', "Внешний агент записал файл нашими руками: {0}", event.path));
 				return;
@@ -431,12 +452,37 @@ class VibeAcpSessionsService extends Disposable implements IVibeAcpSessionsServi
 			return;
 		}
 		const snapshotId = await this._snapshotBefore(request);
+		if (this._withdrawnBeforeShown.delete(request.requestId)) {
+			if (snapshotId) { await this._snapshotService.discardSnapshot(snapshotId); }
+			return;
+		}
 		state.pending = { request, ...(snapshotId ? { snapshotId } : {}) };
 		this._activityLog.logStarted(localize('vibeide.acp.log.asks', "Внешний агент просит разрешения: {0}", request.title));
 		this._onDidChange.fire();
 
 		if (!this._surfaceVisible) {
 			this._notifyPending(request);
+		}
+	}
+
+	/**
+	 * The question closed without a person's answer: the agent withdrew it, or the turn was stopped
+	 * The edit it asked about did not happen, so its checkpoint goes, as on a refusal
+	 */
+	private async _withdrawn(sessionId: string, requestId: string): Promise<void> {
+		const state = this._sessions.get(sessionId);
+		if (!state) { return; }
+		const pending = state.pending;
+		if (pending?.request.requestId !== requestId) {
+			// Still being shown: the checkpoint is being taken, and the card must not open once it is
+			this._withdrawnBeforeShown.add(requestId);
+			return;
+		}
+		state.pending = undefined;
+		this._activityLog.logFinished(localize('vibeide.acp.log.withdrawn', "Вопрос внешнего агента снят без ответа: {0}", pending.request.title));
+		this._onDidChange.fire();
+		if (pending.snapshotId) {
+			await this._snapshotService.discardSnapshot(pending.snapshotId);
 		}
 	}
 

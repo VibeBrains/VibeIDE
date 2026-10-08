@@ -132,11 +132,18 @@ export interface ModelQuirksRule {
 	readonly forcedToolChoiceUnsupported?: boolean;
 
 	/**
-	 * The model id names a router, not a model (`cloudflare/auto`, `openrouter/auto`): it picks a model per request
-	 * Another model answering is its job, not a substitution: no «ответила другая модель» notice is raised
-	 * The spend is priced by the model that answered — the router has no price of its own
+	 * On the Responses wire the effort changes mid-conversation by a `configuration_update` item (GPT-6):
+	 * The request keeps the effort of the thread's first answer, so moving the slider does not rewrite the cached prefix
+	 * See common/effortUpdates.ts
 	 */
-	readonly modelRouter?: boolean;
+	readonly effortByUpdate?: boolean;
+
+	/**
+	 * The model answers on the Responses wire only: chat/completions refuses every request (o1-pro, o3-pro, gpt-5-pro)
+	 * A route that would send it there does not send it, and the error names the protocol to declare
+	 * The wire is not guessed: a provider's endpoint may serve one wire and not the other
+	 */
+	readonly responsesOnly?: boolean;
 
 	/**
 	 * Whether a call the model writes into the text of its answer, in its family's own markup, is read as the call
@@ -320,7 +327,8 @@ export function validateCatalog(raw: unknown): ModelQuirksCatalog {
 			...readString(rr, 'reasoningEffortInSystemPrompt'),
 			...readEnum(rr, 'forceToolCallFormat', ['native', 'xml', 'auto']),
 			...readBool(rr, 'forcedToolChoiceUnsupported'),
-			...readBool(rr, 'modelRouter'),
+			...readBool(rr, 'effortByUpdate'),
+			...readBool(rr, 'responsesOnly'),
 			...readBool(rr, 'toolCallsInText'),
 			...readBool(rr, 'reasoningBoundToModel'),
 			...readBool(rr, 'adaptiveThinking'),
@@ -405,7 +413,8 @@ export function applyUserOverride(catalogQuirks: ResolvedModelQuirks, userOverri
 		...readString(oo, 'reasoningEffortInSystemPrompt'),
 		...readEnum(oo, 'forceToolCallFormat', ['native', 'xml', 'auto']),
 		...readBool(oo, 'forcedToolChoiceUnsupported'),
-		...readBool(oo, 'modelRouter'),
+		...readBool(oo, 'effortByUpdate'),
+		...readBool(oo, 'responsesOnly'),
 		...readBool(oo, 'toolCallsInText'),
 		...readBool(oo, 'reasoningBoundToModel'),
 		...readBool(oo, 'adaptiveThinking'),

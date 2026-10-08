@@ -328,7 +328,7 @@ suite('aiSdkAdapter — встроенные провайдеры против �
 			error: undefined,
 			text: 'Читаю.',
 			reasoning: 'Проверю файл.',
-			anthropicReasoning: [{ type: 'thinking', thinking: 'Проверю файл.', signature: 'sig-new' }],
+			anthropicReasoning: [{ type: 'thinking', thinking: 'Проверю файл.', signature: 'sig-new', producedBy: { provider: 'anthropic', model: 'claude-opus-5-5' } }],
 			toolCall: { name: 'read_file', rawParams: { uri: '/a.ts' }, isDone: true },
 			cached: 50,
 			cacheWrites: 30,
@@ -436,6 +436,38 @@ suite('aiSdkAdapter — встроенные провайдеры против �
 			text: ['Готово.', 'Готово.'],
 			input: 100,
 		});
+	});
+
+	test('OpenAI: GPT-6 меняет уровень посреди треда элементом configuration_update, запрос держит первый уровень', async () => {
+		const quirks = await import('../../electron-main/modelQuirks/modelQuirksService.js');
+		quirks.__setCatalogForTests({ version: 1, rules: [{ match: 'gpt-6', effortByUpdate: true }] });
+		try {
+			const outcome = await send({
+				providerName: 'openAI',
+				modelName: 'gpt-6-luna',
+				settingsOfProvider: settingsWith({ openAI: { apiKey: 'sk-test' } }),
+				modelSelectionOptions: { reasoningEnabled: true, reasoningEffort: 'high' },
+				messages: [
+					{ role: 'user', content: 'Первый вопрос' },
+					{ role: 'assistant', content: 'Первый ответ', effortMark: 'openAI/gpt-6-luna#low' } as unknown as LLMChatMessage,
+					{ role: 'user', content: 'Второй вопрос' },
+				],
+			});
+			const body = requests.filter(r => r.path === '/v1/responses').at(-1)?.body;
+			const input = (body?.input as { role?: string; type?: string; reasoning?: unknown }[] | undefined) ?? [];
+			assert.deepStrictEqual({
+				reasoning: body?.reasoning,
+				input: input.map(item => item.role ?? { type: item.type, reasoning: item.reasoning }),
+				mark: outcome.final?.effortMark,
+			}, {
+				// The cached prefix keeps the thread's first effort; the change goes before the question it is for
+				reasoning: { effort: 'low' },
+				input: ['developer', 'user', 'assistant', { type: 'configuration_update', reasoning: { effort: 'high' } }, 'user'],
+				mark: 'openAI/gpt-6-luna#high',
+			});
+		} finally {
+			quirks.__resetForTests();
+		}
 	});
 
 	test('OpenAI: организации без верификации поток запрещён — тот же запрос уходит ещё раз целиком', async () => {
@@ -593,13 +625,36 @@ suite('aiSdkAdapter — встроенные провайдеры против �
 			setExternalProviders([]);
 			quirks.__resetForTests();
 		}
+		// The thread changed model: a block MiniMax signed is unreadable to Claude, and Kimi gets its text alone
+		setExternalProviders([{ id: 'test-anthropic-file', source: 'file' }]);
+		quirks.__setCatalogForTests({ version: 1, rules: [{ match: 'kimi-k3', mirrorReasoningContent: true }] });
+		const byMiniMax = { provider: 'test-anthropic-file', model: 'minimax-m3' };
+		try {
+			for (const modelName of ['claude-opus-5', 'kimi-k3']) {
+				await send({
+					providerName: 'test-anthropic-file' as SendChatParams_Internal['providerName'],
+					modelName,
+					settingsOfProvider: settingsWith({ 'test-anthropic-file': { baseURL: `http://127.0.0.1:${port}/v1`, apiKey: 'k', protocol: 'anthropic' } }),
+					messages: [
+						{ role: 'user', content: 'Прочти файл' },
+						{ role: 'assistant', content: [{ type: 'thinking', thinking: 'от MiniMax', signature: 'sig-mm', producedBy: byMiniMax }, { type: 'text', text: 'Читаю' }] } as unknown as LLMChatMessage,
+						{ role: 'user', content: 'Дальше' },
+					],
+				});
+			}
+		} finally {
+			setExternalProviders([]);
+			quirks.__resetForTests();
+		}
 		const thinkingOf = (body: WireBody | undefined) => ((body?.messages as { content?: unknown }[] | undefined)?.[1]?.content as { type: string }[] | undefined ?? [])
 			.filter(block => block.type === 'thinking');
-		assert.deepStrictEqual(requests.filter(r => r.path === '/v1/messages').slice(-4).map(r => thinkingOf(r.body)), [
+		assert.deepStrictEqual(requests.filter(r => r.path === '/v1/messages').slice(-6).map(r => thinkingOf(r.body)), [
 			[{ type: 'thinking', thinking: 'без подписи' }, { type: 'thinking', thinking: 'с подписью', signature: 'sig-1' }],
 			[{ type: 'thinking', thinking: 'с подписью', signature: 'sig-1' }],
 			[],
 			[{ type: 'thinking', thinking: 'строкой' }],
+			[],
+			[{ type: 'thinking', thinking: 'от MiniMax' }],
 		]);
 	});
 
@@ -616,7 +671,7 @@ suite('aiSdkAdapter — встроенные провайдеры против �
 		} finally {
 			setExternalProviders([]);
 		}
-		assert.deepStrictEqual(outcome.final?.anthropicReasoning, [{ type: 'thinking', thinking: 'Сначала прочту файл.' }]);
+		assert.deepStrictEqual(outcome.final?.anthropicReasoning, [{ type: 'thinking', thinking: 'Сначала прочту файл.', producedBy: { provider: 'test-anthropic-file', model: 'kimi-k3-unsigned' } }]);
 	});
 
 	test('провайдер из файла через главный процесс: возможности модели доезжают, диалект OpenRouter пишет рассуждение объектом', async () => {
@@ -734,9 +789,7 @@ suite('aiSdkAdapter — встроенные провайдеры против �
 		}
 	});
 
-	test('модель-роутер: ответ другой модели — его выбор, а не подмена; заголовок Cloudflare сильнее тела', async () => {
-		const quirks = await import('../../electron-main/modelQuirks/modelQuirksService.js');
-		quirks.__setCatalogForTests({ version: 1, rules: [{ match: 'cloudflare/auto', modelRouter: true }, { match: 'openrouter/auto', modelRouter: true }] });
+	test('кто ответил: заголовок Cloudflare сильнее тела, без заголовка — тело', async () => {
 		const turn = async (modelName: string) => {
 			const outcome = await send({
 				providerName: 'test-router-gateway' as SendChatParams_Internal['providerName'],
@@ -744,18 +797,17 @@ suite('aiSdkAdapter — встроенные провайдеры против �
 				settingsOfProvider: settingsWith({ 'test-router-gateway': { baseURL: `http://127.0.0.1:${port}/router/v1`, apiKey: 'k', protocol: 'openai' } }),
 				messages: [{ role: 'user', content: 'Привет' }],
 			});
-			return { answeredModel: outcome.final?.answeredModel, answeredByRouter: outcome.final?.answeredByRouter, error: outcome.error?.message };
+			return { answeredModel: outcome.final?.answeredModel, error: outcome.error?.message };
 		};
 		try {
 			assert.deepStrictEqual([await turn('cloudflare/auto'), await turn('openrouter/auto'), await turn('plain-model')], [
 				// The body still names the router: the header is the model that answered
-				{ answeredModel: 'anthropic/claude-sonnet-5-5', answeredByRouter: true, error: undefined },
-				{ answeredModel: 'anthropic/claude-opus-5-5', answeredByRouter: true, error: undefined },
-				// Not a router: another name in the answer stays a substitution for the window to name
-				{ answeredModel: 'plain-model-2', answeredByRouter: undefined, error: undefined },
+				{ answeredModel: 'anthropic/claude-sonnet-5-5', error: undefined },
+				{ answeredModel: 'anthropic/claude-opus-5-5', error: undefined },
+				// Whether another name is a substitution is the window's call (modelEcho.isModelSubstituted)
+				{ answeredModel: 'plain-model-2', error: undefined },
 			]);
 		} finally {
-			quirks.__resetForTests();
 			setExternalProviders([]);
 		}
 	});
