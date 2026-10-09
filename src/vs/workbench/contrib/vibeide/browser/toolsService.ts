@@ -69,6 +69,7 @@ import { localize } from '../../../../nls.js';
 import { IEditorService } from '../../../services/editor/common/editorService.js';
 import { ILanguageFeaturesService } from '../../../../editor/common/services/languageFeatures.js';
 import { IVibeCodeGraphService } from './codeGraph/vibeCodeGraphService.js';
+import { IVibeCallIndexService } from './codeGraph/vibeCallIndexService.js';
 import { IVibeDesignScanService, unreachableReasonOf } from './designReview/vibeDesignScanService.js';
 import { IVibeDesignContextService } from './designContext/vibeDesignContextService.js';
 import { IVibeTextSlopService } from '../common/textSlop/vibeTextSlopService.js';
@@ -325,6 +326,7 @@ export class ToolsService extends Disposable implements IToolsService {
 		@IEditorService private readonly editorService: IEditorService,
 		@ILanguageFeaturesService private readonly languageFeaturesService: ILanguageFeaturesService,
 		@IVibeCodeGraphService private readonly codeGraphService: IVibeCodeGraphService,
+		@IVibeCallIndexService private readonly callIndexService: IVibeCallIndexService,
 		@IVibeDesignScanService private readonly designScanService: IVibeDesignScanService,
 		@IVibeDesignContextService private readonly designContextService: IVibeDesignContextService,
 		@IVibeTextSlopService private readonly textSlopService: IVibeTextSlopService,
@@ -1970,7 +1972,11 @@ export class ToolsService extends Disposable implements IToolsService {
 
 				if (query === 'report') {
 					// The same analysis the «Граф проекта» tab shows a person, so the agent and the human read one picture
-					return { result: { indexReady: true, nodes: [], edges: [], trace: null, report: renderReport(analyzeCodeGraph(this.codeGraphService.getGraph())) } };
+					// Calls are read on first demand; the report says how far, so partial call links are not read as the whole
+					void this.callIndexService.ensureBuilt();
+					const calls = this.callIndexService.state;
+					const callNote = calls.building ? `\n\nCalls are still being read (${calls.parsed} of ${calls.total} files): call links are partial, ask again later for the full picture.` : '';
+					return { result: { indexReady: true, nodes: [], edges: [], trace: null, report: renderReport(analyzeCodeGraph(this.codeGraphService.getGraph())) + callNote } };
 				}
 
 				if (query === 'why') {

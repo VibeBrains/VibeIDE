@@ -86,6 +86,9 @@ export interface CodeGraphViewFilter {
 
 export const ALL_LINKS_FILTER: CodeGraphViewFilter = { kinds: new Set(FILE_LINK_KINDS), factsOnly: false };
 
+/** How strongly a pair of files known only by a name match pulls them into one subsystem, against 1 for a known link */
+const GUESS_WEIGHT = 0.25;
+
 const REPORT_HUBS = 10;
 const REPORT_SURPRISING = 10;
 /** A subsystem view draws its most connected files up to this many: the layout pairs every node with every other */
@@ -139,6 +142,30 @@ function commonFolder(paths: readonly string[]): string {
 	return prefix.join('/');
 }
 
+/**
+ * The deepest folder holding at least half of the files — where a subsystem mostly lives
+ * Its hub is a poor name: a subsystem of 1700 files is usually held together by a utility everyone imports, and «uri.ts»
+ * Says nothing about which part of the project it is; the common folder of all files is just as poor, one stray file
+ * Pulls it up to the project root
+ */
+function majorityFolder(paths: readonly string[]): string {
+	const counts = new Map<string, number>();
+	for (const path of paths) {
+		const segments = path.split('/').slice(0, -1);
+		for (let depth = 1; depth <= segments.length; depth++) {
+			const folder = segments.slice(0, depth).join('/');
+			counts.set(folder, (counts.get(folder) ?? 0) + 1);
+		}
+	}
+	let best = '';
+	for (const [folder, count] of counts) {
+		if (count * 2 >= paths.length && folder.length > best.length) {
+			best = folder;
+		}
+	}
+	return best;
+}
+
 function relative(root: string, path: string): string {
 	return root && path.startsWith(`${root}/`) ? path.slice(root.length + 1) : path;
 }
@@ -161,17 +188,26 @@ export function analyzeCodeGraph(graph: CodeGraph): CodeGraphAnalysis {
 
 	const indexOf = new Map(files.map((file, index) => [file, index]));
 	const degreeOf = new Map<string, number>(files.map(file => [file, 0]));
-	const weighted: WeightedLink[] = [];
+	// One pair of files is one relationship, however many ways it is expressed: an import and the calls through it would
+	// otherwise count twice, and hubs every test imports and calls would swallow their callers into one subsystem.
+	// A pair known only by a guess pulls weakly — a name match must not glue distant parts of a project together
+	const pairWeight = new Map<string, { a: number; b: number; weight: number }>();
 	for (const link of links) {
 		const a = indexOf.get(link.from);
 		const b = indexOf.get(link.to);
 		if (a === undefined || b === undefined) {
 			continue;
 		}
-		weighted.push({ a, b, weight: 1 });
 		degreeOf.set(link.from, degreeOf.get(link.from)! + 1);
 		degreeOf.set(link.to, degreeOf.get(link.to)! + 1);
+		const key = a < b ? `${a}:${b}` : `${b}:${a}`;
+		const weight = link.provenance === 'ambiguous' ? GUESS_WEIGHT : 1;
+		const known = pairWeight.get(key);
+		if (!known || known.weight < weight) {
+			pairWeight.set(key, { a, b, weight });
+		}
 	}
+	const weighted: WeightedLink[] = [...pairWeight.values()];
 
 	const membership = detectCommunities(files.length, weighted);
 	const communityOf = new Map(files.map((file, index) => [file, membership[index]]));
@@ -193,7 +229,7 @@ export function analyzeCodeGraph(graph: CodeGraph): CodeGraphAnalysis {
 	const byDegree = (a: string, b: string) => degreeOf.get(b)! - degreeOf.get(a)! || a.localeCompare(b);
 	const groups = [...members.entries()].filter(([, list]) => list.length >= 2).sort(([a], [b]) => a - b);
 	const folderLabels = groups.map(([, list]) => {
-		const folder = relative(root, commonFolder(list));
+		const folder = relative(root, majorityFolder(list));
 		return folder === root || folder === '' ? '' : folder.split('/').slice(-2).join('/');
 	});
 	const repeated = new Set(folderLabels.filter((label, index) => label && folderLabels.indexOf(label) !== index));

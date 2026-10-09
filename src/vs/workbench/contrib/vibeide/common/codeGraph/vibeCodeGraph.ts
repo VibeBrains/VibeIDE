@@ -32,7 +32,7 @@ export type CodeEdgeKind =
 	| 'defines'
 	/** file → file it imports. */
 	| 'imports'
-	/** symbol → symbol it invokes. Not produced by this core yet — see `buildCodeGraph`. */
+	/** file → file whose declaration it invokes; resolved by `callResolution.ts`, see `buildCodeGraph` */
 	| 'calls'
 	/** symbol → base class, interface or trait it inherits from. */
 	| 'extends'
@@ -259,11 +259,11 @@ export function parseWhyNotes(content: string): CodeGraphNoteInput[] {
 /**
  * Project the inputs into a graph.
  *
- * `calls` edges are NOT produced here: a truthful call edge needs per-language resolution of the
- * callee, which the indexer's data cannot support. Emitting guessed call edges would poison the
- * one property that makes this graph worth having — that an edge means what it says.
+ * `calls` edges are not derived here: a call is resolved to a file by `callResolution.ts`, which reads the calls out of
+ * syntax trees, and arrives as `callLinks` already carrying its provenance. They join file to file — the call index
+ * knows where a call is written and which file declares the name, not which overload it means
  */
-export function buildCodeGraph(files: readonly CodeGraphFileInput[]): CodeGraph {
+export function buildCodeGraph(files: readonly CodeGraphFileInput[], callLinks: readonly { readonly from: string; readonly to: string; readonly provenance: EdgeProvenance }[] = []): CodeGraph {
 	const nodes: CodeGraphNode[] = [];
 	const edges: CodeGraphEdge[] = [];
 	const knownFiles = new Set(files.map(file => file.path));
@@ -343,6 +343,12 @@ export function buildCodeGraph(files: readonly CodeGraphFileInput[]): CodeGraph 
 					provenance: targets.length === 1 ? 'extracted' : 'ambiguous',
 				});
 			}
+		}
+	}
+
+	for (const link of callLinks) {
+		if (knownFiles.has(link.from) && knownFiles.has(link.to) && link.from !== link.to) {
+			edges.push({ from: fileNodeId(link.from), to: fileNodeId(link.to), kind: 'calls', provenance: link.provenance });
 		}
 	}
 

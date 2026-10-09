@@ -137,6 +137,17 @@ suite('code graph — analysis and report', () => {
 		});
 	});
 
+	test('a subsystem is named by the folder most of it lives in, not by its hub and not dragged up by one stray file', () => {
+		const stray = buildCodeGraph([
+			{ path: '/p/src/billing/invoice.ts', importSpecifiers: ['../shared/uri.ts', './tax.ts'] },
+			{ path: '/p/src/billing/tax.ts', importSpecifiers: ['../shared/uri.ts', './invoice.ts'] },
+			{ path: '/p/src/billing/pay.ts', importSpecifiers: ['../shared/uri.ts', './invoice.ts', './tax.ts'] },
+			{ path: '/p/src/shared/uri.ts', importSpecifiers: [] },
+			{ path: '/p/tools/other.ts', importSpecifiers: [] },
+		]);
+		assert.deepStrictEqual(analyzeCodeGraph(stray).subsystems.map(s => s.label), ['src/billing']);
+	});
+
 	test('the agent report names the same facts', () => {
 		const text = renderReport(analyzeCodeGraph(graph));
 		assert.deepStrictEqual(

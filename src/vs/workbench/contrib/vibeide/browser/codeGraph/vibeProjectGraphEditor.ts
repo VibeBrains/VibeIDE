@@ -53,6 +53,7 @@ import { VIBE_COMMAND_CATEGORY } from '../../common/vibeCommandCategory.js';
 import { IRepoIndexerService } from '../repoIndexerService.js';
 import { VibeGraphCanvas } from '../vibeGraphCanvas.js';
 import { IVibeCodeGraphService } from './vibeCodeGraphService.js';
+import { IVibeCallIndexService } from './vibeCallIndexService.js';
 
 const $ = DOM.$;
 
@@ -135,6 +136,7 @@ export class VibeProjectGraphPane extends EditorPane {
 		@IInstantiationService private readonly _instantiationService: IInstantiationService,
 		@IVibeCodeGraphService private readonly _codeGraph: IVibeCodeGraphService,
 		@IRepoIndexerService private readonly _indexer: IRepoIndexerService,
+		@IVibeCallIndexService private readonly _callIndex: IVibeCallIndexService,
 		@IEditorService private readonly _editorService: IEditorService,
 		@IContextViewService private readonly _contextViewService: IContextViewService,
 	) {
@@ -164,6 +166,8 @@ export class VibeProjectGraphPane extends EditorPane {
 
 		this._addToggle(toolbar, localize('vibeProjectGraph.imports', "Импорты"), true, on => this._setKind('imports', on));
 		this._addToggle(toolbar, localize('vibeProjectGraph.extends', "Наследование"), true, on => this._setKind('extends', on));
+		this._addToggle(toolbar, localize('vibeProjectGraph.calls', "Вызовы"), true, on => this._setKind('calls', on),
+			localize('vibeProjectGraph.calls.hint', "Связи по вызовам функций: через импорт — достроены, по одному имени — неоднозначны"));
 		this._addToggle(toolbar, localize('vibeProjectGraph.facts', "Только факты"), false, on => {
 			this._filter = { ...this._filter, factsOnly: on };
 			this._render();
@@ -190,6 +194,7 @@ export class VibeProjectGraphPane extends EditorPane {
 
 		const repaint = this._register(new RunOnceScheduler(() => this._refresh(), REFRESH_DELAY_MS));
 		this._register(this._indexer.onDidChangeStructure(() => repaint.schedule()));
+		this._register(this._callIndex.onDidChange(() => repaint.schedule()));
 	}
 
 	private _addToggle(toolbar: HTMLElement, label: string, checked: boolean, onChange: (on: boolean) => void, hint?: string): void {
@@ -237,6 +242,8 @@ export class VibeProjectGraphPane extends EditorPane {
 		} finally {
 			this._loading = false;
 		}
+		// Calls are read in the background and repaint the tab when they land; the picture does not wait for them
+		void this._callIndex.ensureBuilt();
 		this._refresh();
 	}
 
@@ -295,11 +302,14 @@ export class VibeProjectGraphPane extends EditorPane {
 		if (!open) {
 			// A few dozen subsystems: their names are the point of the map, so they show from far out
 			this._canvas.setGraph(overviewView(analysis, this._filter), { labelMinScale: OVERVIEW_LABEL_MIN_SCALE });
-			this._setStatus(localize(
-				'vibeProjectGraph.status.overview',
-				"{0} файлов · {1} связей · {2} подсистем · {3} одиноких файлов",
-				analysis.report.fileCount, analysis.report.linkCount, analysis.subsystems.length, analysis.report.isolated.length,
-			));
+			const calls = this._callIndex.state;
+			this._setStatus(calls.building
+				? localize('vibeProjectGraph.status.readingCalls', "{0} файлов · {1} связей · читаю вызовы: {2} из {3}", analysis.report.fileCount, analysis.report.linkCount, calls.parsed, calls.total)
+				: localize(
+					'vibeProjectGraph.status.overview',
+					"{0} файлов · {1} связей · {2} подсистем · {3} одиноких файлов",
+					analysis.report.fileCount, analysis.report.linkCount, analysis.subsystems.length, analysis.report.isolated.length,
+				));
 			return;
 		}
 		const view = subsystemView(analysis, open.id, this._filter);

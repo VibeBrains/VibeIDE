@@ -15,6 +15,8 @@ import { ITextModelService } from '../../../../../editor/common/services/resolve
 import { DocumentSymbol } from '../../../../../editor/common/languages.js';
 import { IRepoIndexerService } from '../repoIndexerService.js';
 import { IVibeCodeIndexService } from '../vibeCodeIndexService.js';
+import { IVibeCallIndexService } from './vibeCallIndexService.js';
+import { CallLink, resolveCalls } from '../../common/codeGraph/callResolution.js';
 import { CodeSymbol } from '../../common/codeSymbols/treeSitterSymbols.js';
 import {
 	buildCodeGraph,
@@ -79,12 +81,24 @@ class VibeCodeGraphService extends Disposable implements IVibeCodeGraphService {
 		@ITextModelService private readonly _models: ITextModelService,
 		@ILanguageFeaturesService private readonly _languageFeatures: ILanguageFeaturesService,
 		@ILogService private readonly _log: ILogService,
+		@IVibeCallIndexService private readonly _callIndex: IVibeCallIndexService,
 	) {
 		super();
 	}
 
+	/** Call links resolved once per state of the call index: the tools ask for the graph many times per turn */
+	private _callLinksCache: { version: number; links: readonly CallLink[] } | undefined;
+
+	private _callLinks(): readonly CallLink[] {
+		const version = this._callIndex.version;
+		if (this._callLinksCache?.version !== version) {
+			this._callLinksCache = { version, links: resolveCalls(this._callIndex.files()) };
+		}
+		return this._callLinksCache.links;
+	}
+
 	getGraph(): CodeGraph {
-		return buildCodeGraph(this._structuralInputs());
+		return buildCodeGraph(this._structuralInputs(), this._callLinks());
 	}
 
 	async getEnrichedGraph(paths: readonly string[]): Promise<CodeGraph> {
@@ -99,7 +113,7 @@ class VibeCodeGraphService extends Disposable implements IVibeCodeGraphService {
 		// Inheritance is added here too, not only in `getGraph`: `explain()` — the question the agent
 		// actually asks — goes through this path, and a graph that answers «кто наследует» only when
 		// asked the other way round is worse than one that never answers.
-		return buildCodeGraph(this._withInheritance(enriched));
+		return buildCodeGraph(this._withInheritance(enriched), this._callLinks());
 	}
 
 	neighborsOf(nodeId: string): NeighborResult | undefined {
