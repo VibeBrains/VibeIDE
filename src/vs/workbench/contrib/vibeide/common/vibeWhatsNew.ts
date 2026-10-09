@@ -17,7 +17,7 @@
 
 /** Markdown highlights keyed by exact `vibeVersion` (e.g. "1.1.0"). */
 export const WHATS_NEW_BY_VERSION: Readonly<Record<string, string>> = {
-	'1.23.1': [
+	'1.24.0': [
 		'## 🔌 Провайдеры и модели',
 		'',
 		'- **DeepSeek вызывает инструменты сам.** Встроенный DeepSeek больше не пишет вызов текстом и не останавливает агента.',
