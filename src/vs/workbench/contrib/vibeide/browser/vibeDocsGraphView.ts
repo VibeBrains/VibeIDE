@@ -24,8 +24,9 @@ import { IHoverService } from '../../../../platform/hover/browser/hover.js';
 import { IViewDescriptorService } from '../../../common/views.js';
 import { ViewPane, IViewPaneOptions } from '../../../browser/parts/views/viewPane.js';
 import { IEditorService } from '../../../services/editor/common/editorService.js';
-import { localGraph } from '../common/vibeDocsGraph.js';
-import { VibeDocsGraphCanvas } from './vibeDocsGraphCanvas.js';
+import { docGraphView, localGraph } from '../common/vibeDocsGraph.js';
+import { VibeGraphCanvas } from './vibeGraphCanvas.js';
+import { DOCS_GRAPH_CANVAS_STYLE } from './vibeDocsGraphColors.js';
 import { IVibeDocsGraphService } from './vibeDocsGraphService.js';
 import { VIBE_DOCS_GRAPH_LOCAL_DEPTH } from './vibeDocsConstants.js';
 
@@ -36,7 +37,7 @@ const MARKDOWN_SHOW_PREVIEW_CMD = 'markdown.showPreview';
 
 export class VibeDocsGraphViewPane extends ViewPane {
 
-	private _canvas: VibeDocsGraphCanvas | undefined;
+	private _canvas: VibeGraphCanvas | undefined;
 	private _host: HTMLElement | undefined;
 	private _empty: HTMLElement | undefined;
 	private _activeId: string | undefined;
@@ -65,8 +66,9 @@ export class VibeDocsGraphViewPane extends ViewPane {
 		this._empty = DOM.append(this._host, $('.vibe-docs-graph-empty'));
 		this._empty.textContent = localize('vibeDocsGraph.view.empty', "Откройте документ, чтобы увидеть его связи.");
 
-		this._canvas = this._register(this.instantiationService.createInstance(VibeDocsGraphCanvas, this._host, {
+		this._canvas = this._register(this.instantiationService.createInstance(VibeGraphCanvas, this._host, {
 			onOpen: (id: string) => this._open(id),
+			...DOCS_GRAPH_CANVAS_STYLE,
 		}));
 
 		// Docs opened from anywhere else (the Explorer, Quick Open) still arrive as real file
@@ -96,7 +98,7 @@ export class VibeDocsGraphViewPane extends ViewPane {
 			return;
 		}
 		// setGraph fits the neighbourhood into the pane once the layout settles.
-		this._canvas.setGraph(localGraph(graph, id, VIBE_DOCS_GRAPH_LOCAL_DEPTH));
+		this._canvas.setGraph(docGraphView(localGraph(graph, id, VIBE_DOCS_GRAPH_LOCAL_DEPTH)));
 		this._canvas.setFocus(id);
 	}
 

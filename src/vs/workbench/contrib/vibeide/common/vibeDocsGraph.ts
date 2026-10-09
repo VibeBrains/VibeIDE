@@ -13,6 +13,7 @@
  */
 
 import { posix } from '../../../../base/common/path.js';
+import { IGraphView } from './graphView.js';
 
 /** Navigation root of the docs tree; reachability is measured from here. */
 export const DOC_GRAPH_NAV_ROOT = 'README.md';
@@ -293,6 +294,19 @@ function collectReachable(outgoing: ReadonlyMap<string, Set<string>>): Set<strin
 		}
 	}
 	return reachable;
+}
+
+/** The docs graph as the canvas draws it: domain is the colour, an unreachable doc is ringed, dead links are stubs */
+export function docGraphView(graph: IDocGraph): IGraphView {
+	const stubs = new Map<string, number>();
+	for (const dead of graph.deadLinks) {
+		stubs.set(dead.from, (stubs.get(dead.from) ?? 0) + 1);
+	}
+	return {
+		nodes: graph.nodes.map(node => ({ id: node.id, label: node.label, group: node.domain, weight: node.degree, flagged: !node.reachable })),
+		edges: graph.edges,
+		stubs,
+	};
 }
 
 /** Neighbourhood of `id` up to `depth` hops, ignoring direction — backs the sidebar's local graph. */

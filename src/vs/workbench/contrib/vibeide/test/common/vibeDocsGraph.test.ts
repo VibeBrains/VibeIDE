@@ -4,7 +4,7 @@
  *--------------------------------------------------------------------------------------------*/
 
 import * as assert from 'assert';
-import { buildDocGraph, localGraph, parseDocLinks, stripCode } from '../../common/vibeDocsGraph.js';
+import { buildDocGraph, docGraphView, localGraph, parseDocLinks, stripCode } from '../../common/vibeDocsGraph.js';
 import { ensureNoDisposablesAreLeakedInTestSuite } from '../../../../../base/test/common/utils.js';
 
 suite('vibeDocsGraph — link parsing', () => {
@@ -89,6 +89,23 @@ suite('vibeDocsGraph — graph building', () => {
 			{ from: 'README.md', target: 'nowhere', kind: 'wiki' },
 		]);
 		assert.deepStrictEqual(graph.edges, []);
+	});
+
+	test('on the shared canvas a domain is the colour, an unreachable doc is ringed, dead links are stubs', () => {
+		const view = docGraphView(buildDocGraph([
+			{ id: 'README.md', content: '[ui](ui/a.md) [gone](missing.md)' },
+			{ id: 'ui/a.md', content: '' },
+			{ id: 'lost.md', content: '' },
+		]));
+		assert.deepStrictEqual({
+			nodes: view.nodes.map(n => `${n.id} ${n.group || '-'} ${n.weight} ${n.flagged}`),
+			edges: view.edges.length,
+			stubs: [...view.stubs ?? []],
+		}, {
+			nodes: ['README.md - 1 false', 'ui/a.md ui 1 false', 'lost.md - 0 true'],
+			edges: 1,
+			stubs: [['README.md', 1]],
+		});
 	});
 
 	test('ambiguous wikilink resolves to nothing rather than inventing an edge', () => {

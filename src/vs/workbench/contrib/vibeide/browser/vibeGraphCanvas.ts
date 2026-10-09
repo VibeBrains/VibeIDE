@@ -4,23 +4,23 @@
  *--------------------------------------------------------------------------------------------*/
 
 /**
- * Canvas renderer for the docs graph — shared by the editor tab and the sidebar's local graph.
- * Owns the animation loop, the viewport (pan/zoom) and pointer interaction; the layout maths and
- * the graph model are pure and live in `common/`. Hosts supply their own chrome (search box,
- * filters) and talk to this through the small API below.
+ * Canvas renderer for graphs — the docs graph (editor tab and the sidebar's local graph) and the project graph
+ * Owns the animation loop, the viewport (pan/zoom) and pointer interaction; the layout maths and the view model are pure
+ * And live in `common/`. Hosts translate their graph into `IGraphView`, supply their own chrome (search box, filters)
+ * And say what colour a group gets
  */
 
 import * as DOM from '../../../../base/browser/dom.js';
 import { PixelRatio } from '../../../../base/browser/pixelRatio.js';
 import { IDisposable, toDisposable } from '../../../../base/common/lifecycle.js';
-import { IThemeService, Themable } from '../../../../platform/theme/common/themeService.js';
+import { IColorTheme, IThemeService, Themable } from '../../../../platform/theme/common/themeService.js';
 import {
 	descriptionForeground,
 	editorBackground,
 	editorForeground,
 	focusBorder,
 } from '../../../../platform/theme/common/colorRegistry.js';
-import { IDocGraph } from '../common/vibeDocsGraph.js';
+import { IGraphView } from '../common/graphView.js';
 import {
 	DEFAULT_LAYOUT_OPTIONS,
 	ILayoutNode,
@@ -28,41 +28,52 @@ import {
 	seedPositions,
 	stepLayout,
 } from '../common/vibeDocsGraphLayout.js';
-import {
-	domainColorId,
-	VIBE_DOCS_GRAPH_DEAD_LINK,
-	VIBE_DOCS_GRAPH_EDGE,
-	VIBE_DOCS_GRAPH_UNREACHABLE,
-} from './vibeDocsGraphColors.js';
 
 const MIN_SCALE = 0.15;
 const MAX_SCALE = 4;
 /** Labels below this scale turn into unreadable mush and cost a lot of text measuring. */
-const LABEL_VISIBLE_SCALE = 0.75;
+const DEFAULT_LABEL_MIN_SCALE = 0.75;
 const DRAG_THRESHOLD_PX = 3;
+
+/** Theme colour ids for what is not a node's own colour */
+export interface IGraphCanvasColors {
+	readonly edge: string;
+	/** Ring around a flagged node */
+	readonly flagged: string;
+	/** Stubs of links that lead nowhere */
+	readonly stub: string;
+}
 
 export interface IGraphCanvasOptions {
 	/** Clicking a node — the host decides what "open" means. */
 	readonly onOpen: (id: string) => void;
 	/** Node drawn as the centre of attention (the active doc in the sidebar's local graph). */
 	readonly focusId?: string;
+	/** CSS colour of a group's nodes in the current theme; canvas pixels are repainted on a theme change */
+	readonly nodeColor: (group: string, theme: IColorTheme) => string;
+	readonly colors: IGraphCanvasColors;
+}
+
+export interface IGraphCanvasDisplay {
+	/** Zoom below which labels are hidden; a graph of a few dozen big nodes can afford them much further out */
+	readonly labelMinScale?: number;
 }
 
 interface IRenderNode extends ILayoutNode {
 	readonly label: string;
-	readonly domain: string;
-	readonly reachable: boolean;
+	readonly group: string;
+	readonly flagged: boolean;
+	readonly title: string;
 	readonly radius: number;
 }
 
-export class VibeDocsGraphCanvas extends Themable {
+export class VibeGraphCanvas extends Themable {
 
 	private readonly _canvas: HTMLCanvasElement;
-	private _graph: IDocGraph = { nodes: [], edges: [], deadLinks: [] };
+	private _graph: IGraphView = { nodes: [], edges: [] };
 	private _nodes: IRenderNode[] = [];
 	private _byId = new Map<string, IRenderNode>();
 	private _neighbours = new Map<string, Set<string>>();
-	private _deadCount = new Map<string, number>();
 
 	private _width = 0;
 	private _height = 0;
@@ -74,6 +85,7 @@ export class VibeDocsGraphCanvas extends Themable {
 	private _search = '';
 	private _matches: Set<string> | undefined;
 	private _focusId: string | undefined;
+	private _labelMinScale = DEFAULT_LABEL_MIN_SCALE;
 
 	private _animation: IDisposable | undefined;
 	/** Deferred viewport moves: the layout is still expanding until it settles. */
@@ -92,7 +104,7 @@ export class VibeDocsGraphCanvas extends Themable {
 		super(themeService);
 		this._focusId = _options.focusId;
 
-		this._canvas = DOM.append(container, DOM.$('canvas.vibe-docs-graph-canvas'));
+		this._canvas = DOM.append(container, DOM.$('canvas.vibe-graph-canvas'));
 		this._register(toDisposable(() => this._stopAnimation()));
 		this._register(PixelRatio.getInstance(DOM.getWindow(container)).onDidChange(() => this._resizeBackingStore()));
 		this._registerPointerHandlers();
@@ -103,10 +115,18 @@ export class VibeDocsGraphCanvas extends Themable {
 		this._render();
 	}
 
-	setGraph(graph: IDocGraph): void {
+	setGraph(graph: IGraphView, display: IGraphCanvasDisplay = {}): void {
 		this._graph = graph;
+		this._labelMinScale = display.labelMinScale ?? DEFAULT_LABEL_MIN_SCALE;
 
-		const degrees = new Map(graph.nodes.map(n => [n.id, n.degree]));
+		// Inertia from the links in this picture; the weight only sizes the dot
+		const degrees = new Map(graph.nodes.map(n => [n.id, 0]));
+		for (const edge of graph.edges) {
+			if (degrees.has(edge.from) && degrees.has(edge.to)) {
+				degrees.set(edge.from, degrees.get(edge.from)! + 1);
+				degrees.set(edge.to, degrees.get(edge.to)! + 1);
+			}
+		}
 		const seeded = seedPositions(graph.nodes.map(n => n.id), degrees);
 		const meta = new Map(graph.nodes.map(n => [n.id, n]));
 
@@ -120,9 +140,10 @@ export class VibeDocsGraphCanvas extends Themable {
 				x: old?.x ?? node.x,
 				y: old?.y ?? node.y,
 				label: info.label,
-				domain: info.domain,
-				reachable: info.reachable,
-				radius: 3.5 + Math.sqrt(info.degree) * 1.7,
+				group: info.group,
+				flagged: info.flagged ?? false,
+				title: info.title ?? info.id,
+				radius: 3.5 + Math.sqrt(info.weight) * 1.7,
 			};
 		});
 		this._byId = new Map(this._nodes.map(n => [n.id, n]));
@@ -131,10 +152,6 @@ export class VibeDocsGraphCanvas extends Themable {
 		for (const edge of graph.edges) {
 			this._neighbours.get(edge.from)?.add(edge.to);
 			this._neighbours.get(edge.to)?.add(edge.from);
-		}
-		this._deadCount = new Map();
-		for (const dead of graph.deadLinks) {
-			this._deadCount.set(dead.from, (this._deadCount.get(dead.from) ?? 0) + 1);
 		}
 
 		this._applySearch();
@@ -172,7 +189,7 @@ export class VibeDocsGraphCanvas extends Themable {
 			return;
 		}
 		this._matches = new Set(
-			this._nodes.filter(n => n.id.toLowerCase().includes(this._search)).map(n => n.id),
+			this._nodes.filter(n => n.id.toLowerCase().includes(this._search) || n.label.toLowerCase().includes(this._search)).map(n => n.id),
 		);
 	}
 
@@ -359,11 +376,12 @@ export class VibeDocsGraphCanvas extends Themable {
 				this._render();
 				return;
 			}
-			const hovered = this._nodeAt(e.clientX, e.clientY)?.id;
+			const hoveredNode = this._nodeAt(e.clientX, e.clientY);
+			const hovered = hoveredNode?.id;
 			if (hovered !== this._hovered) {
 				this._hovered = hovered;
 				this._canvas.style.cursor = hovered ? 'pointer' : 'default';
-				this._canvas.title = hovered ?? '';
+				this._canvas.title = hoveredNode?.title ?? '';
 				this._render();
 			}
 		}));
@@ -429,13 +447,13 @@ export class VibeDocsGraphCanvas extends Themable {
 		ctx.scale(this._scale, this._scale);
 
 		this._renderEdges(ctx);
-		this._renderDeadLinks(ctx);
+		this._renderStubs(ctx);
 		this._renderNodes(ctx);
 		ctx.restore();
 	}
 
 	private _renderEdges(ctx: CanvasRenderingContext2D): void {
-		const edgeColor = this._color(VIBE_DOCS_GRAPH_EDGE, '#4080c059');
+		const edgeColor = this._color(this._options.colors.edge, '#4080c059');
 		const litColor = this._color(focusBorder, '#007fd4');
 		ctx.lineWidth = 1 / this._scale;
 		for (const edge of this._graph.edges) {
@@ -456,17 +474,17 @@ export class VibeDocsGraphCanvas extends Themable {
 	}
 
 	/**
-	 * Dead links point at nothing, so there is no target node to draw to: a short dashed stub with
-	 * an open end reads as "this goes nowhere" without inventing a phantom node.
+	 * A link that leads nowhere has no target node to draw to: a short dashed stub with an open end reads as
+	 * "this goes nowhere" without inventing a phantom node
 	 */
-	private _renderDeadLinks(ctx: CanvasRenderingContext2D): void {
-		if (this._graph.deadLinks.length === 0) {
+	private _renderStubs(ctx: CanvasRenderingContext2D): void {
+		if (!this._graph.stubs || this._graph.stubs.size === 0) {
 			return;
 		}
-		ctx.strokeStyle = this._color(VIBE_DOCS_GRAPH_DEAD_LINK, '#f14c4c');
+		ctx.strokeStyle = this._color(this._options.colors.stub, '#f14c4c');
 		ctx.lineWidth = 1 / this._scale;
 		ctx.setLineDash([3 / this._scale, 3 / this._scale]);
-		for (const [id, count] of this._deadCount) {
+		for (const [id, count] of this._graph.stubs) {
 			const node = this._byId.get(id);
 			if (!node || !this._isLit(id)) {
 				continue;
@@ -486,24 +504,24 @@ export class VibeDocsGraphCanvas extends Themable {
 	}
 
 	private _renderNodes(ctx: CanvasRenderingContext2D): void {
-		const unreachableColor = this._color(VIBE_DOCS_GRAPH_UNREACHABLE, '#cca700');
+		const flaggedColor = this._color(this._options.colors.flagged, '#cca700');
 		const labelColor = this._color(editorForeground, '#cccccc');
 		const dimLabelColor = this._color(descriptionForeground, '#8c8c8c');
 		const focusColor = this._color(focusBorder, '#007fd4');
-		const showLabels = this._scale >= LABEL_VISIBLE_SCALE;
+		const showLabels = this._scale >= this._labelMinScale;
 		const fontFamily = DOM.getWindow(this._canvas).getComputedStyle(this._canvas).fontFamily || 'sans-serif';
 
 		for (const node of this._nodes) {
 			const lit = this._isLit(node.id);
 			ctx.globalAlpha = lit ? 1 : 0.15;
-			ctx.fillStyle = this._color(domainColorId(node.domain), '#4080c0');
+			ctx.fillStyle = this._options.nodeColor(node.group, this.theme);
 			ctx.beginPath();
 			ctx.arc(node.x, node.y, node.radius, 0, Math.PI * 2);
 			ctx.fill();
 
-			// An unreachable doc is the thing this graph exists to surface — ring it.
-			if (!node.reachable) {
-				ctx.strokeStyle = unreachableColor;
+			// A flagged node is the thing the host wants seen — an unreachable doc, a file nothing touches
+			if (node.flagged) {
+				ctx.strokeStyle = flaggedColor;
 				ctx.lineWidth = 2 / this._scale;
 				ctx.beginPath();
 				ctx.arc(node.x, node.y, node.radius + 2.5 / this._scale, 0, Math.PI * 2);

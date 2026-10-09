@@ -81,6 +81,7 @@ import { ALL_RULE_IDS, RULE_META, canonicalRuleId } from '../common/designReview
 import { DESIGN_PLATFORMS, renderDesignSystem, renderProductContext, unknownAcceptedDrift } from '../common/designContext/designContextFile.js';
 import { digestSnapshot } from '../common/designContext/summariseSnapshot.js';
 import { CodeGraph, fileNodeId, symbolNodeId } from '../common/codeGraph/vibeCodeGraph.js';
+import { analyzeCodeGraph, renderReport } from '../common/codeGraph/codeGraphAnalysis.js';
 import { Position } from '../../../../editor/common/core/position.js';
 import { Range } from '../../../../editor/common/core/range.js';
 
@@ -812,11 +813,11 @@ export class ToolsService extends Disposable implements IToolsService {
 			code_graph: (params: RawToolParamsObj) => {
 				const { query: queryUnknown, target: targetUnknown, to: toUnknown } = params;
 				const query = typeof queryUnknown === 'string' ? queryUnknown.trim().toLowerCase() : '';
-				if (query !== 'neighbors' && query !== 'path' && query !== 'why') {
-					throw new Error(`Invalid LLM output: query must be one of 'neighbors', 'path', 'why', got ${queryUnknown}`);
+				if (query !== 'neighbors' && query !== 'path' && query !== 'why' && query !== 'report') {
+					throw new Error(`Invalid LLM output: query must be one of 'neighbors', 'path', 'why', 'report', got ${queryUnknown}`);
 				}
 				const target = typeof targetUnknown === 'string' ? targetUnknown.trim() : '';
-				if (!target) { throw new Error(`Invalid LLM output: target must be a file path or 'path#Symbol', got ${targetUnknown}`); }
+				if (!target && query !== 'report') { throw new Error(`Invalid LLM output: target must be a file path or 'path#Symbol', got ${targetUnknown}`); }
 				const to = typeof toUnknown === 'string' && toUnknown.trim() ? toUnknown.trim() : null;
 				if (query === 'path' && !to) { throw new Error(`Invalid LLM output: query 'path' also needs 'to' — the destination node.`); }
 				return { query, target, to };
@@ -1965,6 +1966,11 @@ export class ToolsService extends Disposable implements IToolsService {
 				const indexReady = this.codeGraphService.getGraph().nodes.length > 0;
 				if (!indexReady) {
 					return { result: { indexReady: false, nodes: [], edges: [], trace: null } };
+				}
+
+				if (query === 'report') {
+					// The same analysis the «Граф проекта» tab shows a person, so the agent and the human read one picture
+					return { result: { indexReady: true, nodes: [], edges: [], trace: null, report: renderReport(analyzeCodeGraph(this.codeGraphService.getGraph())) } };
 				}
 
 				if (query === 'why') {
@@ -3809,6 +3815,9 @@ ${lines.join('\n\n')}`;
 			code_graph: (params, result) => {
 				if (!result.indexReady) {
 					return `The repository index has not warmed up yet, so the code graph is empty. This means "not indexed", not "not connected" — fall back to search for now.`;
+				}
+				if (params.query === 'report') {
+					return result.report ?? '';
 				}
 				// Provenance goes into every line: without it the model cannot tell a fact read from
 				// the source from a resolver's guess, and the whole point of the graph is lost.

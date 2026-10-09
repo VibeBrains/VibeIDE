@@ -17,6 +17,7 @@
  *   • Open Skills Folder
  *   • Open Plans Folder
  *   • Search Codebase (AI) (Ctrl/Cmd+Shift+Q)
+ *   • Граф проекта (subsystems, hub files, surprising links)
  */
 
 import { localize, localize2 } from '../../../../nls.js';
@@ -38,6 +39,7 @@ import { readVibeDocsFile, searchVibeDocs } from '../common/vibeDocsIndex.js';
 import { VibeSpecsCommands } from './vibeSpecsConstants.js';
 import { VIBEIDE_APPLY_DEFAULTS_CMD, VIBEIDE_SHOW_DEFAULTS_CMD } from './vibeDefaultsContribution.js';
 import { VIBE_COMMAND_CATEGORY } from '../common/vibeCommandCategory.js';
+import { VIBE_PROJECT_GRAPH_OPEN_CMD } from './codeGraph/vibeProjectGraphEditor.js';
 
 // ─── Submenu ID ───────────────────────────────────────────────────────────────
 
@@ -278,6 +280,16 @@ MenuRegistry.appendMenuItem(VibeideTitleBarMenuId, {
 	},
 	group: 'c_workspace',
 	order: 3,
+});
+
+// The project's shape next to the search over its text: one answers «где про это», the other «как это устроено»
+MenuRegistry.appendMenuItem(VibeideTitleBarMenuId, {
+	command: {
+		id: VIBE_PROJECT_GRAPH_OPEN_CMD,
+		title: localize('vibeideProjectGraphMenu', 'Граф проекта'),
+	},
+	group: 'c_workspace',
+	order: 3.5,
 });
 
 // Next to the codebase search on purpose: same question shape ("где про это?"), different corpus —

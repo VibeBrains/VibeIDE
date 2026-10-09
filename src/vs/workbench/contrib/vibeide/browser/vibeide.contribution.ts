@@ -247,6 +247,8 @@ import './repoIndexerService.js';
 import('./repoIndexerActions.js').catch(() => { });
 // code graph — structural projection of the same index (who calls whom, and how we know)
 import './codeGraph/vibeCodeGraphService.js';
+// VibeIDE: «Граф проекта» — the code graph drawn for a person: subsystems, hub files, surprising links
+import './codeGraph/vibeProjectGraphEditor.js';
 
 // Image QA Registry initialization
 import './imageQARegistryContribution.js';

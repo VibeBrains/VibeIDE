@@ -4,15 +4,15 @@
  *--------------------------------------------------------------------------------------------*/
 
 /**
- * Force-directed layout for the docs graph. Pure: positions in, positions out, no DOM and no
- * timers — the canvas owns the animation loop and calls {@link stepLayout} once per frame.
+ * Force-directed layout for the graph canvas, the docs graph and the project graph alike. Pure: positions in,
+ * positions out, no DOM and no timers — the canvas owns the animation loop and calls {@link stepLayout} once per frame.
  *
  * Repulsion is the naive O(n²) pass rather than Barnes-Hut: the docs tree is ~200 nodes, which is
- * ~20k pairs per tick and comfortably inside a frame. Revisit only if the corpus grows an order
- * of magnitude.
+ * ~20k pairs per tick and comfortably inside a frame. The project graph keeps inside the same budget by design:
+ * it draws subsystems, not files, and opens one subsystem at a time, capped at `SUBSYSTEM_VIEW_LIMIT` files.
  */
 
-import { IDocGraphEdge } from './vibeDocsGraph.js';
+import { IGraphViewEdge } from './graphView.js';
 
 export interface ILayoutNode {
 	readonly id: string;
@@ -20,7 +20,11 @@ export interface ILayoutNode {
 	y: number;
 	vx: number;
 	vy: number;
-	/** Inbound + outbound links; heavier nodes drift less. */
+	/**
+	 * Links of this node in the drawn graph; heavier nodes drift less
+	 * Counted in the view, not taken from outside: a node pulled by three hundred springs must weigh like it,
+	 * Or the sum of their pulls flings it off the screen
+	 */
 	readonly degree: number;
 	/** Pinned by the user's cursor — the simulation must not move it. */
 	pinned: boolean;
@@ -41,6 +45,9 @@ export const DEFAULT_LAYOUT_OPTIONS: ILayoutOptions = {
 	gravity: 0.012,
 	damping: 0.82,
 };
+
+/** No node moves farther than this in one tick: a safety stop against a dense hub flinging the picture apart */
+const MAX_STEP = 40;
 
 /** Below this total kinetic energy the graph is visually still and the loop can stop. */
 export const LAYOUT_SETTLED_ENERGY = 0.28;
@@ -77,7 +84,7 @@ function massOf(node: ILayoutNode): number {
  */
 export function stepLayout(
 	nodes: readonly ILayoutNode[],
-	edges: readonly IDocGraphEdge[],
+	edges: readonly IGraphViewEdge[],
 	options: ILayoutOptions = DEFAULT_LAYOUT_OPTIONS,
 ): number {
 	const index = new Map<string, ILayoutNode>(nodes.map(n => [n.id, n]));
@@ -148,6 +155,11 @@ export function stepLayout(
 			node.vx = 0;
 			node.vy = 0;
 			continue;
+		}
+		const speed = Math.sqrt(node.vx * node.vx + node.vy * node.vy);
+		if (speed > MAX_STEP) {
+			node.vx *= MAX_STEP / speed;
+			node.vy *= MAX_STEP / speed;
 		}
 		node.x += node.vx;
 		node.y += node.vy;

@@ -5,13 +5,11 @@
 
 
 /**
- * Project Commands — workspace-first shell shortcuts (roadmap §"Project Commands").
+ * Project Commands — workspace-first shell shortcuts
  *
- * This module is the **pure types + decoder skeleton**. The runtime service
- * (`IVibeCustomCommandsService`), the FS watcher on `.vibe/commands.json`, the
- * top-bar contribution, and the `.vscode/tasks.json` importer are deferred —
- * see roadmap §"Project Commands" for the full task list. They sit on top of
- * the data shape defined here.
+ * The data shape and the strict decoder of `.vibe/commands.json`; the runtime (`IVibeCustomCommandsService`), the «Команды»
+ * menu and the `.vscode/tasks.json` importer read the file through it
+ * The format for people and models: `docs/manuals/projectCommandsSpec.md` — change a field here, change it there
  *
  * vscode-free: no imports beyond standard lib so the decoder can be unit-tested
  * end-to-end without a workbench harness.

@@ -63,7 +63,7 @@ export type BuiltinToolCallParams = {
 	'open_file': { uri: URI };
 	'go_to_definition': { uri: URI; line: number; column: number };
 	'find_references': { uri: URI; line: number; column: number };
-	'code_graph': { query: 'neighbors' | 'path' | 'why'; target: string; to: string | null };
+	'code_graph': { query: 'neighbors' | 'path' | 'why' | 'report'; target: string; to: string | null };
 	'measure_metric': { purpose: 'baseline' | 'candidate'; summary: string | null };
 	'review_checklist': { summary: string; items: Array<{ text: string; how?: string }> };
 	'handoff': { action: 'write' | 'read'; title: string | null; done: string[]; blockers: string[]; next: string[]; environment: string | null };
@@ -178,6 +178,8 @@ export type BuiltinToolResultType = {
 		nodes: Array<{ id: string; kind: string; label: string; file: string; line?: number }>;
 		edges: Array<{ from: string; to: string; kind: string; provenance: string }>;
 		trace: string[] | null;
+		/** `report` only: subsystems, hub files and surprising links as text */
+		report?: string;
 	};
 	// Вердикт принимает ИНСТРУМЕНТ, а не модель: агент, сам себе судья, склонен считать
 	// улучшением любое изменение. Поэтому наружу отдаётся готовое решение и число, на котором

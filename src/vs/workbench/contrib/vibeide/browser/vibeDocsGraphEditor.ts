@@ -35,8 +35,9 @@ import { EditorPaneDescriptor, IEditorPaneRegistry } from '../../../browser/edit
 import { ICommandService } from '../../../../platform/commands/common/commands.js';
 import { IEditorGroup } from '../../../services/editor/common/editorGroupsService.js';
 import { CancellationToken } from '../../../../base/common/cancellation.js';
-import { IDocGraph } from '../common/vibeDocsGraph.js';
-import { VibeDocsGraphCanvas } from './vibeDocsGraphCanvas.js';
+import { docGraphView, IDocGraph } from '../common/vibeDocsGraph.js';
+import { VibeGraphCanvas } from './vibeGraphCanvas.js';
+import { DOCS_GRAPH_CANVAS_STYLE } from './vibeDocsGraphColors.js';
 import { IVibeDocsGraphService } from './vibeDocsGraphService.js';
 
 const $ = DOM.$;
@@ -66,7 +67,7 @@ export class VibeDocsGraphInput extends EditorInput {
 export class VibeDocsGraphPane extends EditorPane {
 	static readonly ID = 'workbench.editor.vibeDocsGraph';
 
-	private _canvas: VibeDocsGraphCanvas | undefined;
+	private _canvas: VibeGraphCanvas | undefined;
 	private _host: HTMLElement | undefined;
 	private _canvasHost: HTMLElement | undefined;
 	private _status: HTMLElement | undefined;
@@ -104,8 +105,9 @@ export class VibeDocsGraphPane extends EditorPane {
 
 		this._status = DOM.append(toolbar, $('span.vibe-docs-graph-status'));
 
-		this._canvas = this._register(this._instantiationService.createInstance(VibeDocsGraphCanvas, this._canvasHost, {
+		this._canvas = this._register(this._instantiationService.createInstance(VibeGraphCanvas, this._canvasHost, {
 			onOpen: (id: string) => this._open(id),
+			...DOCS_GRAPH_CANVAS_STYLE,
 		}));
 
 		this._register(this._graphService.onDidChangeGraph(() => void this._refresh()));
@@ -121,7 +123,7 @@ export class VibeDocsGraphPane extends EditorPane {
 		if (!this._canvas) {
 			return;
 		}
-		this._canvas.setGraph(graph);
+		this._canvas.setGraph(docGraphView(graph));
 		this._renderStatus(graph);
 		// setGraph fits the view once the layout settles; a pending reveal overrides that.
 		if (this._pendingReveal) {

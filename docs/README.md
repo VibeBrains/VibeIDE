@@ -35,6 +35,7 @@
 - [howToContribute.md](manuals/howToContribute.md) — сборка и запуск из исходников (prerequisites, dev mode).
 - [providersSpec.md](manuals/providersSpec.md) — формат `.vibe/providers.json` (скормить LLM → готовый конфиг).
 - [handoffSpec.md](manuals/handoffSpec.md) — формат `.vibe/handoffs/*.md`: передача работы между агентами, тредами и машинами (скормить LLM → готовый хендофф).
+- [projectCommandsSpec.md](manuals/projectCommandsSpec.md) — формат `.vibe/commands.json`: команды проекта в меню «Команды», горячие клавиши, подстановки секретов и проверки перед запуском (скормить LLM → готовый файл).
 - [serversSpec.md](manuals/serversSpec.md) — формат `.vibe/servers.json`: дев-стек проекта, порядок запуска, проверки готовности (скормить LLM → готовый конфиг).
 - [agentsSpec.md](manuals/agentsSpec.md) — формат `.vibe/agents.json`: внешние агенты проекта по ACP, разрешения и чекпоинты по их правкам (скормить LLM → готовый конфиг).
 - [hooksSpec.md](manuals/hooksSpec.md) — формат `.vibe/hooks.json`: команды проекта вокруг работы агента (скормить LLM → готовый конфиг).

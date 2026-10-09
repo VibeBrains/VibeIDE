@@ -16,6 +16,8 @@ import {
 	editorWarningForeground,
 	editorErrorForeground,
 } from '../../../../platform/theme/common/colorRegistry.js';
+import { IColorTheme } from '../../../../platform/theme/common/themeService.js';
+import { IGraphCanvasOptions } from './vibeGraphCanvas.js';
 
 /**
  * Domain palette. The `charts.*` tokens are already theme-aware across light/dark/HC and users can
@@ -63,3 +65,9 @@ export const VIBE_DOCS_GRAPH_EDGE = registerColor(
 	transparent(chartsBlue, 0.35),
 	localize('vibeide.docsGraph.edge', 'Цвет связей в графе документов.'),
 );
+
+/** How the docs graph paints on the shared canvas: a domain's colour, an unreachable doc ringed, dead links as stubs */
+export const DOCS_GRAPH_CANVAS_STYLE: Pick<IGraphCanvasOptions, 'nodeColor' | 'colors'> = {
+	nodeColor: (domain: string, theme: IColorTheme) => theme.getColor(domainColorId(domain))?.toString() ?? '#4080c0',
+	colors: { edge: VIBE_DOCS_GRAPH_EDGE, flagged: VIBE_DOCS_GRAPH_UNREACHABLE, stub: VIBE_DOCS_GRAPH_DEAD_LINK },
+};
