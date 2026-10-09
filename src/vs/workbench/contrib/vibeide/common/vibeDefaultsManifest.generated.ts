@@ -259,7 +259,7 @@ export const VIBE_VERSIONS_MANIFEST: ReadonlyArray<VibeSeedRevision> = [
 	{ path: "slop/catalog.jsonc", version: 2, sha256: "30dfe26569c6b2286c280784a408afc4118ac8839d30ab004c4be96a1511ba78", history: ["c0b4fa7001ca92f4408c4a0282635e1c9c42722ad4a1e87e95d94d41a38ffe9c"] },
 	{ path: "terse/replies.md", version: 2, sha256: "7a80c1a5ae03c5314153ea4cbf5d7714f936c38914f496eb0ee4ba887ec9dfe3", history: ["efbdfc57c68c5254a8e91ac8a7821ff84045facdfe15cc6d7999d569dfc8bc0d"] },
 	{ path: "testVectors/chatgptPlan.json", version: 1, sha256: "ad6d46ffd3cfa285eeaac9ba05dd8cc7ed2ab31c75c8dcefed676346fee6954c", history: [] },
-	{ path: "testVectors/modelEcho.json", version: 1, sha256: "dec2b67ed4cc6578f1279cc56832befe517bb9a8dbd47f79da7ed924483a1fa4", history: [] },
+	{ path: "testVectors/modelEcho.json", version: 2, sha256: "d4cde93a0c567e90088780d182f2af05bf5ba370b3e6893c4c4dc98fdb289f78", history: ["dec2b67ed4cc6578f1279cc56832befe517bb9a8dbd47f79da7ed924483a1fa4"] },
 	{ path: "testVectors/modelRouters.json", version: 1, sha256: "98d72593a77deda08725e8f9f54b54e2cec6b2e5a7d736d4f493e811ea63ebcb", history: [] },
 	{ path: "testVectors/modelRoutes.json", version: 2, sha256: "4df98cf67e676c5e5cca19cc3b08871e326acec63eb2c1854b5039b1eafda394", history: ["668c78f8be39b370deeae3375ea495050fd7913758f7402e110e5da6ea977cd5"] },
 	{ path: "testVectors/providerAuth.json", version: 2, sha256: "5d8ff77a454723252b5d5a2c934602148eb453f50cd3ee55245c6193df637ce9", history: ["3193b46dec5f96ac1f90a75459235e5b02050507601c504bef8883a00917db88"] },
