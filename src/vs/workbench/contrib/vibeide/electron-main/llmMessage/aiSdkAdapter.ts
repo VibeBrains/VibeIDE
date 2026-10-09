@@ -7,7 +7,7 @@
 /* eslint-disable */
 import { googleThoughtSignatureOf, googleThoughtSignatureOptions } from '../../common/thoughtSignature.js';
 import { vibeLog } from '../../common/vibeLog.js';
-import { ANSWERED_MODEL_PEEK_CHARS, readServedIdentity } from '../../common/modelEcho.js';
+import { ANSWERED_MODEL_PEEK_CHARS, quirkModelOf, readServedIdentity } from '../../common/modelEcho.js';
 import { OrchestrationTokens, orchestrationTokensOfTail, withOrchestration } from '../../common/orchestrationUsage.js';
 import { streamText, generateText, jsonSchema, tool, type ModelMessage, type ToolSet, type TextStreamPart, type LanguageModel, type ToolCallRepairFunction } from 'ai';
 import { createOpenAICompatible, type MetadataExtractor } from '@ai-sdk/openai-compatible';
@@ -997,14 +997,14 @@ function hasThinkingBlocks(content: unknown): boolean {
  * `effortMarks`, when given, learns the effort mark of each converted answer: the effort updates are planned over
  * the messages as they go to the SDK, where a user message of tool results alone is no user message any more
  */
-const convertMessagesToModelMessages = (messages: LLMChatMessage[], modelName: string, providerName: string, anthropicWire: boolean, effortMarks?: Map<ModelMessage, string>): ModelMessage[] => {
+const convertMessagesToModelMessages = (messages: LLMChatMessage[], modelName: string, providerName: string, anthropicWire: boolean, quirkModel: string, effortMarks?: Map<ModelMessage, string>): ModelMessage[] => {
 	const toolNameLookup = buildToolNameLookup(messages);
 	const lastIdx = messages.length - 1;
 	const out: ModelMessage[] = [];
 	// Family-specific normalization comes from the model-quirks catalog (was hardcoded
 	// before v0.13.6). Empty quirks → both flags `false` → no special handling, same as
 	// for a model with no known quirks.
-	const quirks = getModelQuirks(modelName, providerName);
+	const quirks = getModelQuirks(quirkModel, providerName);
 	// `forceEmptyReasoning` quirk — misnamed `isDeepseek` historically, but it's not
 	// deepseek-specific: any interleaved-reasoning family (deepseek, minimax-m2, kimi-thinking)
 	// needs the empty-reasoning slot roundtrip. Driven purely by the quirk flag.
@@ -1493,7 +1493,7 @@ export const sendViaAISdk = async (params: SendChatParams_Internal): Promise<voi
 	//      known-broken combinations (e.g. qwen-* needs XML on naked-tag grammar).
 	//   2. User runtime `toolFallbackMode` ("native" / "xml") — global per-session knob.
 	//   3. Catalog `specialToolFormat` from getModelCapabilities + auto-downgrade.
-	const quirks = getModelQuirks(modelName, providerName);
+	const quirks = getModelQuirks(quirkModelOf(modelName, runtimeOptions?.servedModel), providerName);
 	const isAggregatorSynthesized = caps.recognizedModelName === '__aggregator_unknown__';
 	const toolFallbackMode = runtimeOptions?.toolFallbackMode ?? 'auto';
 	const specialToolFormat = (() => {
@@ -1766,7 +1766,7 @@ export const sendViaAISdk = async (params: SendChatParams_Internal): Promise<voi
 		messagesForWire = strict.messages as unknown as LLMChatMessage[];
 	}
 	const effortMarks = effortByUpdate || effortBySystemMessage ? new Map<ModelMessage, string>() : undefined;
-	let modelMessages = convertMessagesToModelMessages(messagesForWire, modelName, providerName, anthropicWire, effortMarks);
+	let modelMessages = convertMessagesToModelMessages(messagesForWire, modelName, providerName, anthropicWire, quirkModelOf(modelName, runtimeOptions?.servedModel), effortMarks);
 	// Prompt caching for the Anthropic protocol (knowledge/roadmap/tokenEconomy.md, A phase 2).
 	// Anthropic caches NOTHING without explicit `cache_control` breakpoints — every agentic
 	// turn re-bills the full prompt (observed: 23k input/turn → org TPM limit in 11 turns).

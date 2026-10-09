@@ -11,7 +11,11 @@
 
 import * as assert from 'assert';
 import { ensureNoDisposablesAreLeakedInTestSuite } from '../../../../../base/test/common/utils.js';
-import { isUntouchedPastRevision } from '../../common/vibeDefaults.js';
+import { URI } from '../../../../../base/common/uri.js';
+import { VSBuffer } from '../../../../../base/common/buffer.js';
+import { StringSHA1 } from '../../../../../base/common/hash.js';
+import { IFileService } from '../../../../../platform/files/common/files.js';
+import { diffVibeDefaults, isUntouchedPastRevision, VIBE_DEFAULTS_LOCK_FILE } from '../../common/vibeDefaults.js';
 import { VIBE_DEFAULTS_MANIFEST, VIBE_VERSIONS_MANIFEST } from '../../common/vibeDefaultsManifest.generated.js';
 
 async function sha256Hex(text: string): Promise<string> {
@@ -54,5 +58,30 @@ suite('vibeDefaults — реестр ревизий набора', () => {
 			assert.match(r.sha256, /^[0-9a-f]{64}$/, `${r.path}: битая sha`);
 			assert.ok(r.version >= 1, `${r.path}: ревизия должна начинаться с 1`);
 		}
+	});
+
+	test('журнал разошёлся с файлом — нетронутая старая копия всё равно «релиз обновил», а не ваша правка', async () => {
+		const path = 'README.md';
+		const release = VIBE_DEFAULTS_MANIFEST.find(f => f.path === path)!.contents;
+		const old = '# старая версия набора\n';
+		const sha1 = (text: string) => { const h = new StringSHA1(); h.update(text); return h.digest(); };
+		// Журнал помнит текущий релиз как принятый, а на диске — старая копия: так бывает после слияния веток
+		const files = new Map<string, string>([
+			[`/ws/.vibe/${path}`, old],
+			[`/ws/.vibe/${VIBE_DEFAULTS_LOCK_FILE}`, JSON.stringify({ version: 1, files: { [path]: { release: sha1(release), local: sha1(release) } } })],
+		]);
+		const fileService = {
+			async readFile(uri: URI) {
+				const content = files.get(uri.path);
+				if (content === undefined) { throw new Error(`ENOENT: ${uri.path}`); }
+				return { value: VSBuffer.fromString(content) };
+			},
+		} as unknown as IFileService;
+		const revisions = [{ path, version: 2, sha256: await sha256Hex(release), history: [await sha256Hex(old)] }];
+		const statusOf = async (text: string) => {
+			files.set(`/ws/.vibe/${path}`, text);
+			return (await diffVibeDefaults(fileService, URI.file('/ws/.vibe'), revisions)).entries.find(e => e.path === path)?.status;
+		};
+		assert.deepStrictEqual([await statusOf(old), await statusOf('# моя правка\n')], ['outdated', 'customized']);
 	});
 });

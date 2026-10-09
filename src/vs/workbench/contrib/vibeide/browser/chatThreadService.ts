@@ -997,6 +997,8 @@ class ChatThreadService extends Disposable implements IChatThreadService {
 	// The vendor's id of the last answer per conversation cache key: Anthropic compares the next request with it and
 	// names why the prompt cache missed. In memory only — the vendor forgets its fingerprints within minutes anyway.
 	private readonly _lastResponseIdOfConversation = new Map<string, string>();
+	/** Per thread: the build the vendor named last, for which provider and which asked model — quirks follow it */
+	private readonly _lastServedOfThread = new Map<string, { provider: string; requested: string; served: string }>();
 	// Consecutive auto-waits on minute-window rate limits per thread (autopilot resume).
 	// Bounded by `vibeide.chat.rateLimitAutoWaitMaxRetries`; reset on any successful reply.
 	private readonly _rateLimitAutoWaitStreak = new Map<string, number>();
@@ -3066,6 +3068,12 @@ class ChatThreadService extends Disposable implements IChatThreadService {
 
 	/** Models that answered per thread, handed to the persisted plan on its next write. */
 	private readonly _servedModelsOfThread = new Map<string, PlannedModel[]>();
+
+	/** The build that answered last — only while the same provider and the same asked model are in use */
+	private _servedModelFor(threadId: string, selection: ModelSelection | null | undefined): string | undefined {
+		const last = this._lastServedOfThread.get(threadId);
+		return last && selection && last.provider === selection.providerName && last.requested === selection.modelName ? last.served : undefined;
+	}
 
 	private _rememberServedModel(threadId: string, served: PlannedModel): void {
 		this._servedModelsOfThread.set(threadId, mergeServedModels(this._servedModelsOfThread.get(threadId), [served]));
@@ -6639,6 +6647,7 @@ Output ONLY the JSON, no other text. Start with { and end with }.`;
 					forceToolUse: forceThisTurn,
 					promptCacheKey: promptCacheKeyOf(threadId, 'agent'),
 					previousResponseId: this._lastResponseIdOfConversation.get(promptCacheKeyOf(threadId, 'agent')),
+					servedModel: this._servedModelFor(threadId, modelSelection),
 					logging: { loggingName: `Chat - ${chatMode}`, loggingExtras: { threadId, nMessagesSent, chatMode, requestId: finalRequestId } },
 					separateSystemMessage: separateSystemMessage,
 					onText: ({ fullText, fullReasoning, toolCall }) => {
@@ -6804,6 +6813,7 @@ Output ONLY the JSON, no other text. Start with { and end with }.`;
 						// fingerprint, and a plan has to know who actually did its steps.
 						if (answeredModel && modelSelection) {
 							this._rememberServedModel(threadId, { provider: modelSelection.providerName, model: answeredModel });
+							this._lastServedOfThread.set(threadId, { provider: modelSelection.providerName, requested: modelSelection.modelName, served: answeredModel });
 							if (this._auditLogService.isEnabled()) {
 								void this._auditLogService.append({
 									ts: Date.now(),

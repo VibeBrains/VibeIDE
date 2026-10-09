@@ -308,6 +308,8 @@ export type ServiceSendLLMMessageParams = {
 	promptCacheKey?: string;
 	/** The previous answer of this conversation — see `LLMRuntimeOptions.previousResponseId`. */
 	previousResponseId?: string;
+	/** The build that answered this conversation last — see `LLMRuntimeOptions.servedModel`. */
+	servedModel?: string;
 	/** Per-turn: request `tool_choice: 'required'` for this send (agent-loop corrective nudge). */
 	forceToolUse?: boolean;
 	/**
@@ -342,6 +344,12 @@ export type LLMRuntimeOptions = {
 	 * names why the prompt cache missed (`diagnostics.previous_message_id`); other routes ignore it.
 	 */
 	previousResponseId?: string;
+	/**
+	 * The build the vendor named in its last answer for this conversation and this asked model
+	 * Quirk rules follow it when it is the same model (`quirkModelOf`): a rule written for a dated snapshot then fires behind
+	 * a floating alias too. Unknown on the first turn — the build is learnt from the first answer
+	 */
+	servedModel?: string;
 	timeoutMs?: {
 		local?: number;
 		cloud?: number;

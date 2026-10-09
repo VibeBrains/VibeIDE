@@ -10,7 +10,6 @@ import {
 	sortProjectCommandsForDisplay,
 	PROJECT_COMMAND_ID_PATTERN,
 	ProjectCommand,
-	ProjectCommandsNotImplementedError,
 } from '../../common/projectCommandsTypes.js';
 import { ensureNoDisposablesAreLeakedInTestSuite } from '../../../../../base/test/common/utils.js';
 
@@ -183,14 +182,6 @@ suite('Project Commands — pure types and decoder', () => {
 				cmd('b', 'B', 5),
 			]);
 			assert.deepStrictEqual(out.map(c => c.id), ['b', 'a']);
-		});
-	});
-
-	suite('ProjectCommandsNotImplementedError', () => {
-		test('carries operation name and stable type', () => {
-			const e = new ProjectCommandsNotImplementedError('run');
-			assert.strictEqual(e.name, 'ProjectCommandsNotImplementedError');
-			assert.match(e.message, /operation: run/);
 		});
 	});
 });

@@ -18,19 +18,21 @@ import { readFileSync } from 'fs';
 // eslint-disable-next-line local/code-import-patterns -- node 'fs'/'path' в node-тесте (by design)
 import { join } from 'path';
 import { ensureNoDisposablesAreLeakedInTestSuite } from '../../../../../base/test/common/utils.js';
-import { isModelSubstituted } from '../../common/modelEcho.js';
+import { isModelSubstituted, quirkModelOf } from '../../common/modelEcho.js';
 
 /** Корень репозитория от `out/vs/workbench/contrib/vibeide/test/node/` — как в modelRoutersVectors.test.ts */
 const REPO_ROOT = join(fileURLToPath(import.meta.url), '..', '..', '..', '..', '..', '..', '..', '..');
 
 const FILE_FIELDS = ['_comment', 'cases', 'version'];
-const CASE_FIELDS = ['answered', 'asked', 'substituted', 'why'];
+const CASE_FIELDS = ['answered', 'asked', 'quirkModel', 'substituted', 'why'];
 const READ_VERSION = 1;
 
 interface ModelEchoCase {
 	readonly asked: string;
 	readonly answered: string | null;
 	readonly substituted: boolean;
+	/** The id quirk rules are matched against */
+	readonly quirkModel: string;
 	readonly why: string;
 }
 
@@ -53,10 +55,10 @@ suite('modelEcho — общие с VibeIDEA векторы из набора', (
 		);
 	});
 
-	test('подмена — только другая модель, как в VibeIDEA', () => {
+	test('подмена — только другая модель, и причуды ищутся по той же сборке, что у VibeIDEA', () => {
 		assert.deepStrictEqual(
-			vectors.cases.map(c => ({ why: c.why, substituted: isModelSubstituted(c.asked, c.answered ?? undefined) })),
-			vectors.cases.map(c => ({ why: c.why, substituted: c.substituted })),
+			vectors.cases.map(c => ({ why: c.why, substituted: isModelSubstituted(c.asked, c.answered ?? undefined), quirkModel: quirkModelOf(c.asked, c.answered ?? undefined) })),
+			vectors.cases.map(c => ({ why: c.why, substituted: c.substituted, quirkModel: c.quirkModel })),
 		);
 	});
 });

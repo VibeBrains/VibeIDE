@@ -155,6 +155,7 @@ export async function recordVibeDefaultsReconciled(
 export async function diffVibeDefaults(
 	fileService: IFileService,
 	vibeDir: URI,
+	revisions: ReadonlyArray<VibeSeedRevision> = VIBE_VERSIONS_MANIFEST,
 ): Promise<VibeDefaultsDiff> {
 	const locks = await readLock(fileService, vibeDir);
 	const entries: VibeDefaultsDiffEntry[] = [];
@@ -186,13 +187,20 @@ export async function diffVibeDefaults(
 			// Совпадение означает нетронутую копию старого релиза: обновлять её безопасно, и
 			// спрашивать не о чем. Так классифицируются проекты, засеянные до появления lock —
 			// иначе каждый их файл навсегда оставался бы «unknown» и никогда не обновлялся.
-			const known = await isUntouchedPastRevision(file.path, localText);
+			const known = await isUntouchedPastRevision(file.path, localText, revisions);
 			entries.push({ path: file.path, status: known ? 'outdated' : 'unknown' });
 			continue;
 		}
 
 		const userMoved = localSha !== lock.local;
 		const releaseMoved = releaseSha !== lock.release;
+		// The lock and the file can part ways — a merge, a branch that carries the file but not the lock, one file
+		// checked out alone. A copy that is byte for byte an old release is untouched whatever the lock says:
+		// Read as the user's own choice it would stay old for good
+		if (userMoved && await isUntouchedPastRevision(file.path, localText, revisions)) {
+			entries.push({ path: file.path, status: 'outdated' });
+			continue;
+		}
 		const status: VibeDefaultStatus = releaseMoved
 			? (userMoved ? 'conflict' : 'outdated')
 			: 'customized'; // release stood still → the difference is the user's own, settled choice

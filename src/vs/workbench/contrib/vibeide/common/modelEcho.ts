@@ -139,6 +139,17 @@ export function billedModelOf(requested: string, answered: string | undefined, c
 	return entryOf(answered) ?? askedEntry;
 }
 
+/**
+ * The id quirk rules are matched against: the build that answered, when it is the same model as asked; the asked id otherwise
+ *
+ * A floating alias (`~openai/gpt-5-latest`) never contains the dated build a rule is written for, so rules keyed by the
+ * snapshot never fired behind the alias. A real substitution keeps the asked id: the answering model is somebody else's
+ * choice, and switching the request shape to it would hide the substitution a second time
+ */
+export function quirkModelOf(requested: string, served: string | undefined): string {
+	return served?.trim() && !isModelSubstituted(requested, served) ? served.trim() : requested;
+}
+
 /** True when `answered` is a different model, not another spelling of `requested`; a router never substitutes */
 export function isModelSubstituted(requested: string, answered: string | undefined): boolean {
 	if (isModelRouter(requested)) {

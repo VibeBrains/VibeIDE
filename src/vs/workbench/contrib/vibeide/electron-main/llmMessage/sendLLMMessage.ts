@@ -14,6 +14,7 @@ import { traceSendEvent } from '../../common/llmSendTrace.js';
 import { sendLLMMessageToProviderImplementation, dynamicProviderImplementation } from './sendLLMMessage.impl.js';
 import { setLLMProxyConfig } from './systemCAFetch.js';
 import { getModelQuirks } from '../modelQuirks/modelQuirksService.js';
+import { quirkModelOf } from '../../common/modelEcho.js';
 import { withoutThoughtSignatures } from '../../common/thoughtSignature.js';
 import { isLocalProvider } from '../../common/isLocalProvider.js';
 
@@ -204,7 +205,7 @@ export const sendLLMMessage = async ({
 		const { sendFIM, sendChat } = implementation;
 		if (messagesType === 'chatMessages') {
 			// Signatures travel in the history for every model; only a model that requires them receives them.
-			const chatMessages = getModelQuirks(modelName, providerName).roundtripThoughtSignature === true ? messages_ : withoutThoughtSignatures(messages_);
+			const chatMessages = getModelQuirks(quirkModelOf(modelName, runtimeOptions?.servedModel), providerName).roundtripThoughtSignature === true ? messages_ : withoutThoughtSignatures(messages_);
 			await sendChat({ messages: chatMessages, onText, onFinalMessage, onError, settingsOfProvider, modelSelectionOptions, overridesOfModel, modelName, _setAborter, providerName, separateSystemMessage, chatMode, mcpTools, runtimeOptions });
 			return;
 		}

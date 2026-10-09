@@ -43,14 +43,6 @@ export interface ProjectCommandsFile {
 
 export const PROJECT_COMMAND_ID_PATTERN = /^[a-z0-9][a-z0-9-]{0,63}$/;
 
-/** Sentinel error thrown by skeleton runtime hooks until the real service ships. */
-export class ProjectCommandsNotImplementedError extends Error {
-	constructor(operation: string) {
-		super(`Project Commands runtime is not yet implemented (operation: ${operation}). See roadmap §"Project Commands".`);
-		this.name = 'ProjectCommandsNotImplementedError';
-	}
-}
-
 export type DecodeResult<T> = { ok: true; value: T } | { ok: false; reason: string };
 
 /**
