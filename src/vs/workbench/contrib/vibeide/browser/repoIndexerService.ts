@@ -6,8 +6,11 @@ import { vibeLog } from '../common/vibeLog.js';
 import { Disposable, IDisposable } from '../../../../base/common/lifecycle.js';
 import { Emitter, Event } from '../../../../base/common/event.js';
 import { INDEX_SCOPE_VERSION, isIndexablePath } from '../common/indexScope.js';
+import { IVibeEmbeddingsService } from '../common/embeddings/embeddingSource.js';
+import { decodeVectorFile, encodeVectorFile, FileVectors, MAX_EMBEDDED_CHUNKS_PER_FILE, textsStamp, truncateVector, unitCosine } from '../common/embeddings/vectorFile.js';
+import { fuseRankings } from '../common/embeddings/rankFusion.js';
 import { createIgnoreMatcher, IgnoreMatcher } from '../common/vibeIgnore.js';
-import { createDecorator, IInstantiationService } from '../../../../platform/instantiation/common/instantiation.js';
+import { createDecorator } from '../../../../platform/instantiation/common/instantiation.js';
 import { InstantiationType, registerSingleton } from '../../../../platform/instantiation/common/extensions.js';
 import { INotificationService } from '../../../../platform/notification/common/notification.js';
 import { IContextGatheringService } from './contextGatheringService.js';
@@ -22,10 +25,7 @@ import { IModelService } from '../../../../editor/common/services/model.js';
 import { RunOnceScheduler } from '../../../../base/common/async.js';
 import { IEnvironmentService } from '../../../../platform/environment/common/environment.js';
 import { LRUCache } from '../../../../base/common/map.js';
-import { IAiEmbeddingVectorService } from '../../../services/aiEmbeddingVector/common/aiEmbeddingVectorService.js';
-import { ISecretDetectionService } from '../common/secretDetectionService.js';
 import { CancellationToken } from '../../../../base/common/cancellation.js';
-import { OfflinePrivacyGate } from '../common/offlinePrivacyGate.js';
 import { IVectorStore } from '../common/vectorStore.js';
 import { IVibeideSettingsService } from '../common/vibeideSettingsService.js';
 import { getPerformanceHarness } from '../common/performanceHarness.js';
@@ -44,9 +44,6 @@ interface IndexEntry {
 	// Symbol relationships (imports/references)
 	importedSymbols?: string[]; // Symbols imported from other files
 	importedFrom?: string[]; // File paths imported from (relative paths)
-	// Vector embeddings (optional, for hybrid search)
-	snippetEmbedding?: number[]; // Vector embedding for snippet
-	chunkEmbeddings?: number[][]; // Vector embeddings for chunks (parallel array with chunks)
 }
 
 interface IndexChunk {
@@ -54,7 +51,6 @@ interface IndexChunk {
 	startLine: number;
 	endLine: number;
 	tokens?: Set<string>; // Pre-computed tokens for faster scoring
-	embedding?: number[]; // Vector embedding for this chunk (optional)
 }
 
 /**
@@ -66,7 +62,6 @@ interface SerializedIndexChunk {
 	startLine?: number;
 	endLine?: number;
 	tokens?: string[] | Set<string>;
-	embedding?: number[];
 }
 
 interface SerializedIndexEntry {
@@ -81,8 +76,6 @@ interface SerializedIndexEntry {
 	symbolTokens?: string[] | Set<string>;
 	importedSymbols?: string[];
 	importedFrom?: string[];
-	snippetEmbedding?: number[];
-	chunkEmbeddings?: number[][];
 }
 
 /**
@@ -134,6 +127,8 @@ export interface IRepoIndexerService {
 	readonly onDidChangeStructure: Event<void>;
 	/** A full rebuild is running; an empty structure then means «ещё строится», not «пусто» */
 	readonly isRebuilding: boolean;
+	/** Search by meaning: the model of the vectors, files that have them, files in the index, and whether more are being made */
+	vectorStatus(): { readonly modelId: string; readonly files: number; readonly total: number; readonly building: boolean };
 }
 
 export const IRepoIndexerService = createDecorator<IRepoIndexerService>('repoIndexerService');
@@ -156,6 +151,8 @@ class RepoIndexerService extends Disposable implements IRepoIndexerService {
 	private _fileWatcher: IDisposable | undefined;
 	private _pendingUpdates = new Set<string>(); // URIs that need indexing
 	private _incrementalUpdateScheduler: RunOnceScheduler;
+	private readonly _embeddingBackfill: RunOnceScheduler;
+	private readonly _vectorSaveScheduler: RunOnceScheduler;
 	private _saveIndexScheduler: RunOnceScheduler;
 
 	// Inverted indexes for fast lookups
@@ -218,6 +215,13 @@ class RepoIndexerService extends Disposable implements IRepoIndexerService {
 	private static readonly SAVE_INDEX_DELAY = 5000;
 	// Batch size for parallel file processing
 	private static readonly BATCH_SIZE = 20;
+	/** Index updates come in bursts; vectors are made once the burst is over */
+	private static readonly EMBEDDING_BACKFILL_DELAY_MS = 3000;
+	/** Files embedded between yields to the window and between saves of the vector file */
+	private static readonly EMBEDDING_YIELD_FILES = 20;
+	private static readonly EMBEDDING_SAVE_FILES = 200;
+	/** Nearest fragments by meaning taken into a query, next to the ones found by words */
+	private static readonly VECTOR_CANDIDATES = 30;
 	// Query timeout (150ms - fast enough to not block, but allows good results)
 	private static readonly QUERY_TIMEOUT_MS = 150;
 	// Early termination threshold - stop scoring once we have this many high-scoring candidates
@@ -229,10 +233,16 @@ class RepoIndexerService extends Disposable implements IRepoIndexerService {
 	private _cpuTimeUsed: number = 0;
 	private _cpuCheckInterval: number = 100; // Check every 100ms
 
-	// Embedding service and privacy gate (optional, for hybrid search)
-	private readonly embeddingService?: IAiEmbeddingVectorService;
-	private readonly secretDetectionService?: ISecretDetectionService;
-	private readonly privacyGate: OfflinePrivacyGate;
+	/**
+	 * Vectors of the index, per file, all made by `_vectorsModel`. Kept out of the index's JSON: sixty thousand fragments
+	 * of 256 numbers are tens of megabytes as Float32 and hundreds as JSON text
+	 */
+	private readonly _vectors = new Map<string, FileVectors>();
+	private _vectorsModel = '';
+	private _vectorsLoadedFor = '';
+	private _backfillRunning = false;
+	/** Asked again while a run was going: the run that ends starts another, so late changes are not left waiting */
+	private _backfillRequested = false;
 
 	constructor(
 		@INotificationService private readonly notificationService: INotificationService,
@@ -242,32 +252,19 @@ class RepoIndexerService extends Disposable implements IRepoIndexerService {
 		@ILanguageFeaturesService private readonly languageFeaturesService: ILanguageFeaturesService,
 		@IModelService private readonly modelService: IModelService,
 		@IEnvironmentService private readonly environmentService: IEnvironmentService,
-		@IInstantiationService private readonly instantiationService: IInstantiationService,
 		@IVectorStore private readonly vectorStore: IVectorStore,
 		@IVibeideSettingsService private readonly settingsService: IVibeideSettingsService,
+		@IVibeEmbeddingsService private readonly _embeddings: IVibeEmbeddingsService,
 	) {
 		super();
 		// Initialize O(1) LRU cache
 		this._queryCache = new LRUCache(RepoIndexerService.QUERY_CACHE_SIZE);
 
-		// Get optional services (they may not be registered, so use try-catch)
-		this.embeddingService = this.instantiationService.invokeFunction(accessor => {
-			try {
-				return accessor.get(IAiEmbeddingVectorService);
-			} catch {
-				return undefined;
-			}
-		});
-
-		this.secretDetectionService = this.instantiationService.invokeFunction(accessor => {
-			try {
-				return accessor.get(ISecretDetectionService);
-			} catch {
-				return undefined;
-			}
-		});
-
-		this.privacyGate = new OfflinePrivacyGate();
+		// Vectors follow the source and the index: a new model, new files or changed files are embedded in the background
+		this._embeddingBackfill = this._register(new RunOnceScheduler(() => void this._backfillVectors(), RepoIndexerService.EMBEDDING_BACKFILL_DELAY_MS));
+		this._vectorSaveScheduler = this._register(new RunOnceScheduler(() => void this._saveVectors(), RepoIndexerService.SAVE_INDEX_DELAY));
+		this._register(this._embeddings.onDidChangeState(() => this._embeddingBackfill.schedule()));
+		this._register(this.onDidChangeStructure(() => this._embeddingBackfill.schedule()));
 		// PERFORMANCE: Defer index loading until first use (lazy initialization)
 		// This prevents blocking startup with synchronous file I/O
 		// Index will be loaded on first query() or warmIndex() call
@@ -393,11 +390,7 @@ class RepoIndexerService extends Disposable implements IRepoIndexerService {
 							startLine: chunk.startLine!,
 							endLine: chunk.endLine!,
 							tokens: chunk.tokens ? new Set(chunk.tokens) : undefined,
-							embedding: chunk.embedding && Array.isArray(chunk.embedding) ? chunk.embedding : undefined
 						})),
-						// Embeddings are already arrays, no conversion needed
-						snippetEmbedding: entry.snippetEmbedding && Array.isArray(entry.snippetEmbedding) ? entry.snippetEmbedding : undefined,
-						chunkEmbeddings: entry.chunkEmbeddings && Array.isArray(entry.chunkEmbeddings) ? entry.chunkEmbeddings : undefined,
 						// Import information is already arrays, no conversion needed
 						importedSymbols: entry.importedSymbols,
 						importedFrom: entry.importedFrom
@@ -504,18 +497,8 @@ class RepoIndexerService extends Disposable implements IRepoIndexerService {
 						if (chunk.tokens && chunk.tokens.size > 0) {
 							chunkResult.tokens = Array.from(chunk.tokens);
 						}
-						if (chunk.embedding && chunk.embedding.length > 0) {
-							chunkResult.embedding = chunk.embedding; // Serialize as array
-						}
 						return chunkResult;
 					});
-				}
-				// Include embeddings if available
-				if (entry.snippetEmbedding && entry.snippetEmbedding.length > 0) {
-					result.snippetEmbedding = entry.snippetEmbedding; // Serialize as array
-				}
-				if (entry.chunkEmbeddings && entry.chunkEmbeddings.length > 0) {
-					result.chunkEmbeddings = entry.chunkEmbeddings; // Serialize as array of arrays
 				}
 				// Include import information if available
 				if (entry.importedSymbols && entry.importedSymbols.length > 0) {
@@ -713,7 +696,7 @@ class RepoIndexerService extends Disposable implements IRepoIndexerService {
 		return { importedSymbols, importedFrom };
 	}
 
-	private async _extractSnippet(uri: URI): Promise<{ snippet: string; startLine: number; endLine: number; chunks?: IndexChunk[]; snippetEmbedding?: number[]; chunkEmbeddings?: number[][] }> {
+	private async _extractSnippet(uri: URI): Promise<{ snippet: string; startLine: number; endLine: number; chunks?: IndexChunk[] }> {
 		try {
 			// Check file content cache first
 			const uriPath = uri.fsPath;
@@ -800,48 +783,139 @@ class RepoIndexerService extends Disposable implements IRepoIndexerService {
 				});
 			}
 
-			// Compute embeddings if available (incrementally, non-blocking)
-			// This is done asynchronously to avoid blocking indexing
-			if (this._canComputeEmbeddings()) {
-				try {
-					// Compute snippet embedding
-					const snippetEmbeddings = await this._computeEmbeddings([snippetText], CancellationToken.None);
-					const snippetEmbedding = snippetEmbeddings.length > 0 ? snippetEmbeddings[0] : undefined;
-
-					// Compute chunk embeddings in batch (if chunks exist)
-					let chunkEmbeddings: number[][] | undefined;
-					if (chunks.length > 0) {
-						const chunkTexts = chunks.map(chunk => chunk.text);
-						const computedChunkEmbeddings = await this._computeEmbeddings(chunkTexts, CancellationToken.None);
-
-						// Store embeddings in chunks and as parallel array
-						if (computedChunkEmbeddings.length === chunks.length) {
-							chunkEmbeddings = computedChunkEmbeddings;
-							for (let i = 0; i < chunks.length; i++) {
-								chunks[i].embedding = computedChunkEmbeddings[i];
-							}
-						}
-					}
-
-					// Return with embeddings (will be stored in IndexEntry)
-					return {
-						snippet: snippetText,
-						startLine: 1,
-						endLine,
-						chunks,
-						snippetEmbedding,
-						chunkEmbeddings
-					};
-				} catch (error) {
-					// Embedding computation failed, continue without embeddings
-					vibeLog.debug('repoIndexer', '[RepoIndexer] Failed to compute embeddings during snippet extraction:', error);
-				}
-			}
-
 			return { snippet: snippetText, startLine: 1, endLine, chunks };
 		} catch {
 			return { snippet: '', startLine: 1, endLine: 1, chunks: [] };
 		}
+	}
+
+	private _vectorsPath(): URI | null {
+		const workspace = this.workspaceContextService.getWorkspace();
+		return workspace.id ? joinPath(this.environmentService.workspaceStorageHome, workspace.id, 'codebase-index.vectors') : null;
+	}
+
+	private async _loadVectors(modelId: string): Promise<void> {
+		const path = this._vectorsPath();
+		if (!path) {
+			return;
+		}
+		try {
+			const file = decodeVectorFile((await this.fileService.readFile(path)).value.buffer);
+			// Vectors of another model are not comparable; they are dropped and made again
+			if (file && file.modelId === modelId) {
+				for (const [uri, vectors] of file.files) {
+					this._vectors.set(uri, vectors);
+				}
+			}
+		} catch {
+			// No vector file yet — the backfill makes one
+		}
+	}
+
+	private async _saveVectors(): Promise<void> {
+		const path = this._vectorsPath();
+		if (!path || !this._vectorsModel) {
+			return;
+		}
+		const bytes = encodeVectorFile({ modelId: this._vectorsModel, dims: [...this._vectors.values()][0]?.vectors[0]?.length ?? 0, files: this._vectors });
+		await this.fileService.writeFile(path, VSBuffer.wrap(bytes)).catch(error => vibeLog.warn('repoIndexer', `векторы не сохранились: ${error}`));
+	}
+
+	/** Texts a file is embedded by: its first fragments, or its snippet when it has none */
+	private _embeddingTexts(entry: IndexEntry): string[] {
+		const chunks = entry.chunks ?? [];
+		return chunks.length > 0 ? chunks.slice(0, MAX_EMBEDDED_CHUNKS_PER_FILE).map(chunk => chunk.text) : [entry.snippet];
+	}
+
+	/**
+	 * Make the vectors the index is missing: every file on a new model, new and changed files after that
+	 * Runs in the background, a file at a time with yields, and stops as soon as the source changes under it
+	 */
+	private async _backfillVectors(): Promise<void> {
+		const state = this._embeddings.state;
+		if (this._backfillRunning) {
+			this._backfillRequested = true;
+			return;
+		}
+		if (!state.ready || this._isRebuilding) {
+			return;
+		}
+		this._backfillRunning = true;
+		const model = state.modelId;
+		try {
+			if (this._vectorsModel !== model) {
+				this._vectors.clear();
+				this._vectorsModel = model;
+			}
+			if (this._vectorsLoadedFor !== model) {
+				this._vectorsLoadedFor = model;
+				await this._loadVectors(model);
+			}
+			const present = new Set(this._index.map(entry => entry.uri));
+			for (const uri of [...this._vectors.keys()]) {
+				if (!present.has(uri)) {
+					this._vectors.delete(uri);
+				}
+			}
+			const todo = this._index.filter(entry => this._vectors.get(entry.uri)?.stamp !== textsStamp(this._embeddingTexts(entry)));
+			let made = 0;
+			for (const entry of todo) {
+				if (this._embeddings.state.modelId !== model || !this._embeddings.state.ready) {
+					return; // the source changed: the next run starts over with it
+				}
+				const texts = this._embeddingTexts(entry);
+				const vectors = await this._computeEmbeddings(texts, CancellationToken.None);
+				if (vectors.length === texts.length) {
+					this._vectors.set(entry.uri, { stamp: textsStamp(texts), vectors: vectors.map(vector => truncateVector(vector)) });
+				}
+				made++;
+				if (made % RepoIndexerService.EMBEDDING_YIELD_FILES === 0) {
+					await new Promise(resolve => setTimeout(resolve, 0));
+				}
+				if (made % RepoIndexerService.EMBEDDING_SAVE_FILES === 0) {
+					this._vectorSaveScheduler.schedule();
+				}
+			}
+			if (made > 0) {
+				this._queryCache.clear();
+				this._vectorSaveScheduler.schedule();
+				vibeLog.info('repoIndexer', `векторы ${model}: ${this._vectors.size} файлов, новых ${made}`);
+			}
+		} finally {
+			this._backfillRunning = false;
+			if (this._backfillRequested) {
+				this._backfillRequested = false;
+				this._embeddingBackfill.schedule();
+			}
+		}
+	}
+
+	vectorStatus(): { readonly modelId: string; readonly files: number; readonly total: number; readonly building: boolean } {
+		return { modelId: this._vectorsModel, files: this._vectors.size, total: this._index.length, building: this._backfillRunning };
+	}
+
+	/** Fragments nearest to the query by meaning, across the whole index; one per file, the best of its fragments */
+	private _vectorCandidates(query: Float32Array, limit: number): Array<{ entry: IndexEntry; chunk?: IndexChunk; score: number; isChunk: boolean }> {
+		const scored: Array<{ entry: IndexEntry; chunk?: IndexChunk; score: number; isChunk: boolean }> = [];
+		for (const [uri, file] of this._vectors) {
+			const position = this._pathIndex.get(uri.toLowerCase());
+			const entry = position === undefined ? undefined : this._index[position];
+			if (!entry) {
+				continue;
+			}
+			let best = -1;
+			let bestAt = 0;
+			file.vectors.forEach((vector, index) => {
+				const score = unitCosine(query, vector);
+				if (score > best) {
+					best = score;
+					bestAt = index;
+				}
+			});
+			const chunk = entry.chunks?.[bestAt];
+			scored.push({ entry, chunk, score: best, isChunk: !!chunk });
+		}
+		return scored.sort((a, b) => b.score - a.score).slice(0, limit);
 	}
 
 	/**
@@ -927,7 +1001,7 @@ class RepoIndexerService extends Disposable implements IRepoIndexerService {
 						// Extract symbols (will only work for files with loaded models)
 						const symbols = await this._extractSymbols(uri);
 						const snippetResult = await this._extractSnippet(uri);
-						const { snippet, startLine, endLine, chunks, snippetEmbedding, chunkEmbeddings } = snippetResult;
+						const { snippet, startLine, endLine, chunks } = snippetResult;
 
 						// Extract imports from file content
 						const fileContent = this._fileContentCache.get(uri.fsPath) ||
@@ -941,8 +1015,6 @@ class RepoIndexerService extends Disposable implements IRepoIndexerService {
 							snippetStartLine: startLine,
 							snippetEndLine: endLine,
 							chunks: chunks,
-							snippetEmbedding,
-							chunkEmbeddings,
 							importedSymbols: importedSymbols.length > 0 ? importedSymbols : undefined,
 							importedFrom: importedFrom.length > 0 ? importedFrom : undefined
 						};
@@ -1042,7 +1114,8 @@ class RepoIndexerService extends Disposable implements IRepoIndexerService {
 		let queryEmbedding: number[] | undefined;
 
 		// Check query cache first (normalize query for cache key)
-		const cacheKey = `${text.toLowerCase().trim()}:${k}`;
+		// The model is part of the key: the same words find other files once vectors exist or the model changes
+		const cacheKey = `${this._vectorsModel}:${this._vectors.size}:${text.toLowerCase().trim()}:${k}`;
 		const cached = this._queryCache.get(cacheKey);
 		if (cached && (performance.now() - cached.timestamp) < RepoIndexerService.QUERY_CACHE_TTL_MS) {
 			// Return cached result with updated timestamp (LRU cache auto-updates access time)
@@ -1052,10 +1125,10 @@ class RepoIndexerService extends Disposable implements IRepoIndexerService {
 
 		// Compute query embedding if available (for hybrid search)
 		// PERFORMANCE: Reuse cached embeddings for identical queries (expensive operation)
-		if (this._canComputeEmbeddings()) {
+		if (this._canComputeEmbeddings() && this._vectors.size > 0 && this._vectorsModel === this._embeddings.state.modelId) {
 			try {
 				// Check embedding cache first (normalize query for cache key)
-				const embeddingCacheKey = text.toLowerCase().trim();
+				const embeddingCacheKey = `${this._embeddings.state.modelId}:${text.toLowerCase().trim()}`;
 				const cachedEmbedding = this._queryEmbeddingCache.get(embeddingCacheKey);
 				if (cachedEmbedding && (performance.now() - cachedEmbedding.timestamp) < RepoIndexerService.QUERY_EMBEDDING_CACHE_TTL_MS) {
 					queryEmbedding = cachedEmbedding.embedding;
@@ -1271,8 +1344,12 @@ class RepoIndexerService extends Disposable implements IRepoIndexerService {
 				timedOut = true;
 			}
 
+			// Nearest fragments by meaning: found even when they share no word with the question
+			const queryVector = queryEmbedding ? truncateVector(queryEmbedding) : undefined;
+			const vectorItems = queryVector ? this._vectorCandidates(queryVector, RepoIndexerService.VECTOR_CANDIDATES) : [];
+
 			// If we have results, process them
-			if (scoredItems.length > 0) {
+			if (scoredItems.length > 0 || vectorItems.length > 0) {
 				// Use partial sort for top-k instead of full sort (more efficient)
 				const rerankPoolSize = Math.min(k * 3, scoredItems.length, 30); // Slightly larger pool for better results
 				const rerankPool = this._partialSort(scoredItems, rerankPoolSize);
@@ -1280,8 +1357,9 @@ class RepoIndexerService extends Disposable implements IRepoIndexerService {
 				// Apply hybrid reranking (BM25 + vector) if vector store enabled, otherwise BM25-only
 				const reranked = (this.vectorStore.isEnabled() && vectorResults.length > 0)
 					? this._rerankHybridWithVectorStore(q, qTokens, rerankPool, vectorResults, k)
-					: (queryEmbedding
-						? this._rerankHybrid(q, queryEmbedding, qTokens, rerankPool, k)
+					: (vectorItems.length > 0
+						// Places are fused, not scores: BM25 and cosine live on different scales
+						? fuseRankings([this._rerankBM25Fast(q, qTokens, rerankPool, rerankPool.length), vectorItems], item => `${item.entry.uri}#${item.chunk?.startLine ?? 0}`)
 						: this._rerankBM25Fast(q, qTokens, rerankPool, k));
 
 				// Deduplicate by URI (keep highest-scoring item per file)
@@ -1328,7 +1406,7 @@ class RepoIndexerService extends Disposable implements IRepoIndexerService {
 			timedOut,
 			earlyTerminated,
 			embeddingLatencyMs: embeddingLatencyMs > 0 ? embeddingLatencyMs : undefined,
-			hybridSearchUsed: queryEmbedding !== undefined
+			hybridSearchUsed: queryEmbedding !== undefined && this._vectors.size > 0
 		};
 
 		// Cache result (with LRU eviction)
@@ -1638,59 +1716,6 @@ class RepoIndexerService extends Disposable implements IRepoIndexerService {
 
 		// Partial sort for top results
 		return this._partialSort(scored, Math.min(k * 2, scored.length));
-	}
-
-	/**
-	 * Hybrid reranking: combines BM25 and vector similarity scores
-	 * Uses weighted blend (configurable weights, defaults: 0.6 BM25, 0.4 vector)
-	 * PERFORMANCE: Only computes vector similarity for top BM25 candidates to avoid expensive cosine similarity calculations
-	 */
-	private _rerankHybrid(
-		query: string,
-		queryEmbedding: number[] | undefined,
-		qTokens: Set<string>,
-		items: Array<{ entry: IndexEntry; chunk?: IndexChunk; score: number; isChunk: boolean }>,
-		k: number
-	): typeof items {
-		if (items.length === 0) { return items; }
-
-		// If no query embedding, fall back to BM25-only
-		if (!queryEmbedding || queryEmbedding.length === 0) {
-			return this._rerankBM25Fast(query, qTokens, items, k);
-		}
-
-		// PERFORMANCE: First filter to top BM25 candidates (items already have BM25 scores from initial scoring)
-		// Only compute expensive vector similarities for top candidates, not all items
-		const topBM25Count = Math.min(k * 1.5, items.length); // Get top 1.5k candidates for hybrid scoring
-		const bm25Reranked = this._partialSort(items, topBM25Count);
-
-		// Hybrid weights (tuned for code retrieval: BM25 for exact matches, vector for semantic similarity)
-		const BM25_WEIGHT = 0.6;
-		const VECTOR_WEIGHT = 0.4;
-
-		// Normalize BM25 scores to 0-1 range for blending
-		const bm25Scores = bm25Reranked.map(item => item.score);
-		const maxBm25 = Math.max(...bm25Scores, 1); // Avoid division by zero
-		const minBm25 = Math.min(...bm25Scores, 0);
-
-		// PERFORMANCE: Compute hybrid scores - vector similarity only computed for top BM25 candidates
-		const hybridScored = bm25Reranked.map((item) => {
-			// Normalize BM25 score to 0-1
-			const normalizedBm25 = maxBm25 > minBm25
-				? (item.score - minBm25) / (maxBm25 - minBm25)
-				: 0.5; // Default to middle if all scores are same
-
-			// Compute vector similarity (expensive operation - only done for top candidates)
-			const vectorScore = this._computeVectorSimilarity(queryEmbedding, item.entry, item.chunk);
-
-			// Weighted blend
-			const hybridScore = (normalizedBm25 * BM25_WEIGHT) + (vectorScore * VECTOR_WEIGHT);
-
-			return { ...item, score: hybridScore };
-		});
-
-		// Partial sort for top results
-		return this._partialSort(hybridScored, Math.min(k, hybridScored.length));
 	}
 
 	/**
@@ -2019,7 +2044,7 @@ class RepoIndexerService extends Disposable implements IRepoIndexerService {
 					// Extract symbols and snippet
 					const symbols = await this._extractSymbols(uri);
 					const snippetResult = await this._extractSnippet(uri);
-					const { snippet, startLine, endLine, chunks, snippetEmbedding, chunkEmbeddings } = snippetResult;
+					const { snippet, startLine, endLine, chunks } = snippetResult;
 
 					// Extract imports from file content
 					const fileContent = this._fileContentCache.get(uriPath) ||
@@ -2036,8 +2061,6 @@ class RepoIndexerService extends Disposable implements IRepoIndexerService {
 						snippetStartLine: startLine,
 						snippetEndLine: endLine,
 						chunks: chunks,
-						snippetEmbedding,
-						chunkEmbeddings,
 						importedSymbols: importedSymbols.length > 0 ? importedSymbols : undefined,
 						importedFrom: importedFrom.length > 0 ? importedFrom : undefined
 					};
@@ -2189,38 +2212,13 @@ class RepoIndexerService extends Disposable implements IRepoIndexerService {
 		return tokens;
 	}
 
-	/**
-	 * Check if embeddings can be computed (service enabled, not offline/privacy mode)
-	 */
+	/** Vectors can be made now; the source itself says no for a cloud source without a network */
 	private _canComputeEmbeddings(): boolean {
-		if (!this.embeddingService || !this.embeddingService.isEnabled()) {
-			return false;
-		}
-		// Skip embeddings in offline/privacy mode (fallback to BM25-only)
-		if (this.privacyGate.isOfflineOrPrivacyMode()) {
-			return false;
-		}
-		return true;
+		return this._embeddings.state.ready;
 	}
 
 	/**
-	 * Redact secrets from text before embedding computation
-	 * Never embed secrets - this is a security requirement
-	 */
-	private _redactSecrets(text: string): string {
-		if (!this.secretDetectionService) {
-			return text; // No secret detection available, return as-is
-		}
-		const config = this.secretDetectionService.getConfig();
-		if (!config.enabled) {
-			return text; // Secret detection disabled
-		}
-		const result = this.secretDetectionService.detectSecrets(text);
-		return result.hasSecrets ? result.redactedText : text;
-	}
-
-	/**
-	 * Compute embeddings for text(s) with privacy/secret checks
+	 * Compute embeddings for text(s); the source redacts secrets itself
 	 * Returns empty array if embeddings cannot be computed
 	 */
 	private async _computeEmbeddings(texts: string[], token: CancellationToken): Promise<number[][]> {
@@ -2229,29 +2227,7 @@ class RepoIndexerService extends Disposable implements IRepoIndexerService {
 		}
 
 		try {
-			// Redact secrets before embedding (never embed secrets)
-			const redactedTexts = texts.map(text => this._redactSecrets(text));
-
-			// Compute embeddings via service
-			// Service can return number[] for single input or number[][] for array input
-			const embeddings = await this.embeddingService!.getEmbeddingVector(redactedTexts, token);
-
-			// Handle both return types: number[] (single) or number[][] (array)
-			if (!embeddings || embeddings.length === 0) {
-				return [];
-			}
-
-			// Check if result is number[][] (array of arrays) or number[] (single array)
-			// If first element is a number, it's number[] (single embedding)
-			// If first element is an array, it's number[][] (multiple embeddings)
-			if (typeof embeddings[0] === 'number') {
-				// Single embedding returned as number[], wrap it
-				const singleEmbedding = embeddings as unknown as number[];
-				return [singleEmbedding];
-			} else {
-				// Multiple embeddings returned as number[][]
-				return embeddings as number[][];
-			}
+			return await this._embeddings.embed(texts, token);
 		} catch (error) {
 			// Embedding computation failed, fallback to BM25-only
 			vibeLog.debug('repoIndexer', '[RepoIndexer] Embedding computation failed, falling back to BM25:', error);
@@ -2259,54 +2235,6 @@ class RepoIndexerService extends Disposable implements IRepoIndexerService {
 		}
 	}
 
-	/**
-	 * Compute cosine similarity between two vectors
-	 * Returns value between -1 and 1 (typically 0-1 for normalized embeddings)
-	 */
-	private _cosineSimilarity(a: number[], b: number[]): number {
-		if (a.length !== b.length) {
-			return 0; // Dimension mismatch
-		}
-
-		let dotProduct = 0;
-		let normA = 0;
-		let normB = 0;
-
-		for (let i = 0; i < a.length; i++) {
-			dotProduct += a[i] * b[i];
-			normA += a[i] * a[i];
-			normB += b[i] * b[i];
-		}
-
-		const denominator = Math.sqrt(normA) * Math.sqrt(normB);
-		if (denominator === 0) {
-			return 0;
-		}
-
-		return dotProduct / denominator;
-	}
-
-	/**
-	 * Compute vector similarity score for a query embedding against document embeddings
-	 * Returns score between 0 and 1 (can be scaled for blending with BM25)
-	 */
-	private _computeVectorSimilarity(queryEmbedding: number[], entry: IndexEntry, chunk?: IndexChunk): number {
-		if (!queryEmbedding || queryEmbedding.length === 0) {
-			return 0;
-		}
-
-		// Prefer chunk embedding if available and chunk is specified
-		if (chunk && chunk.embedding && chunk.embedding.length > 0) {
-			return this._cosineSimilarity(queryEmbedding, chunk.embedding);
-		}
-
-		// Fall back to snippet embedding
-		if (entry.snippetEmbedding && entry.snippetEmbedding.length > 0) {
-			return this._cosineSimilarity(queryEmbedding, entry.snippetEmbedding);
-		}
-
-		return 0; // No embeddings available
-	}
 
 	/**
 	 * Rebuild all inverted indexes from the current _index array

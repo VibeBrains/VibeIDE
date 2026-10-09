@@ -3,7 +3,6 @@
  *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
 
-
 import { Action2, registerAction2 } from '../../../../platform/actions/common/actions.js';
 import { ServicesAccessor } from '../../../../platform/instantiation/common/instantiation.js';
 import { IRepoIndexerService } from './repoIndexerService.js';
@@ -11,16 +10,26 @@ import { IQuickInputService, IQuickPickItem } from '../../../../platform/quickin
 import { IEditorService } from '../../../../workbench/services/editor/common/editorService.js';
 import { ILabelService } from '../../../../platform/label/common/label.js';
 import { URI } from '../../../../base/common/uri.js';
-import { localize2 } from '../../../../nls.js';
+import { localize, localize2 } from '../../../../nls.js';
 import { KeyMod, KeyCode } from '../../../../base/common/keyCodes.js';
 import { KeybindingWeight } from '../../../../platform/keybinding/common/keybindingsRegistry.js';
 import { ContextKeyExpr } from '../../../../platform/contextkey/common/contextkey.js';
 import { RunOnceScheduler } from '../../../../base/common/async.js';
 import { DisposableStore } from '../../../../base/common/lifecycle.js';
 import { VIBE_COMMAND_CATEGORY } from '../common/vibeCommandCategory.js';
+import { IndexResultParts, parseIndexResult } from '../common/indexResult.js';
+
+const RESULT_COUNT = 20;
+const MIN_QUERY_LENGTH = 2;
+const QUERY_DEBOUNCE_MS = 300;
+
+
+type IndexResultPick = IQuickPickItem & { readonly result?: IndexResultParts };
 
 /**
- * Command to query the codebase using natural language
+ * Asks the repo index in plain words and opens the chosen fragment with its lines selected
+ *
+ * Takes an optional query: `vibeide.search.semantic` hands its argument here, so search has one picker
  */
 registerAction2(class extends Action2 {
 	constructor() {
@@ -37,94 +46,95 @@ registerAction2(class extends Action2 {
 		});
 	}
 
-	async run(accessor: ServicesAccessor): Promise<void> {
+	async run(accessor: ServicesAccessor, initialQuery?: string): Promise<void> {
 		const repoIndexerService = accessor.get(IRepoIndexerService);
 		const quickInputService = accessor.get(IQuickInputService);
 		const editorService = accessor.get(IEditorService);
 		const labelService = accessor.get(ILabelService);
 
-		// Create quick pick
-		const quickPick = quickInputService.createQuickPick<IQuickPickItem & { uri?: URI }>();
-		quickPick.placeholder = localize2('vibeCodebaseQueryPlaceholder', 'Enter a natural language query to search your codebase...').value;
-		quickPick.title = localize2('vibeCodebaseQueryTitle', 'Query Codebase').value;
-
 		const disposables = new DisposableStore();
-		disposables.add(quickPick);
+		const quickPick = disposables.add(quickInputService.createQuickPick<IndexResultPick>());
+		quickPick.placeholder = localize('vibeCodebaseQueryPlaceholder', "Опишите словами, что ищете в коде");
+		quickPick.title = localize('vibeCodebaseQueryTitle', "Спросить по кодовой базе");
+		// The index ranks by meaning, so the picker must not filter its answers again by the typed words
+		quickPick.filterValue = () => '';
 
-		// Debounce query execution
-		const queryScheduler = new RunOnceScheduler(async () => {
+		const queryScheduler = disposables.add(new RunOnceScheduler(async () => {
 			const query = quickPick.value.trim();
-			if (!query || query.length < 2) {
+			if (query.length < MIN_QUERY_LENGTH) {
 				quickPick.items = [];
 				quickPick.busy = false;
 				return;
 			}
-
 			quickPick.busy = true;
-
 			try {
-				// Query the repo indexer (returns top 20 results)
-				const results = await repoIndexerService.query(query, 20);
-
-				// Convert to quick pick items
-				const items: Array<IQuickPickItem & { uri?: URI }> = results.map((filePath) => {
-					const uri = URI.file(filePath);
-					const relativePath = labelService.getUriLabel(uri, { relative: true });
-					const fullPath = labelService.getUriLabel(uri, { relative: false });
-
-					return {
-						label: `$(file) ${relativePath}`,
-						description: fullPath,
-						uri,
-						alwaysShow: true,
-					};
-				});
-
-				if (items.length === 0) {
+				const answers = await repoIndexerService.query(query, RESULT_COUNT);
+				if (query !== quickPick.value.trim()) {
+					return;
+				}
+				const items: IndexResultPick[] = [];
+				for (const answer of answers) {
+					const result = parseIndexResult(answer);
+					if (!result) {
+						continue;
+					}
+					const uri = URI.file(result.path);
 					items.push({
-						label: localize2('vibeCodebaseQueryNoResults', 'No results found').value,
-						description: localize2('vibeCodebaseQueryNoResultsDesc', 'Try a different query').value,
+						label: `$(file) ${labelService.getUriLabel(uri, { relative: true })}`,
+						description: result.startLine === result.endLine
+							? localize('vibeCodebaseQueryLine', "строка {0}", result.startLine)
+							: localize('vibeCodebaseQueryLines', "строки {0}–{1}", result.startLine, result.endLine),
+						detail: firstMeaningfulLine(result.preview),
+						result,
+						alwaysShow: true,
 					});
 				}
-
-				quickPick.items = items;
+				// The first question starts the index build; an empty answer then means «not yet», not «nothing»
+				const indexing = items.length === 0 && repoIndexerService.vectorStatus().total === 0;
+				quickPick.items = items.length > 0 ? items : [indexing ? {
+					label: localize('vibeCodebaseQueryIndexing', "Индекс проекта ещё собирается"),
+					description: localize('vibeCodebaseQueryIndexingDesc', "Спросите снова через минуту"),
+				} : {
+					label: localize('vibeCodebaseQueryNoResults', "Ничего не найдено"),
+					description: localize('vibeCodebaseQueryNoResultsDesc', "Попробуйте сказать иначе"),
+				}];
 			} catch (error) {
 				quickPick.items = [{
-					label: localize2('vibeCodebaseQueryError', 'Error querying codebase').value,
+					label: localize('vibeCodebaseQueryError', "Не удалось спросить индекс проекта"),
 					description: error instanceof Error ? error.message : String(error),
 				}];
 			} finally {
 				quickPick.busy = false;
 			}
-		}, 300); // 300ms debounce
+		}, QUERY_DEBOUNCE_MS));
 
-		disposables.add(queryScheduler);
-
-		// Trigger query on input change
-		disposables.add(quickPick.onDidChangeValue(() => {
-			queryScheduler.schedule();
-		}));
-
-		// Handle item selection
+		disposables.add(quickPick.onDidChangeValue(() => queryScheduler.schedule()));
 		disposables.add(quickPick.onDidAccept(() => {
-			const selectedItem = quickPick.selectedItems[0];
-			if (selectedItem?.uri) {
-				// Open the file
-				editorService.openEditor({
-					resource: selectedItem.uri,
-					options: { pinned: false, revealIfOpened: true },
-				});
-				quickPick.hide();
+			const result = quickPick.selectedItems[0]?.result;
+			if (!result) {
+				return;
 			}
+			quickPick.hide();
+			editorService.openEditor({
+				resource: URI.file(result.path),
+				options: {
+					pinned: false,
+					revealIfOpened: true,
+					selection: { startLineNumber: result.startLine, startColumn: 1, endLineNumber: result.endLine, endColumn: 1 },
+				},
+			});
 		}));
+		disposables.add(quickPick.onDidHide(() => disposables.dispose()));
 
-		// Show the quick pick
 		quickPick.show();
-
-		// Cleanup on dispose
-		disposables.add(quickPick.onDidHide(() => {
-			disposables.dispose();
-		}));
+		if (initialQuery?.trim()) {
+			quickPick.value = initialQuery.trim();
+			queryScheduler.schedule(0);
+		}
 	}
 });
 
+/** The first line of a fragment that says something, as a hint of what the answer holds: rules like `/*----` say nothing */
+function firstMeaningfulLine(preview: string): string | undefined {
+	return preview.split('\n').map(line => line.trim()).find(line => /[\p{L}\p{N}]/u.test(line));
+}

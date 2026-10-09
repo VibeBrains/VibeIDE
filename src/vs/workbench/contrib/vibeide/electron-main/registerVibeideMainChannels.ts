@@ -24,6 +24,7 @@ import { LLMMessageChannel } from './sendLLMMessageChannel.js';
 import { MCPChannel } from './mcpChannel.js';
 import { MetricsMainService } from './metricsMainService.js';
 import { OllamaInstallerChannel } from './ollamaInstallerChannel.js';
+import { EmbeddingsChannel } from './embeddingsChannel.js';
 import { RemoteCatalogFetchChannel } from './remoteCatalogFetchChannel.js';
 import { ModelsDevCatalogStatusMainService } from './modelsDevCatalogStatusMainService.js';
 import { initModelsDevCatalogRequestService } from './llmMessage/modelsDevCatalog.js';
@@ -135,6 +136,8 @@ export function registerVibeideMainProcessChannels(
 
 	const ollamaInstallerChannel = new OllamaInstallerChannel();
 	mainProcessElectronServer.registerChannel('vibe-channel-ollamaInstaller', ollamaInstallerChannel);
+	// Vectors for meaning search: Ollama locally, or a configured provider's /embeddings when the person chose it
+	mainProcessElectronServer.registerChannel('vibe-channel-embeddings', new EmbeddingsChannel());
 
 	const modelsDevCatalogStatusService = new ModelsDevCatalogStatusMainService();
 	mainProcessElectronServer.registerChannel(

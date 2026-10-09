@@ -292,9 +292,6 @@ import '../common/vibeTokenCostForecastService.js';
 // VibeIDE: Model fingerprint service (Debug my prompt, Reproducible sessions)
 import '../common/vibeModelFingerprintService.js';
 
-// VibeIDE: Semantic codebase search
-import '../common/vibeSemanticSearchService.js';
-
 // VibeIDE: Similarity search across `.vibe/plans/*.plan.md` (local embeddings)
 import '../common/vibePlanSimilarSearchService.js';
 

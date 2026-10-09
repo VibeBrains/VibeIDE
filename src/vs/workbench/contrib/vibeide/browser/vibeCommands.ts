@@ -11,7 +11,6 @@ import { ConfigurationTarget, IConfigurationService } from '../../../../platform
 import { IVibeTokenBudgetService } from '../common/vibeTokenBudgetService.js';
 import { IVibeAgentHistoryService } from '../common/vibeAgentHistoryService.js';
 import { IVibeMemoryDecayService } from '../common/vibeMemoryDecayService.js';
-import { IVibeSemanticSearchService } from '../common/vibeSemanticSearchService.js';
 import { IVibePlanSimilarSearchService } from '../common/vibePlanSimilarSearchService.js';
 import { Action2, registerAction2 } from '../../../../platform/actions/common/actions.js';
 import { localize, localize2 } from '../../../../nls.js';
@@ -507,29 +506,9 @@ registerAction2(class extends Action2 {
 	}
 });
 
-// hits in a quick pick that opens the chosen file. Was log-only (invisible) and unusable from the UI.
-CommandsRegistry.registerCommand('vibeide.search.semantic', async (accessor: ServicesAccessor, query?: string) => {
-	const search = accessor.get(IVibeSemanticSearchService);
-	const notifications = accessor.get(INotificationService);
-	const quickInput = accessor.get(IQuickInputService);
-	const editorService = accessor.get(IEditorService);
-	if (!search.isReady()) {
-		notifications.notify({ severity: Severity.Warning, message: localize('vibeide.search.notReady', 'Семантический поиск не готов — включите RAG в настройках VibeIDE.') });
-		return;
-	}
-	const q = (query ?? '').trim() || (await quickInput.input({ prompt: localize('vibeide.search.prompt', 'Семантический поиск по кодовой базе') }))?.trim();
-	if (!q) { return; }
-	const results = await search.search(q, 10);
-	if (results.length === 0) {
-		notifications.notify({ severity: Severity.Info, message: localize('vibeide.search.none', 'Ничего не найдено по запросу «{0}».', q) });
-		return;
-	}
-	const picked = await quickInput.pick(
-		results.map(r => ({ label: r.filePath, description: `${(r.score).toFixed(2)}`, detail: r.snippet.slice(0, 120), filePath: r.filePath })),
-		{ placeHolder: localize('vibeide.search.results', 'Результаты для «{0}» — выберите файл', q) },
-	);
-	if (picked) { await editorService.openEditor({ resource: URI.file((picked as { filePath: string }).filePath) }); }
-});
+// Kept as an id for menus and keybindings that name it; the search itself is the repo index picker
+CommandsRegistry.registerCommand('vibeide.search.semantic', (accessor: ServicesAccessor, query?: string) =>
+	accessor.get(ICommandService).executeCommand('vibe.codebase.query', query));
 
 // Diff preview hint — informational. Was log-only; now a visible toast.
 CommandsRegistry.registerCommand('vibeide.diff.showComplexity', (accessor: ServicesAccessor) => {
