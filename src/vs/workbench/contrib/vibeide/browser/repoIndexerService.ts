@@ -4,6 +4,9 @@
  *--------------------------------------------------------------------------------------------*/
 import { vibeLog } from '../common/vibeLog.js';
 import { Disposable, IDisposable } from '../../../../base/common/lifecycle.js';
+import { Emitter, Event } from '../../../../base/common/event.js';
+import { INDEX_SCOPE_VERSION, isIndexablePath } from '../common/indexScope.js';
+import { createIgnoreMatcher, IgnoreMatcher } from '../common/vibeIgnore.js';
 import { createDecorator, IInstantiationService } from '../../../../platform/instantiation/common/instantiation.js';
 import { InstantiationType, registerSingleton } from '../../../../platform/instantiation/common/extensions.js';
 import { INotificationService } from '../../../../platform/notification/common/notification.js';
@@ -12,6 +15,7 @@ import { IFileService, FileChangesEvent } from '../../../../platform/files/commo
 import { IWorkspaceContextService } from '../../../../platform/workspace/common/workspace.js';
 import { URI } from '../../../../base/common/uri.js';
 import { joinPath } from '../../../../base/common/resources.js';
+import { VSBuffer } from '../../../../base/common/buffer.js';
 import { ILanguageFeaturesService } from '../../../../editor/common/services/languageFeatures.js';
 import { DocumentSymbol } from '../../../../editor/common/languages.js';
 import { IModelService } from '../../../../editor/common/services/model.js';
@@ -123,6 +127,13 @@ export interface IRepoIndexerService {
 	 * as opposed to `query`, which answers "what looks relevant". Empty until the index is warm.
 	 */
 	listStructure(): readonly RepoStructureEntry[];
+	/**
+	 * The set of indexed files or what is known about them changed: the index was loaded, rebuilt, or files were updated
+	 * A consumer drawing the structure refreshes on this instead of asking once and showing an empty picture forever
+	 */
+	readonly onDidChangeStructure: Event<void>;
+	/** A full rebuild is running; an empty structure then means «ещё строится», not «пусто» */
+	readonly isRebuilding: boolean;
 }
 
 export const IRepoIndexerService = createDecorator<IRepoIndexerService>('repoIndexerService');
@@ -132,6 +143,16 @@ class RepoIndexerService extends Disposable implements IRepoIndexerService {
 
 	private _index: IndexEntry[] = [];
 	private _isWarmed = false;
+	private _isRebuilding = false;
+	/** The project's `.gitignore` and `.vibe/ignore`, read before every full walk and again when either changes */
+	private _ignore: IgnoreMatcher | undefined;
+	private _rebuildPromise: Promise<void> | undefined;
+	private readonly _onDidChangeStructure = this._register(new Emitter<void>());
+	readonly onDidChangeStructure = this._onDidChangeStructure.event;
+
+	get isRebuilding(): boolean {
+		return this._isRebuilding;
+	}
 	private _fileWatcher: IDisposable | undefined;
 	private _pendingUpdates = new Set<string>(); // URIs that need indexing
 	private _incrementalUpdateScheduler: RunOnceScheduler;
@@ -311,6 +332,31 @@ class RepoIndexerService extends Disposable implements IRepoIndexerService {
 		return joinPath(this.environmentService.workspaceStorageHome, workspace.id, 'codebase-index.json');
 	}
 
+	/** Which scope rule built the saved index; see `INDEX_SCOPE_VERSION` */
+	private _getScopeMarkerPath(): URI | null {
+		const workspace = this.workspaceContextService.getWorkspace();
+		return workspace.id ? joinPath(this.environmentService.workspaceStorageHome, workspace.id, 'codebase-index.scope') : null;
+	}
+
+	private async _isBuiltUnderCurrentScope(): Promise<boolean> {
+		const marker = this._getScopeMarkerPath();
+		if (!marker) {
+			return true;
+		}
+		try {
+			return (await this.fileService.readFile(marker)).value.toString().trim() === INDEX_SCOPE_VERSION;
+		} catch {
+			return false;
+		}
+	}
+
+	private async _markScope(): Promise<void> {
+		const marker = this._getScopeMarkerPath();
+		if (marker) {
+			await this.fileService.writeFile(marker, VSBuffer.fromString(INDEX_SCOPE_VERSION)).catch(() => undefined);
+		}
+	}
+
 	private async _loadIndex(): Promise<void> {
 		const indexPath = this._getIndexPath();
 		if (!indexPath) { return; }
@@ -367,6 +413,7 @@ class RepoIndexerService extends Disposable implements IRepoIndexerService {
 				// Rebuild inverted indexes from loaded data (tokens already pre-computed!)
 				this._rebuildInvertedIndexes();
 				this._isWarmed = true;
+				this._onDidChangeStructure.fire();
 			}
 		} catch (error) {
 			// Try to migrate from old location (.vibeide/index.json in workspace)
@@ -412,6 +459,7 @@ class RepoIndexerService extends Disposable implements IRepoIndexerService {
 				// Rebuild inverted indexes from migrated data
 				this._rebuildInvertedIndexes();
 				this._isWarmed = true;
+				this._onDidChangeStructure.fire();
 				// Save to new location
 				await this._saveIndex();
 				vibeLog.debug('repoIndexer', '[RepoIndexer] Migrated index from old location to new location');
@@ -495,15 +543,30 @@ class RepoIndexerService extends Disposable implements IRepoIndexerService {
 		}
 	}
 
-	private async _walkFiles(workspaceRoot: URI, onFile: (uri: URI) => Promise<void>, token: CancellationToken = CancellationToken.None): Promise<void> {
-		const ignorePatterns = [
-			'node_modules', '.git', 'dist', 'build', 'out',
-			'.vscode', '.idea', 'coverage', '.nyc_output', '.next', '.cache'
-		];
+	/** Files the project itself keeps out of version control are not its code: read them before deciding what to index */
+	private async _loadIgnore(workspaceRoot: URI): Promise<void> {
+		const parts: string[] = [];
+		for (const name of [['.gitignore'], ['.vibe', 'ignore']]) {
+			try {
+				parts.push((await this.fileService.readFile(joinPath(workspaceRoot, ...name))).value.toString());
+			} catch {
+				// No such file — the project simply has no rules of that kind
+			}
+		}
+		this._ignore = parts.length > 0 ? createIgnoreMatcher(parts.join('\n')) : undefined;
+	}
 
-		const shouldIgnore = (path: string): boolean => {
-			return ignorePatterns.some(pattern => path.includes(pattern));
-		};
+	/** The one rule for the walk and for file-change events, measured from the project root */
+	private _isIndexable(workspaceRoot: URI, resource: URI, isDirectory: boolean): boolean {
+		const root = workspaceRoot.path.endsWith('/') ? workspaceRoot.path : `${workspaceRoot.path}/`;
+		if (!resource.path.startsWith(root)) {
+			return false;
+		}
+		return isIndexablePath(resource.path.slice(root.length), isDirectory, this._ignore);
+	}
+
+	private async _walkFiles(workspaceRoot: URI, onFile: (uri: URI) => Promise<void>, token: CancellationToken = CancellationToken.None): Promise<void> {
+		await this._loadIgnore(workspaceRoot);
 
 		// PERFORMANCE: Track directory count for cooperative yielding
 		let directoryCount = 0;
@@ -535,18 +598,12 @@ class RepoIndexerService extends Disposable implements IRepoIndexerService {
 						return;
 					}
 
-					if (shouldIgnore(child.resource.path)) { continue; }
-
 					if (child.isDirectory) {
-						await walk(child.resource);
-					} else if (child.isFile) {
-						const ext = child.resource.path.split('.').pop()?.toLowerCase();
-						const base = child.resource.path.split('/').pop()?.toLowerCase();
-						const codeExts = ['ts', 'tsx', 'js', 'jsx', 'py', 'java', 'go', 'rs', 'cpp', 'c', 'h', 'hpp', 'cs', 'rb', 'php', 'swift', 'kt', 'scala', 'dart', 'r', 'm', 'mm', 'sh', 'bash', 'zsh', 'fish', 'md'];
-						const isOverviewDoc = base === 'readme.md' || base === 'package.json' || base === 'product.json';
-						if ((ext && codeExts.includes(ext)) || isOverviewDoc) {
-							await onFile(child.resource);
+						if (this._isIndexable(workspaceRoot, child.resource, true)) {
+							await walk(child.resource);
 						}
+					} else if (child.isFile && this._isIndexable(workspaceRoot, child.resource, false)) {
+						await onFile(child.resource);
 					}
 				}
 			} catch {
@@ -787,7 +844,24 @@ class RepoIndexerService extends Disposable implements IRepoIndexerService {
 		}
 	}
 
-	async rebuildIndex(token: CancellationToken = CancellationToken.None): Promise<void> {
+	/**
+	 * One rebuild at a time: the graph tab warms the index on open and on «Обновить», and a second walk over the same
+	 * repository in parallel would only race the first for `_index`
+	 */
+	rebuildIndex(token: CancellationToken = CancellationToken.None): Promise<void> {
+		if (!this._rebuildPromise) {
+			this._isRebuilding = true;
+			this._onDidChangeStructure.fire();
+			this._rebuildPromise = this._rebuildIndexOnce(token).finally(() => {
+				this._isRebuilding = false;
+				this._rebuildPromise = undefined;
+				this._onDidChangeStructure.fire();
+			});
+		}
+		return this._rebuildPromise;
+	}
+
+	private async _rebuildIndexOnce(token: CancellationToken): Promise<void> {
 		const workspace = this.workspaceContextService.getWorkspace().folders[0]?.uri;
 		if (!workspace) {
 			this.notificationService.warn('No workspace open. Cannot rebuild index.');
@@ -897,6 +971,7 @@ class RepoIndexerService extends Disposable implements IRepoIndexerService {
 		}
 
 		await this._saveIndex();
+		await this._markScope();
 		this._isWarmed = true;
 		this.notificationService.info(`Repo index rebuilt: ${fileCount} files indexed${failedCount > 0 ? `, ${failedCount} failed` : ''}.`);
 
@@ -921,16 +996,20 @@ class RepoIndexerService extends Disposable implements IRepoIndexerService {
 		await this._loadIndex();
 
 		if (this._index.length === 0) {
-			// No index found, do a quick warm-up from context cache
+			// No index found: cached snippets can warm the search right away, but they are not an index,
+			// And the code graph reads the index alone. Marking warm without a rebuild left the graph empty for good
 			const seed = this.contextGatheringService.getCachedSnippets();
 			if (seed.length > 0) {
 				this._isWarmed = true;
-			} else {
-				// Trigger background rebuild (non-blocking)
-				this.rebuildIndex().catch(() => { });
 			}
+			// Trigger background rebuild (non-blocking)
+			this.rebuildIndex().catch(() => { });
 		} else {
 			this._isWarmed = true;
+			// An index saved under an older scope rule still answers now, and is replaced by one rebuild in the background
+			if (!(await this._isBuiltUnderCurrentScope())) {
+				this.rebuildIndex().catch(() => { });
+			}
 		}
 
 		// Ensure file watcher is set up after warmup
@@ -1846,21 +1925,19 @@ class RepoIndexerService extends Disposable implements IRepoIndexerService {
 		const workspace = this.workspaceContextService.getWorkspace().folders[0]?.uri;
 		if (!workspace) { return; }
 
+		// The ignore rules themselves changed: reread them and drop what they now exclude
+		// Files they stop excluding come in with the next full rebuild — the walk is what finds files nobody touched
+		const rules = [joinPath(workspace, '.gitignore'), joinPath(workspace, '.vibe', 'ignore')];
+		if (rules.some(rule => e.contains(rule))) {
+			void this._loadIgnore(workspace).then(() => this._dropExcluded(workspace));
+		}
+
 		// Process deleted files (immediate removal)
 		for (const resource of e.rawDeleted) {
 			const path = resource.fsPath;
 
-			// Only process files we care about (same logic as _walkFiles)
-			const ext = path.split('.').pop()?.toLowerCase();
-			const base = path.split('/').pop()?.toLowerCase();
-			const codeExts = ['ts', 'tsx', 'js', 'jsx', 'py', 'java', 'go', 'rs', 'cpp', 'c', 'h', 'hpp', 'cs', 'rb', 'php', 'swift', 'kt', 'scala', 'dart', 'r', 'm', 'mm', 'sh', 'bash', 'zsh', 'fish', 'md'];
-			const isOverviewDoc = base === 'readme.md' || base === 'package.json' || base === 'product.json';
-
-			const shouldIndex = (ext && codeExts.includes(ext)) || isOverviewDoc;
-			if (!shouldIndex) { continue; }
-
-			// Skip if not in workspace
-			if (!path.startsWith(workspace.fsPath)) { continue; }
+			// Same rule as the walk: inside the project, not ignored, an indexed kind of file
+			if (!this._isIndexable(workspace, resource, false)) { continue; }
 
 			// Find and remove from index
 			const entryIndex = this._index.findIndex(entry => entry.uri === path);
@@ -1869,6 +1946,7 @@ class RepoIndexerService extends Disposable implements IRepoIndexerService {
 				this._index.splice(entryIndex, 1);
 				// Update indices in inverted indexes (shift all indices after removed entry)
 				this._rebuildInvertedIndexes(); // Simpler: rebuild after deletion
+				this._onDidChangeStructure.fire();
 			}
 			// Remove from file content cache
 			this._fileContentCache.delete(path);
@@ -1879,17 +1957,8 @@ class RepoIndexerService extends Disposable implements IRepoIndexerService {
 		for (const resource of [...e.rawAdded, ...e.rawUpdated]) {
 			const path = resource.fsPath;
 
-			// Only process files we care about (same logic as _walkFiles)
-			const ext = path.split('.').pop()?.toLowerCase();
-			const base = path.split('/').pop()?.toLowerCase();
-			const codeExts = ['ts', 'tsx', 'js', 'jsx', 'py', 'java', 'go', 'rs', 'cpp', 'c', 'h', 'hpp', 'cs', 'rb', 'php', 'swift', 'kt', 'scala', 'dart', 'r', 'm', 'mm', 'sh', 'bash', 'zsh', 'fish', 'md'];
-			const isOverviewDoc = base === 'readme.md' || base === 'package.json' || base === 'product.json';
-
-			const shouldIndex = (ext && codeExts.includes(ext)) || isOverviewDoc;
-			if (!shouldIndex) { continue; }
-
-			// Skip if not in workspace
-			if (!path.startsWith(workspace.fsPath)) { continue; }
+			// Same rule as the walk: inside the project, not ignored, an indexed kind of file
+			if (!this._isIndexable(workspace, resource, false)) { continue; }
 
 			// Invalidate file content cache for updated files (will be refreshed on next read)
 			this._fileContentCache.delete(path);
@@ -1901,6 +1970,16 @@ class RepoIndexerService extends Disposable implements IRepoIndexerService {
 		// Schedule debounced incremental update
 		if (this._pendingUpdates.size > 0 && !this._incrementalUpdateScheduler.isScheduled()) {
 			this._incrementalUpdateScheduler.schedule();
+		}
+	}
+
+	private _dropExcluded(workspace: URI): void {
+		const before = this._index.length;
+		this._index = this._index.filter(entry => this._isIndexable(workspace, URI.file(entry.uri), false));
+		if (this._index.length !== before) {
+			this._rebuildInvertedIndexes();
+			this._onDidChangeStructure.fire();
+			this._saveIndexScheduler.schedule();
 		}
 	}
 
@@ -2005,6 +2084,7 @@ class RepoIndexerService extends Disposable implements IRepoIndexerService {
 
 		// Schedule debounced save (don't save immediately)
 		if (updatedCount > 0) {
+			this._onDidChangeStructure.fire();
 			this._saveIndexScheduler.schedule();
 			// Optional: log updates in debug mode (vibeLog self-gates on level/category)
 			vibeLog.debug('repoIndexer', `[RepoIndexer] Incrementally updated ${updatedCount} file(s)${failedCount > 0 ? `, ${failedCount} failed` : ''}`);

@@ -127,6 +127,18 @@ export interface CodeGraphFileInput {
 const IMPORT_EXTENSIONS = ['.ts', '.tsx', '.js', '.jsx', '.mjs', '.cjs', '.py'] as const;
 const INDEX_BASENAMES = ['index', '__init__'] as const;
 
+/**
+ * TypeScript's ES-module convention: the source imports the file it will be compiled to, `./lifecycle.js`,
+ * While the file on disk is `lifecycle.ts`. Every import of a VS Code-style codebase is written so,
+ * And without this mapping the graph found almost none of them and called the whole core «одинокие файлы»
+ */
+const COMPILED_TO_SOURCE: ReadonlyArray<readonly [string, readonly string[]]> = [
+	['.js', ['.ts', '.tsx']],
+	['.jsx', ['.tsx']],
+	['.mjs', ['.mts']],
+	['.cjs', ['.cts']],
+];
+
 /** Join and normalize a POSIX-ish path, resolving `.` and `..` without touching the file system. */
 function normalizePath(path: string): string {
 	const isAbsolute = path.startsWith('/');
@@ -166,7 +178,7 @@ export interface ResolvedImport {
  *
  * Provenance ladder:
  *  - the specifier names an existing file verbatim → `extracted` (nothing was guessed);
- *  - exactly one completion (extension or index file) exists → `inferred`;
+ *  - exactly one completion (extension, index file, or the TypeScript source of a `.js` import) exists → `inferred`;
  *  - several completions exist → `ambiguous`, pointing at the first in sorted order so the
  *    graph stays deterministic across runs.
  */
@@ -180,6 +192,16 @@ export function resolveImportTarget(fromPath: string, specifier: string, knownFi
 	}
 
 	const candidates: string[] = [];
+	for (const [compiled, sources] of COMPILED_TO_SOURCE) {
+		if (base.endsWith(compiled)) {
+			const stem = base.slice(0, -compiled.length);
+			for (const source of sources) {
+				if (knownFiles.has(stem + source)) {
+					candidates.push(stem + source);
+				}
+			}
+		}
+	}
 	for (const extension of IMPORT_EXTENSIONS) {
 		if (knownFiles.has(base + extension)) {
 			candidates.push(base + extension);

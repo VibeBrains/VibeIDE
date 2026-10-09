@@ -41,6 +41,24 @@ suite('Code graph — pure core', () => {
 			);
 		});
 
+		test('a .js import of TypeScript finds the .ts source; a real .js file wins as written', () => {
+			const files = known('/repo/a.ts', '/repo/base/lifecycle.ts', '/repo/ui/view.tsx', '/repo/esm/mod.mts', '/repo/plain.js');
+			assert.deepStrictEqual(
+				[
+					resolveImportTarget('/repo/a.ts', './base/lifecycle.js', files),
+					resolveImportTarget('/repo/a.ts', './ui/view.js', files),
+					resolveImportTarget('/repo/a.ts', './esm/mod.mjs', files),
+					resolveImportTarget('/repo/a.ts', './plain.js', files),
+				],
+				[
+					{ path: '/repo/base/lifecycle.ts', provenance: 'inferred' },
+					{ path: '/repo/ui/view.tsx', provenance: 'inferred' },
+					{ path: '/repo/esm/mod.mts', provenance: 'inferred' },
+					{ path: '/repo/plain.js', provenance: 'extracted' },
+				],
+			);
+		});
+
 		test('bare packages and unknown paths produce no edge at all', () => {
 			const files = known('/repo/a.ts');
 			assert.deepStrictEqual(
