@@ -309,6 +309,7 @@
 			"import './contrib/vibeide/electron-browser/sendLLMMessageService.js';",
 			"import './contrib/vibeide/electron-browser/telegram/vibeTelegramBridgeContribution.js';",
 			"import './contrib/vibeide/electron-browser/vibeDesktopNotificationService.js';",
+			"import './contrib/vibeide/electron-browser/vibeEmbeddingsService.js';",
 			"import './contrib/vibeide/electron-browser/vibeEnvApiKeysContribution.js';",
 			"import './contrib/vibeide/electron-browser/vibeGitReadService.js';",
 			"import './contrib/vibeide/electron-browser/vibeIdleWatchdogProxy.js';",
