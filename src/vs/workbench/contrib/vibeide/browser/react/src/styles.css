@@ -140,6 +140,14 @@
 		)
 	);
 }
+/*
+ * The height of one line of the composer's bottom row: its tallest control is an icon button
+ * (an 18px ring and 0.375rem of padding on each side), and the right group, which sits on the first line
+ * whatever the left group wraps into, centres its own content in a box of that height
+ */
+.chat-composer-toolbar-line {
+	min-height: 1.875rem;
+}
 
 /*
  * /skill: autocomplete dropdown — same background + border token chain as `.chat-composer-shell`,

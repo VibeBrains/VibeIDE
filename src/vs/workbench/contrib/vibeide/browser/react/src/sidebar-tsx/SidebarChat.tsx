@@ -1494,39 +1494,6 @@ const ChatContinueButton = ({ onSend }: { onSend: (text: string) => void }) => {
 	);
 };
 
-/** CDN catalog hint next to Chat model picker (training / data-use). */
-const ChatTrainingPolicyBadge: React.FC = () => {
-	const settingsState = useSettingsState();
-	const accessor = useAccessor();
-	const sel = settingsState.modelSelectionOfFeature['Chat'];
-	if (!sel || (sel.providerName === 'auto' && sel.modelName === 'auto')) {
-		return null;
-	}
-	if (!isValidProviderModelSelection(sel)) {
-		return null;
-	}
-	const policy = accessor.get('IVibeModelsRegistryService').getTrainingPolicyForSelection(sel.providerName, sel.modelName);
-	const short = policy === undefined ? chatS.trainingUnknown
-		: policy === 'none' ? chatS.trainingNone
-			: policy === 'opt-in' ? chatS.trainingOptIn
-				: policy === 'opt-out-available' ? chatS.trainingOptOut
-					: chatS.trainingMayTrain;
-	const tip = policy === undefined
-		? chatS.trainingTipUnknown
-		: policy === 'none' ? chatS.trainingTipNone
-			: policy === 'opt-in' ? chatS.trainingTipOptIn
-				: policy === 'opt-out-available' ? chatS.trainingTipOptOut
-					: chatS.trainingTipMayTrain;
-	return (
-		<span
-			className="text-[10px] leading-tight text-vibe-fg-4 border border-vibe-border-2 rounded-xl px-1.5 py-0.5 max-w-[5.5rem] truncate"
-			title={`${displayInfoOfProviderName(sel.providerName).title}/${sel.modelName}\n${tip}`}
-		>
-			📚 {short}
-		</span>
-	);
-};
-
 /** Model dropdown that lights up (orange ring + ⚠ tooltip) when the current provider×model is
  *  degrading (3099): a series of provider errors (520/529, rate/usage limit, overload, stream
  *  stall) within ~10 min. Clicking the chip opens the model list as usual — the warning sits right
@@ -1747,7 +1714,7 @@ export const VibeChatArea: React.FC<VibeideChatAreaProps> = ({
 			</div>
 
 			{/* Bottom row — left: mode/model/options; right: loading + chat history */}
-			<div className='@@chat-composer-toolbar-rule flex flex-row items-center gap-2 mt-1 pt-2.5 min-w-0'>
+			<div className='@@chat-composer-toolbar-rule flex flex-row items-start gap-2 mt-1 pt-2.5 min-w-0'>
 				{showModelDropdown && (
 					<div className='flex items-center flex-wrap gap-x-2 gap-y-1 text-nowrap flex-1 min-w-0'>
 						{featureName === 'Chat' && <ChatModeDropdown className='text-xs text-vibe-fg-3 @@vibe-toolbar-pill rounded-xl overflow-hidden py-0.5 px-1.5' />}
@@ -1757,8 +1724,6 @@ export const VibeChatArea: React.FC<VibeideChatAreaProps> = ({
 						{featureName === 'Chat' && <ChatScoutToggleButton />}
 						{/* Context fill — running out of context is something the user must always see */}
 						{featureName === 'Chat' && <ChatContextMeterButton />}
-						{/* An indicator, not a knob: whether the provider may train on this chat */}
-						{featureName === 'Chat' && <ChatTrainingPolicyBadge />}
 						{/* The knobs sit one click away, each with its real value (ChatQuickSettings.tsx) */}
 						{featureName === 'Chat' ? <ChatQuickSettingsButton agentControls={<>
 							<ChatAgentAutopilotToggle />
@@ -1772,7 +1737,7 @@ export const VibeChatArea: React.FC<VibeideChatAreaProps> = ({
 						</>} /> : <ReasoningOptionSlider featureName={featureName} />}
 					</div>
 				)}
-				<div className='flex shrink-0 items-center gap-2'>
+				<div className='@@chat-composer-toolbar-line flex shrink-0 items-center gap-2'>
 					{isStreaming && loadingIcon ? (
 						<div className="flex items-center">
 							{loadingIcon}

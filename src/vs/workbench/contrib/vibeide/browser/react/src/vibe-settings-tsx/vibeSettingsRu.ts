@@ -183,11 +183,12 @@ export const chatS = {
 	sessionResetTitle: (used: string) =>
 		`Сбросить счётчик токенов сессии (израсходовано ${used}). Обнуляет session-лимит безопасности — история чата не затрагивается.`,
 	sessionResetAria: 'Сбросить счётчик токенов сессии',
-	trainingUnknown: 'обуч.?',
-	trainingNone: 'без обуч.',
-	trainingOptIn: 'opt-in',
-	trainingOptOut: 'opt-out',
-	trainingMayTrain: 'может обуч.',
+	trainingLine: (policy: string) => `Обучение на данных: ${policy}`,
+	trainingUnknown: 'неизвестно',
+	trainingNone: 'не используются',
+	trainingOptIn: 'только с вашего согласия',
+	trainingOptOut: 'используются, можно отказаться',
+	trainingMayTrain: 'могут использоваться',
 	trainingTipUnknown:
 		'Политика обучения неизвестна — обновите каталог или проверьте документацию провайдера (VibeIDE models.json).',
 	trainingTipNone: 'Каталог: провайдер указывает, что данные API по умолчанию не используются для обучения.',
