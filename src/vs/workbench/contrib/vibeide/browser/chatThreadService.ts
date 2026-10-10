@@ -6418,7 +6418,8 @@ Output ONLY the JSON, no other text. Start with { and end with }.`;
 				let resMessageIsDonePromise: (res: ResTypes) => void; // resolves when user approves this tool use (or if tool doesn't require approval)
 				const messageIsDonePromise = new Promise<ResTypes>((res, rej) => { resMessageIsDonePromise = res; });
 
-				// Track if message is done to prevent late onText updates
+				// Set once this attempt has ended, by an answer, an error or an abort
+				// After it neither a late onText update nor the hard-stall timer may act on the thread
 				let messageIsDone = false;
 
 				// Set by onHardStall when it aborts this stream and takes ownership of the turn's
@@ -6490,6 +6491,9 @@ Output ONLY the JSON, no other text. Start with { and end with }.`;
 				/** Attempt number stamped on every trace event of this turn — see `nextChatTraceTurn`. */
 				let traceTurn = 0;
 				const onHardStall = () => {
+					// A turn that already ended has nothing left to stall
+					// The timer outliving it would wipe the state of the live turn and re-send the answer to a stopped one
+					if (messageIsDone) { return; }
 					// No partial content commit: hardStall resets on every token, so reaching it
 					// means nothing arrived. Abort the LLM call, drop the stream state, then either
 					// auto-retry the turn ONCE (Zen holds large payloads without a single byte —
@@ -6505,11 +6509,7 @@ Output ONLY the JSON, no other text. Start with { and end with }.`;
 					// iteration counters.)
 					messageIsDone = true;
 					hardStallHandled = true;
-					clearTimeout(earlyStallTimer); earlyStallTimer = undefined;
-					clearTimeout(firstTokenStallTimer); firstTokenStallTimer = undefined;
-					clearTimeout(midStreamStallTimer); midStreamStallTimer = undefined;
-					clearTimeout(hardStallTimer); hardStallTimer = undefined;
-					clearStallNotification();
+					clearIterationTimers();
 
 					// Diagnostics: record the hard-stall in the chat-run trace (anyToken=false confirms a
 					// truly silent send-path hang vs a mid-stream freeze). See vibeStallDiagnostics.
@@ -6592,6 +6592,18 @@ Output ONLY the JSON, no other text. Start with { and end with }.`;
 					applyWatchdogEffects(effects);
 				}, 5_000);
 				const clearWatchdogTimer = () => { if (watchdogTickTimer) { watchdogTimerWindow.clearInterval(watchdogTickTimer); watchdogTickTimer = undefined; } };
+				// Every timer of this attempt dies with it
+				// One that outlives the attempt fires into the next one: the hard-stall timer of a dead turn
+				// ended the live turn and re-sent the answer to a person who had pressed Stop
+				const clearIterationTimers = () => {
+					clearTimeout(networkTimeout);
+					clearTimeout(earlyStallTimer); earlyStallTimer = undefined;
+					clearTimeout(firstTokenStallTimer); firstTokenStallTimer = undefined;
+					clearTimeout(midStreamStallTimer); midStreamStallTimer = undefined;
+					clearTimeout(hardStallTimer); hardStallTimer = undefined;
+					clearStallNotification();
+					clearWatchdogTimer();
+				};
 				const { state: wds0, effects: wde0 } = transitionWatchdog(watchdogState, { kind: 'start', now: Date.now() });
 				watchdogState = wds0;
 				applyWatchdogEffects(wde0);
@@ -6911,15 +6923,7 @@ Output ONLY the JSON, no other text. Start with { and end with }.`;
 							}
 						}
 
-						// Clear timeout
-						clearTimeout(networkTimeout);
-						// Clear stall watchdog timers
-						clearTimeout(earlyStallTimer); earlyStallTimer = undefined;
-						clearTimeout(firstTokenStallTimer); firstTokenStallTimer = undefined;
-						clearTimeout(midStreamStallTimer); midStreamStallTimer = undefined;
-						clearTimeout(hardStallTimer); hardStallTimer = undefined;
-						clearStallNotification();
-						clearWatchdogTimer();
+						clearIterationTimers();
 						{
 							const { state, effects } = transitionWatchdog(watchdogState, { kind: 'complete', now: Date.now() });
 							watchdogState = state;
@@ -6987,15 +6991,8 @@ Output ONLY the JSON, no other text. Start with { and end with }.`;
 						resMessageIsDonePromise({ type: 'llmDone', toolCall, info: { fullText, fullReasoning, anthropicReasoning, finishNotice } }); // resolve with tool calls
 					},
 					onError: async (error) => {
-						// Clear timeout
-						clearTimeout(networkTimeout);
-						// Clear stall watchdog timers
-						clearTimeout(earlyStallTimer); earlyStallTimer = undefined;
-						clearTimeout(firstTokenStallTimer); firstTokenStallTimer = undefined;
-						clearTimeout(midStreamStallTimer); midStreamStallTimer = undefined;
-						clearTimeout(hardStallTimer); hardStallTimer = undefined;
-						clearStallNotification();
-						clearWatchdogTimer();
+						messageIsDone = true;
+						clearIterationTimers();
 						{
 							const { state, effects } = transitionWatchdog(watchdogState, { kind: 'provider-error', now: Date.now() });
 							watchdogState = state;
@@ -7349,7 +7346,8 @@ Output ONLY the JSON, no other text. Start with { and end with }.`;
 					},
 					onAbort: () => {
 						// stop the loop to free up the promise, but don't modify state (already handled by whatever stopped it)
-						clearWatchdogTimer();
+						messageIsDone = true;
+						clearIterationTimers();
 						const { state: _ws, effects: _we } = transitionWatchdog(watchdogState, { kind: 'cancel', now: Date.now() });
 						watchdogState = _ws;
 						applyWatchdogEffects(_we);
@@ -7369,7 +7367,12 @@ Output ONLY the JSON, no other text. Start with { and end with }.`;
 
 				// Update status to show we're waiting for the model response
 				this._setStreamState(threadId, { isRunning: 'LLM', llmInfo: { displayContentSoFar: WAITING_FOR_MODEL_RESPONSE_SENTINEL, reasoningSoFar: '', toolCallSoFar: null }, interrupt: Promise.resolve(() => this._llmMessageService.abort(llmCancelToken)) });
-				const llmRes = await messageIsDonePromise; // wait for message to complete
+				let llmRes: ResTypes;
+				try {
+					llmRes = await messageIsDonePromise; // wait for message to complete
+				} finally {
+					clearIterationTimers();
+				}
 
 				// if something else started running in the meantime
 				if (this.streamState[threadId]?.isRunning !== 'LLM') {
