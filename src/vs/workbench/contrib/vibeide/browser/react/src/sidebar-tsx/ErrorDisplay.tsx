@@ -61,7 +61,7 @@ export const ErrorDisplay = ({
 	const message = normalizedMessage + '';
 
 	return (
-		<div className={`rounded-lg border border-red-200 bg-red-50 p-4 overflow-auto error-display-enter shadow-sm`}>
+		<div className={`rounded-lg border border-red-200 bg-red-50 p-4 overflow-auto @@vibe-scroll error-display-enter shadow-sm`}>
 			{/* Header */}
 			<div className='flex items-start justify-between gap-3'>
 				<div className='flex gap-3 flex-1 min-w-0'>
@@ -145,7 +145,7 @@ export const ErrorDisplay = ({
 
 			{/* Expandable Details (dev mode only, no raw stacks) */}
 			{isExpanded && (details || providerRows.length > 0) && (
-				<div className='mt-4 space-y-3 border-t border-red-200 pt-3 overflow-auto animate-in fade-in slide-in-from-top-2 duration-200'>
+				<div className='mt-4 space-y-3 border-t border-red-200 pt-3 overflow-auto @@vibe-scroll animate-in fade-in slide-in-from-top-2 duration-200'>
 					{providerRows.length > 0 && (
 						<div>
 							<span className='font-semibold text-red-800 text-xs'>{errorDisplayS.providerReported}</span>
@@ -162,7 +162,7 @@ export const ErrorDisplay = ({
 					{details && (
 						<div>
 							<span className='font-semibold text-red-800 text-xs'>{errorDisplayS.technicalDetails}</span>
-							<pre className='text-red-700 text-xs mt-1.5 p-2 bg-red-100/50 rounded border border-red-200/50 overflow-x-auto'>{details}</pre>
+							<pre className='text-red-700 text-xs mt-1.5 p-2 bg-red-100/50 rounded border border-red-200/50 overflow-x-auto @@vibe-scroll'>{details}</pre>
 						</div>
 					)}
 				</div>

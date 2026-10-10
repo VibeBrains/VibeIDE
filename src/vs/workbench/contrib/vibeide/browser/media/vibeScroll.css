@@ -1,0 +1,54 @@
+/*---------------------------------------------------------------------------------------------
+ *  Copyright (c) Microsoft Corporation. All rights reserved.
+ *  Licensed under the MIT License. See License.txt in the project root for license information.
+ *--------------------------------------------------------------------------------------------*/
+
+/* ── The one scrollbar of VibeIDE's own surfaces ──────────────────────────────────────────
+   A thin bar in the theme's accent, absent until the pointer or the focus is in the container
+
+   Every scroll container of ours carries `vibe-scroll` (`@@vibe-scroll` in the React tree);
+   `scripts/vibe-scroll-gate.ts` refuses an `overflow: auto` without it. A container with none of these
+   selectors gets the system bar — a wide light strip across a dark theme
+
+   `.vibe-scope *` is the net under the React tree. `.vibe-scroll *` covers what a container holds but did not build:
+   tokenized code, rendered markdown. Unscoped on purpose: modal portals render outside `.vibe-scope`
+
+   `scrollbar-width` and `scrollbar-color` are reset to `auto`: once either is set, or inherited,
+   Chromium ignores every `::-webkit-scrollbar` rule and draws its own thin bar, which cannot hide or widen
+
+   The gutter is 8px so the bar is easy to grab; the thumb is drawn narrower by a transparent border:
+   4px at rest, 6px under the pointer */
+:is(.vibe-scroll, .vibe-scroll *, .vibe-scope, .vibe-scope *) {
+	scrollbar-width: auto;
+	scrollbar-color: auto;
+}
+
+:is(.vibe-scroll, .vibe-scroll *, .vibe-scope, .vibe-scope *)::-webkit-scrollbar {
+	width: 8px;
+	height: 8px;
+	background-color: transparent;
+}
+
+:is(.vibe-scroll, .vibe-scroll *, .vibe-scope, .vibe-scope *)::-webkit-scrollbar-track,
+:is(.vibe-scroll, .vibe-scroll *, .vibe-scope, .vibe-scope *)::-webkit-scrollbar-corner {
+	background-color: transparent;
+}
+
+:is(.vibe-scroll, .vibe-scroll *, .vibe-scope, .vibe-scope *)::-webkit-scrollbar-thumb {
+	background-color: transparent;
+	background-clip: content-box;
+	border: 2px solid transparent;
+	border-radius: 9999px;
+	min-height: 40px;
+	min-width: 40px;
+}
+
+:is(.vibe-scroll, .vibe-scroll *, .vibe-scope, .vibe-scope *):is(:hover, :focus-within)::-webkit-scrollbar-thumb {
+	background-color: color-mix(in srgb, var(--vscode-button-background, #4a6fb5) 67%, transparent);
+}
+
+:is(.vibe-scroll, .vibe-scroll *, .vibe-scope, .vibe-scope *)::-webkit-scrollbar-thumb:hover,
+:is(.vibe-scroll, .vibe-scroll *, .vibe-scope, .vibe-scope *)::-webkit-scrollbar-thumb:active {
+	background-color: var(--vscode-button-background, #4a6fb5);
+	border-width: 1px;
+}

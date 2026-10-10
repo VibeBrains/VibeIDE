@@ -426,47 +426,6 @@ select.vibe-chat-like-control:disabled {
 }
 
 /**
- * Settings pane: visible scrollbar (track transparent, thumb aligns with pill borders / scrollbar tokens).
- */
-.vibe-settings-scroll-root {
-	scrollbar-width: thin;
-	scrollbar-color: var(--vscode-scrollbarSlider-background, var(--vscode-input-border, rgba(255, 255, 255, 0.12))) transparent;
-}
-
-.vibe-settings-scroll-root::-webkit-scrollbar {
-	width: 5px;
-	height: 5px;
-}
-
-.vibe-settings-scroll-root::-webkit-scrollbar-track {
-	background: transparent;
-}
-
-.vibe-settings-scroll-root::-webkit-scrollbar-thumb {
-	border-radius: 9999px;
-	background: transparent;
-	border: 1px solid var(--vscode-scrollbarSlider-background, var(--vscode-input-border, rgba(255, 255, 255, 0.14)));
-	background-clip: padding-box;
-	min-height: 40px;
-	transition: border-color 120ms ease-out, background-color 120ms ease-out;
-}
-
-.vibe-settings-scroll-root::-webkit-scrollbar-thumb:hover {
-	border-color: var(
-		--vscode-scrollbarSlider-hoverBackground,
-		var(--vscode-commandCenter-activeBorder, var(--vscode-input-border))
-	);
-	background-color: color-mix(in srgb, var(--vscode-list-hoverBackground, var(--vscode-scrollbarSlider-hoverBackground)) 28%, transparent);
-	background-clip: padding-box;
-}
-
-.vibe-settings-scroll-root::-webkit-scrollbar-thumb:active {
-	border-color: var(--vscode-scrollbarSlider-activeBackground, var(--vscode-focusBorder));
-	background-color: color-mix(in srgb, var(--vscode-scrollbarSlider-activeBackground, var(--vscode-focusBorder)) 35%, transparent);
-	background-clip: padding-box;
-}
-
-/**
  * VibeIDE onboarding: fixed neon palette aligned with logo (cyan / magenta), independent of workbench theme.
  * Scoped under .vibe-onboarding-neon (inner wrapper in VibeOnboarding.tsx).
  */

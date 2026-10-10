@@ -45,7 +45,7 @@ export const VibeProjectCommandFormModal: React.FC = () => {
 			flushBody
 		>
 			{props && (
-				<div className="@@vibeide-rmodal-scroll">
+				<div className="@@vibeide-rmodal-scroll @@vibe-scroll">
 					<VibeProjectCommandForm
 						key={`${props.mode}:${props.commandIdForEdit ?? ''}`}
 						mode={props.mode}

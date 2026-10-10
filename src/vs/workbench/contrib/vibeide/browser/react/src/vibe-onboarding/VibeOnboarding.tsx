@@ -38,7 +38,7 @@ export const VibeOnboarding = () => {
 					@@vibe-onboarding-neon @@vibe-onboarding-backdrop
 					fixed inset-0 z-[99999] flex items-start justify-center px-6 py-12
 					backdrop-blur-[28px]
-					overflow-y-auto
+					overflow-y-auto @@vibe-scroll
 					transition-all duration-700 ease-in-out
 					${isOnboardingComplete ? 'opacity-0 translate-y-4 pointer-events-none' : 'opacity-100 pointer-events-auto'}
 				`}
@@ -160,7 +160,7 @@ const AddProvidersPage = ({ pageIndex, setPageIndex }: { pageIndex: number; setP
 
 			<div className="flex flex-col md:flex-row flex-1 gap-6">
 				{/* Left rail */}
-				<div className="md:w-1/3 w-full flex flex-col gap-6 p-6 rounded-[28px] border border-vibe-border-3 bg-vibe-bg-2/70 shadow-[0_35px_90px_rgba(0,0,0,0.35)] h-full overflow-y-auto">
+				<div className="md:w-1/3 w-full flex flex-col gap-6 p-6 rounded-[28px] border border-vibe-border-3 bg-vibe-bg-2/70 shadow-[0_35px_90px_rgba(0,0,0,0.35)] h-full overflow-y-auto @@vibe-scroll">
 					<div className="flex flex-wrap md:flex-col gap-2">
 						{[...tabNames, 'Cloud/Other'].map(tab => (
 							<button
@@ -208,7 +208,7 @@ const AddProvidersPage = ({ pageIndex, setPageIndex }: { pageIndex: number; setP
 						</p>
 					</div>
 
-					<div className="space-y-6 overflow-y-auto pr-1 flex-1">
+					<div className="space-y-6 overflow-y-auto @@vibe-scroll pr-1 flex-1">
 						{providerNamesOfTab[currentTab].map((providerName) => (
 							<div key={providerName} className="rounded-2xl border border-vibe-border-3/80 bg-vibe-bg-3/60 p-5 shadow-[0_10px_30px_rgba(0,0,0,0.35)]">
 								<div className="flex items-center justify-between mb-3">
@@ -382,7 +382,7 @@ const OnboardingPageShell = ({ top, bottom, content, hasMaxWidth = true, classNa
 				shadow-[0_30px_90px_rgba(0,0,0,0.45)]
 				${hasMaxWidth ? 'max-w-[720px]' : ''}
 				max-h-[calc(100vh-6rem)]
-				overflow-y-auto
+				overflow-y-auto @@vibe-scroll
 			`}>
 				{top && <FadeIn className='w-full mb-auto'>{top}</FadeIn>}
 				{content && <FadeIn className='w-full my-auto'>{content}</FadeIn>}

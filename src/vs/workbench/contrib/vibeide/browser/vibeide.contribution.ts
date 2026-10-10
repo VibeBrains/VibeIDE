@@ -45,6 +45,7 @@ import './vibeCircuitBreakerCommands.js';
 import './media/vibeide.css';
 // Z.12 BISECT — temporarily disable VibeModal CSS to confirm/deny it as the freeze source
 import './media/vibeModal.css';
+import './media/vibeScroll.css';
 
 // Builtin Vibe Neon — title-bar glow toggle registration + default theme chrome CSS (extensions/vibeide-neon)
 import './vibeNeonGlowTitleBar.js';

@@ -78,7 +78,7 @@ const DiffBlock = ({ diff }: { diff: IAcpDiff }) => {
 
 	return <div className='rounded-md border border-vibe-border-4 bg-vibe-bg-1'>
 		<div className='border-b border-vibe-border-4 px-2 py-1 font-mono text-root text-vibe-fg-2'>{diff.path}</div>
-		<pre className='overflow-x-auto px-2 py-1 font-mono text-root leading-relaxed'>
+		<pre className='overflow-x-auto @@vibe-scroll px-2 py-1 font-mono text-root leading-relaxed'>
 			{cut(oldLines).map((line, index) => <div key={`o${index}`} className='text-vibe-warning'>{`− ${line}`}</div>)}
 			{cut(newLines).map((line, index) => <div key={`n${index}`} className='text-vibe-success'>{`+ ${line}`}</div>)}
 		</pre>
@@ -273,7 +273,7 @@ const SessionCard = ({ session }: { session: IVibeAcpSessionView }) => {
 			</PaneButton>}
 		</div>}
 
-		{session.log.entries.length > 0 && <div className='flex max-h-[50vh] flex-col gap-2 overflow-y-auto'>
+		{session.log.entries.length > 0 && <div className='flex max-h-[50vh] flex-col gap-2 overflow-y-auto @@vibe-scroll'>
 			{session.log.entries.map(entry => <LogEntry key={entry.id} entry={entry} />)}
 		</div>}
 
@@ -371,10 +371,10 @@ export const ExternalAgents = () => {
 	// молча не применяется. Поэтому корень несёт лишь скоуп и размеры инлайном, а всё оформление
 	// живёт на внутренней обёртке.
 	return <div
-		className={`@@vibe-scope ${isDark ? 'dark' : ''}`}
+		className={`@@vibe-scope @@vibe-scroll ${isDark ? 'dark' : ''}`}
 		// Фон задаётся здесь же и тем же токеном: обёртка ограничена по ширине, и покрась мы фон
 		// только её, поверхность по краям осталась бы цвета редактора.
-		style={{ height: '100%', width: '100%', overflowY: 'auto', background: 'var(--vibe-bg-1)' }}
+		style={{ height: '100%', width: '100%', overflowY: 'auto', background: 'var(--vibe-bg-1)' }} // vibe-scroll: class on this element
 	>
 		<div className='mx-auto flex max-w-3xl flex-col gap-5 px-8 py-8 text-vibe-fg-1'>
 

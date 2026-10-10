@@ -76,7 +76,7 @@ export const ChatQuickSettingsButton = ({ agentControls }: { agentControls: Reac
 			shift({ boundary: document.body, padding: 8 }),
 			size({
 				apply({ availableHeight, elements }) {
-					Object.assign(elements.floating.style, { maxHeight: `${Math.max(200, Math.min(availableHeight - 12, 520))}px`, overflowY: 'auto' });
+					Object.assign(elements.floating.style, { maxHeight: `${Math.max(200, Math.min(availableHeight - 12, 520))}px`, overflowY: 'auto' }); // vibe-scroll: class on the floating element
 				},
 				padding: 8,
 				boundary: document.body,
@@ -126,7 +126,7 @@ export const ChatQuickSettingsButton = ({ agentControls }: { agentControls: Reac
 		{isOpen ? <div
 			ref={refs.setFloating}
 			style={{ position: strategy, top: y ?? 0, left: x ?? 0, minWidth: '280px', maxWidth: 'min(92vw, 380px)' }}
-			className='z-50 rounded-2xl shadow-xl bg-vibe-bg-1 border border-vibe-border-3 p-3 text-vibe-fg-2'
+			className='@@vibe-scroll z-50 rounded-2xl shadow-xl bg-vibe-bg-1 border border-vibe-border-3 p-3 text-vibe-fg-2'
 			role='dialog'
 			aria-label={chatS.quickSettingsTitle}
 		>

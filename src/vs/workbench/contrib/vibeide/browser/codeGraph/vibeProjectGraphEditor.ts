@@ -148,7 +148,7 @@ export class VibeProjectGraphPane extends EditorPane {
 		this._main = DOM.append(this._host, $('.vibe-project-graph-main'));
 		const toolbar = DOM.append(this._main, $('.vibe-docs-graph-toolbar'));
 		this._canvasHost = DOM.append(this._main, $('.vibe-docs-graph-host'));
-		this._report = DOM.append(this._host, $('.vibe-project-graph-report'));
+		this._report = DOM.append(this._host, $('.vibe-project-graph-report.vibe-scroll'));
 
 		this._back = DOM.append(toolbar, $('a.vibe-docs-graph-reset'));
 		this._back.textContent = localize('vibeProjectGraph.back', "← Подсистемы");

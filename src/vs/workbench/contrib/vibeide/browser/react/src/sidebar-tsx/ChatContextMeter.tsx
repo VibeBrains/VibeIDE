@@ -156,7 +156,7 @@ export const ChatContextMeterButton = () => {
 				apply({ availableHeight, elements }) {
 					Object.assign(elements.floating.style, {
 						maxHeight: `${Math.max(160, Math.min(availableHeight - 12, 420))}px`,
-						overflowY: 'auto',
+						overflowY: 'auto', // vibe-scroll: class on the floating element
 					});
 				},
 				padding: 8,
@@ -302,7 +302,7 @@ export const ChatContextMeterButton = () => {
 				<div
 					ref={refs.setFloating}
 					style={{ position: strategy, top: y ?? 0, left: x ?? 0, minWidth: '260px', maxWidth: 'min(90vw, 340px)' }}
-					className='z-50 rounded-2xl shadow-xl bg-vibe-bg-1 border border-vibe-border-3 p-3 text-vibe-fg-2'
+					className='@@vibe-scroll z-50 rounded-2xl shadow-xl bg-vibe-bg-1 border border-vibe-border-3 p-3 text-vibe-fg-2'
 					role='dialog'
 					aria-label={chatS.contextMeterTitle}
 				>

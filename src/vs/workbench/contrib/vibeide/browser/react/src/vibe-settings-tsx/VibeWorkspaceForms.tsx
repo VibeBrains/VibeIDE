@@ -1113,7 +1113,7 @@ export const VibeWorkspaceFormsPanel = () => {
 					<p className='text-xs text-vibe-fg-3'>{workspaceS.goalsHint}</p>
 					<details className='text-xs text-vibe-fg-3 @@vibe-chat-like-shell px-2 py-1'>
 						<summary className='cursor-pointer text-vibe-fg-2 select-none'>{workspaceS.exampleSkeletonMarkup}</summary>
-						<pre className='mt-2 max-h-40 overflow-auto font-mono text-[11px] text-vibe-fg-3 whitespace-pre-wrap border-t border-vibe-border-1 pt-2'>{VIBE_GOALS_FORM_EXAMPLE}</pre>
+						<pre className='mt-2 max-h-40 overflow-auto @@vibe-scroll font-mono text-[11px] text-vibe-fg-3 whitespace-pre-wrap border-t border-vibe-border-1 pt-2'>{VIBE_GOALS_FORM_EXAMPLE}</pre>
 					</details>
 					<button type='button' className='text-xs text-vibe-fg-3 border border-vibe-border-1 rounded px-2 py-1 self-start' onClick={insertGoalsExampleClick}>
 						{workspaceS.insertGoalsExample}
@@ -1147,7 +1147,7 @@ export const VibeWorkspaceFormsPanel = () => {
 						<button type='button' className='text-xs text-red-400 border border-vibe-border-1 rounded px-2 py-1' onClick={() => { void delPrompt(); }} disabled={!selPromptName}>{workspaceS.delete}</button>
 					</div>
 					<div className='grid grid-cols-1 md:grid-cols-3 gap-3'>
-						<div className='@@vibe-chat-like-shell p-2 max-h-56 overflow-y-auto text-xs'>
+						<div className='@@vibe-chat-like-shell p-2 max-h-56 overflow-y-auto @@vibe-scroll text-xs'>
 							{prompts.length === 0 ? <span className='text-vibe-fg-4'>{workspaceS.noPrompts}</span> : prompts.map(p => (
 								<button
 									key={p.name}
@@ -1194,7 +1194,7 @@ export const VibeWorkspaceFormsPanel = () => {
 						<button type='button' className='text-xs text-red-400 border border-vibe-border-1 rounded px-2 py-1' onClick={() => { void delWorkflow(); }} disabled={!selWorkflowName}>{workspaceS.delete}</button>
 					</div>
 					<div className='grid grid-cols-1 md:grid-cols-3 gap-3'>
-						<div className='@@vibe-chat-like-shell p-2 max-h-56 overflow-y-auto text-xs'>
+						<div className='@@vibe-chat-like-shell p-2 max-h-56 overflow-y-auto @@vibe-scroll text-xs'>
 							{workflows.length === 0 ? <span className='text-vibe-fg-4'>{workspaceS.noWorkflows}</span> : workflows.map(w => (
 								<button
 									key={w.name}
@@ -1250,7 +1250,7 @@ export const VibeWorkspaceFormsPanel = () => {
 						<VibeButtonBgDarken className='px-3 py-1 text-xs' onClick={() => { void createSkill(); }}>{workspaceS.createSkill}</VibeButtonBgDarken>
 					</div>
 					<div className='grid grid-cols-1 md:grid-cols-3 gap-3'>
-						<div className='@@vibe-chat-like-shell p-2 max-h-56 overflow-y-auto text-xs'>
+						<div className='@@vibe-chat-like-shell p-2 max-h-56 overflow-y-auto @@vibe-scroll text-xs'>
 							{skills.length === 0 ? <span className='text-vibe-fg-4'>{workspaceS.noSkills}</span> : skills.map(s => (
 								<button
 									key={s.folderId}
@@ -1310,7 +1310,7 @@ export const VibeWorkspaceFormsPanel = () => {
 						{workspaceS.refreshFileList}
 					</button>
 					<div className='grid grid-cols-1 md:grid-cols-3 gap-3'>
-						<div className='@@vibe-chat-like-shell p-2 max-h-[22rem] overflow-y-auto text-xs'>
+						<div className='@@vibe-chat-like-shell p-2 max-h-[22rem] overflow-y-auto @@vibe-scroll text-xs'>
 							{vibeTree.length === 0 ? (
 								<span className='text-vibe-fg-4'>{workspaceS.noVibeTree}</span>
 							) : (
@@ -1397,13 +1397,13 @@ export const VibeWorkspaceFormsPanel = () => {
 					) : null}
 					<details open className='text-xs @@vibe-chat-like-shell px-2 py-1'>
 						<summary className='cursor-pointer text-vibe-fg-2 select-none mb-2'>{workspaceS.rootJsonDocFold}</summary>
-						<div className='text-xs text-vibe-fg-3 border-t border-vibe-border-1 pt-2 max-h-[22rem] overflow-y-auto prose prose-sm prose-p:my-1 prose-ul:my-1 prose-ul:list-disc prose-ul:pl-4 prose-code:before:content-none prose-code:after:content-none select-text'>
+						<div className='text-xs text-vibe-fg-3 border-t border-vibe-border-1 pt-2 max-h-[22rem] overflow-y-auto @@vibe-scroll prose prose-sm prose-p:my-1 prose-ul:my-1 prose-ul:list-disc prose-ul:pl-4 prose-code:before:content-none prose-code:after:content-none select-text'>
 							<ChatMarkdownRender inPTag={true} string={workspaceRootJsonDocMarkdown(selRootJsonName)} chatMessageLocation={undefined} />
 						</div>
 					</details>
 					<details className='text-xs text-vibe-fg-3 @@vibe-chat-like-shell px-2 py-1'>
 						<summary className='cursor-pointer text-vibe-fg-2 select-none'>{workspaceS.exampleSkeleton}</summary>
-						<pre className='mt-2 max-h-40 overflow-auto font-mono text-[11px] text-vibe-fg-3 whitespace-pre-wrap border-t border-vibe-border-1 pt-2'>{rootJsonExampleSnippet(selRootJsonName)}</pre>
+						<pre className='mt-2 max-h-40 overflow-auto @@vibe-scroll font-mono text-[11px] text-vibe-fg-3 whitespace-pre-wrap border-t border-vibe-border-1 pt-2'>{rootJsonExampleSnippet(selRootJsonName)}</pre>
 					</details>
 					<button type='button' className='text-xs text-vibe-fg-3 border border-vibe-border-1 rounded px-2 py-1 self-start' onClick={insertRootJsonExampleClick}>
 						{workspaceS.insertRootJsonExample}
@@ -1898,7 +1898,7 @@ const ProjectCommandsPanel: React.FC<{ openAddTick?: number }> = ({ openAddTick 
 					<div className='flex flex-col gap-1'>
 						<span className={labelTitleCls}>{workspaceS.pcAddPreviewTitle}</span>
 						<pre
-							className='@@vibe-chat-like-shell font-mono text-[11px] p-2 whitespace-pre overflow-x-auto text-vibe-fg-2'
+							className='@@vibe-chat-like-shell font-mono text-[11px] p-2 whitespace-pre overflow-x-auto @@vibe-scroll text-vibe-fg-2'
 							style={{ maxHeight: 200 }}
 						>
 							{previewCommand ? previewProjectCommandJson(previewCommand) : '// заполните id, name и команду…'}
@@ -1939,7 +1939,7 @@ const ProjectCommandsPanel: React.FC<{ openAddTick?: number }> = ({ openAddTick 
 				) : filtered.length === 0 ? (
 					<p className='text-xs text-vibe-fg-3'>{workspaceS.pcTableEmptyFiltered}</p>
 				) : (
-					<div className='@@vibe-chat-like-shell overflow-x-auto'>
+					<div className='@@vibe-chat-like-shell overflow-x-auto @@vibe-scroll'>
 						<table className='w-full text-xs text-vibe-fg-2'>
 							<thead>
 								<tr className='text-[11px] text-vibe-fg-3 uppercase tracking-wide'>
@@ -2041,7 +2041,7 @@ const VibeWorkspaceReadmeForm = ({ rootUri, onBackToForms }: { rootUri: URI; onB
 				</p>
 			) : (
 				<div
-					className='@@vibe-chat-like-shell w-full min-h-[200px] max-h-[70vh] overflow-y-auto text-xs p-3 text-vibe-fg-2'
+					className='@@vibe-chat-like-shell w-full min-h-[200px] max-h-[70vh] overflow-y-auto @@vibe-scroll text-xs p-3 text-vibe-fg-2'
 				>
 					<ChatMarkdownRender string={readmeText || '_(empty)_'} chatMessageLocation={undefined} codeURI={joinPath(rootUri, '.vibe', 'README.md')} />
 				</div>

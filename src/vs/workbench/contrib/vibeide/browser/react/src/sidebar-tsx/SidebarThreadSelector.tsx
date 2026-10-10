@@ -656,7 +656,7 @@ export const ChatHistoryToolbarDropdown: React.FC<{ className?: string }> = ({ c
 					</div>
 					<div
 						ref={measureRef}
-						className="overflow-y-auto min-h-0 flex-1 px-1 py-1 flex flex-col gap-1"
+						className="overflow-y-auto @@vibe-scroll min-h-0 flex-1 px-1 py-1 flex flex-col gap-1"
 						style={{ maxHeight: 'min(320px, 70vh)' }}
 					>
 						{otherMatchesCount > 0 && (

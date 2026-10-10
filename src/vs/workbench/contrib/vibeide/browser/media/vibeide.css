@@ -541,149 +541,7 @@ body.monaco-workbench,
  * Settings experience: use user theme (no forced VibeIDE background/color overrides)
  * ------------------------------------------------------------------------------------- */
 
-/* styles for VibeIDE-scoped containers */
-.vibe-scope {
-	--scrollbar-vertical-width: 4px;
-	--scrollbar-horizontal-height: 3px;
-}
-
-/* Target both vibe-scope and all its descendants with scrollbars */
-.vibe-scope,
-.vibe-scope * {
-	scrollbar-width: thin !important;
-	scrollbar-color: var(--vibe-bg-1) var(--vibe-bg-3) !important;
-	/* For Firefox */
-}
-
-.vibe-scope::-webkit-scrollbar,
-.vibe-scope *::-webkit-scrollbar {
-	width: var(--scrollbar-vertical-width) !important;
-	height: var(--scrollbar-horizontal-height) !important;
-	background-color: var(--vibe-bg-3) !important;
-}
-
-.vibe-scope::-webkit-scrollbar-thumb,
-.vibe-scope *::-webkit-scrollbar-thumb {
-	background-color: var(--vibe-bg-1) !important;
-	border-radius: 9999px !important;
-	border: none !important;
-	-webkit-box-shadow: none !important;
-	box-shadow: none !important;
-}
-
-.vibe-scope::-webkit-scrollbar-thumb:hover,
-.vibe-scope *::-webkit-scrollbar-thumb:hover {
-	background-color: var(--vibe-bg-1) !important;
-	filter: brightness(1.1) !important;
-}
-
-.vibe-scope::-webkit-scrollbar-thumb:active,
-.vibe-scope *::-webkit-scrollbar-thumb:active {
-	background-color: var(--vibe-bg-1) !important;
-	filter: brightness(1.2) !important;
-}
-
-.vibe-scope::-webkit-scrollbar-track,
-.vibe-scope *::-webkit-scrollbar-track {
-	background-color: var(--vibe-bg-3) !important;
-	border: none !important;
-}
-
-.vibe-scope::-webkit-scrollbar-corner,
-.vibe-scope *::-webkit-scrollbar-corner {
-	background-color: var(--vibe-bg-3) !important;
-}
-
-/* Chat message list: the generic .vibe-scope scrollbar above is 4px with a bg-1-on-bg-3 thumb —
- * in dark themes both resolve to near-identical greys, so the chat "scrolls but has no visible
- * thumb to grab". Override with an always-visible, grabbable thumb on VS Code scrollbar tokens.
- * Selector is .vibe-scope-descendant so it outranks the `.vibe-scope *` generics (same file,
- * higher specificity + !important). Only the chat list opts in via this class. */
-.vibe-scope .vibe-chat-scroll-root {
-	scrollbar-width: thin !important;
-	scrollbar-color: var(--vscode-scrollbarSlider-background, rgba(121, 121, 121, 0.4)) transparent !important;
-}
-
-.vibe-scope .vibe-chat-scroll-root::-webkit-scrollbar {
-	width: 8px !important;
-	background-color: transparent !important;
-}
-
-.vibe-scope .vibe-chat-scroll-root::-webkit-scrollbar-track {
-	background-color: transparent !important;
-}
-
-.vibe-scope .vibe-chat-scroll-root::-webkit-scrollbar-thumb {
-	background-color: var(--vscode-scrollbarSlider-background, rgba(121, 121, 121, 0.4)) !important;
-	border-radius: 9999px !important;
-	min-height: 40px;
-}
-
-.vibe-scope .vibe-chat-scroll-root::-webkit-scrollbar-thumb:hover {
-	background-color: var(--vscode-scrollbarSlider-hoverBackground, rgba(100, 100, 100, 0.7)) !important;
-	filter: none !important;
-}
-
-.vibe-scope .vibe-chat-scroll-root::-webkit-scrollbar-thumb:active {
-	background-color: var(--vscode-scrollbarSlider-activeBackground, rgba(191, 191, 191, 0.4)) !important;
-	filter: none !important;
-}
-
-/* Match scroll styling for vibe-scrollable-element */
-.vibe-scrollable-element {
-	background-color: var(--vscode-editor-background);
-	--scrollbar-vertical-width: 7px;
-	--scrollbar-horizontal-height: 3px;
-	overflow: auto;
-	/* Ensure scrollbars are shown when needed */
-}
-
-.vibe-scrollable-element,
-.vibe-scrollable-element * {
-	scrollbar-width: thin !important;
-	/* For Firefox */
-	scrollbar-color: var(--vibe-bg-1) var(--vibe-bg-3) !important;
-	/* For Firefox */
-}
-
-.vibe-scrollable-element::-webkit-scrollbar,
-.vibe-scrollable-element *::-webkit-scrollbar {
-	width: var(--scrollbar-vertical-width) !important;
-	height: var(--scrollbar-horizontal-height) !important;
-	background-color: var(--vibe-bg-3) !important;
-}
-
-.vibe-scrollable-element::-webkit-scrollbar-thumb,
-.vibe-scrollable-element *::-webkit-scrollbar-thumb {
-	background-color: var(--vibe-bg-1) !important;
-	border-radius: 9999px !important;
-	border: none !important;
-	-webkit-box-shadow: none !important;
-	box-shadow: none !important;
-}
-
-.vibe-scrollable-element::-webkit-scrollbar-thumb:hover,
-.vibe-scrollable-element *::-webkit-scrollbar-thumb:hover {
-	background-color: var(--vibe-bg-1) !important;
-	filter: brightness(1.1) !important;
-}
-
-.vibe-scrollable-element::-webkit-scrollbar-thumb:active,
-.vibe-scrollable-element *::-webkit-scrollbar-thumb:active {
-	background-color: var(--vibe-bg-1) !important;
-	filter: brightness(1.2) !important;
-}
-
-.vibe-scrollable-element::-webkit-scrollbar-track,
-.vibe-scrollable-element *::-webkit-scrollbar-track {
-	background-color: var(--vibe-bg-3) !important;
-	border: none !important;
-}
-
-.vibe-scrollable-element::-webkit-scrollbar-corner,
-.vibe-scrollable-element *::-webkit-scrollbar-corner {
-	background-color: var(--vibe-bg-3) !important;
-}
+/* Scrollbars of VibeIDE-scoped containers: `vibeScroll.css` */
 
 /* VibeIDE logo beside auxiliary-bar title when chat container is sibling */
 .monaco-workbench .auxiliarybar-part > .content > .composite#workbench.view.vibeide ~ .composite.title > .title-label h2::before,
@@ -1132,7 +990,7 @@ body.monaco-workbench,
 }
 .vibe-project-graph-report {
 	flex: 0 0 300px;
-	overflow-y: auto;
+	overflow-y: auto; /* vibe-scroll: class set where the element is built */
 	padding: 8px 10px;
 	border-left: 1px solid var(--vscode-panel-border);
 	box-sizing: border-box;
@@ -1211,7 +1069,7 @@ body.monaco-workbench,
 	min-width: 240px;
 	max-width: 480px;
 	max-height: 60vh;
-	overflow-y: auto;
+	overflow-y: auto; /* vibe-scroll: class set where the element is built */
 	padding: 4px 0;
 	box-sizing: border-box;
 	background-color: var(--vscode-menu-background, var(--vscode-editorWidget-background));
@@ -1540,7 +1398,7 @@ body.monaco-workbench,
    ней превращаются в восемь полос по две строки. */
 .vibe-tasks-view {
 	padding: 8px 12px 12px;
-	overflow-y: auto;
+	overflow-y: auto; /* vibe-scroll: class set where the element is built */
 	height: 100%;
 	user-select: none;
 }

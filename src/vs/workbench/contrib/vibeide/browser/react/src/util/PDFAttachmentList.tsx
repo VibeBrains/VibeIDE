@@ -51,7 +51,7 @@ export const PDFAttachmentList: React.FC<PDFAttachmentListProps> = ({
 
 	return (
 		<div
-			className="flex flex-wrap gap-2 p-2 max-h-[300px] overflow-y-auto"
+			className="flex flex-wrap gap-2 p-2 max-h-[300px] overflow-y-auto @@vibe-scroll"
 			role="list"
 			aria-label={attachmentsS.listAria(attachments.length, 'pdf')}
 		>

@@ -114,7 +114,7 @@ export class VibeTasksViewPane extends ViewPane {
 
 	protected override renderBody(container: HTMLElement): void {
 		super.renderBody(container);
-		this._body = DOM.append(container, $('.vibe-tasks-view'));
+		this._body = DOM.append(container, $('.vibe-tasks-view.vibe-scroll'));
 		void this._render();
 	}
 
