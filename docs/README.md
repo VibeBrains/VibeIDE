@@ -25,6 +25,7 @@
 
 **Руководства** — `manuals/` (только здесь, имена camelCase)
 - [ciCdGuide.md](manuals/ciCdGuide.md) — запуск VibeIDE в GitHub Actions / GitLab CI.
+- [windowsBuildOnMac.md](manuals/windowsBuildOnMac.md) — сборка Windows-установщика и архива на маке: виртуальная машина UTM, сценарии `scripts/win-vm/`, сверка с эталоном.
 - [upstreamSync.md](manuals/upstreamSync.md) — обновление базы VS Code: измеренная карта конфликтов, стратегия «три graft + squash-коммит», порядок этапов, инварианты «наш код не потерялся» и защита от возврата вендорных поверхностей.
 - [codebaseGuide.md](manuals/codebaseGuide.md) — ориентир по кодовой базе форка.
 - [choosingModel.md](manuals/choosingModel.md) — как выбирать модель: почему вендорские проценты меряют связку «модель + харнесс», а не модель, и что смотреть вместо них.

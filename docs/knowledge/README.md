@@ -144,6 +144,7 @@
 | [linuxToolchain.md](build/linuxToolchain.md) | `release-linux.sh`: deb/rpm/AppImage/tar.gz × x64/arm64, двухфазный флоу, Docker-кросс-сборка, cross-toolchain arm64 |
 | [executableBitInBundle.md](build/executableBitInBundle.md) | CLI в `.app` без exec-бита: `setExecutableBit` не покрывает переименованный файл, режим наследовался с диска — на чистом клоне сборка сломалась бы у любого |
 | [macosToolchain.md](build/macosToolchain.md) | `release-macos.sh`: DMG/ZIP arm64, двухфазный флоу, ad-hoc/Developer ID подпись + notarization, грабли сборки (OOM манглера, husky-бамп) и релизного флоу (расхождение origin/main → merge-не-rebase, замена авто-нот `--generate-notes` курируемыми), VERIFY-GATE целостности бандла (форкнутый воркер выпал из `.app` 1.9.0) |
+| [windowsVmOnMac.md](build/windowsVmOnMac.md) | **[грабли]** Windows-сборка в UTM на маке: инструменты родные ARM64, цель x64; зависание esbuild под эмуляцией, платформенные пакеты по хосту (`crossDeps.mts`), лимит кучи дочерних процессов, PowerShell 7 |
 | [buildFromSource.md](build/buildFromSource.md) | `home-build.*`: самосборка портатива под свою ОС одной командой, self-contained bootstrap (fnm+Node+deps) + гейт намерений |
 | [portableAndElectron.md](build/portableAndElectron.md) | Portable Windows ZIP, Electron mirror, Linux CI X11 |
 | [compileAndSync.md](build/compileAndSync.md) | `tsgo` exit 2, sync без общего предка, `run-dev` / `vibe-dev` runner |
