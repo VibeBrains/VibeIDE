@@ -35,7 +35,14 @@
    ```bash
    gh release upload vX.Y.Z -R VibeBrains/VibeIDE VibeIDESetup.exe VibeIDE-X.Y.Z-win32-x64.zip
    ```
-7. Погасить машину: `utmctl stop "VibeIDE Windows"` — она держит 10 ГБ памяти.
+7. Открыть PR в winget — с мака, после загрузки `.exe`:
+   ```bash
+   scripts/win-vm/wingetPr.sh --dry-run   # только отрендерить манифесты и посмотреть
+   scripts/win-vm/wingetPr.sh             # ветка в форке winget-pkgs и PR
+   ```
+   Скрипт берёт хеш опубликованного файла, рендерит шаблоны `build/winget/` и кладёт три файла в форк через API.
+   `winget validate` он не запускает: галочка в чеклисте PR остаётся пустой, манифест проверяет конвейер winget-pkgs.
+8. Погасить машину: `utmctl stop "VibeIDE Windows"` — она держит 10 ГБ памяти.
 
 ## Новый стенд с нуля
 
@@ -47,4 +54,4 @@
 
 - Не подписывает установщик: сертификата нет, SmartScreen покажет «неизвестный издатель»
 - Не публикует: `gh` в машине не настроен, загрузка идёт с мака
-- winget (Фаза 2b) запускается отдельно, после загрузки `.exe` в релиз
+- `winget validate` не запускает: winget стартует только в сеансе рабочего стола Windows, из SSH он недоступен
