@@ -10,7 +10,7 @@ PublisherUrl: https://github.com/VibeBrains/VibeIDE
 PublisherSupportUrl: https://github.com/VibeBrains/VibeIDE/issues
 PackageName: VibeIDE
 PackageUrl: https://github.com/VibeBrains/VibeIDE
-License: MIT
+License: AGPL-3.0-only
 LicenseUrl: https://github.com/VibeBrains/VibeIDE/blob/main/LICENSE.txt
 ShortDescription: AI-first IDE — a Visual Studio Code fork with custom LLM providers, a coding agent and autopilot. No subscriptions, no telemetry, bring your own API key.
 Moniker: vibeide
