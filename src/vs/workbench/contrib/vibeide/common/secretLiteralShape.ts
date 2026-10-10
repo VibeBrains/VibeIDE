@@ -11,6 +11,9 @@
  * Only the value tells them apart
  * A literal is quoted, or carries a digit or a symbol that an identifier never has
  * Code is a call, a member access, a type, a path or a variable reference
+ *
+ * Tells a bare token from a slice of data, for rules that match a run of characters with no keyword in front
+ * A run of the right length is a key only when it stands alone, and the characters around it decide that
  */
 
 /** Stand-ins that mark the place of a secret without being one: interpolation, template, format spec, mask */
@@ -70,4 +73,32 @@ export function looksLikeSecretLiteral(value: string, quote: string): boolean {
 		return false;
 	}
 	return !CODE_SHAPES.some(shape => shape.test(bare));
+}
+
+/** A character a base64, base64url or identifier run goes on with: a candidate that touches one is its slice */
+const RUN_CHARACTER = /[A-Za-z0-9+/_-]/;
+
+/** How far before a candidate the head of a data URI is looked for: a long media type plus its parameters fit in it */
+const DATA_HEAD_LOOKBEHIND = 128;
+
+/** The head right before a payload that names it as data: `data:image/png;base64,` or a bare `base64,` */
+const DATA_PAYLOAD_HEAD = /(?:\bbase64|\bdata:[^\s"'`<>,]*),$/;
+
+/**
+ * True when the run `input.slice(start, end)` stands alone as a token, so it can be a key and not a slice of data
+ *
+ * A run is cut out of a longer one when a base64 or identifier character touches it on either side:
+ * an SRI hash (`sha512-` and 86 more characters), a hash inside a lock file, a snapshot of a page, minified code
+ * `=` on the right means `name=value` or the padding of a longer blob
+ * `=` on the left is an assignment (`secret=<key>`), so only the right side is checked for it
+ * A payload of a data URI can be a lone run too: it starts right after `data:…,` or `base64,`
+ */
+export function standsAloneAsToken(input: string, start: number, end: number): boolean {
+	const before = input.charAt(start - 1);
+	const after = input.charAt(end);
+	if (RUN_CHARACTER.test(before) || RUN_CHARACTER.test(after) || after === '=') {
+		return false;
+	}
+	// Every head ends with a comma, so most candidates skip the scan
+	return before !== ',' || !DATA_PAYLOAD_HEAD.test(input.slice(Math.max(0, start - DATA_HEAD_LOOKBEHIND), start));
 }

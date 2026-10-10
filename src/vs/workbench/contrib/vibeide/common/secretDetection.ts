@@ -3,7 +3,7 @@
  *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
 
-import { isPlaceholderValue, looksLikeSecretLiteral } from './secretLiteralShape.js';
+import { isPlaceholderValue, looksLikeSecretLiteral, standsAloneAsToken } from './secretLiteralShape.js';
 import { vibeLog } from './vibeLog.js';
 
 /**
@@ -56,6 +56,18 @@ function shannonEntropy(s: string): number {
  */
 function looksLikeAwsSecret(s: string): boolean {
 	return /[0-9]/.test(s) && /[a-z]/.test(s) && /[A-Z]/.test(s) && shannonEntropy(s) >= 3.5;
+}
+
+/**
+ * Judges a match of `aws-secret-key`, which has no keyword in front of the run
+ *
+ * The run has to stand alone as a token first: a 40-character slice of an SRI hash, a base64 blob or a data URI
+ * has the entropy of a key and is not one
+ * Then the content is judged by `looksLikeAwsSecret`
+ * The cheap context check goes first, because the entropy count allocates
+ */
+function isAwsSecretKey(candidate: string, match: RegExpExecArray): boolean {
+	return standsAloneAsToken(match.input, match.index, match.index + candidate.length) && looksLikeAwsSecret(candidate);
 }
 
 /** Upper-case variable name with digits and underscores: `DB_PASSWORD`, `API_TOKEN` */
@@ -170,13 +182,15 @@ export const DEFAULT_SECRET_PATTERNS: SecretPattern[] = [
 		priority: 100,
 	},
 	// AWS secret keys (exclude '/' to avoid false positives on path segments, e.g. prof/vibeide/browser/convertTo)
+	// No '=': base64 pads only the end, and a 40-char key needs no padding, so '=' inside a run means `name=value`
+	// Whether the run stands alone or is cut out of a longer one is decided by `isAwsSecretKey`
 	{
 		id: 'aws-secret-key',
 		name: 'AWS Secret Key',
-		pattern: /\b([a-zA-Z0-9+=]{40})\b/g,
+		pattern: /\b([a-zA-Z0-9+]{40})\b/g,
 		enabled: true,
 		priority: 85,
-		validate: looksLikeAwsSecret,
+		validate: isAwsSecretKey,
 	},
 	// AWS secret key in its named form. The standalone rule above cannot allow '/', or every path
 	// segment of the right length would match — yet a real secret is base64 and very often contains

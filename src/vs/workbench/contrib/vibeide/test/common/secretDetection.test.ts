@@ -209,6 +209,104 @@ suite('Secret Detection', () => {
 		});
 	});
 
+	/**
+	 * The bare 40-character rule has no keyword in front of the run, so the characters around it decide
+	 * A lock file holds an `integrity` line per package, and each carries 40-character slices of a base64 hash
+	 * One hit latches the `secret-leak` breaker
+	 */
+	suite('aws-secret-key: ключ стоит один или это кусок данных', () => {
+		// 40 characters of a key's shape; the data below are built around them
+		const KEY = 'wJalrXUtnFEMIK7MDENGbPxRfiCYEXAMPLEKEYab';
+		const HEX = '3f9a0c7e1b2d4856a9c0e1f23b4d5c6e';
+		const awsHits = (text: string) => detectSecrets(text).matches.filter(m => m.pattern.id === 'aws-secret-key').length;
+		const flagged = (texts: string[]) => texts.filter(t => awsHits(t) > 0);
+		const missed = (texts: string[]) => texts.filter(t => awsHits(t) === 0);
+
+		test('хеш integrity в lock-файле — не ключ', () => {
+			assert.deepStrictEqual(flagged([
+				`      "integrity": "sha512-Zm9vYmFy/${KEY}/YmFyYmF6+Zm9vYmFyQm9vYmFy/Zm9vYmFyYmF6YmFyYmF6Zm9v==",`,
+				`      resolution: {integrity: sha512-Zm9vYmFy/${KEY}/YmFyYmF6==}`,
+				`<script src="app.js" integrity="sha384-${KEY}=" crossorigin="anonymous"></script>`,
+				`"integrity": "sha256-${KEY}="`,
+			]), []);
+		});
+
+		test('сорок знаков из длинного ряда base64 или идентификатора — не ключ', () => {
+			assert.deepStrictEqual(flagged([
+				`Zm9vYmFy/${KEY}+Zm9vYmFy`,
+				`Zm9vYmFy+${KEY}/Zm9vYmFy`,
+				`prefix-${KEY}-suffix`,
+				`prefix_${KEY}_suffix`,
+				`/node_modules/${KEY}/index.js`,
+				`${KEY}==`,
+			]), []);
+		});
+
+		test('адрес данных data: и участок после base64, — не ключ', () => {
+			assert.deepStrictEqual(flagged([
+				`<img src="data:image/png;base64,${KEY}">`,
+				`background: url(data:image/svg+xml;charset=utf-8;base64,${KEY})`,
+				`const payload = "base64,${KEY}";`,
+				`data:text/plain,${KEY}`,
+			]), []);
+		});
+
+		test('пара имя=значение, вырезанная из адреса или снимка страницы, — не ключ', () => {
+			// `userKey=` and 32 hex characters are 40 characters of one run: a name with its value, never a key
+			assert.deepStrictEqual(flagged([
+				`{"url":"https://example.com/items?x=1&userKey=${HEX}&sort=date"}`,
+				`userKey=${HEX}`,
+			]), []);
+		});
+
+		test('ключ, который стоит один, находится', () => {
+			assert.deepStrictEqual(missed([
+				`"${KEY}"`,
+				`'${KEY}'`,
+				`secret = ${KEY}`,
+				`secret=${KEY}`,
+				`secret: ${KEY}`,
+				`{"secretKey": "${KEY}", "region": "eu-west-1"}`,
+				`aws_secret_key = "${KEY}"`,
+				`https://example.com/sign?secret=${KEY}&expires=60`,
+				`before\n${KEY}\nafter`,
+				`${KEY}`,
+				`(${KEY}), next`,
+				`values: [1,${KEY}]`,
+				`The key is ${KEY}.`,
+			]), []);
+		});
+
+		test('найденный ключ уходит в заглушку целиком, соседние слова остаются', () => {
+			assert.deepStrictEqual(
+				detectSecrets(`secret = ${KEY}\nregion = eu-west-1`).redactedText,
+				'secret = [[REDACTED:AWS Secret Key]]\nregion = eu-west-1',
+			);
+		});
+
+		test('ключ с именем переменной ловится отдельным правилом, и оно не тронуто', () => {
+			// A real key holds `/` and `+` and may end with `=`: the named rule allows them, the bare rule cannot
+			const withSlashes = 'wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY';
+			const padded = 'wJalrXUtnFEMIK7MDENGbPxRfiCYEXAMPLEKEYa=';
+			assert.deepStrictEqual(
+				[
+					`AWS_SECRET_ACCESS_KEY=${withSlashes}`,
+					`aws_secret_access_key = "${padded}"`,
+					`export AWS_SECRET_ACCESS_KEY=${KEY}`,
+				].map(t => detectSecrets(t).matches.map(m => m.pattern.id)),
+				[['aws-secret-key-named'], ['aws-secret-key-named'], ['aws-secret-key-named']],
+			);
+		});
+
+		test('разбор крупного снимка с длинными рядами не растёт квадратично', () => {
+			const started = Date.now();
+			// The first text sends every candidate to the data-URI scan, the second to the neighbour check
+			detectSecrets(('<img src="data:image/png;base64,' + KEY + '">').repeat(10_000));
+			detectSecrets(('Zm9vYmFy/' + KEY + '+').repeat(20_000));
+			assert.ok(Date.now() - started < 2_000);
+		});
+	});
+
 	suite('detectSecrets', () => {
 		test('should detect OpenAI API keys', () => {
 			const text = 'My API key is sk-proj-abc123def456ghi789jkl012mno345pqr678stu901vwx234yz';

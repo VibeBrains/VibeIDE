@@ -3836,7 +3836,10 @@ Output ONLY the JSON, no other text. Start with { and end with }.`;
 		// add assistant message
 		if (this.streamState[threadId]?.isRunning === 'LLM') {
 			const { displayContentSoFar, reasoningSoFar, toolCallSoFar } = this.streamState[threadId].llmInfo;
-			this._addMessageToThread(threadId, { role: 'assistant', displayContent: displayContentSoFar, reasoning: reasoningSoFar, anthropicReasoning: null });
+			// The sentinel stands for «no token yet»; a message with its text must not land in the thread
+			if (displayContentSoFar !== WAITING_FOR_MODEL_RESPONSE_SENTINEL) {
+				this._addMessageToThread(threadId, { role: 'assistant', displayContent: displayContentSoFar, reasoning: reasoningSoFar, anthropicReasoning: null });
+			}
 			if (toolCallSoFar) { this._addMessageToThread(threadId, { role: 'interrupted_streaming_tool', name: toolCallSoFar.name, mcpServerName: this._computeMCPServerOfToolName(toolCallSoFar.name) }); }
 		}
 		// add tool that's running
@@ -5221,6 +5224,18 @@ Output ONLY the JSON, no other text. Start with { and end with }.`;
 				severity: toast.severity === 'error' ? Severity.Error : Severity.Warning,
 				message: `${toast.headline}${toast.body ? ': ' + toast.body : ''}`,
 			});
+		}
+	}
+
+	/**
+	 * Ends a run that a human stopped while it waited out a pause (`isRunning: 'idle'`)
+	 * The stop has cleared the thread state itself, and the pause outlives it by seconds
+	 * A newer run may own the state by then, so it is cleared only while this run still holds it
+	 * Without the check the old run wipes the new one: the answer streams in and never reaches the thread
+	 */
+	private _clearIdleStateOfStoppedRun(threadId: string, idleInterruptor: Promise<() => void>): void {
+		if (this.streamState[threadId]?.interrupt === idleInterruptor) {
+			this._setStreamState(threadId, undefined);
 		}
 	}
 
@@ -7439,7 +7454,7 @@ Output ONLY the JSON, no other text. Start with { and end with }.`;
 								// Short delay before trying next model
 								await timeout(500);
 								if (interruptedWhenIdle) {
-									this._setStreamState(threadId, undefined);
+									this._clearIdleStateOfStoppedRun(threadId, idleInterruptor);
 									return;
 								}
 								continue; // retry with new model
@@ -7488,7 +7503,7 @@ Output ONLY the JSON, no other text. Start with { and end with }.`;
 						const retryDelay = Math.min(baseDelay * Math.pow(2, nAttempts - 1), maxRetryDelay);
 						await timeout(retryDelay);
 						if (interruptedWhenIdle) {
-							this._setStreamState(threadId, undefined);
+							this._clearIdleStateOfStoppedRun(threadId, idleInterruptor);
 							return;
 						}
 						else { continue; } // retry
