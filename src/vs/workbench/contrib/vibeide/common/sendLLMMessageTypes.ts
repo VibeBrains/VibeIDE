@@ -312,6 +312,8 @@ export type ServiceSendLLMMessageParams = {
 	servedModel?: string;
 	/** Per-turn: request `tool_choice: 'required'` for this send (agent-loop corrective nudge). */
 	forceToolUse?: boolean;
+	/** Repeats of a failed request the SDK may make by itself — see `LLMRuntimeOptions.sdkMaxRetries`. */
+	sdkMaxRetries?: number;
 	/**
 	 * Renderer-side only (never forwarded over IPC): when true, this send is NOT folded into the
 	 * session token budget — neither the pre-send `checkBudget()` gate nor `recordUsage()`. Used by
@@ -380,6 +382,12 @@ export type LLMRuntimeOptions = {
 	 * calling `vibe_complete`). No effect in XML-fallback mode (no native `tools` are sent).
 	 * Default off. See `vibeide.agent.forceToolUseOnNudge`. */
 	forceToolUse?: boolean;
+	/**
+	 * Repeats of a failed request the SDK makes by itself, before the error reaches the caller
+	 * A caller that repeats on its own (the chat loop, a subagent) passes 0, so that two layers do not multiply the sends
+	 * Unset: the adapter's default, for callers that have no loop of their own
+	 */
+	sdkMaxRetries?: number;
 	/** How Claude's adaptive thinking comes back on Anthropic's own API. See `vibeide.llm.claudeThinkingDisplay`. */
 	claudeThinkingDisplay?: ClaudeThinkingDisplay;
 	/** Outbound proxy URL for ALL LLM traffic (reach geo-blocked provider APIs through a foreign exit).

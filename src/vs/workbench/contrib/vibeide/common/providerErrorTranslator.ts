@@ -22,8 +22,11 @@ import { isContextOverflow } from './sendLLMMessageTypes.js';
 /** Max characters of the original error text echoed after the translation. */
 const ORIGINAL_ECHO_MAX_CHARS = 180;
 
+/** The 5xx status the error text names, e.g. `Provider unavailable (HTTP 503)`; the codes are the ones the gateway rule below matches */
+const SERVER_STATUS_IN_TEXT = /\b(?<status>50[0234]|52\d)\b/;
+
 /** Ordered dictionary — FIRST match wins, so specific families go before generic ones. */
-const TRANSLATION_RULES: readonly { pattern: RegExp; ru: string }[] = [
+const TRANSLATION_RULES: readonly { pattern: RegExp; ru: string | ((message: string) => string) }[] = [
 	// Usage-quota exhausted — MUST precede rate-limit: «Rate limit exceeded: Monthly usage
 	// limit reached» (observed openCodeGo Go, retry-after ≈ 5 days) would otherwise match the
 	// rate-limit family and tell the user to «подождите немного» — false advice for a
@@ -81,7 +84,11 @@ const TRANSLATION_RULES: readonly { pattern: RegExp; ru: string }[] = [
 	// Gateway / availability 5xx.
 	{
 		pattern: /bad gateway|service unavailable|internal server error|gateway time?-?out|\b50[0234]\b|\b52[0-9]\b/i,
-		ru: 'Сервер провайдера временно недоступен (5xx). Повторите попытку позже.',
+		// The code is named so that the card says which error the provider answered with
+		ru: message => {
+			const status = SERVER_STATUS_IN_TEXT.exec(message)?.groups?.status;
+			return `Сервер провайдера временно недоступен (${status ? `HTTP ${status}` : '5xx'}). Повторите попытку позже.`;
+		},
 	},
 	// Stream stall (provider-side wording; our own watchdog texts are Russian at source).
 	{
@@ -95,8 +102,8 @@ const TRANSLATION_RULES: readonly { pattern: RegExp; ru: string }[] = [
 	},
 	// Network reachability.
 	{
-		pattern: /ECONNREFUSED|ENOTFOUND|EAI_AGAIN|ECONNRESET|ETIMEDOUT|fetch failed|network error|unreachable|socket hang ?up|getaddrinfo/i,
-		ru: 'Сетевая ошибка: провайдер недоступен. Проверьте интернет-соединение (и VPN/прокси, если используются).',
+		pattern: /ECONNREFUSED|ENOTFOUND|EAI_AGAIN|ECONNRESET|ETIMEDOUT|fetch failed|network error|unreachable|socket hang ?up|getaddrinfo|Failed to connect/i,
+		ru: 'Сетевая ошибка: не удалось связаться с провайдером. Проверьте адрес в настройках и интернет-соединение (и VPN/прокси, если используются); для локального провайдера — что сервер запущен.',
 	},
 ];
 
@@ -116,7 +123,8 @@ export const translateProviderError = (message: string | null | undefined): stri
 		// template; this branch catches RAW provider wording that bypassed it.
 		ru = 'Запрос превысил контекстное окно модели. Сожмите историю чата (Compact) или переключите модель.';
 	} else {
-		ru = TRANSLATION_RULES.find(r => r.pattern.test(message))?.ru;
+		const rule = TRANSLATION_RULES.find(r => r.pattern.test(message))?.ru;
+		ru = typeof rule === 'function' ? rule(message) : rule;
 	}
 	if (!ru) { return null; }
 

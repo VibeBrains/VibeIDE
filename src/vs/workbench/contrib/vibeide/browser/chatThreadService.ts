@@ -36,7 +36,7 @@ import { isQuotaLow, pickRateLimitHeaders, ProviderQuotaSnapshot, tightestBucket
 import { IVibeSpendLedgerService } from './vibeSpendLedgerService.js';
 import { ModelHealthTracker, HEALTH_FAILURE_THRESHOLD, HEALTH_WINDOW_MS, classifyProviderError } from '../common/modelHealthTracker.js';
 import { translateProviderError } from '../common/providerErrorTranslator.js';
-import { isRetryableLlmError } from '../common/llmErrorRetry.js';
+import { decideLlmRetry, firstRetryAfterSeconds, formatWaitDuration, LlmErrorFacts, LlmRetryContext, MAX_RETRY_AFTER_WAIT_SECONDS } from '../common/llmErrorRetry.js';
 import { generateUuid } from '../../../../base/common/uuid.js';
 import { autoFallbackProviderIds, ChatMode, FeatureName, ModelSelection, ModelSelectionOptions, ProviderName } from '../common/vibeideSettingsTypes.js';
 import { isModelVisionCapable } from '../common/modelVisionHeuristics.js';
@@ -168,6 +168,7 @@ import {
 } from '../common/costForecastConfirm.js';
 import {
 	transitionWatchdog,
+	WATCHDOG_DEFAULTS,
 	WatchdogState,
 	WatchdogSideEffect,
 } from '../common/streamingGapWatchdog.js';
@@ -323,6 +324,12 @@ const DEFAULT_EARLY_STALL_SECONDS = 15;      // soft signal: show inline "stalle
 const DEFAULT_FIRST_TOKEN_STALL_SECONDS = 30;     // no first token received after sending request
 const DEFAULT_MID_STREAM_STALL_SECONDS = 45;      // no new token received during active streaming
 const DEFAULT_HARD_STALL_SECONDS = 120;     // 120s — default auto-abort threshold
+// Hard ceilings on the layers that re-send a turn: the chat loop, the gap watchdog, the hard-stall retry and the rate-limit pause
+// Each has its own limit, and without a limit over all of them they multiply into a storm of requests
+// A turn is every send since the last answer, whoever started it
+const MAX_SENDS_PER_TURN = 8;
+// The gap watchdog restarts a silent stream this many times in one run before its abort ends the turn
+const MAX_WATCHDOG_RESTARTS_PER_RUN = 2;
 const HARD_STALL_AUTO_RETRY_MAX = 1;       // ONE automatic re-send per thread after a hard-stall: a second stall in a row means the hang is systemic (payload/provider), not transient — surface the error instead of burning more silent 120s windows. Reset on any successful reply; on/off via `vibeide.chat.hardStallAutoRetry`.
 
 // Read a numeric setting with NaN-guard. Math.max/min propagate NaN, which then
@@ -507,6 +514,19 @@ export type IsRunningType =
 	| 'idle' // nothing is running now, but the chat should still appear like it's going (used in-between calls)
 	| undefined;
 
+/**
+ * A pause the chat waits out before it sends the turn again
+ * `attempt` of `maxAttempts` counts the repeat that is waited for
+ * `httpStatus` is what the provider answered with, when it answered at all
+ */
+export type ThreadPauseInfo = {
+	resumeAtMs: number;
+	attempt: number;
+	maxAttempts: number;
+	reason: 'rateLimit' | 'serverError' | 'network' | 'transient';
+	httpStatus?: number;
+};
+
 export type ThreadStreamState = {
 	[threadId: string]: undefined | {
 		isRunning: undefined;
@@ -523,7 +543,7 @@ export type ThreadStreamState = {
 		};
 		// Provider rate-limit auto-pause: the run is waiting out a 429 retry-after and will resume the
 		// turn itself at `resumeAtMs`. Drives the inline countdown banner so the wait is visible.
-		pauseInfo?: { resumeAtMs: number; attempt: number; maxAttempts: number; reason: 'rateLimit' };
+		pauseInfo?: ThreadPauseInfo;
 		llmInfo?: undefined;
 		toolInfo?: undefined;
 		interrupt?: undefined;
@@ -573,6 +593,8 @@ export type ThreadStreamState = {
 		llmInfo?: undefined;
 		toolInfo?: undefined;
 		interrupt: 'not_needed' | Promise<() => void>; // calling this should have no effect on state - would be too confusing. it just cancels the tool
+		// The loop waits out a pause before it repeats a failed send: the chat shows the countdown and a stop control
+		pauseInfo?: ThreadPauseInfo;
 	};
 };
 
@@ -1017,6 +1039,11 @@ class ChatThreadService extends Disposable implements IChatThreadService {
 	// Consecutive hard-stall auto-retries per thread (`vibeide.chat.hardStallAutoRetry`).
 	// Capped at HARD_STALL_AUTO_RETRY_MAX; reset on any successful reply.
 	private readonly _hardStallAutoRetryStreak = new Map<string, number>();
+	// Sends per thread since the last answer, whoever re-sent: the loop, the gap watchdog, the hard-stall retry, the rate-limit pause
+	// Capped at MAX_SENDS_PER_TURN; reset on any answer and on a send the person starts
+	private readonly _sendsSinceAnswer = new Map<string, number>();
+	// What the last failed send of the turn ended with: the cause the card names when the cap on sends stops the turn
+	private readonly _lastFailureSinceAnswer = new Map<string, ThreadStreamError>();
 	// Threads where "Повторить с диагностикой" armed auto-collection — one-shot: if the next attempt
 	// also hard-stalls (terminal), the stall report is built automatically. Disarmed on fire/success.
 	private readonly _autoCollectStallDiagByThread = new Set<string>();
@@ -5515,7 +5542,19 @@ Output ONLY the JSON, no other text. Start with { and end with }.`;
 		};
 
 		let interruptedWhenIdle = false;
-		const idleInterruptor = Promise.resolve(() => { interruptedWhenIdle = true; });
+		// A stop during a pause wakes the run at once: it need not sleep out the rest of the wait
+		let wakeFromPause: () => void = () => { };
+		const pauseWoken = new Promise<void>(resolve => { wakeFromPause = resolve; });
+		const idleInterruptor = Promise.resolve(() => { interruptedWhenIdle = true; wakeFromPause(); });
+		/** Waits `ms`, or less when the person stops the run in the meantime */
+		const pauseFor = async (ms: number): Promise<void> => {
+			const wait = timeout(ms);
+			try {
+				await Promise.race([wait, pauseWoken]);
+			} finally {
+				wait.cancel();
+			}
+		};
 		// VERIFY-GATE run state (declared before the first tool dispatch below). `didMutateThisRun` is the
 		// edit-guard: verify only runs if the turn actually changed files (a pure read/question run must not
 		// trigger a build). `verifyGateAttempts` counts enforce-mode bounces so an unfixable red halts after
@@ -6297,6 +6336,19 @@ Output ONLY the JSON, no other text. Start with { and end with }.`;
 			};
 			// «Авто» switched to a fallback model in this run; once it answers, it takes the thread's pin
 			let answeringAfterFallback = false;
+			// Providers an error showed to be down in this run: the Auto fallback does not go back to their other models
+			const providersDown: Set<string> = new Set();
+			// What the stream had produced when the turn ends with an error stays in the thread instead of being lost
+			const keepStreamedPartial = () => {
+				const llmInfo = this.streamState[threadId]?.llmInfo;
+				if (!llmInfo) { return; }
+				const { displayContentSoFar, reasoningSoFar, toolCallSoFar } = llmInfo;
+				// The sentinel stands for «no token yet»; a message with its text must not land in the thread
+				if (displayContentSoFar !== WAITING_FOR_MODEL_RESPONSE_SENTINEL) {
+					this._addMessageToThread(threadId, { role: 'assistant', displayContent: displayContentSoFar, reasoning: reasoningSoFar, anthropicReasoning: null });
+				}
+				if (toolCallSoFar) { this._addMessageToThread(threadId, { role: 'interrupted_streaming_tool', name: toolCallSoFar.name, mcpServerName: this._computeMCPServerOfToolName(toolCallSoFar.name) }); }
+			};
 			// Track if we're in auto mode (user selected "auto")
 			const isAutoMode = !modelSelection || (modelSelection.providerName === 'auto' && modelSelection.modelName === 'auto') ||
 				(this._settingsService.state.modelSelectionOfFeature['Chat']?.providerName === 'auto' &&
@@ -6308,6 +6360,9 @@ Output ONLY the JSON, no other text. Start with { and end with }.`;
 			// Streaming gap watchdog: flag is set when the watchdog triggers an auto-retry so
 			// the llmAborted early-return is skipped and the while-loop can iterate again.
 			let watchdogRetry = false;
+			// Restarts the watchdog made without an answer in between, and whether its last abort gave up instead of restarting
+			let watchdogRestarts = 0;
+			let watchdogGaveUp = false;
 
 			// O.9 — per-call probe state. Set when the LLM call for this iteration
 			// strips the auto-detected override (one-shot native-FC retry); cleared
@@ -6316,6 +6371,29 @@ Output ONLY the JSON, no other text. Start with { and end with }.`;
 			while (shouldRetryLLM) {
 				shouldRetryLLM = false;
 				nAttempts += 1;
+
+				// One ceiling over every path that re-sends the turn
+				// The cause the card names is the last failure the turn knew, with its HTTP status when there was one
+				const sendsSinceAnswer = (this._sendsSinceAnswer.get(threadId) ?? 0) + 1;
+				this._sendsSinceAnswer.set(threadId, sendsSinceAnswer);
+				if (sendsSinceAnswer > MAX_SENDS_PER_TURN) {
+					settleRouting({ success: false });
+					const lastFailure = this._lastFailureSinceAnswer.get(threadId);
+					vibeLog.warn('chatThread', `Sends ceiling: ${MAX_SENDS_PER_TURN} sends without an answer, the turn ends (threadId=${threadId}).`);
+					this._setStreamState(threadId, {
+						isRunning: undefined,
+						error: {
+							message: [
+								localize('vibeide.chatThread.sendsCeiling', 'Запрос отправлялся {0} раз подряд и не получил ответа — повторы прекращены.', String(MAX_SENDS_PER_TURN)),
+								lastFailure?.message,
+							].filter(Boolean).join('\n'),
+							fullError: lastFailure?.fullError ?? null,
+							recoverable: lastFailure?.recoverable ?? 'retry',
+							...(lastFailure?.diagnostics ? { diagnostics: lastFailure.diagnostics } : {}),
+						},
+					});
+					return;
+				}
 
 				// Track this model attempt
 				if (modelSelection && modelSelection.providerName !== 'auto') {
@@ -6412,7 +6490,8 @@ Output ONLY the JSON, no other text. Start with { and end with }.`;
 					| { type: 'llmDone'; toolCall?: RawToolCallObj; info: { fullText: string; fullReasoning: string; anthropicReasoning: AnthropicReasoning[] | null; finishNotice?: LLMFinishNotice } }
 					// `terminalError` is what the card shows when this error ends the turn: translated text, recovery action,
 					// what the provider reported. The loop below sets it only when no retry or fallback is left
-					| { type: 'llmError'; error?: { message: string; fullError: Error | null }; terminalError: ThreadStreamError }
+					// `retry` is what the retry policy was asked: the loop below asks it again, now that it knows which models are left
+					| { type: 'llmError'; error?: { message: string; fullError: Error | null }; terminalError: ThreadStreamError; retry: { facts: LlmErrorFacts; context: LlmRetryContext; httpStatus: number | undefined } }
 					| { type: 'llmAborted' };
 
 				let resMessageIsDonePromise: (res: ResTypes) => void; // resolves when user approves this tool use (or if tool doesn't require approval)
@@ -6521,6 +6600,15 @@ Output ONLY the JSON, no other text. Start with { and end with }.`;
 					// burning another silent 120s window. Streak resets on any successful reply.
 					const autoRetryEnabled = this._configurationService.getValue<boolean>('vibeide.chat.hardStallAutoRetry') !== false;
 					const stallStreak = this._hardStallAutoRetryStreak.get(threadId) ?? 0;
+					const stallError: ThreadStreamError = {
+						message: localize('vibeide.chatThread.streamHardStall', 'Стрим завис — нет токенов уже {0}с. Провайдер может быть недоступен, перегружен или отклонил слишком большой запрос. Повторите попытку, переключите модель или сократите переписку.', String(hardStallSeconds)),
+						fullError: null,
+						// 'retry' marker so the terminal error renders a "Повторить запрос" button
+						// (retryStalledStream) — recovery without a window reload, since the StallBanner
+						// is gone once the stream is terminated here.
+						recoverable: 'retry',
+					};
+					this._lastFailureSinceAnswer.set(threadId, stallError);
 					if (autoRetryEnabled && stallStreak < HARD_STALL_AUTO_RETRY_MAX) {
 						this._hardStallAutoRetryStreak.set(threadId, stallStreak + 1);
 						vibeLog.warn('chatThread', `Hard-stall auto-retry: re-sending the turn (attempt ${stallStreak + 1}/${HARD_STALL_AUTO_RETRY_MAX}, threadId=${threadId}).`);
@@ -6545,17 +6633,7 @@ Output ONLY the JSON, no other text. Start with { and end with }.`;
 						return;
 					}
 
-					this._setStreamState(threadId, {
-						isRunning: undefined,
-						error: {
-							message: localize('vibeide.chatThread.streamHardStall', 'Стрим завис — нет токенов уже {0}с. Провайдер может быть недоступен, перегружен или отклонил слишком большой запрос. Повторите попытку, переключите модель или сократите переписку.', String(hardStallSeconds)),
-							fullError: null,
-							// 'retry' marker so the terminal error renders a "Повторить запрос" button
-							// (retryStalledStream) — recovery without a window reload, since the StallBanner
-							// is gone once the stream is terminated here.
-							recoverable: 'retry',
-						},
-					});
+					this._setStreamState(threadId, { isRunning: undefined, error: stallError });
 					// Diagnostic mode (armed by "Повторить с диагностикой"): auto-build the stall report so the
 					// user doesn't have to click after the second stall. One-shot — disarm after firing.
 					if (this._autoCollectStallDiagByThread.has(threadId)) {
@@ -6577,8 +6655,14 @@ Output ONLY the JSON, no other text. Start with { and end with }.`;
 						} else if (fx.kind === 'show-retrying') {
 							this._notificationService.notify({ severity: Severity.Info, message: localize('vibeide.streamRetrying', 'Переподключение к AI-провайдеру (попытка {0})…', fx.attempt) });
 						} else if (fx.kind === 'auto-retry-scheduled') {
-							watchdogRetry = true;
-							shouldRetryLLM = true;
+							// A stream silent for good is not cured by more of the same sends: the abort ends the turn
+							if (watchdogRestarts >= MAX_WATCHDOG_RESTARTS_PER_RUN) {
+								watchdogGaveUp = true;
+							} else {
+								watchdogRestarts += 1;
+								watchdogRetry = true;
+								shouldRetryLLM = true;
+							}
 							watchdogAbortFn?.();
 						} else if (fx.kind === 'audit') {
 							void this._auditLogService.append({ actor: 'system', ts: Date.now(), action: fx.event, ok: true });
@@ -6705,6 +6789,8 @@ Output ONLY the JSON, no other text. Start with { and end with }.`;
 					modelSelectionOptions,
 					overridesOfModel: effectiveOverridesForCall,
 					forceToolUse: forceThisTurn,
+					// The loop below repeats a failed send itself, once and by one policy
+					sdkMaxRetries: 0,
 					promptCacheKey: promptCacheKeyOf(threadId, 'agent'),
 					previousResponseId: this._lastResponseIdOfConversation.get(promptCacheKeyOf(threadId, 'agent')),
 					servedModel: this._servedModelFor(threadId, modelSelection),
@@ -6800,6 +6886,8 @@ Output ONLY the JSON, no other text. Start with { and end with }.`;
 							this._emptyResponseStreak.delete(`${threadId}:${modelSelection.providerName}:${modelSelection.modelName}`);
 							this._rateLimitAutoWaitStreak.delete(threadId);
 							this._hardStallAutoRetryStreak.delete(threadId);
+							this._sendsSinceAnswer.delete(threadId);
+							this._lastFailureSinceAnswer.delete(threadId);
 							// Also reset the cross-thread health tracker for this combo. One good
 							// response means the aggregator route is healthy again; next failure
 							// cycle starts fresh.
@@ -7159,49 +7247,68 @@ Output ONLY the JSON, no other text. Start with { and end with }.`;
 						// empty stream, and the original guard made auto-wait unreachable in exactly
 						// that case — the run stopped with "switch the model" instead of waiting the
 						// window out (docs/knowledge/chatUx/modelStalls.md, #001 and successors).
-						if (!overflowMatch && !isBodyQuota
-							&& (isBodyRateLimit
-								|| (!emptyMatch && /rate.?limit|too many requests|\b429\b/i.test(error?.message ?? '')))) {
-							const rawWaitMax = this._configurationService.getValue<unknown>('vibeide.chat.rateLimitAutoWaitMaxSeconds');
-							const waitMaxSec = (typeof rawWaitMax === 'number' && Number.isFinite(rawWaitMax) && rawWaitMax >= 0) ? Math.floor(rawWaitMax) : 120;
-							const rawWaitRetries = this._configurationService.getValue<unknown>('vibeide.chat.rateLimitAutoWaitMaxRetries');
-							const waitMaxRetries = (typeof rawWaitRetries === 'number' && Number.isFinite(rawWaitRetries) && rawWaitRetries >= 0) ? Math.floor(rawWaitRetries) : 3;
-							const streak = this._rateLimitAutoWaitStreak.get(threadId) ?? 0;
-							// retry-after may sit on the wrapper, the last inner error, or be absent
-							// (default 30s ≈ a minute-window half-life).
-							const rawErr0 = error?.fullError as { responseHeaders?: Record<string, string>; lastError?: unknown; errors?: unknown[] } | null | undefined;
-							const candidates = [rawErr0, rawErr0?.lastError, ...(Array.isArray(rawErr0?.errors) ? rawErr0.errors : [])] as Array<{ responseHeaders?: Record<string, string> } | null | undefined>;
-							let retryAfterSec: number | undefined;
-							for (const c of candidates) {
-								const ra = Number(c?.responseHeaders?.['retry-after']);
-								if (Number.isFinite(ra) && ra > 0) { retryAfterSec = ra; break; }
-							}
-							// A retry-after beyond the wait cap is a period quota in rate-limit clothing
-							// («Rate limit exceeded: Monthly usage limit…») — waiting the capped time is
-							// hopeless, fall through to the regular error instead of burning retries.
-							const hopelesslyFar = retryAfterSec !== undefined && retryAfterSec > waitMaxSec;
-							if (waitMaxSec > 0 && streak < waitMaxRetries && !hopelesslyFar) {
-								const waitSec = Math.min(Math.max(retryAfterSec ?? 30, 5), waitMaxSec);
-								this._rateLimitAutoWaitStreak.set(threadId, streak + 1);
-								vibeLog.warn('chatThread', `Rate-limit auto-wait: resuming in ${waitSec}s (attempt ${streak + 1}/${waitMaxRetries}, threadId=${threadId}).`);
-								// Inline pauseInfo drives the visible countdown banner; the toast stays as an
-								// out-of-focus signal. resumeAtMs lets the UI tick down without extra state.
-								this._setStreamState(threadId, {
-									isRunning: undefined,
-									pauseInfo: { resumeAtMs: Date.now() + waitSec * 1000, attempt: streak + 1, maxAttempts: waitMaxRetries, reason: 'rateLimit' },
-								});
-								this._notificationService.notify({
-									severity: Severity.Info,
-									message: localize('vibeide.chatThread.rateLimitAutoWait', 'Провайдер взял паузу (лимит запросов) на {0}с — продолжу автоматически (попытка {1} из {2}).', String(waitSec), String(streak + 1), String(waitMaxRetries)),
-								});
-								this._scheduleRunRestart(threadId, waitSec * 1000, () => {
-									// Resume only if the user hasn't already restarted the thread manually.
-									if (this.streamState[threadId]?.isRunning === undefined) {
-										this._continueRun(threadId);
-									}
-								});
-								return;
-							}
+						const rateLimited = !overflowMatch && !isBodyQuota
+							&& (isBodyRateLimit || (!emptyMatch && /rate.?limit|too many requests|\b429\b/i.test(error?.message ?? '')));
+						const rawWaitMax = this._configurationService.getValue<unknown>('vibeide.chat.rateLimitAutoWaitMaxSeconds');
+						const waitMaxSec = (typeof rawWaitMax === 'number' && Number.isFinite(rawWaitMax) && rawWaitMax >= 0) ? Math.floor(rawWaitMax) : 120;
+						const rawWaitRetries = this._configurationService.getValue<unknown>('vibeide.chat.rateLimitAutoWaitMaxRetries');
+						const waitMaxRetries = (typeof rawWaitRetries === 'number' && Number.isFinite(rawWaitRetries) && rawWaitRetries >= 0) ? Math.floor(rawWaitRetries) : 3;
+						const streak = this._rateLimitAutoWaitStreak.get(threadId) ?? 0;
+						// retry-after may sit in the provider's diagnostics, on the wrapper, on the last inner error, or be absent
+						// (the wait then defaults to 30s ≈ a minute-window half-life)
+						const rawErr0 = error?.fullError as { responseHeaders?: Record<string, string>; lastError?: unknown; errors?: unknown[] } | null | undefined;
+						const candidates = [rawErr0, rawErr0?.lastError, ...(Array.isArray(rawErr0?.errors) ? rawErr0.errors : [])] as Array<{ responseHeaders?: Record<string, string> } | null | undefined>;
+						const retryAfterSec = firstRetryAfterSeconds([refusal?.headers, ...candidates.map(c => c?.responseHeaders)], Date.now());
+						// A retry-after beyond the wait cap is a period quota in rate-limit clothing
+						// («Rate limit exceeded: Monthly usage limit…») — waiting the capped time is
+						// hopeless, fall through to the regular error instead of burning retries.
+						const hopelesslyFar = retryAfterSec !== undefined && retryAfterSec > waitMaxSec;
+
+						// One policy decides what happens to a failed send: stop, repeat after a pause, hand over to the rate-limit
+						// pause below, or (Auto) try the next model. The loop that awaits this turn follows the same decision
+						const failure = error?.fullError as { statusCode?: unknown; status?: unknown } | null | undefined;
+						const httpStatus = [refusal?.httpStatus, failure?.statusCode, failure?.status].find((status): status is number => typeof status === 'number');
+						const retryFacts: LlmErrorFacts = {
+							message: error?.message ?? '',
+							httpStatus,
+							refusalKind: bodyRefusalKind,
+							safetyRefusal: !!error?.safetyRefusal,
+							emptyBreakerTripped,
+							canSwitchModel: isAutoMode,
+							rateLimit: rateLimited,
+							retryAfterSeconds: retryAfterSec,
+						};
+						const retryContext: LlmRetryContext = {
+							attempt: nAttempts,
+							isLocalProvider: !!modelSelection && modelSelection.providerName !== 'auto' && isLocalProvider(modelSelection.providerName, this._settingsService.state.settingsOfProvider),
+							rateLimitWaitAvailable: rateLimited && waitMaxSec > 0 && streak < waitMaxRetries && !hopelesslyFar,
+							rateLimitPaused: streak > 0,
+							maxRetries: Math.max(0, Math.min(10, this._configurationService.getValue<number>('vibeide.chat.maxRetries') ?? CHAT_RETRIES)),
+							retryInitialDelayMs: Math.max(0, Math.min(60_000, this._configurationService.getValue<number>('vibeide.chat.retryInitialDelayMs') ?? INITIAL_RETRY_DELAY)),
+							retryMaxDelayMs: Math.max(0, Math.min(120_000, this._configurationService.getValue<number>('vibeide.chat.retryMaxDelayMs') ?? MAX_RETRY_DELAY)),
+						};
+						const retryDecision = decideLlmRetry(retryFacts, retryContext);
+						if (retryDecision.kind === 'autoWait') {
+							const waitSec = Math.min(Math.max(retryAfterSec ?? 30, 5), waitMaxSec);
+							this._rateLimitAutoWaitStreak.set(threadId, streak + 1);
+							vibeLog.warn('chatThread', `Rate-limit auto-wait: resuming in ${waitSec}s (attempt ${streak + 1}/${waitMaxRetries}, threadId=${threadId}).`);
+							// Inline pauseInfo drives the visible countdown banner; the toast stays as an
+							// out-of-focus signal. resumeAtMs lets the UI tick down without extra state.
+							this._setStreamState(threadId, {
+								isRunning: undefined,
+								pauseInfo: { resumeAtMs: Date.now() + waitSec * 1000, attempt: streak + 1, maxAttempts: waitMaxRetries, reason: 'rateLimit' },
+							});
+							this._notificationService.notify({
+								severity: Severity.Info,
+								message: localize('vibeide.chatThread.rateLimitAutoWait', 'Провайдер взял паузу (лимит запросов) на {0}с — продолжу автоматически (попытка {1} из {2}).', String(waitSec), String(streak + 1), String(waitMaxRetries)),
+							});
+							this._scheduleRunRestart(threadId, waitSec * 1000, () => {
+								// Resume only if the user hasn't already restarted the thread manually.
+								if (this.streamState[threadId]?.isRunning === undefined) {
+									this._continueRun(threadId);
+								}
+							});
+							return;
 						}
 
 						// Tools-unsupported endpoint (observed: OpenRouter free variants → 404
@@ -7253,7 +7360,9 @@ Output ONLY the JSON, no other text. Start with { and end with }.`;
 						// retries-exhausted) toward health so the model-selector chip warns. These errors carry no
 						// model in the text → use the run's current selection.
 						const providerErrKind = (!overflowMatch && !emptyMatch && modelSelection) ? classifyProviderError(error?.message) : undefined;
-						if (providerErrKind && modelSelection) {
+						// A send the loop is about to repeat is not yet a failure of the model: only the one that ends the repeats counts
+						// Otherwise one turn against a provider that is down would trip the health warning by itself
+						if (providerErrKind && modelSelection && retryDecision.kind !== 'retry') {
 							this._modelHealthTracker.recordFailure(modelSelection.providerName, modelSelection.modelName, providerErrKind);
 						}
 
@@ -7298,6 +7407,14 @@ Output ONLY the JSON, no other text. Start with { and end with }.`;
 							if (translated) { effectiveError = { ...effectiveError, message: translated }; }
 						}
 
+						// A wait the provider asked for and the agent will not sit out is named on the card, under its first line
+						if (effectiveError?.message && retryAfterSec !== undefined && retryAfterSec > MAX_RETRY_AFTER_WAIT_SECONDS
+							&& (retryDecision.kind === 'nextModel' || (retryDecision.kind === 'stop' && retryDecision.reason === 'retryAfterTooLong'))) {
+							const askedToWait = localize('vibeide.chatThread.retryAfterTooLong', 'Провайдер просит подождать {0} — это дольше, чем агент ждёт сам. Повторите позже или переключите модель.', formatWaitDuration(retryAfterSec));
+							const [firstLine, ...otherLines] = effectiveError.message.split('\n');
+							effectiveError = { ...effectiveError, message: [firstLine, askedToWait, ...otherLines].join('\n') };
+						}
+
 						// `refusal` is what the provider reported; it now travels to the card, not only
 						// to the debug log — that log answered "quota or unstable stream?" for months
 						// while the user saw only «Empty response».
@@ -7306,17 +7423,9 @@ Output ONLY the JSON, no other text. Start with { and end with }.`;
 						// The retry / fallback branch of the loop below runs only while the thread is still 'LLM'
 						// So a transient error leaves the state alone, and that branch ends the turn with `terminalError`
 						// (state and toast) once no retry or fallback is left. Any other error ends the turn here
-						const failure = error?.fullError as { statusCode?: unknown; status?: unknown } | null | undefined;
-						const retryable = isRetryableLlmError({
-							message: error?.message ?? '',
-							httpStatus: [refusal?.httpStatus, failure?.statusCode, failure?.status].find((status): status is number => typeof status === 'number'),
-							refusalKind: bodyRefusalKind,
-							safetyRefusal: !!error?.safetyRefusal,
-							emptyBreakerTripped,
-							canSwitchModel: isAutoMode,
-						});
-						if (retryable) {
-							vibeLog.warn('chatThread', `Provider error on attempt ${nAttempts}, the turn may be retried: ${(error?.message ?? '').slice(0, 100)}`);
+						this._lastFailureSinceAnswer.set(threadId, terminalError);
+						if (retryDecision.kind !== 'stop') {
+							vibeLog.warn('chatThread', `Provider error on attempt ${nAttempts}, the turn may be retried (${retryDecision.kind}): ${(error?.message ?? '').slice(0, 100)}`);
 						} else {
 							// Clear stream state immediately so submit button becomes active (avoids stuck "Waiting for model response..." if audit or resolve fails)
 							this._setStreamState(threadId, { isRunning: undefined, error: terminalError });
@@ -7341,7 +7450,7 @@ Output ONLY the JSON, no other text. Start with { and end with }.`;
 								});
 							}
 						} finally {
-							resMessageIsDonePromise({ type: 'llmError', error: error, terminalError });
+							resMessageIsDonePromise({ type: 'llmError', error: error, terminalError, retry: { facts: retryFacts, context: retryContext, httpStatus } });
 						}
 					},
 					onAbort: () => {
@@ -7397,21 +7506,36 @@ Output ONLY the JSON, no other text. Start with { and end with }.`;
 						this._setStreamState(threadId, { isRunning: 'idle', interrupt: idleInterruptor });
 						continue;
 					}
+					if (watchdogGaveUp) {
+						// The same silence after the restarts it was allowed: the turn ends, with the cause said instead of a fourth send
+						watchdogGaveUp = false;
+						watchdogAbortFn = undefined;
+						settleRouting({ success: false });
+						keepStreamedPartial();
+						const silenceError: ThreadStreamError = {
+							message: localize('vibeide.chatThread.watchdogGaveUp', 'Модель не ответила: отправлено запросов — {0}, и ни на один не пришло ни одного токена (ожидание на каждый — {1} с). Провайдер может быть недоступен или перегружен — повторите попытку или переключите модель.', String(watchdogRestarts + 1), String(Math.round((WATCHDOG_DEFAULTS.gapTimeoutMs + WATCHDOG_DEFAULTS.retry1AfterMs) / 1000))),
+							fullError: null,
+							recoverable: 'retry',
+						};
+						this._lastFailureSinceAnswer.set(threadId, silenceError);
+						this._setStreamState(threadId, { isRunning: undefined, error: silenceError });
+						return;
+					}
 					this._setStreamState(threadId, undefined);
 					return;
 				}
 				// llm res error
 				else if (llmRes.type === 'llmError') {
-					const { error, terminalError } = llmRes;
-					// Check if this is a rate limit error (429)
-					const isRateLimitError = error?.message?.includes('429') ||
-						error?.message?.toLowerCase().includes('rate limit') ||
-						error?.message?.toLowerCase().includes('tokens per min') ||
-						error?.message?.toLowerCase().includes('tpm');
+					const { error, terminalError, retry } = llmRes;
+					// The same policy that was asked when the error arrived, asked again now that it is known which models are left
+					let decision = decideLlmRetry(retry.facts, retry.context);
 
-					// In auto mode, try fallback models for ALL errors (not just rate limits)
-					// This ensures auto mode is resilient even if one model is failing
-					if (isAutoMode) {
+					// In auto mode the next model takes the turn, except where the error means the provider itself is down:
+					// its other models are no way out, so they are skipped as well
+					if (decision.kind === 'nextModel') {
+						if (decision.skipFailedProvider && modelSelection) {
+							providersDown.add(modelSelection.providerName);
+						}
 						// A pinned or resumed turn was not routed: rank now, by the same task context the choice uses
 						if (!autoFallbackRanking && originalUserMessage) {
 							try {
@@ -7422,7 +7546,7 @@ Output ONLY the JSON, no other text. Start with { and end with }.`;
 							}
 						}
 
-						const nextModel = autoFallbackRanking?.find(candidate => !triedModels.has(`${candidate.providerName}/${candidate.modelName}`));
+						const nextModel = autoFallbackRanking?.find(candidate => !triedModels.has(`${candidate.providerName}/${candidate.modelName}`) && !providersDown.has(candidate.providerName));
 
 						// If we found a next model, switch to it and retry
 						if (nextModel) {
@@ -7455,7 +7579,7 @@ Output ONLY the JSON, no other text. Start with { and end with }.`;
 								shouldRetryLLM = true;
 								this._setStreamState(threadId, { isRunning: 'idle', interrupt: idleInterruptor });
 								// Short delay before trying next model
-								await timeout(500);
+								await pauseFor(500);
 								if (interruptedWhenIdle) {
 									this._clearIdleStateOfStoppedRun(threadId, idleInterruptor);
 									return;
@@ -7463,29 +7587,11 @@ Output ONLY the JSON, no other text. Start with { and end with }.`;
 								continue; // retry with new model
 							}
 						}
+						// No model is left to take the turn: it stays with this one, under the policy of a pinned model
+						decision = decideLlmRetry({ ...retry.facts, canSwitchModel: false }, retry.context);
 					}
 
-					// If we're in auto mode and didn't find a fallback model, or if we're not in auto mode:
-					// For rate limit errors in non-auto mode, show error immediately
-					if (isRateLimitError && !isAutoMode) {
-						const { displayContentSoFar, reasoningSoFar, toolCallSoFar } = this.streamState[threadId].llmInfo;
-						// The sentinel stands for «no token yet»; a message with its text must not land in the thread
-						if (displayContentSoFar !== WAITING_FOR_MODEL_RESPONSE_SENTINEL) {
-							this._addMessageToThread(threadId, { role: 'assistant', displayContent: displayContentSoFar, reasoning: reasoningSoFar, anthropicReasoning: null });
-						}
-						if (toolCallSoFar) { this._addMessageToThread(threadId, { role: 'interrupted_streaming_tool', name: toolCallSoFar.name, mcpServerName: this._computeMCPServerOfToolName(toolCallSoFar.name) }); }
-
-						this._setStreamState(threadId, { isRunning: undefined, error: terminalError });
-						this._notifyProviderFailure(error, terminalError, finalRequestId);
-						await this._addUserCheckpoint({ threadId });
-						return;
-					}
-
-					// For non-rate-limit errors in non-auto mode, or if we're in auto mode but no fallback was found:
-					// Retry the same model if we haven't exceeded retry limit (only for non-auto mode or if no fallback available)
-					const maxChatRetries = Math.max(0, Math.min(10, this._configurationService.getValue<number>('vibeide.chat.maxRetries') ?? CHAT_RETRIES));
-					// `nAttempts` counts the first attempt too, and the setting counts retries after it
-					if (!isAutoMode && nAttempts <= maxChatRetries) {
+					if (decision.kind === 'retry') {
 						// Compute resume strategy before the delay so any prefill/skip info is
 						// ready when the while-loop iterates. Anthropic prefill injection would
 						// require provider-API support; for now we log the decision (L1185).
@@ -7496,29 +7602,29 @@ Output ONLY the JSON, no other text. Start with { and end with }.`;
 							vibeLog.info('chatThread', `[ChatThreadService] Retry ${nAttempts}: partial expired (${resumeDecision.previousChars} chars), restarting`);
 						}
 						shouldRetryLLM = true;
-						this._setStreamState(threadId, { isRunning: 'idle', interrupt: idleInterruptor });
-						// Faster retries for local models (they fail fast if not available)
-						const isLocalModel = !!modelSelection && modelSelection.providerName !== 'auto' && isLocalProvider(modelSelection.providerName, this._settingsService.state.settingsOfProvider);
-						// Use shorter delays for local models: 0.5s, 1s, 2s (vs 1s, 2s, 4s for remote)
-						const initialRetryDelay = Math.max(0, Math.min(60_000, this._configurationService.getValue<number>('vibeide.chat.retryInitialDelayMs') ?? INITIAL_RETRY_DELAY));
-						const maxRetryDelay = Math.max(0, Math.min(120_000, this._configurationService.getValue<number>('vibeide.chat.retryMaxDelayMs') ?? MAX_RETRY_DELAY));
-						const baseDelay = isLocalModel ? 500 : initialRetryDelay;
-						const retryDelay = Math.min(baseDelay * Math.pow(2, nAttempts - 1), maxRetryDelay);
-						await timeout(retryDelay);
+						// The pause is shown with its countdown, and the stop control stays: «Готово» here would read as the end of the turn
+						this._setStreamState(threadId, {
+							isRunning: 'idle',
+							interrupt: idleInterruptor,
+							pauseInfo: {
+								resumeAtMs: Date.now() + decision.delayMs,
+								attempt: decision.retryNumber,
+								maxAttempts: decision.retriesPlanned,
+								reason: decision.cause,
+								...(retry.httpStatus !== undefined ? { httpStatus: retry.httpStatus } : {}),
+							},
+						});
+						await pauseFor(decision.delayMs);
 						if (interruptedWhenIdle) {
 							this._clearIdleStateOfStoppedRun(threadId, idleInterruptor);
 							return;
 						}
 						else { continue; } // retry
 					}
-					// error, but too many attempts or no fallback available in auto mode
+					// error, and the policy has nothing left to try: no retry is due, the retries are spent, or no model is left
 					else {
 						settleRouting({ success: false });
-						const { displayContentSoFar, reasoningSoFar, toolCallSoFar } = this.streamState[threadId].llmInfo;
-						if (displayContentSoFar !== WAITING_FOR_MODEL_RESPONSE_SENTINEL) {
-							this._addMessageToThread(threadId, { role: 'assistant', displayContent: displayContentSoFar, reasoning: reasoningSoFar, anthropicReasoning: null });
-						}
-						if (toolCallSoFar) { this._addMessageToThread(threadId, { role: 'interrupted_streaming_tool', name: toolCallSoFar.name, mcpServerName: this._computeMCPServerOfToolName(toolCallSoFar.name) }); }
+						keepStreamedPartial();
 
 						this._setStreamState(threadId, { isRunning: undefined, error: terminalError });
 						this._notifyProviderFailure(error, terminalError, finalRequestId);
@@ -7529,6 +7635,7 @@ Output ONLY the JSON, no other text. Start with { and end with }.`;
 
 				// The model answered: settle the router's verdict, and a fallback that answered takes the pin
 				settleRouting({ success: true });
+				watchdogRestarts = 0;
 				if (answeringAfterFallback) {
 					answeringAfterFallback = false;
 					const repinned = pinAfterFallback(this.state.allThreads[threadId]?.state.autoModelPin, this._autoModelPinOf(resolvedModelSelection));
@@ -9348,6 +9455,8 @@ We only need to do it for files that were edited since `from`, ie files between 
 	/** A run a person or the IDE starts anew: tracked, and the previous run's stop no longer describes the thread */
 	private _beginRun(threadId: string, run: Promise<void>): void {
 		this._abortedRuns.delete(threadId);
+		this._sendsSinceAnswer.delete(threadId);
+		this._lastFailureSinceAnswer.delete(threadId);
 		this._runsInFlight.track(threadId, run);
 	}
 

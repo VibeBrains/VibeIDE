@@ -34,20 +34,22 @@
 export type FailureKind = 'empty-response' | 'context-overflow' | 'invalid-params' | 'provider-error';
 
 /**
- * Classify a provider-side degradation error (gateway 520/529, rate/usage limit, overload, stream
- * stall, retries-exhausted) for health tracking. Returns `'provider-error'` on match, else
- * undefined. Pattern-based and dependency-free — high-confidence phrases only to avoid false
- * positives (the counter resets on the next success, so occasional noise is low-harm anyway).
+ * Classify a provider-side degradation error (gateway 5xx, rate/usage limit, overload, stream
+ * stall, retries-exhausted, a provider that cannot be reached) for health tracking. Returns
+ * `'provider-error'` on match, else undefined. Pattern-based and dependency-free — high-confidence
+ * phrases only to avoid false positives (the counter resets on the next success, so occasional
+ * noise is low-harm anyway).
  */
 export function classifyProviderError(message: string | undefined): FailureKind | undefined {
 	if (!message) { return undefined; }
 	const m = message.toLowerCase();
 	const hit =
-		/\b(?:52[09]|429)\b/.test(m)                           // gateway 520/529 / rate-limit 429 — word-bounded so "4290" etc. don't match
+		/\b(?:50[0234]|52[09]|429)\b/.test(m)               // gateway 5xx / rate-limit 429 — word-bounded so "4290" etc. don't match
 		|| m.includes('rate limit') || m.includes('rate-limit') || m.includes('too many requests')
 		|| m.includes('usage limit') || m.includes('quota')
 		|| m.includes('overloaded') || m.includes('capacity')
 		|| m.includes('maxretriesexceeded')
+		|| m.includes('failed to connect')                     // the send layer's wording for a provider that cannot be reached
 		|| (m.includes('stream') && (m.includes('stall') || m.includes('timeout') || m.includes('closed')));
 	return hit ? 'provider-error' : undefined;
 }

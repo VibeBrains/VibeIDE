@@ -28,11 +28,15 @@ suite('providerErrorTranslator', () => {
 			{ name: 'forbidden 403', input: 'HTTP 403: permission denied for this endpoint', expectRu: '403' },
 			{ name: 'model not found', input: 'The model `gpt-5-ultra` does not exist or you do not have access to it.', expectRu: 'Модель не найдена' },
 			{ name: 'tools unsupported (OpenRouter free)', input: "No endpoints found that support the provided 'tool_choice' value. To learn more about provider routing, visit: https://openrouter.ai/docs", expectRu: 'не поддерживает вызов инструментов' },
-			{ name: 'gateway 502', input: 'Bad gateway (502) from upstream', expectRu: '5xx' },
-			{ name: 'gateway 520', input: 'Status 520: web server returned an unknown error', expectRu: '5xx' },
+			// The card names the code the provider answered with
+			{ name: 'gateway 502', input: 'Bad gateway (502) from upstream', expectRu: '(HTTP 502)' },
+			{ name: 'gateway 520', input: 'Status 520: web server returned an unknown error', expectRu: '(HTTP 520)' },
+			{ name: 'server error 503 (adapter wording)', input: 'Provider unavailable (HTTP 503) for fake-retry/always-503 — the upstream did not respond. Retry shortly or switch the model.', expectRu: '(HTTP 503)' },
+			{ name: 'server error without a code', input: 'Service Unavailable', expectRu: '(5xx)' },
 			{ name: 'timeout', input: 'Request timed out.', expectRu: 'время ожидания' },
 			{ name: 'network ECONNREFUSED', input: 'connect ECONNREFUSED 127.0.0.1:11434', expectRu: 'Сетевая ошибка' },
 			{ name: 'network fetch failed', input: 'TypeError: fetch failed', expectRu: 'Сетевая ошибка' },
+			{ name: 'network failed to connect (send layer wording)', input: 'Failed to connect to Fake Dead. This likely means the network is blocked, the endpoint in VibeIDE Settings is wrong, or the provider is down.', expectRu: 'не удалось связаться с провайдером' },
 			{ name: 'stream stalled (provider wording)', input: 'Stream stalled — no tokens received for 120s.', expectRu: 'Стрим оборвался' },
 			{ name: 'context overflow (Anthropic raw)', input: 'prompt is too long: 250000 tokens > 200000 maximum', expectRu: 'контекстное окно' },
 		];

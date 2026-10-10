@@ -40,7 +40,7 @@ import { parseChatSlashCommand, splitWatchArgs, CHAT_SLASH_COMMANDS, SLASH_COMMA
 import { BuiltinToolCallParams, BuiltinToolName, ToolName, LintErrorItem, ToolApprovalType, toolApprovalTypes } from '../../../../common/toolsServiceTypes.js';
 import { approvalTypeOfBuiltinToolName } from '../../../../common/prompt/tools/index.js';
 import { CopyButton, EditToolAcceptRejectButtonsHTML, IconShell1, JumpToFileButton, JumpToTerminalButton, StatusIndicator, StatusIndicatorForApplyButton, useApplyStreamState, useEditToolStreamState } from '../markdown/ApplyBlockHoverButtons.js';
-import { IsRunningType, WAITING_FOR_MODEL_RESPONSE_SENTINEL } from '../../../chatThreadService.js';
+import { IsRunningType, ThreadPauseInfo, WAITING_FOR_MODEL_RESPONSE_SENTINEL } from '../../../chatThreadService.js';
 import { acceptAllBg, acceptBorder, buttonFontSize, buttonTextColor, rejectAllBg, rejectBg, rejectBorder } from '../../../../common/helpers/colors.js';
 import { builtinToolNames, isABuiltinToolName, MAX_TERMINAL_INACTIVE_TIME } from '../../../../common/prompt/prompts.js';
 import { stripUnclaimedToolTags } from '../../../../common/xmlToolNormalize.js';
@@ -353,19 +353,32 @@ const StallBanner = ({
 	);
 };
 
-// Inline banner shown while a provider rate-limit auto-pause counts down to an automatic resume.
-// The run already schedules the resume itself; this just makes the wait visible and offers to skip it.
-const RateLimitPauseBanner = ({
-	resumeAtMs,
-	attempt,
-	maxAttempts,
+// What the pause banner says before the countdown: which failure the chat is waiting out
+// `retrying` is a repeat of a failed send inside the run, otherwise the run is paused and resumes itself
+const pauseBannerLead = (reason: ThreadPauseInfo['reason'], retrying: boolean, httpStatus: number | undefined): string => {
+	switch (reason) {
+		case 'rateLimit': return retrying ? 'Провайдер ограничил частоту запросов' : 'Провайдер взял паузу (лимит запросов)';
+		case 'serverError': return `Сервер провайдера не ответил${httpStatus !== undefined ? ` (HTTP ${httpStatus})` : ''}`;
+		case 'network': return 'Нет связи с провайдером';
+		case 'transient': return 'Ответ провайдера не получен';
+	}
+};
+
+// Inline banner shown while the chat waits before it sends the turn again: a provider rate-limit auto-pause,
+// or the pause between repeats of a send the provider failed. The run already schedules the next send itself;
+// this just makes the wait visible and offers to skip it (a rate-limit pause) or to stop the run (a repeat)
+const ProviderPauseBanner = ({
+	pause,
+	retrying,
 	onResumeNow,
+	onStop,
 }: {
-	resumeAtMs: number;
-	attempt: number;
-	maxAttempts: number;
+	pause: ThreadPauseInfo;
+	retrying: boolean;
 	onResumeNow: () => void;
+	onStop: () => void;
 }) => {
+	const { resumeAtMs, attempt, maxAttempts, reason, httpStatus } = pause;
 	const [now, setNow] = useState(() => Date.now());
 	useEffect(() => {
 		const id = window.setInterval(() => setNow(Date.now()), 1000);
@@ -384,15 +397,17 @@ const RateLimitPauseBanner = ({
 			<IconWarning size={14} className="flex-shrink-0" />
 			<span className="flex-1 text-vibe-fg-2">
 				{remainingSec > 0
-					? `Провайдер взял паузу (лимит запросов). Автопродолжение через ${clock} · попытка ${attempt} из ${maxAttempts}`
-					: 'Продолжаю…'}
+					? (retrying
+						? `${pauseBannerLead(reason, retrying, httpStatus)}. Повтор через ${clock} · повтор ${attempt} из ${maxAttempts}`
+						: `${pauseBannerLead(reason, retrying, httpStatus)}. Автопродолжение через ${clock} · попытка ${attempt} из ${maxAttempts}`)
+					: (retrying ? 'Повторяю…' : 'Продолжаю…')}
 			</span>
 			<button
 				type="button"
-				onClick={onResumeNow}
+				onClick={retrying ? onStop : onResumeNow}
 				className="px-2 py-0.5 rounded border border-vibe-warning text-vibe-warning hover:bg-vibe-bg-2-hover"
 			>
-				Продолжить сейчас
+				{retrying ? 'Остановить' : 'Продолжить сейчас'}
 			</button>
 		</div>
 	);
@@ -5282,7 +5297,9 @@ const CommandBarInChat = ({ onJumpToPlan }: { onJumpToPlan?: (messageIdx: number
     const threadStatus = (
         chatThreadsStreamState?.isRunning === 'awaiting_user'
             ? { title: chatS.statusNeedsApproval, color: 'yellow', } as const
-            : (chatThreadsStreamState?.isRunning === 'LLM' || chatThreadsStreamState?.isRunning === 'tool' || chatThreadsStreamState?.isRunning === 'preparing')
+            : (chatThreadsStreamState?.isRunning === 'LLM' || chatThreadsStreamState?.isRunning === 'tool' || chatThreadsStreamState?.isRunning === 'preparing'
+                // A pause before a repeated send: the turn is still going
+                || (chatThreadsStreamState?.isRunning === 'idle' && !!chatThreadsStreamState.pauseInfo))
                 ? { title: chatThreadsStreamState?.isRunning === 'preparing' ? chatS.statusPreparing : chatS.statusRunning, color: 'orange', } as const
                 : { title: chatS.statusDone, color: 'dark', } as const
     );
@@ -6290,8 +6307,10 @@ export const SidebarChat = () => {
 
 	// Only show streaming message when actively streaming (LLM, tool, or preparing)
 	// Don't show when idle/undefined to prevent duplicate messages and never-ending loading
-	// Only show stop button when actively running (LLM, tool, preparing), not when idle
+	// Only show stop button when actively running (LLM, tool, preparing) or waiting to repeat a send, not when idle
 	const isActivelyStreaming = isRunning === 'LLM' || isRunning === 'tool' || isRunning === 'preparing';
+	// The run waits before it repeats a failed send: it is not over, so the stop control stays
+	const isWaitingToRepeat = isRunning === 'idle' && !!currThreadStreamState?.pauseInfo;
 	const isWaitingForModelSentinel = isActivelyStreaming
 		&& displayContentSoFar === WAITING_FOR_MODEL_RESPONSE_SENTINEL
 		&& !reasoningSoFar;
@@ -6387,16 +6406,18 @@ export const SidebarChat = () => {
 			});
 		}
 
-		// Rate-limit auto-pause countdown — provider asked us to wait; the run resumes automatically.
-		if (currThreadStreamState?.isRunning === undefined && currThreadStreamState?.pauseInfo) {
-			const { resumeAtMs, attempt, maxAttempts } = currThreadStreamState.pauseInfo;
+		// Pause countdown — the chat waits before it sends the turn again, and the run resumes automatically
+		// `isRunning` is undefined while a rate-limit pause has parted from the run, and 'idle' while the run itself waits to repeat a send
+		if ((currThreadStreamState?.isRunning === undefined || currThreadStreamState?.isRunning === 'idle') && currThreadStreamState?.pauseInfo) {
+			const pause = currThreadStreamState.pauseInfo;
+			const retrying = currThreadStreamState.isRunning === 'idle';
 			items.push({
-				key: 'rate-limit-pause-banner',
-				render: () => <RateLimitPauseBanner
-					resumeAtMs={resumeAtMs}
-					attempt={attempt}
-					maxAttempts={maxAttempts}
+				key: 'provider-pause-banner',
+				render: () => <ProviderPauseBanner
+					pause={pause}
+					retrying={retrying}
 					onResumeNow={() => { chatThreadsService.resumeRateLimitPauseNow(threadId); }}
+					onStop={() => { chatThreadsService.abortRunning(threadId); }}
 				/>
 			});
 		}
@@ -7073,7 +7094,7 @@ export const SidebarChat = () => {
 		onSubmit={() => onSubmit()}
 		onContinue={(text) => onSubmit(text)}
 		onAbort={onAbort}
-		isStreaming={isActivelyStreaming}
+		isStreaming={isActivelyStreaming || isWaitingToRepeat}
 		isDisabled={isDisabled}
 		showSelections={true}
 		// showProspectiveSelections={previousMessagesHTML.length === 0}
