@@ -232,6 +232,7 @@
 | Файл | О чём |
 |---|---|
 | [runs.md](roadmap/runs.md) | Run logs ночных roadmap-max сессий |
+| [digestLedger.md](roadmap/digestLedger.md) | **[порядок]** Журнал дайджестов: какие сводки разобраны, где прогоны рутины и как найти неразобранные |
 | [tokenEconomy.md](roadmap/tokenEconomy.md) | Токен-экономия: cache-friendly prompt assembly, конденсер вывода терминала, auxiliary-модель для служебных вызовов Диагностика кэша Anthropic (30.09): причину промаха называет вендор, `diagnostics.previous_message_id` телом запроса. |
 
 ### [assets/](assets/) — лого, иконки, онбординг
