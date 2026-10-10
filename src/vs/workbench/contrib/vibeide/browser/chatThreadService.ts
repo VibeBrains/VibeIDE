@@ -36,6 +36,7 @@ import { isQuotaLow, pickRateLimitHeaders, ProviderQuotaSnapshot, tightestBucket
 import { IVibeSpendLedgerService } from './vibeSpendLedgerService.js';
 import { ModelHealthTracker, HEALTH_FAILURE_THRESHOLD, HEALTH_WINDOW_MS, classifyProviderError } from '../common/modelHealthTracker.js';
 import { translateProviderError } from '../common/providerErrorTranslator.js';
+import { isRetryableLlmError } from '../common/llmErrorRetry.js';
 import { generateUuid } from '../../../../base/common/uuid.js';
 import { autoFallbackProviderIds, ChatMode, FeatureName, ModelSelection, ModelSelectionOptions, ProviderName } from '../common/vibeideSettingsTypes.js';
 import { isModelVisionCapable } from '../common/modelVisionHeuristics.js';
@@ -574,6 +575,9 @@ export type ThreadStreamState = {
 		interrupt: 'not_needed' | Promise<() => void>; // calling this should have no effect on state - would be too confusing. it just cancels the tool
 	};
 };
+
+/** The error a thread carries once a turn has ended with it */
+type ThreadStreamError = NonNullable<ThreadStreamState[string]>['error'];
 
 const newThreadObject = (workspaceId: string | undefined, workspaceLabel: string | undefined) => {
 	const now = new Date().toISOString();
@@ -5193,6 +5197,33 @@ Output ONLY the JSON, no other text. Start with { and end with }.`;
 
 
 
+	/**
+	 * Toast for a provider error that ends the turn
+	 * An attempt that is retried stays silent, so this runs once per failed turn
+	 * Skipped when the chat already shows a sticky inline error with a recovery action (`switchModel`)
+	 */
+	private _notifyProviderFailure(error: { message: string; fullError: Error | null } | undefined, terminalError: ThreadStreamError, requestId: string): void {
+		if (terminalError?.recoverable === 'switchModel') {
+			return;
+		}
+		const rawErr = error?.fullError as { statusCode?: unknown; status?: unknown; code?: unknown; errorCode?: unknown } | null | undefined;
+		const httpStatus = rawErr?.statusCode ?? rawErr?.status;
+		const errorCode = rawErr?.code ?? rawErr?.errorCode;
+		const { toast } = classifyAndBuildToast({
+			source: 'provider',
+			httpStatus: typeof httpStatus === 'number' ? httpStatus : undefined,
+			errorMessage: error?.message,
+			errorCode: typeof errorCode === 'string' ? errorCode : undefined,
+			requestId,
+		});
+		if (toast.severity !== 'info') {
+			this._notificationService.notify({
+				severity: toast.severity === 'error' ? Severity.Error : Severity.Warning,
+				message: `${toast.headline}${toast.body ? ': ' + toast.body : ''}`,
+			});
+		}
+	}
+
 	private async _runChatAgent({
 		threadId,
 		modelSelection,
@@ -6364,7 +6395,9 @@ Output ONLY the JSON, no other text. Start with { and end with }.`;
 
 				type ResTypes =
 					| { type: 'llmDone'; toolCall?: RawToolCallObj; info: { fullText: string; fullReasoning: string; anthropicReasoning: AnthropicReasoning[] | null; finishNotice?: LLMFinishNotice } }
-					| { type: 'llmError'; error?: { message: string; fullError: Error | null } }
+					// `terminalError` is what the card shows when this error ends the turn: translated text, recovery action,
+					// what the provider reported. The loop below sets it only when no retry or fallback is left
+					| { type: 'llmError'; error?: { message: string; fullError: Error | null }; terminalError: ThreadStreamError }
 					| { type: 'llmAborted' };
 
 				let resMessageIsDonePromise: (res: ResTypes) => void; // resolves when user approves this tool use (or if tool doesn't require approval)
@@ -7044,6 +7077,7 @@ Output ONLY the JSON, no other text. Start with { and end with }.`;
 						const providerNameForError = modelSelection?.providerName ?? '—';
 
 						const emptyMatch = !overflowMatch && error?.message ? parseEmptyResponseError(error.message) : null;
+						let emptyBreakerTripped = false;
 						// A refusal the provider buried in the body is NOT the model falling silent:
 						// counting it toward the empty-response breaker would retire a perfectly
 						// healthy model over someone else's rate limit.
@@ -7058,6 +7092,7 @@ Output ONLY the JSON, no other text. Start with { and end with }.`;
 							));
 							if (streak >= threshold) {
 								this._emptyResponseStreak.delete(key);
+								emptyBreakerTripped = true;
 								effectiveError = {
 									message: localize(
 										'vibeide.chatThread.emptyResponseCircuitBreaker',
@@ -7251,33 +7286,30 @@ Output ONLY the JSON, no other text. Start with { and end with }.`;
 							if (translated) { effectiveError = { ...effectiveError, message: translated }; }
 						}
 
-						// Clear stream state immediately so submit button becomes active (avoids stuck "Waiting for model response..." if audit or resolve fails)
 						// `refusal` is what the provider reported; it now travels to the card, not only
 						// to the debug log — that log answered "quota or unstable stream?" for months
 						// while the user saw only «Empty response».
-						this._setStreamState(threadId, { isRunning: undefined, error: refusal ? { ...effectiveError!, diagnostics: refusal } : effectiveError });
+						const terminalError: ThreadStreamError = refusal ? { ...effectiveError!, diagnostics: refusal } : effectiveError;
 
-						// Unified error toast via agentErrorClassifier (L294).
-						// SUPPRESSED when the circuit breaker tripped — the sticky inline
-						// error (effectiveError.recoverable === 'switchModel') already
-						// communicates the situation more clearly than a transient toast.
-						if (effectiveError?.recoverable !== 'switchModel') {
-							const rawErr = error?.fullError as { statusCode?: unknown; status?: unknown; code?: unknown; errorCode?: unknown } | null | undefined;
-							const httpStatus = rawErr?.statusCode ?? rawErr?.status;
-							const errorCode = rawErr?.code ?? rawErr?.errorCode;
-							const { toast } = classifyAndBuildToast({
-								source: 'provider',
-								httpStatus: typeof httpStatus === 'number' ? httpStatus : undefined,
-								errorMessage: error?.message,
-								errorCode: typeof errorCode === 'string' ? errorCode : undefined,
-								requestId: finalRequestId,
-							});
-							if (toast.severity !== 'info') {
-								this._notificationService.notify({
-									severity: toast.severity === 'error' ? Severity.Error : Severity.Warning,
-									message: `${toast.headline}${toast.body ? ': ' + toast.body : ''}`,
-								});
-							}
+						// The retry / fallback branch of the loop below runs only while the thread is still 'LLM'
+						// So a transient error leaves the state alone, and that branch ends the turn with `terminalError`
+						// (state and toast) once no retry or fallback is left. Any other error ends the turn here
+						const failure = error?.fullError as { statusCode?: unknown; status?: unknown } | null | undefined;
+						const retryable = isRetryableLlmError({
+							message: error?.message ?? '',
+							httpStatus: [refusal?.httpStatus, failure?.statusCode, failure?.status].find((status): status is number => typeof status === 'number'),
+							refusalKind: bodyRefusalKind,
+							safetyRefusal: !!error?.safetyRefusal,
+							emptyBreakerTripped,
+							canSwitchModel: isAutoMode,
+						});
+						if (retryable) {
+							vibeLog.warn('chatThread', `Provider error on attempt ${nAttempts}, the turn may be retried: ${(error?.message ?? '').slice(0, 100)}`);
+						} else {
+							// Clear stream state immediately so submit button becomes active (avoids stuck "Waiting for model response..." if audit or resolve fails)
+							this._setStreamState(threadId, { isRunning: undefined, error: terminalError });
+							// Unified error toast via agentErrorClassifier (L294).
+							this._notifyProviderFailure(error, terminalError, finalRequestId);
 						}
 
 						try {
@@ -7297,7 +7329,7 @@ Output ONLY the JSON, no other text. Start with { and end with }.`;
 								});
 							}
 						} finally {
-							resMessageIsDonePromise({ type: 'llmError', error: error });
+							resMessageIsDonePromise({ type: 'llmError', error: error, terminalError });
 						}
 					},
 					onAbort: () => {
@@ -7352,7 +7384,7 @@ Output ONLY the JSON, no other text. Start with { and end with }.`;
 				}
 				// llm res error
 				else if (llmRes.type === 'llmError') {
-					const { error } = llmRes;
+					const { error, terminalError } = llmRes;
 					// Check if this is a rate limit error (429)
 					const isRateLimitError = error?.message?.includes('429') ||
 						error?.message?.toLowerCase().includes('rate limit') ||
@@ -7419,10 +7451,14 @@ Output ONLY the JSON, no other text. Start with { and end with }.`;
 					// For rate limit errors in non-auto mode, show error immediately
 					if (isRateLimitError && !isAutoMode) {
 						const { displayContentSoFar, reasoningSoFar, toolCallSoFar } = this.streamState[threadId].llmInfo;
-						this._addMessageToThread(threadId, { role: 'assistant', displayContent: displayContentSoFar, reasoning: reasoningSoFar, anthropicReasoning: null });
+						// The sentinel stands for «no token yet»; a message with its text must not land in the thread
+						if (displayContentSoFar !== WAITING_FOR_MODEL_RESPONSE_SENTINEL) {
+							this._addMessageToThread(threadId, { role: 'assistant', displayContent: displayContentSoFar, reasoning: reasoningSoFar, anthropicReasoning: null });
+						}
 						if (toolCallSoFar) { this._addMessageToThread(threadId, { role: 'interrupted_streaming_tool', name: toolCallSoFar.name, mcpServerName: this._computeMCPServerOfToolName(toolCallSoFar.name) }); }
 
-						this._setStreamState(threadId, { isRunning: undefined, error });
+						this._setStreamState(threadId, { isRunning: undefined, error: terminalError });
+						this._notifyProviderFailure(error, terminalError, finalRequestId);
 						await this._addUserCheckpoint({ threadId });
 						return;
 					}
@@ -7430,7 +7466,8 @@ Output ONLY the JSON, no other text. Start with { and end with }.`;
 					// For non-rate-limit errors in non-auto mode, or if we're in auto mode but no fallback was found:
 					// Retry the same model if we haven't exceeded retry limit (only for non-auto mode or if no fallback available)
 					const maxChatRetries = Math.max(0, Math.min(10, this._configurationService.getValue<number>('vibeide.chat.maxRetries') ?? CHAT_RETRIES));
-					if (!isAutoMode && nAttempts < maxChatRetries) {
+					// `nAttempts` counts the first attempt too, and the setting counts retries after it
+					if (!isAutoMode && nAttempts <= maxChatRetries) {
 						// Compute resume strategy before the delay so any prefill/skip info is
 						// ready when the while-loop iterates. Anthropic prefill injection would
 						// require provider-API support; for now we log the decision (L1185).
@@ -7460,10 +7497,13 @@ Output ONLY the JSON, no other text. Start with { and end with }.`;
 					else {
 						settleRouting({ success: false });
 						const { displayContentSoFar, reasoningSoFar, toolCallSoFar } = this.streamState[threadId].llmInfo;
-						this._addMessageToThread(threadId, { role: 'assistant', displayContent: displayContentSoFar, reasoning: reasoningSoFar, anthropicReasoning: null });
+						if (displayContentSoFar !== WAITING_FOR_MODEL_RESPONSE_SENTINEL) {
+							this._addMessageToThread(threadId, { role: 'assistant', displayContent: displayContentSoFar, reasoning: reasoningSoFar, anthropicReasoning: null });
+						}
 						if (toolCallSoFar) { this._addMessageToThread(threadId, { role: 'interrupted_streaming_tool', name: toolCallSoFar.name, mcpServerName: this._computeMCPServerOfToolName(toolCallSoFar.name) }); }
 
-						this._setStreamState(threadId, { isRunning: undefined, error });
+						this._setStreamState(threadId, { isRunning: undefined, error: terminalError });
+						this._notifyProviderFailure(error, terminalError, finalRequestId);
 						await this._addUserCheckpoint({ threadId });
 						return;
 					}

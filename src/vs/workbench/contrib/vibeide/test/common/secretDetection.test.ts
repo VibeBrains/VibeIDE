@@ -67,6 +67,148 @@ suite('Secret Detection', () => {
 		});
 	});
 
+	/**
+	 * An assignment rule has to tell a hard-coded string from code that merely names a credential
+	 * A false hit is not harmless: the text is replaced before the model sees it, and the leak check latches a breaker
+	 * Each list below is asserted whole, so a failure prints the texts that were judged wrong
+	 */
+	suite('правила присваивания: литерал или код', () => {
+		const flagged = (texts: string[]) => texts.filter(t => detectSecrets(t).hasSecrets);
+		const missed = (texts: string[]) => texts.filter(t => !detectSecrets(t).hasSecrets);
+
+		test('Kotlin-строки из жалобы не считаются паролем и уходят в модель как есть', () => {
+			const kotlin = 'private var token: DeviceToken? = null\ntoken = deviceToken';
+			const result = detectSecrets(kotlin);
+			assert.deepStrictEqual(
+				{ совпадения: result.matches.length, текст: result.redactedText },
+				{ совпадения: 0, текст: kotlin },
+			);
+		});
+
+		test('код после ключевого слова — не секрет', () => {
+			assert.deepStrictEqual(flagged([
+				'token = getToken()',
+				'token = readSecret(0);',
+				'token = process.env.TOKEN',
+				'token = process.env.TOKEN_V2',
+				'token = config.secret2',
+				'token = this.token!',
+				'token = this->token2',
+				'token = Config::TOKEN_V2',
+				'token = tokens[0]',
+				'token = deviceToken',
+				'token = deviceToken!!',
+				'token = device_token',
+				'token = DEVICE_TOKEN',
+				'token: DeviceToken?',
+				'token: String',
+				'token: Map<String, String> = emptyMap()',
+				'token: Map<Int64, String> = emptyMap()',
+				'token = null',
+				'token = undefined',
+				'token: /[\\p{L}\\p{N}]+/gu',
+				'password = /run/secrets/db_password',
+				'password:!0,range:!0',
+				'apiKey: ApiKeyAuthProviderFactory',
+				'apiKey = environmentVariableApiKey',
+				'if (token == otherTokenValue1)',
+				'token:\n  description: first',
+				'#token=\nSOME_OTHER_VARIABLE=1',
+			]), []);
+		});
+
+		test('заглушки и интерполяции — не секрет, даже в кавычках', () => {
+			assert.deepStrictEqual(flagged([
+				'password = "${TOKEN}"',
+				'password = "$TOKEN"',
+				'password = "{{ token }}"',
+				'password = "{{token}}"',
+				'password = "<your-token>"',
+				'password = "%s"',
+				'password = "%(token)s"',
+				'password = "..."',
+				'password = "********"',
+				'password = "xxxxxxxx"',
+				'password = "XXXX-XXXX-XXXX"',
+				'password = "[[REDACTED:Password]]"',
+				'token = `${secretFromVault}`',
+				'DB_PASSWORD=${DB_PASSWORD_FILE}',
+				'DB_PASSWORD=$DB_PASSWORD_VALUE',
+				'TOKEN=$(cat_token_file)',
+				'"${secret:DEPLOY_TOKEN}"',
+				'apiKey = "xxxxxxxxxxxxxxxxxxxxxxxx"',
+				'Authorization: Bearer xxxxxxxxxxxxxxxxxxxx',
+			]), []);
+		});
+
+		test('шаблонная строка с подстановкой — выражение, а не литерал', () => {
+			assert.deepStrictEqual(flagged([
+				'const token = `p${++seq}-aaaaaaaaaa`;',
+			]), []);
+		});
+
+		test('литерал в кавычках — секрет', () => {
+			assert.deepStrictEqual(missed([
+				'password = "hunter2hunter"',
+				"token: 'abc12345xyz'",
+				'password = "correcthorsebattery"',
+				'token = `abcdefgh1234`',
+				'SECRET = b"test-signing-secret"',
+				"secret = 'tok\"en-with-quote'",
+				'password =\n    "hunter2hunter"',
+				'apiKey = "k3Jx9Qm2Lp8Zr4Tv6Yw1Ab"',
+			]), []);
+		});
+
+		test('значение без кавычек — секрет только с цифрой или символом и без признаков кода', () => {
+			assert.deepStrictEqual(missed([
+				'password: S3cr3tPass!',
+				'password=mySecretPassword123!',
+				'password: Welcome2024',
+				'token = Zx8_kQ#mP4vLw',
+				'api_key=k3Jx9Qm2Lp8Zr4Tv6Yw1Ab',
+				'connect(password=hunter2hunter);',
+				// The outer match is code and rejected, the secret nested in it is still found
+				'token=login(password=hunter2hunter)',
+			]), []);
+		});
+
+		test('строка окружения: секрет с любым значением от восьми знаков, кроме заглушки', () => {
+			assert.deepStrictEqual({
+				пропущено: missed([
+					'PASSWORD=correcthorsebattery',
+					'export DB_PASSWORD=correcthorse',
+					'  CLIENT_SECRET=correcthorse',
+					'API_TOKEN=abcdefghij',
+					'DB_PASSWORD="correcthorse"',
+				]),
+				// The match starts at the variable name, so `export` and the indent stay in the text
+				замена: detectSecrets('export DB_PASSWORD=correcthorse\nPORT=8080').redactedText,
+				// A lower-case name or a name that only starts with the keyword was not matched before either
+				чужиеИмена: flagged(['my_password=Secret123xx', 'dbPassword=Secret123xx', 'TOKEN_LIMIT=10000000', 'FOO=correcthorse']),
+			}, {
+				пропущено: [],
+				замена: 'export [[REDACTED:Password]]\nPORT=8080',
+				чужиеИмена: [],
+			});
+		});
+
+		test('предложение в кавычках — не значение', () => {
+			assert.deepStrictEqual(flagged([
+				'password: "Password is required"',
+				"token: 'Invalid token provided'",
+			]), []);
+		});
+
+		test('разбор длинных строк без переводов не растёт квадратично', () => {
+			const started = Date.now();
+			detectSecrets(' '.repeat(200_000) + 'x');
+			detectSecrets('TOKEN_'.repeat(100_000) + '=');
+			detectSecrets('token=login(a=b)'.repeat(60_000));
+			assert.ok(Date.now() - started < 2_000);
+		});
+	});
+
 	suite('detectSecrets', () => {
 		test('should detect OpenAI API keys', () => {
 			const text = 'My API key is sk-proj-abc123def456ghi789jkl012mno345pqr678stu901vwx234yz';
