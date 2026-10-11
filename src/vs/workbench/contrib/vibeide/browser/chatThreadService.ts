@@ -7926,13 +7926,14 @@ Output ONLY the JSON, no other text. Start with { and end with }.`;
 					&& info.fullText.includes(unclaimedToolTagPlaceholder())
 					&& this._configurationService.getValue<boolean>('vibeide.llm.repairBrokenToolCalls') !== false) {
 					hasRepairedXmlThisRequest = true;
-					// On-fire attribution: the repair adds a round-trip → latency. Tell the user once/session
-					// so slowness is attributable to this debug-mode feature, not blamed on the app at large.
+					vibeLog.warn('chatThread', `[agent] broken XML tool call (${modelSelection?.providerName ?? '?'}/${modelSelection?.modelName ?? '?'}) — asking to resend it, one extra model call.`);
+					// The repair adds a round-trip, so it costs latency on this turn
+					// Tell the user once per session so the slowdown has a visible cause
 					if (!this._xmlRepairFiredNotified) {
 						this._xmlRepairFiredNotified = true;
 						this._notificationService.notify({
 							severity: Severity.Info,
-							message: localize('vibeide.llm.repairFired', 'VibeIDE переотправил модели запрос на исправление битого tool-call (доп. обращение — медленнее). Это режим отладки совместимости; отключить — настройка vibeide.llm.repairBrokenToolCalls.'),
+							message: localize('vibeide.llm.repairFired', 'Модель прислала битый вызов инструмента, агент попросил отправить его заново — это одно лишнее обращение на этом ходу. Отключить: настройка vibeide.llm.repairBrokenToolCalls.'),
 						});
 					}
 					// Preserve the model's (malformed) turn, then add a corrective user turn so the next
