@@ -105,3 +105,46 @@
 .monaco-workbench .auxiliarybar.pane-composite-part > .title.has-composite-bar > .title-actions .monaco-action-bar .action-item {
 	max-width: 150px;
 }
+
+/* VibeIDE: close button of a tab
+ * It floats over the right end of the tab and takes no space, so the tab width is the same with and without it
+ * It is there only while the pointer is over the tab or the tab has keyboard focus
+ * The label fades out under it: the tab fill is translucent, a patch of one colour would not match it in every theme
+ * Pointer events are off while it is invisible, so a touch tap on a tab always activates the tab */
+.monaco-workbench .part.auxiliarybar .composite-bar .action-item > .composite-close {
+	position: absolute;
+	top: 50%;
+	right: 6px;
+	z-index: 2;
+	width: 16px;
+	height: 16px;
+	margin-top: -8px;
+	border-radius: 4px;
+	font-size: 16px;
+	line-height: 16px;
+	color: inherit;
+	text-transform: none;
+	cursor: pointer;
+	opacity: 0;
+	pointer-events: none;
+}
+
+.monaco-workbench .part.auxiliarybar .composite-bar .action-item:hover > .composite-close,
+.monaco-workbench .part.auxiliarybar .composite-bar .action-item:focus-visible > .composite-close {
+	opacity: 1;
+	pointer-events: auto;
+}
+
+.monaco-workbench .part.auxiliarybar .composite-bar .action-item:has(> .composite-close):hover > .action-label,
+.monaco-workbench .part.auxiliarybar .composite-bar .action-item:has(> .composite-close):focus-visible > .action-label {
+	-webkit-mask-image: linear-gradient(to right, #000 calc(100% - 24px), transparent calc(100% - 12px));
+	mask-image: linear-gradient(to right, #000 calc(100% - 24px), transparent calc(100% - 12px));
+}
+
+.monaco-workbench .part.auxiliarybar .composite-bar .action-item > .composite-close:hover {
+	background-color: var(--vscode-toolbar-hoverBackground);
+}
+
+.monaco-workbench .part.auxiliarybar .composite-bar .action-item > .composite-close:active {
+	background-color: var(--vscode-toolbar-activeBackground);
+}

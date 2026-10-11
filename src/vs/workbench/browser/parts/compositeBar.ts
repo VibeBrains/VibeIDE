@@ -156,6 +156,11 @@ export interface ICompositeBarOptions {
 	readonly fillExtraContextMenuActions: (actions: IAction[], e?: MouseEvent | GestureEvent) => void;
 	readonly getContextMenuActionsForComposite: (compositeId: string) => IAction[];
 
+	/**
+	 * VibeIDE: when set, tabs can be closed (button, Delete, middle click) and this is called with the composite id
+	 */
+	readonly closeComposite?: (compositeId: string) => void;
+
 	readonly openComposite: (compositeId: string, preserveFocus?: boolean) => Promise<IComposite | null>;
 	readonly getDefaultCompositeId: () => string | undefined;
 }
@@ -293,7 +298,7 @@ export class CompositeBar extends Widget implements ICompositeBar {
 				const item = this.model.findItem(action.id);
 				return item && this.instantiationService.createInstance(
 					CompositeActionViewItem,
-					{ ...options, draggable: true, colors: this.options.colors, icon: this.options.icon, hoverOptions: this.options.activityHoverOptions, compact: this.options.compact },
+					{ ...options, draggable: true, colors: this.options.colors, icon: this.options.icon, hoverOptions: this.options.activityHoverOptions, compact: this.options.compact, closeComposite: this.options.closeComposite },
 					action as CompositeBarAction,
 					item.pinnedAction,
 					item.toggleBadgeAction,
@@ -413,6 +418,36 @@ export class CompositeBar extends Widget implements ICompositeBar {
 
 			this.resetActiveComposite(compositeId);
 		}
+	}
+
+	/**
+	 * VibeIDE: takes a tab off the bar on behalf of the user
+	 * Returns false and changes nothing when it is the only tab left, so the caller can hide the whole part instead
+	 * A tab that is still pinned comes back together with the part, the part is never left without tabs
+	 */
+	close(compositeId: string): boolean {
+		const activeId = this.model.activeItem?.id;
+		const shownIds = this.model.visibleItems.filter(item => item.pinned || item.id === activeId).map(item => item.id);
+		if (!shownIds.some(id => id !== compositeId)) {
+			return false;
+		}
+
+		const hadFocus = this.compositeSwitcherBar?.isFocused();
+		const closedIndex = this.visibleComposites.indexOf(compositeId);
+
+		if (this.isPinned(compositeId)) {
+			this.unpin(compositeId);
+		} else {
+			// The tab is only shown because it is the active one
+			this.resetActiveComposite(compositeId);
+		}
+
+		// The focused tab is gone, hand the focus to its neighbour instead of dropping it
+		if (hadFocus && this.visibleComposites.length) {
+			this.compositeSwitcherBar?.focus(Math.max(0, Math.min(closedIndex, this.visibleComposites.length - 1)));
+		}
+
+		return true;
 	}
 
 	areBadgesEnabled(compositeId: string): boolean {
