@@ -23,9 +23,14 @@ import { WORKTREE_DIR } from '../common/worktreeNaming.js';
  *   with a copy of its dependencies, and watching it would multiply the watcher load per running role.
  *   Object defaults merge with upstream's, so its own exclusions stay. No leading `**`, as upstream advises:
  *   that pattern turns into a regular expression slow enough to matter in large workspaces
+ * - `editor.scrollbar.verticalScrollbarSize` and `horizontalScrollbarSize: 8` — upstream draws the editor bar 7px wide
+ *   and 6px high; `vibeScroll.css` paints a thumb inside that lane with a transparent border on each side, so the lane
+ *   has to be 8px for the thumb to come out 4px like in the side panels. The lane is also where the overview ruler
+ *   (marks of errors, changes and matches) is drawn, it follows the same size and stays readable
  */
 Registry.as<IConfigurationRegistry>(ConfigurationExtensions.Configuration).registerDefaultConfigurations([
 	{ overrides: { 'editor.wordWrap': 'on' } },
 	{ overrides: { 'workbench.experimental.modernUI': true } },
 	{ overrides: { 'files.watcherExclude': { [`${WORKTREE_DIR}/**`]: true, [`*/${WORKTREE_DIR}/**`]: true } } },
+	{ overrides: { 'editor.scrollbar.verticalScrollbarSize': 8, 'editor.scrollbar.horizontalScrollbarSize': 8 } },
 ]);
