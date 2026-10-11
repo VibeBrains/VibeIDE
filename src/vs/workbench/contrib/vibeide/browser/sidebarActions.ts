@@ -27,6 +27,11 @@ import { IQuickInputService } from '../../../../platform/quickinput/common/quick
 import { openVibeChatEditor } from './vibeideChatPane.js';
 import { IInstantiationService } from '../../../../platform/instantiation/common/instantiation.js';
 import { VIBE_COMMAND_CATEGORY } from '../common/vibeCommandCategory.js';
+import { Codicon } from '../../../../base/common/codicons.js';
+import { registerIcon } from '../../../../platform/theme/common/iconRegistry.js';
+import { ActiveAuxiliaryContext, AuxiliaryBarVisibleContext, IsAuxiliaryWindowContext } from '../../../common/contextkeys.js';
+import { IViewDescriptorService, ViewContainerLocation } from '../../../common/views.js';
+import { IPaneCompositePartService } from '../../../services/panecomposite/browser/panecomposite.js';
 
 // ---------- Register commands and keybindings ----------
 
@@ -64,22 +69,72 @@ export const roundRangeToLines = (range: IRange | null | undefined, options: { e
 
 
 const VIBEIDE_OPEN_SIDEBAR_ACTION_ID = 'vibeide.sidebar.open';
+
+// The layout controls of the title bar sort their items by order, the toggles of the panels use 0, 1 and 2
+const VIBEIDE_LAYOUT_CONTROL_ORDER = -1;
+
+const vibeChatLayoutIcon = registerIcon('vibeide-chat-layout-icon', Codicon.commentDiscussion, localize('vibeChatLayoutIcon', 'Значок открытия чата в заголовке окна.'));
+
+/**
+ * The user can take the chat off the tabs of the right panel or drag it to another place
+ * Both are undone here: the chat goes back to the right panel and becomes its first tab
+ * A chat that is a tab of the right panel already stays where it is, its place is the user's choice
+ */
+function restoreChatTab(viewDescriptorService: IViewDescriptorService, paneCompositePartService: IPaneCompositePartService): void {
+	const container = viewDescriptorService.getViewContainerById(VIBEIDE_VIEW_CONTAINER_ID);
+	if (!container) {
+		return;
+	}
+
+	const movedBack = viewDescriptorService.getViewContainerLocation(container) !== ViewContainerLocation.AuxiliaryBar;
+	if (movedBack) {
+		viewDescriptorService.moveViewContainerToLocation(container, ViewContainerLocation.AuxiliaryBar, 0, VIBEIDE_OPEN_SIDEBAR_ACTION_ID);
+	}
+
+	const isTab = paneCompositePartService.getPinnedPaneCompositeIds(ViewContainerLocation.AuxiliaryBar).includes(container.id);
+	if (movedBack || !isTab) {
+		paneCompositePartService.pinPaneComposite(container.id, ViewContainerLocation.AuxiliaryBar, { first: true });
+	}
+}
+
 registerAction2(class extends Action2 {
 	constructor() {
 		super({
 			id: VIBEIDE_OPEN_SIDEBAR_ACTION_ID,
 			title: localize2('vibeOpenSidebar', 'Открыть чат'),
+			icon: vibeChatLayoutIcon,
 			category: VIBE_COMMAND_CATEGORY,
 			f1: true,
 			keybinding: {
 				weight: KeybindingWeight.ExternalExtension,
 				primary: KeyMod.CtrlCmd | KeyMod.Shift | KeyCode.KeyL,
 			},
+			// Lit while the chat is what the right panel shows, pressing it then changes nothing
+			toggled: ContextKeyExpr.and(AuxiliaryBarVisibleContext, ActiveAuxiliaryContext.isEqualTo(VIBEIDE_VIEW_CONTAINER_ID)),
+			menu: [
+				{
+					id: MenuId.LayoutControlMenu,
+					group: 'navigation',
+					order: VIBEIDE_LAYOUT_CONTROL_ORDER,
+					when: ContextKeyExpr.and(
+						IsAuxiliaryWindowContext.negate(),
+						ContextKeyExpr.or(
+							ContextKeyExpr.equals('config.workbench.layoutControl.type', 'toggles'),
+							ContextKeyExpr.equals('config.workbench.layoutControl.type', 'both'))
+					)
+				},
+				{
+					id: MenuId.LayoutControlMenuSubmenu,
+					group: '0_workbench_layout',
+					order: VIBEIDE_LAYOUT_CONTROL_ORDER
+				}
+			]
 		});
 	}
 	async run(accessor: ServicesAccessor): Promise<void> {
 		const instantiationService = accessor.get(IInstantiationService);
 		const chatThreadsService = accessor.get(IChatThreadService);
+		restoreChatTab(accessor.get(IViewDescriptorService), accessor.get(IPaneCompositePartService));
 		await openVibeChatEditor(instantiationService);
 		await chatThreadsService.focusCurrentChat();
 	}

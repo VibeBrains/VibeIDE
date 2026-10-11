@@ -31,6 +31,7 @@ import { GestureEvent } from '../../../base/browser/touch.js';
 import { IPaneCompositePart } from './paneCompositePart.js';
 import { IConfigurationService } from '../../../platform/configuration/common/configuration.js';
 import { IViewsService } from '../../services/views/common/viewsService.js';
+import { IPinPaneCompositeOptions } from '../../services/panecomposite/browser/panecomposite.js';
 
 interface IPlaceholderViewContainer {
 	readonly id: string;
@@ -513,6 +514,15 @@ export class PaneCompositeBar extends Disposable {
 	getPaneCompositeIds(): string[] {
 		return this.compositeBar.getVisibleComposites()
 			.map(v => v.id);
+	}
+
+	// VibeIDE: brings back a tab the user took off, optionally in front of the others
+	pinPaneComposite(id: string, options?: IPinPaneCompositeOptions): void {
+		if (options?.first) {
+			this.compositeBar.pinFirst(id);
+		} else {
+			this.compositeBar.pin(id);
+		}
 	}
 
 	getContextMenuActions(): IAction[] {

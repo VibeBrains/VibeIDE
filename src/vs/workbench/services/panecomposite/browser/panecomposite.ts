@@ -13,6 +13,17 @@ import { SINGLE_WINDOW_PARTS } from '../../layout/browser/layoutService.js';
 
 export const IPaneCompositePartService = createDecorator<IPaneCompositePartService>('paneCompositePartService');
 
+/**
+ * VibeIDE: how a view container is pinned to the tabs of a part
+ */
+export interface IPinPaneCompositeOptions {
+
+	/**
+	 * Put the tab in front of all the others
+	 */
+	readonly first?: boolean;
+}
+
 export interface IPaneCompositePartService {
 
 	readonly _serviceBrand: undefined;
@@ -58,6 +69,12 @@ export interface IPaneCompositePartService {
 	 * Returns id of all view containers following visual order.
 	 */
 	getPaneCompositeIds(viewContainerLocation: ViewContainerLocation): string[];
+
+	/**
+	 * VibeIDE: pins a view container to the tabs of the part, so that it is shown there again after the user took it off
+	 * The view container has to be located in the part already
+	 */
+	pinPaneComposite(id: string, viewContainerLocation: ViewContainerLocation, options?: IPinPaneCompositeOptions): void;
 
 	/**
 	 * Returns the progress indicator for the side bar.

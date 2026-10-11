@@ -116,4 +116,36 @@ suite('CompositeBar', () => {
 			active: isActive('chat'),
 		}, { closed: true, pinned: [], active: true });
 	});
+
+	test('pinFirst puts a pinned tab in front of the others', () => {
+		const { bar } = createBar([{ id: 'a', pinned: true }, { id: 'b', pinned: true }, { id: 'c', pinned: true }], 'a');
+
+		bar.pinFirst('c');
+
+		assert.deepStrictEqual({ order: bar.getCompositeBarItems().map(item => item.id), pinned: bar.getPinnedCompositeIds() }, { order: ['c', 'a', 'b'], pinned: ['c', 'a', 'b'] });
+	});
+
+	test('pinFirst pins a tab that was taken off and puts it in front', () => {
+		const { bar } = createBar([{ id: 'a', pinned: true }, { id: 'b', pinned: true }, { id: 'c', pinned: false }], 'a');
+
+		bar.pinFirst('c');
+
+		assert.deepStrictEqual({ order: bar.getCompositeBarItems().map(item => item.id), pinned: bar.getPinnedCompositeIds() }, { order: ['c', 'a', 'b'], pinned: ['c', 'a', 'b'] });
+	});
+
+	test('pinFirst only pins a tab that is the first one already', () => {
+		const { bar } = createBar([{ id: 'a', pinned: false }, { id: 'b', pinned: true }], 'a');
+
+		bar.pinFirst('a');
+
+		assert.deepStrictEqual({ order: bar.getCompositeBarItems().map(item => item.id), pinned: bar.getPinnedCompositeIds() }, { order: ['a', 'b'], pinned: ['a', 'b'] });
+	});
+
+	test('pinFirst leaves a tab the bar does not know alone', () => {
+		const { bar } = createBar([{ id: 'a', pinned: true }, { id: 'b', pinned: false }], 'a');
+
+		bar.pinFirst('x');
+
+		assert.deepStrictEqual({ order: bar.getCompositeBarItems().map(item => item.id), pinned: bar.getPinnedCompositeIds() }, { order: ['a', 'b'], pinned: ['a'] });
+	});
 });

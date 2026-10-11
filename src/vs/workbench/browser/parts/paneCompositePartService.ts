@@ -14,7 +14,7 @@ import { PanelPart } from './panel/panelPart.js';
 import { SidebarPart } from './sidebar/sidebarPart.js';
 import { IPaneComposite } from '../../common/panecomposite.js';
 import { ViewContainerLocation } from '../../common/views.js';
-import { IPaneCompositePartService } from '../../services/panecomposite/browser/panecomposite.js';
+import { IPaneCompositePartService, IPinPaneCompositeOptions } from '../../services/panecomposite/browser/panecomposite.js';
 import { Disposable, DisposableStore } from '../../../base/common/lifecycle.js';
 import { IPaneCompositePart } from './paneCompositePart.js';
 import { SINGLE_WINDOW_PARTS } from '../../services/layout/browser/layoutService.js';
@@ -82,6 +82,11 @@ export class PaneCompositePartService extends Disposable implements IPaneComposi
 
 	getPaneCompositeIds(viewContainerLocation: ViewContainerLocation): string[] {
 		return this.getPartByLocation(viewContainerLocation).getPaneCompositeIds();
+	}
+
+	// VibeIDE: see IPaneCompositePartService.pinPaneComposite
+	pinPaneComposite(id: string, viewContainerLocation: ViewContainerLocation, options?: IPinPaneCompositeOptions): void {
+		this.getPartByLocation(viewContainerLocation).pinPaneComposite(id, options);
 	}
 
 	getProgressIndicator(id: string, viewContainerLocation: ViewContainerLocation): IProgressIndicator | undefined {

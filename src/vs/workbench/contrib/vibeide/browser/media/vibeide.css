@@ -283,6 +283,13 @@ body.vibeide-chat-wide .vibe-chat-scroll-root > * {
 	opacity: 1;
 }
 
+/* Chat button of the title bar layout controls
+ * The main window does not highlight toggled items of that toolbar, the other toggles differ by their icon
+ * This one keeps a single icon, so it is marked with the toggled background the highlighted toolbars use */
+.monaco-workbench .part.titlebar .monaco-action-bar .action-label.checked.codicon-vibeide-chat-layout-icon {
+	background-color: var(--vscode-actionBar-toggledBackground);
+}
+
 /* HISTORY composite header: hide the auxiliary-bar maximize toggle (codicon-auxiliarybar-maximize)
  * and the separator preceding it. Equivalent control is exposed inside the chat composer.
  * VibeIDE registers a single auxiliary-bar view, so a global hide is acceptable here. */

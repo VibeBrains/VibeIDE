@@ -15,6 +15,7 @@ import { IView } from '../../../base/browser/ui/grid/grid.js';
 import { IWorkbenchLayoutService, Parts, SINGLE_WINDOW_PARTS, FLOATING_PANEL_INNER_MARGIN, FLOATING_PANEL_MARGIN, getFloatingOuterGutterEdges, getFloatingPaneCompositeVerticalMargins } from '../../services/layout/browser/layoutService.js';
 import { CompositePart, ICompositePartOptions, ICompositeTitleLabel } from './compositePart.js';
 import { IPaneCompositeBarOptions, PaneCompositeBar } from './paneCompositeBar.js';
+import { IPinPaneCompositeOptions } from '../../services/panecomposite/browser/panecomposite.js';
 import { Dimension, EventHelper, trackFocus, $, addDisposableListener, EventType, prepend, getWindow } from '../../../base/browser/dom.js';
 import { Registry } from '../../../platform/registry/common/platform.js';
 import { INotificationService } from '../../../platform/notification/common/notification.js';
@@ -104,6 +105,11 @@ export interface IPaneCompositePart extends IView {
 	 * Returns id of all view containers following the visual order.
 	 */
 	getPaneCompositeIds(): string[];
+
+	/**
+	 * VibeIDE: pins a view container to the tabs of the part
+	 */
+	pinPaneComposite(id: string, options?: IPinPaneCompositeOptions): void;
 }
 
 export abstract class AbstractPaneCompositePart extends CompositePart<PaneComposite> implements IPaneCompositePart {
@@ -569,6 +575,11 @@ export abstract class AbstractPaneCompositePart extends CompositePart<PaneCompos
 
 	getPaneCompositeIds(): string[] {
 		return this.paneCompositeBar.value?.getPaneCompositeIds() ?? [];
+	}
+
+	// VibeIDE: without a composite bar there are no tabs to pin to, so nothing is done
+	pinPaneComposite(id: string, options?: IPinPaneCompositeOptions): void {
+		this.paneCompositeBar.value?.pinPaneComposite(id, options);
 	}
 
 	getActivePaneComposite(): IPaneComposite | undefined {

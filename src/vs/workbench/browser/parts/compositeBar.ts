@@ -421,6 +421,21 @@ export class CompositeBar extends Widget implements ICompositeBar {
 	}
 
 	/**
+	 * VibeIDE: pins the tab and puts it in front of all the others, wherever it stood before
+	 * A tab the bar does not know is left alone
+	 */
+	pinFirst(compositeId: string): void {
+		const firstId = this.model.items[0]?.id;
+		const changed = firstId !== undefined && firstId !== compositeId
+			? this.model.move(compositeId, firstId)
+			: this.model.setPinned(compositeId, true);
+
+		if (changed) {
+			this.updateCompositeSwitcher();
+		}
+	}
+
+	/**
 	 * VibeIDE: takes a tab off the bar on behalf of the user
 	 * Returns false and changes nothing when it is the only tab left, so the caller can hide the whole part instead
 	 * A tab that is still pinned comes back together with the part, the part is never left without tabs

@@ -768,6 +768,11 @@ export class TestPaneCompositeService extends Disposable implements IPaneComposi
 		throw new Error('Method not implemented.');
 	}
 
+	// VibeIDE: member of IPaneCompositePartService
+	pinPaneComposite(id: string, viewContainerLocation: ViewContainerLocation): void {
+		throw new Error('Method not implemented.');
+	}
+
 	getPartByLocation(viewContainerLocation: ViewContainerLocation): IPaneCompositePart {
 		return assertReturnsDefined(this.parts.get(viewContainerLocation));
 	}
@@ -805,6 +810,7 @@ export class TestSideBarPart implements IPaneCompositePart {
 	getPinnedPaneCompositeIds() { return []; }
 	getVisiblePaneCompositeIds() { return []; }
 	getPaneCompositeIds() { return []; }
+	pinPaneComposite() { } // VibeIDE: member of IPaneCompositePart
 	layout(width: number, height: number, top: number, left: number): void { }
 }
 
@@ -828,6 +834,7 @@ export class TestPanelPart implements IPaneCompositePart {
 	getPinnedPaneCompositeIds() { return []; }
 	getVisiblePaneCompositeIds() { return []; }
 	getPaneCompositeIds() { return []; }
+	pinPaneComposite() { } // VibeIDE: member of IPaneCompositePart
 	getActivePaneComposite(): IPaneComposite { return activeViewlet; }
 	setPanelEnablement(id: string, enabled: boolean): void { }
 	dispose() { }
