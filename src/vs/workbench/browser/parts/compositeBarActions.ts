@@ -5,7 +5,7 @@
 
 import { localize } from '../../../nls.js';
 import { Action, IAction, Separator } from '../../../base/common/actions.js';
-import { $, addDisposableListener, append, clearNode, EventHelper, EventType, getDomNodePagePosition, hide, show } from '../../../base/browser/dom.js';
+import { $, addDisposableListener, append, clearNode, EventHelper, EventLike, EventType, getDomNodePagePosition, hide, show } from '../../../base/browser/dom.js';
 import { ICommandService } from '../../../platform/commands/common/commands.js';
 import { toDisposable, DisposableStore, MutableDisposable } from '../../../base/common/lifecycle.js';
 import { IContextMenuService } from '../../../platform/contextview/browser/contextView.js';
@@ -30,6 +30,10 @@ import { ViewContainerLocation } from '../../common/views.js';
 import { IPaneCompositePartService } from '../../services/panecomposite/browser/panecomposite.js';
 import { createConfigureKeybindingAction } from '../../../platform/actions/common/menuService.js';
 import { HoverStyle } from '../../../base/browser/ui/hover/hover.js';
+import { StandardKeyboardEvent } from '../../../base/browser/keyboardEvent.js';
+import { EventType as TouchEventType } from '../../../base/browser/touch.js';
+import { KeyCode } from '../../../base/common/keyCodes.js';
+import { isLinux } from '../../../base/common/platform.js';
 
 export interface ICompositeBar {
 
@@ -150,6 +154,12 @@ export interface ICompositeBarActionViewItemOptions extends IActionViewItemOptio
 	readonly hoverOptions: IActivityHoverOptions;
 	readonly hasPopup?: boolean;
 	readonly compact?: boolean;
+
+	/**
+	 * VibeIDE: gives the tab a close button, a Delete key and a middle click that all call this with the composite id
+	 * Icon-only tabs have no room for the button and ignore it
+	 */
+	readonly closeComposite?: (compositeId: string) => void;
 }
 
 export class CompositeBarActionViewItem extends BaseActionViewItem {
@@ -169,7 +179,8 @@ export class CompositeBarActionViewItem extends BaseActionViewItem {
 		options: ICompositeBarActionViewItemOptions,
 		private readonly badgesEnabled: (compositeId: string) => boolean,
 		@IThemeService protected readonly themeService: IThemeService,
-		@IHoverService private readonly hoverService: IHoverService,
+		// VibeIDE: protected, the close button of the tab sets up its own hover
+		@IHoverService protected readonly hoverService: IHoverService,
 		@IConfigurationService protected readonly configurationService: IConfigurationService,
 		@IKeybindingService protected readonly keybindingService: IKeybindingService,
 	) {
@@ -514,6 +525,9 @@ export class CompositeOverflowActivityActionViewItem extends CompositeBarActionV
 
 export class CompositeActionViewItem extends CompositeBarActionViewItem {
 
+	// VibeIDE: set only for a closable tab with a label
+	private closeButton: HTMLElement | undefined;
+
 	constructor(
 		options: ICompositeBarActionViewItemOptions,
 		compositeActivityAction: CompositeBarAction,
@@ -593,7 +607,92 @@ export class CompositeActionViewItem extends CompositeBarActionViewItem {
 			}
 		})));
 
+		// VibeIDE: close button, Delete key and middle click, only for bars that ask for them
+		if (this.options.closeComposite) {
+			this.registerCloseControls(container, this.options.closeComposite);
+		}
+
 		this.updateStyles();
+	}
+
+	// VibeIDE: the close button follows the name of the tab
+	protected override update(): void {
+		super.update();
+
+		this.closeButton?.setAttribute('aria-label', this.computeCloseLabel());
+	}
+
+	// VibeIDE: text of the tooltip and of the aria label of the close button
+	private computeCloseLabel(): string {
+		return localize('removeTab', "Убрать вкладку «{0}»", this.compositeBarActionItem.name);
+	}
+
+	// VibeIDE: everything a closable tab adds on top of a plain one
+	private registerCloseControls(container: HTMLElement, closeComposite: (compositeId: string) => void): void {
+		const close = () => closeComposite(this.compositeBarActionItem.id);
+
+		// The tablist is a single tab stop and the close button is not part of it
+		// So the keyboard way to close a tab is Delete on it
+		this._register(addDisposableListener(container, EventType.KEY_DOWN, e => {
+			const event = new StandardKeyboardEvent(e);
+			if (event.target === container && (event.equals(KeyCode.Delete) || event.equals(KeyCode.Backspace))) {
+				EventHelper.stop(e, true);
+				close();
+			}
+		}));
+
+		// Middle click closes the tab, same as for editor tabs
+		this._register(addDisposableListener(container, EventType.MOUSE_DOWN, e => {
+			if (e.button === 1) {
+				e.preventDefault(); // no auto-scrolling
+			}
+		}));
+		if (isLinux) {
+			this._register(addDisposableListener(container, EventType.MOUSE_UP, e => {
+				if (e.button === 1) {
+					e.preventDefault(); // no auto-pasting
+				}
+			}));
+		}
+		this._register(addDisposableListener(container, EventType.AUXCLICK, e => {
+			if (e.button === 1) {
+				EventHelper.stop(e, true);
+				close();
+			}
+		}));
+
+		// Icon-only tabs are square and have no room for the button
+		if (this.options.icon) {
+			return;
+		}
+
+		// The button floats over the right end of the tab, see auxiliaryBarPart.css
+		const closeButton = this.closeButton = append(container, $('span.composite-close'));
+		closeButton.classList.add(...ThemeIcon.asClassNameArray(Codicon.close));
+		closeButton.setAttribute('role', 'button');
+		closeButton.tabIndex = -1;
+		closeButton.setAttribute('aria-label', this.computeCloseLabel());
+
+		this._register(this.hoverService.setupDelayedHover(closeButton, () => ({
+			content: this.computeCloseLabel(),
+			style: HoverStyle.Pointer,
+			position: {
+				hoverPosition: this.options.hoverOptions.position(),
+			},
+			persistence: {
+				hideOnKeyDown: true,
+			},
+		}), { groupId: 'composite-bar-actions' }));
+
+		// A mouse sends a click and a touch screen a gesture tap
+		// Both are stopped here, otherwise they would also activate the tab underneath
+		const onClose = (e: EventLike) => {
+			EventHelper.stop(e, true);
+			close();
+		};
+		this._register(addDisposableListener(closeButton, EventType.MOUSE_DOWN, e => EventHelper.stop(e, true)));
+		this._register(addDisposableListener(closeButton, EventType.CLICK, onClose));
+		this._register(addDisposableListener(closeButton, TouchEventType.Tap, onClose));
 	}
 
 	private updateFromDragging(element: HTMLElement, showFeedback: boolean, event: DragEvent): Before2D | undefined {

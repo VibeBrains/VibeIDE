@@ -6,6 +6,7 @@
 
 import * as assert from 'assert';
 import {
+	classifyProviderError,
 	ModelHealthTracker,
 	HEALTH_WINDOW_MS,
 	HEALTH_FAILURE_THRESHOLD,
@@ -209,5 +210,32 @@ suite('ModelHealthTracker — transport auto-reset signature', () => {
 		t.recordFailure('anthropic', 'claude', 'empty-response', late + 2000);
 		t.recordFailure('anthropic', 'claude', 'empty-response', late + 3000);
 		assert.strictEqual(t.shouldAutoResetTransport(late + 4000), true);
+	});
+});
+
+suite('classifyProviderError', () => {
+
+	ensureNoDisposablesAreLeakedInTestSuite();
+
+	test('какие тексты ошибок считаются сбоем провайдера', () => {
+		const messages = [
+			'Provider unavailable (HTTP 500) for fake/m — the upstream did not respond.',
+			'Provider unavailable (HTTP 502) for fake/m — the upstream did not respond.',
+			'Provider unavailable (HTTP 503) for fake/m — the upstream did not respond.',
+			'Provider unavailable (HTTP 504) for fake/m — the upstream did not respond.',
+			'Provider unavailable (HTTP 520) for fake/m — the upstream did not respond.',
+			'Failed to connect to Fake Dead. This likely means the network is blocked, or the provider is down.',
+			'Rate limit exceeded: slow down',
+			'Overloaded',
+			// Not a provider failure: a number that only looks like a status, a bad key, an empty text
+			'The file has 5000 lines',
+			'Invalid API key.',
+			'',
+		];
+		assert.deepStrictEqual(messages.map(message => classifyProviderError(message)), [
+			'provider-error', 'provider-error', 'provider-error', 'provider-error', 'provider-error',
+			'provider-error', 'provider-error', 'provider-error',
+			undefined, undefined, undefined,
+		]);
 	});
 });

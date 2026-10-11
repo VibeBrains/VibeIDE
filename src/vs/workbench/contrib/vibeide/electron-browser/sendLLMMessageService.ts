@@ -174,7 +174,7 @@ export class LLMMessageService extends Disposable implements ILLMMessageService 
 	sendLLMMessage(params: ServiceSendLLMMessageParams) {
 		// `extraBody` is taken out by name: left in `proxyParams` it would travel to the main process as a
 		// top-level field nobody reads, instead of inside `runtimeOptions` where the adapter merges it.
-		const { onText, onFinalMessage, onError, onAbort, modelSelection, forceToolUse, excludeFromSessionBudget, extraBody, promptCacheKey, previousResponseId, servedModel, ...proxyParams } = params;
+		const { onText, onFinalMessage, onError, onAbort, modelSelection, forceToolUse, sdkMaxRetries, excludeFromSessionBudget, extraBody, promptCacheKey, previousResponseId, servedModel, ...proxyParams } = params;
 
 		// VibeIDE: Enforce session token budget before sending. Subagent sends opt out — they have
 		// their own quota, and the session gate must not block a role on the main-agent limit.
@@ -392,6 +392,7 @@ export class LLMMessageService extends Disposable implements ILLMMessageService 
 			assumeNativeTools: oldAssumeNative, // kept for legacy code paths
 			toolFallbackMode,
 			forceToolUse, // per-turn: agent loop forces tool_choice on the corrective nudge
+			...(sdkMaxRetries !== undefined ? { sdkMaxRetries } : {}), // a caller with its own retry loop turns the SDK's off
 			proxyUrl: this.configurationService.getValue<string>('vibeide.llm.proxy.url'), // route provider traffic through a proxy (geo-block bypass)
 			claudeThinkingDisplay: claudeThinkingDisplayOf(this.configurationService.getValue<unknown>(CLAUDE_THINKING_DISPLAY_SETTING)), // how Claude's thinking comes back
 			...(extraBody ? { extraBody } : {}), // per-call body fields, e.g. a JSON Schema for an extraction

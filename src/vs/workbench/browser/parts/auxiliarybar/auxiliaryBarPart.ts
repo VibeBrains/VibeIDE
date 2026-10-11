@@ -19,11 +19,9 @@ import { IViewDescriptorService, ViewContainerLocation } from '../../../common/v
 import { IExtensionService } from '../../../services/extensions/common/extensions.js';
 import { ActivityBarPosition, IWorkbenchLayoutService, LayoutSettings, Parts, Position } from '../../../services/layout/browser/layoutService.js';
 import { HoverPosition } from '../../../../base/browser/ui/hover/hoverWidget.js';
-import { hide, show } from '../../../../base/browser/dom.js';
 import { prepareActions } from '../../../../base/browser/ui/actionbar/actionbar.js';
 import { IAction, Separator, SubmenuAction, toAction } from '../../../../base/common/actions.js';
 import { Composite } from '../../composite.js';
-import { getActionBarActions } from '../../../../platform/actions/browser/menuEntryActionViewItem.js';
 import { ToggleAuxiliaryBarAction } from './auxiliaryBarActions.js';
 import { assertReturnsDefined } from '../../../../base/common/types.js';
 import { LayoutPriority } from '../../../../base/browser/ui/splitview/splitview.js';
@@ -46,7 +44,7 @@ interface IAuxiliaryBarPartConfiguration {
 	showLabels: boolean;
 }
 
-/** VibeIDE chat view container (`sidebarPane.ts`); merge its title-actions with AuxiliaryBar global toolbar into one row. */
+/** VibeIDE chat view container (`sidebarPane.ts`) */
 const VIBEIDE_AUXILIARY_CHAT_CONTAINER_ID = 'workbench.view.vibeide';
 
 export class AuxiliaryBarPart extends AbstractPaneCompositePart {
@@ -156,80 +154,32 @@ export class AuxiliaryBarPart extends AbstractPaneCompositePart {
 	}
 
 	/**
-	 * VibeIDE: one toolbar strip — pane composite actions first, separator, AuxiliaryBarTitle (maximize/close sidebar).
-	 * Hides `.global-actions` so items are not duplicated on a second row.
+	 * VibeIDE: the chat has its own settings gear, so the stock settings entries of the view container would double it
+	 * Nothing else is merged into the title row any more: the close button of the part moved onto the tabs
 	 */
 	protected override collectCompositeActions(composite?: Composite): () => void {
 		if (!composite || composite.getId() !== VIBEIDE_AUXILIARY_CHAT_CONTAINER_ID) {
-			const runBase = super.collectCompositeActions(composite);
-			return () => {
-				this.setVibeideAuxGlobalToolbarMerged(false);
-				runBase();
-			};
+			return super.collectCompositeActions(composite);
 		}
 
 		const menuIds = composite.getMenuIds();
 
 		return () => {
-			let panePrimary = composite.getActions().slice(0);
-			const hasVibeSettingsGear = panePrimary.some(a => a.id === 'vibe.settingsAction');
-			if (hasVibeSettingsGear) {
-				panePrimary = panePrimary.filter(a =>
+			let primaryActions = composite.getActions().slice(0);
+			if (primaryActions.some(a => a.id === 'vibe.settingsAction')) {
+				primaryActions = primaryActions.filter(a =>
 					a.id !== 'workbench.action.openSettings' &&
 					a.id !== 'workbench.action.openSettings2'
 				);
 			}
-
-			const auxMenu = this.menuService.createMenu(this.globalActionsMenuId, this.contextKeyService);
-			let auxPrimary: IAction[];
-			try {
-				auxPrimary = getActionBarActions(auxMenu.getActions({ shouldForwardArgs: true, renderShortTitle: true })).primary;
-			} finally {
-				auxMenu.dispose();
-			}
-
-			const mergedPrimary: IAction[] = [];
-			mergedPrimary.push(...panePrimary);
-			if (panePrimary.length && auxPrimary.length) {
-				mergedPrimary.push(new Separator());
-			}
-			mergedPrimary.push(...auxPrimary);
-
 			const secondaryActions = composite.getSecondaryActions().slice(0);
 
 			if (this.toolBar) {
 				this.toolBar.context = this.actionsContextProvider();
-				this.toolBar.setActions(prepareActions(mergedPrimary), prepareActions(secondaryActions), menuIds);
+				this.toolBar.setActions(prepareActions(primaryActions), prepareActions(secondaryActions), menuIds);
 			}
-			this.titleArea?.classList.toggle('has-actions', mergedPrimary.length > 0 || secondaryActions.length > 0);
-			this.setVibeideAuxGlobalToolbarMerged(true);
+			this.titleArea?.classList.toggle('has-actions', primaryActions.length > 0 || secondaryActions.length > 0);
 		};
-	}
-
-	protected override getToolbarWidth(): number {
-		if (this.getActivePaneComposite()?.getId() === VIBEIDE_AUXILIARY_CHAT_CONTAINER_ID) {
-			if (!this.toolBar || this.getCompositeBarPosition() !== CompositeBarPosition.TITLE) {
-				return 0;
-			}
-			const toolBarWidth = this.toolBar.getItemsWidth() + this.toolBar.getItemsLength() * 4;
-			return toolBarWidth + 8;
-		}
-		return super.getToolbarWidth();
-	}
-
-	private setVibeideAuxGlobalToolbarMerged(merged: boolean): void {
-		const toolbarHost = this.toolBar?.getElement().closest<HTMLElement>('.composite.title');
-		const ga = toolbarHost?.querySelector<HTMLElement>(':scope > .global-actions');
-		if (!toolbarHost || !ga) {
-			return;
-		}
-		if (merged) {
-			hide(ga);
-			toolbarHost.classList.add('vibeide-merge-aux-title-toolbar');
-		} else {
-			show(ga);
-			toolbarHost.classList.remove('vibeide-merge-aux-title-toolbar');
-		}
 	}
 
 	private onDidChangeAutoHideViewContainers(e: { before: number; after: number }): void {
@@ -298,6 +248,8 @@ export class AuxiliaryBarPart extends AbstractPaneCompositePart {
 			fillExtraContextMenuActions: actions => this.fillExtraContextMenuActions(actions),
 			compositeSize: 0,
 			iconSize: 16,
+			// VibeIDE: each tab has its own close button instead of one button for the whole part
+			closableTabs: true,
 			// Add 10px spacing if the overflow action is visible to no confuse the user with ... between the toolbars
 			get overflowActionSize() { return $this.getCompositeBarPosition() === CompositeBarPosition.TITLE ? 40 : 30; },
 			colors: theme => ({

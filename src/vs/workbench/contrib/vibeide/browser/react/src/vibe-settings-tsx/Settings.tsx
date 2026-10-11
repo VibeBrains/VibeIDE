@@ -535,7 +535,7 @@ const SimpleModelSettingsDialog = ({
 		>
 			{/* MODAL */}
 			<div
-				className="@@vibe-chat-like-shell p-4 max-w-xl w-full shadow-xl overflow-y-auto max-h-[90vh]"
+				className="@@vibe-chat-like-shell p-4 max-w-xl w-full shadow-xl overflow-y-auto @@vibe-scroll max-h-[90vh]"
 				onClick={(e) => e.stopPropagation()} // Keep stopping propagation for normal clicks inside
 				onMouseDown={(e) => {
 					mouseDownInsideModal.current = true;
@@ -1719,7 +1719,7 @@ export const OllamaSetupInstructions = ({ sayWeAutoDetect }: { sayWeAutoDetect?:
                         onClick={() => setTerminalOutput('')}
                     >{ollamaS.btnClear}</button>
                 </div>
-                <div className='border border-vibe-border-2 bg-vibe-bg-1 rounded p-2 max-h-48 overflow-auto text-xs whitespace-pre-wrap'>
+                <div className='border border-vibe-border-2 bg-vibe-bg-1 rounded p-2 max-h-48 overflow-auto @@vibe-scroll text-xs whitespace-pre-wrap'>
                     {terminalOutput}
                 </div>
             </div>
@@ -2141,7 +2141,7 @@ const MCPServerComponent = ({ name, server, drift }: { name: string; server: MCP
 			{/* Tools section */}
 			{isOn && (
 				<div className="mt-3">
-					<div className="flex flex-wrap gap-2 max-h-32 overflow-y-auto">
+					<div className="flex flex-wrap gap-2 max-h-32 overflow-y-auto @@vibe-scroll">
 						{(server.tools ?? []).length > 0 ? (
 							(server.tools ?? []).map((tool: { name: string; description?: string }) => (
 								<span
@@ -2907,7 +2907,7 @@ const ProjectRulesPanel = () => {
 								trs.push(
 									<tr key={`${r.relativePath}::preview`}>
 										<td colSpan={3} className='px-2 pb-2 align-top'>
-											<pre className='text-xs text-vibe-fg-2 whitespace-pre-wrap break-all bg-vibe-bg-2 p-2 rounded-sm max-h-[300px] overflow-auto'>{r.content}</pre>
+											<pre className='text-xs text-vibe-fg-2 whitespace-pre-wrap break-all bg-vibe-bg-2 p-2 rounded-sm max-h-[300px] overflow-auto @@vibe-scroll'>{r.content}</pre>
 										</td>
 									</tr>
 								);
@@ -3787,11 +3787,11 @@ export const Settings = () => {
 
 	return (
 		<div
-			className={`@@vibe-scope @@vibe-settings-scroll-root ${isDark ? 'dark' : ''}`}
+			className={`@@vibe-scope @@vibe-settings-scroll-root @@vibe-scroll ${isDark ? 'dark' : ''}`}
 			style={{
 				height: '100%',
 				width: '100%',
-				overflow: 'auto',
+				overflow: 'auto', // vibe-scroll: class on this element
 				backgroundColor: 'var(--vscode-editor-background)',
 			}}
 		>

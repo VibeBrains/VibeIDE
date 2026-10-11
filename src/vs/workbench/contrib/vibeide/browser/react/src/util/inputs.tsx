@@ -904,7 +904,7 @@ export const VibeInputBox2 = forwardRef<HTMLTextAreaElement, InputBox2Props>(fun
 
 			disabled={!isEnabled}
 
-			className={`w-full resize-none max-h-[500px] overflow-y-auto ${appearanceClasses} ${className} ${highlightSlashCommands ? 'vibe-textarea-with-overlay' : ''}`}
+			className={`w-full resize-none max-h-[500px] overflow-y-auto @@vibe-scroll ${appearanceClasses} ${className} ${highlightSlashCommands ? 'vibe-textarea-with-overlay' : ''}`}
 			style={{ ...baseStyle, ...style, ...textareaOverlayStyle }}
 
 			onInput={useCallback((event: React.FormEvent<HTMLTextAreaElement>) => {
@@ -1069,7 +1069,7 @@ export const VibeInputBox2 = forwardRef<HTMLTextAreaElement, InputBox2Props>(fun
 
 
 				{/* Options list */}
-				<div className='max-h-[400px] w-full max-w-full overflow-y-auto overflow-x-auto'>
+				<div className='max-h-[400px] w-full max-w-full overflow-y-auto overflow-x-auto @@vibe-scroll'>
 					<div className="w-max min-w-full flex flex-col gap-0 text-nowrap flex-nowrap">
 						{options.length === 0 ?
 							<div className="text-vibe-fg-3 px-3 py-0.5">{inputsS.noResultsFound}</div>
@@ -1718,7 +1718,7 @@ export const VibeCustomDropdownBox = <T extends NonNullable<any>>({
 							/>
 						</div>
 					) : null}
-					<div className="min-h-0 flex-1 overflow-y-auto max-h-80">
+					<div className="min-h-0 flex-1 overflow-y-auto @@vibe-scroll max-h-80">
 
 						{visibleOptions.map((option) => {
 							const thisOptionIsSelected = getOptionsEqual(option, selectedOption);
@@ -1874,14 +1874,14 @@ export const BlockCode = ({ initValue, language, maxHeight, showScrollbars }: Bl
 
 	const outerStyle: React.CSSProperties = {
 		maxHeight: MAX_HEIGHT === Infinity ? undefined : MAX_HEIGHT,
-		overflowY: SHOW_SCROLLBARS ? 'auto' : 'hidden',
-		overflowX: 'auto',
+		overflowY: SHOW_SCROLLBARS ? 'auto' : 'hidden', // vibe-scroll: class on the element that takes this style
+		overflowX: 'auto', // vibe-scroll: same element
 	};
 
 	// `.monaco-tokenized-source` is the same class VS Code uses for tokenized HTML
 	// (themed via the workbench color theme, so colors stay consistent with the editor).
 	// `whiteSpace: pre` preserves indentation without an explicit <pre> wrapper.
-	return <div className='relative z-0 px-2 py-1 bg-vibe-bg-3' style={outerStyle}>
+	return <div className='@@vibe-scroll relative z-0 px-2 py-1 bg-vibe-bg-3' style={outerStyle}>
 		<div
 			ref={innerRef}
 			className='monaco-tokenized-source @@bg-editor-style-override'

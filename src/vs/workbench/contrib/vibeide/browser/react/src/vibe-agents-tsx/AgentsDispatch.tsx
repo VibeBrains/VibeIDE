@@ -211,8 +211,8 @@ export const AgentsDispatch = () => {
 	// while `px-6 py-5` was declared. Sizing and background go through inline style; the rest
 	// lives on the inner wrapper.
 	return <div
-		className={`@@vibe-scope ${isDark ? 'dark' : ''}`}
-		style={{ height: '100%', width: '100%', overflowY: 'auto', background: 'var(--vibe-bg-1)' }}
+		className={`@@vibe-scope @@vibe-scroll ${isDark ? 'dark' : ''}`}
+		style={{ height: '100%', width: '100%', overflowY: 'auto', background: 'var(--vibe-bg-1)' }} // vibe-scroll: class on this element
 	>
 		<div className='mx-auto flex max-w-5xl flex-col gap-4 px-8 py-8 text-vibe-fg-1'>
 

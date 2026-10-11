@@ -15,8 +15,9 @@
 import { ReactNode, useCallback, useEffect, useState } from 'react';
 import { autoUpdate, flip, offset, shift, size, useFloating } from '@floating-ui/react';
 import { SlidersHorizontal } from 'lucide-react';
-import { useAccessor } from '../util/services.js';
+import { useAccessor, useSettingsState } from '../util/services.js';
 import { chatS } from '../vibe-settings-tsx/vibeSettingsRu.js';
+import { displayInfoOfProviderName, isValidProviderModelSelection } from '../../../../common/vibeideSettingsTypes.js';
 import { BREVITY_SETTING, brevityLevelOf } from '../../../../common/prompt/brevity.js';
 import { CLAUDE_THINKING_DISPLAY_SETTING, claudeThinkingDisplayOf } from '../../../../common/wireReasoning.js';
 
@@ -55,6 +56,41 @@ function ChoiceRow<T extends string>({ label, title, choices, value, onChange }:
 	</div>;
 }
 
+/**
+ * What the catalog says about training on this chat's data, for the model chosen for chat
+ * Information, not a choice: no click, quieter than the rows above it
+ * Nothing for «Авто» or a pick that is not a model: there is no single answer to give
+ */
+const TrainingPolicyLine = () => {
+	const settingsState = useSettingsState();
+	const accessor = useAccessor();
+	const sel = settingsState.modelSelectionOfFeature['Chat'];
+	if (!sel || (sel.providerName === 'auto' && sel.modelName === 'auto')) {
+		return null;
+	}
+	if (!isValidProviderModelSelection(sel)) {
+		return null;
+	}
+	const policy = accessor.get('IVibeModelsRegistryService').getTrainingPolicyForSelection(sel.providerName, sel.modelName);
+	const short = policy === undefined ? chatS.trainingUnknown
+		: policy === 'none' ? chatS.trainingNone
+			: policy === 'opt-in' ? chatS.trainingOptIn
+				: policy === 'opt-out-available' ? chatS.trainingOptOut
+					: chatS.trainingMayTrain;
+	const tip = policy === undefined
+		? chatS.trainingTipUnknown
+		: policy === 'none' ? chatS.trainingTipNone
+			: policy === 'opt-in' ? chatS.trainingTipOptIn
+				: policy === 'opt-out-available' ? chatS.trainingTipOptOut
+					: chatS.trainingTipMayTrain;
+	return <div
+		className='mt-3 pt-2 border-t border-vibe-border-3 text-[11px] text-vibe-fg-4'
+		title={`${displayInfoOfProviderName(sel.providerName).title}/${sel.modelName}\n${tip}`}
+	>
+		{chatS.trainingLine(short)}
+	</div>;
+};
+
 const parseLanguage = (raw: unknown): 'auto' | 'ru' | 'en' => raw === 'ru' || raw === 'en' ? raw : 'auto';
 const parseMinimalism = (raw: unknown): 'off' | 'lite' | 'full' | 'ultra' => raw === 'off' || raw === 'full' || raw === 'ultra' ? raw : 'lite';
 
@@ -76,7 +112,7 @@ export const ChatQuickSettingsButton = ({ agentControls }: { agentControls: Reac
 			shift({ boundary: document.body, padding: 8 }),
 			size({
 				apply({ availableHeight, elements }) {
-					Object.assign(elements.floating.style, { maxHeight: `${Math.max(200, Math.min(availableHeight - 12, 520))}px`, overflowY: 'auto' });
+					Object.assign(elements.floating.style, { maxHeight: `${Math.max(200, Math.min(availableHeight - 12, 520))}px`, overflowY: 'auto' }); // vibe-scroll: class on the floating element
 				},
 				padding: 8,
 				boundary: document.body,
@@ -126,7 +162,7 @@ export const ChatQuickSettingsButton = ({ agentControls }: { agentControls: Reac
 		{isOpen ? <div
 			ref={refs.setFloating}
 			style={{ position: strategy, top: y ?? 0, left: x ?? 0, minWidth: '280px', maxWidth: 'min(92vw, 380px)' }}
-			className='z-50 rounded-2xl shadow-xl bg-vibe-bg-1 border border-vibe-border-3 p-3 text-vibe-fg-2'
+			className='@@vibe-scroll z-50 rounded-2xl shadow-xl bg-vibe-bg-1 border border-vibe-border-3 p-3 text-vibe-fg-2'
 			role='dialog'
 			aria-label={chatS.quickSettingsTitle}
 		>
@@ -163,6 +199,7 @@ export const ChatQuickSettingsButton = ({ agentControls }: { agentControls: Reac
 			<div className='flex flex-wrap items-center gap-x-2 gap-y-1.5'>
 				{agentControls}
 			</div>
+			<TrainingPolicyLine />
 		</div> : null}
 	</div>;
 };

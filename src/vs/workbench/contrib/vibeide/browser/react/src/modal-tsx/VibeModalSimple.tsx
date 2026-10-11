@@ -300,7 +300,7 @@ export const VibeModalSimple: React.FC<{ entry: VibeModalQueueEntry }> = ({ entr
 				</div>
 
 				{options.body && (
-					<div id={bodyId} className="@@vibeide-modal-body">
+					<div id={bodyId} className="@@vibeide-modal-body @@vibe-scroll">
 						{options.bodyMarkdown
 							? <ChatMarkdownRender string={options.body} chatMessageLocation={undefined} />
 							: options.body}

@@ -67,6 +67,246 @@ suite('Secret Detection', () => {
 		});
 	});
 
+	/**
+	 * An assignment rule has to tell a hard-coded string from code that merely names a credential
+	 * A false hit is not harmless: the text is replaced before the model sees it, and the leak check latches a breaker
+	 * Each list below is asserted whole, so a failure prints the texts that were judged wrong
+	 */
+	suite('правила присваивания: литерал или код', () => {
+		const flagged = (texts: string[]) => texts.filter(t => detectSecrets(t).hasSecrets);
+		const missed = (texts: string[]) => texts.filter(t => !detectSecrets(t).hasSecrets);
+
+		test('Kotlin-строки из жалобы не считаются паролем и уходят в модель как есть', () => {
+			const kotlin = 'private var token: DeviceToken? = null\ntoken = deviceToken';
+			const result = detectSecrets(kotlin);
+			assert.deepStrictEqual(
+				{ совпадения: result.matches.length, текст: result.redactedText },
+				{ совпадения: 0, текст: kotlin },
+			);
+		});
+
+		test('код после ключевого слова — не секрет', () => {
+			assert.deepStrictEqual(flagged([
+				'token = getToken()',
+				'token = readSecret(0);',
+				'token = process.env.TOKEN',
+				'token = process.env.TOKEN_V2',
+				'token = config.secret2',
+				'token = this.token!',
+				'token = this->token2',
+				'token = Config::TOKEN_V2',
+				'token = tokens[0]',
+				'token = deviceToken',
+				'token = deviceToken!!',
+				'token = device_token',
+				'token = DEVICE_TOKEN',
+				'token: DeviceToken?',
+				'token: String',
+				'token: Map<String, String> = emptyMap()',
+				'token: Map<Int64, String> = emptyMap()',
+				'token = null',
+				'token = undefined',
+				'token: /[\\p{L}\\p{N}]+/gu',
+				'password = /run/secrets/db_password',
+				'password:!0,range:!0',
+				'apiKey: ApiKeyAuthProviderFactory',
+				'apiKey = environmentVariableApiKey',
+				'if (token == otherTokenValue1)',
+				'token:\n  description: first',
+				'#token=\nSOME_OTHER_VARIABLE=1',
+			]), []);
+		});
+
+		test('заглушки и интерполяции — не секрет, даже в кавычках', () => {
+			assert.deepStrictEqual(flagged([
+				'password = "${TOKEN}"',
+				'password = "$TOKEN"',
+				'password = "{{ token }}"',
+				'password = "{{token}}"',
+				'password = "<your-token>"',
+				'password = "%s"',
+				'password = "%(token)s"',
+				'password = "..."',
+				'password = "********"',
+				'password = "xxxxxxxx"',
+				'password = "XXXX-XXXX-XXXX"',
+				'password = "[[REDACTED:Password]]"',
+				'token = `${secretFromVault}`',
+				'DB_PASSWORD=${DB_PASSWORD_FILE}',
+				'DB_PASSWORD=$DB_PASSWORD_VALUE',
+				'TOKEN=$(cat_token_file)',
+				'"${secret:DEPLOY_TOKEN}"',
+				'apiKey = "xxxxxxxxxxxxxxxxxxxxxxxx"',
+				'Authorization: Bearer xxxxxxxxxxxxxxxxxxxx',
+			]), []);
+		});
+
+		test('шаблонная строка с подстановкой — выражение, а не литерал', () => {
+			assert.deepStrictEqual(flagged([
+				'const token = `p${++seq}-aaaaaaaaaa`;',
+			]), []);
+		});
+
+		test('литерал в кавычках — секрет', () => {
+			assert.deepStrictEqual(missed([
+				'password = "hunter2hunter"',
+				"token: 'abc12345xyz'",
+				'password = "correcthorsebattery"',
+				'token = `abcdefgh1234`',
+				'SECRET = b"test-signing-secret"',
+				"secret = 'tok\"en-with-quote'",
+				'password =\n    "hunter2hunter"',
+				'apiKey = "k3Jx9Qm2Lp8Zr4Tv6Yw1Ab"',
+			]), []);
+		});
+
+		test('значение без кавычек — секрет только с цифрой или символом и без признаков кода', () => {
+			assert.deepStrictEqual(missed([
+				'password: S3cr3tPass!',
+				'password=mySecretPassword123!',
+				'password: Welcome2024',
+				'token = Zx8_kQ#mP4vLw',
+				'api_key=k3Jx9Qm2Lp8Zr4Tv6Yw1Ab',
+				'connect(password=hunter2hunter);',
+				// The outer match is code and rejected, the secret nested in it is still found
+				'token=login(password=hunter2hunter)',
+			]), []);
+		});
+
+		test('строка окружения: секрет с любым значением от восьми знаков, кроме заглушки', () => {
+			assert.deepStrictEqual({
+				пропущено: missed([
+					'PASSWORD=correcthorsebattery',
+					'export DB_PASSWORD=correcthorse',
+					'  CLIENT_SECRET=correcthorse',
+					'API_TOKEN=abcdefghij',
+					'DB_PASSWORD="correcthorse"',
+				]),
+				// The match starts at the variable name, so `export` and the indent stay in the text
+				замена: detectSecrets('export DB_PASSWORD=correcthorse\nPORT=8080').redactedText,
+				// A lower-case name or a name that only starts with the keyword was not matched before either
+				чужиеИмена: flagged(['my_password=Secret123xx', 'dbPassword=Secret123xx', 'TOKEN_LIMIT=10000000', 'FOO=correcthorse']),
+			}, {
+				пропущено: [],
+				замена: 'export [[REDACTED:Password]]\nPORT=8080',
+				чужиеИмена: [],
+			});
+		});
+
+		test('предложение в кавычках — не значение', () => {
+			assert.deepStrictEqual(flagged([
+				'password: "Password is required"',
+				"token: 'Invalid token provided'",
+			]), []);
+		});
+
+		test('разбор длинных строк без переводов не растёт квадратично', () => {
+			const started = Date.now();
+			detectSecrets(' '.repeat(200_000) + 'x');
+			detectSecrets('TOKEN_'.repeat(100_000) + '=');
+			detectSecrets('token=login(a=b)'.repeat(60_000));
+			assert.ok(Date.now() - started < 2_000);
+		});
+	});
+
+	/**
+	 * The bare 40-character rule has no keyword in front of the run, so the characters around it decide
+	 * A lock file holds an `integrity` line per package, and each carries 40-character slices of a base64 hash
+	 * One hit latches the `secret-leak` breaker
+	 */
+	suite('aws-secret-key: ключ стоит один или это кусок данных', () => {
+		// 40 characters of a key's shape; the data below are built around them
+		const KEY = 'wJalrXUtnFEMIK7MDENGbPxRfiCYEXAMPLEKEYab';
+		const HEX = '3f9a0c7e1b2d4856a9c0e1f23b4d5c6e';
+		const awsHits = (text: string) => detectSecrets(text).matches.filter(m => m.pattern.id === 'aws-secret-key').length;
+		const flagged = (texts: string[]) => texts.filter(t => awsHits(t) > 0);
+		const missed = (texts: string[]) => texts.filter(t => awsHits(t) === 0);
+
+		test('хеш integrity в lock-файле — не ключ', () => {
+			assert.deepStrictEqual(flagged([
+				`      "integrity": "sha512-Zm9vYmFy/${KEY}/YmFyYmF6+Zm9vYmFyQm9vYmFy/Zm9vYmFyYmF6YmFyYmF6Zm9v==",`,
+				`      resolution: {integrity: sha512-Zm9vYmFy/${KEY}/YmFyYmF6==}`,
+				`<script src="app.js" integrity="sha384-${KEY}=" crossorigin="anonymous"></script>`,
+				`"integrity": "sha256-${KEY}="`,
+			]), []);
+		});
+
+		test('сорок знаков из длинного ряда base64 или идентификатора — не ключ', () => {
+			assert.deepStrictEqual(flagged([
+				`Zm9vYmFy/${KEY}+Zm9vYmFy`,
+				`Zm9vYmFy+${KEY}/Zm9vYmFy`,
+				`prefix-${KEY}-suffix`,
+				`prefix_${KEY}_suffix`,
+				`/node_modules/${KEY}/index.js`,
+				`${KEY}==`,
+			]), []);
+		});
+
+		test('адрес данных data: и участок после base64, — не ключ', () => {
+			assert.deepStrictEqual(flagged([
+				`<img src="data:image/png;base64,${KEY}">`,
+				`background: url(data:image/svg+xml;charset=utf-8;base64,${KEY})`,
+				`const payload = "base64,${KEY}";`,
+				`data:text/plain,${KEY}`,
+			]), []);
+		});
+
+		test('пара имя=значение, вырезанная из адреса или снимка страницы, — не ключ', () => {
+			// `userKey=` and 32 hex characters are 40 characters of one run: a name with its value, never a key
+			assert.deepStrictEqual(flagged([
+				`{"url":"https://example.com/items?x=1&userKey=${HEX}&sort=date"}`,
+				`userKey=${HEX}`,
+			]), []);
+		});
+
+		test('ключ, который стоит один, находится', () => {
+			assert.deepStrictEqual(missed([
+				`"${KEY}"`,
+				`'${KEY}'`,
+				`secret = ${KEY}`,
+				`secret=${KEY}`,
+				`secret: ${KEY}`,
+				`{"secretKey": "${KEY}", "region": "eu-west-1"}`,
+				`aws_secret_key = "${KEY}"`,
+				`https://example.com/sign?secret=${KEY}&expires=60`,
+				`before\n${KEY}\nafter`,
+				`${KEY}`,
+				`(${KEY}), next`,
+				`values: [1,${KEY}]`,
+				`The key is ${KEY}.`,
+			]), []);
+		});
+
+		test('найденный ключ уходит в заглушку целиком, соседние слова остаются', () => {
+			assert.deepStrictEqual(
+				detectSecrets(`secret = ${KEY}\nregion = eu-west-1`).redactedText,
+				'secret = [[REDACTED:AWS Secret Key]]\nregion = eu-west-1',
+			);
+		});
+
+		test('ключ с именем переменной ловится отдельным правилом, и оно не тронуто', () => {
+			// A real key holds `/` and `+` and may end with `=`: the named rule allows them, the bare rule cannot
+			const withSlashes = 'wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY';
+			const padded = 'wJalrXUtnFEMIK7MDENGbPxRfiCYEXAMPLEKEYa=';
+			assert.deepStrictEqual(
+				[
+					`AWS_SECRET_ACCESS_KEY=${withSlashes}`,
+					`aws_secret_access_key = "${padded}"`,
+					`export AWS_SECRET_ACCESS_KEY=${KEY}`,
+				].map(t => detectSecrets(t).matches.map(m => m.pattern.id)),
+				[['aws-secret-key-named'], ['aws-secret-key-named'], ['aws-secret-key-named']],
+			);
+		});
+
+		test('разбор крупного снимка с длинными рядами не растёт квадратично', () => {
+			const started = Date.now();
+			// The first text sends every candidate to the data-URI scan, the second to the neighbour check
+			detectSecrets(('<img src="data:image/png;base64,' + KEY + '">').repeat(10_000));
+			detectSecrets(('Zm9vYmFy/' + KEY + '+').repeat(20_000));
+			assert.ok(Date.now() - started < 2_000);
+		});
+	});
+
 	suite('detectSecrets', () => {
 		test('should detect OpenAI API keys', () => {
 			const text = 'My API key is sk-proj-abc123def456ghi789jkl012mno345pqr678stu901vwx234yz';

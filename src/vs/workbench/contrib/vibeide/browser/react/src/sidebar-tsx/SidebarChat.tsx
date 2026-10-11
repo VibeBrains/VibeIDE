@@ -40,7 +40,7 @@ import { parseChatSlashCommand, splitWatchArgs, CHAT_SLASH_COMMANDS, SLASH_COMMA
 import { BuiltinToolCallParams, BuiltinToolName, ToolName, LintErrorItem, ToolApprovalType, toolApprovalTypes } from '../../../../common/toolsServiceTypes.js';
 import { approvalTypeOfBuiltinToolName } from '../../../../common/prompt/tools/index.js';
 import { CopyButton, EditToolAcceptRejectButtonsHTML, IconShell1, JumpToFileButton, JumpToTerminalButton, StatusIndicator, StatusIndicatorForApplyButton, useApplyStreamState, useEditToolStreamState } from '../markdown/ApplyBlockHoverButtons.js';
-import { IsRunningType, WAITING_FOR_MODEL_RESPONSE_SENTINEL } from '../../../chatThreadService.js';
+import { IsRunningType, ThreadPauseInfo, WAITING_FOR_MODEL_RESPONSE_SENTINEL } from '../../../chatThreadService.js';
 import { acceptAllBg, acceptBorder, buttonFontSize, buttonTextColor, rejectAllBg, rejectBg, rejectBorder } from '../../../../common/helpers/colors.js';
 import { builtinToolNames, isABuiltinToolName, MAX_TERMINAL_INACTIVE_TIME } from '../../../../common/prompt/prompts.js';
 import { stripUnclaimedToolTags } from '../../../../common/xmlToolNormalize.js';
@@ -353,19 +353,32 @@ const StallBanner = ({
 	);
 };
 
-// Inline banner shown while a provider rate-limit auto-pause counts down to an automatic resume.
-// The run already schedules the resume itself; this just makes the wait visible and offers to skip it.
-const RateLimitPauseBanner = ({
-	resumeAtMs,
-	attempt,
-	maxAttempts,
+// What the pause banner says before the countdown: which failure the chat is waiting out
+// `retrying` is a repeat of a failed send inside the run, otherwise the run is paused and resumes itself
+const pauseBannerLead = (reason: ThreadPauseInfo['reason'], retrying: boolean, httpStatus: number | undefined): string => {
+	switch (reason) {
+		case 'rateLimit': return retrying ? 'Провайдер ограничил частоту запросов' : 'Провайдер взял паузу (лимит запросов)';
+		case 'serverError': return `Сервер провайдера не ответил${httpStatus !== undefined ? ` (HTTP ${httpStatus})` : ''}`;
+		case 'network': return 'Нет связи с провайдером';
+		case 'transient': return 'Ответ провайдера не получен';
+	}
+};
+
+// Inline banner shown while the chat waits before it sends the turn again: a provider rate-limit auto-pause,
+// or the pause between repeats of a send the provider failed. The run already schedules the next send itself;
+// this just makes the wait visible and offers to skip it (a rate-limit pause) or to stop the run (a repeat)
+const ProviderPauseBanner = ({
+	pause,
+	retrying,
 	onResumeNow,
+	onStop,
 }: {
-	resumeAtMs: number;
-	attempt: number;
-	maxAttempts: number;
+	pause: ThreadPauseInfo;
+	retrying: boolean;
 	onResumeNow: () => void;
+	onStop: () => void;
 }) => {
+	const { resumeAtMs, attempt, maxAttempts, reason, httpStatus } = pause;
 	const [now, setNow] = useState(() => Date.now());
 	useEffect(() => {
 		const id = window.setInterval(() => setNow(Date.now()), 1000);
@@ -384,15 +397,17 @@ const RateLimitPauseBanner = ({
 			<IconWarning size={14} className="flex-shrink-0" />
 			<span className="flex-1 text-vibe-fg-2">
 				{remainingSec > 0
-					? `Провайдер взял паузу (лимит запросов). Автопродолжение через ${clock} · попытка ${attempt} из ${maxAttempts}`
-					: 'Продолжаю…'}
+					? (retrying
+						? `${pauseBannerLead(reason, retrying, httpStatus)}. Повтор через ${clock} · повтор ${attempt} из ${maxAttempts}`
+						: `${pauseBannerLead(reason, retrying, httpStatus)}. Автопродолжение через ${clock} · попытка ${attempt} из ${maxAttempts}`)
+					: (retrying ? 'Повторяю…' : 'Продолжаю…')}
 			</span>
 			<button
 				type="button"
-				onClick={onResumeNow}
+				onClick={retrying ? onStop : onResumeNow}
 				className="px-2 py-0.5 rounded border border-vibe-warning text-vibe-warning hover:bg-vibe-bg-2-hover"
 			>
-				Продолжить сейчас
+				{retrying ? 'Остановить' : 'Продолжить сейчас'}
 			</button>
 		</div>
 	);
@@ -1479,39 +1494,6 @@ const ChatContinueButton = ({ onSend }: { onSend: (text: string) => void }) => {
 	);
 };
 
-/** CDN catalog hint next to Chat model picker (training / data-use). */
-const ChatTrainingPolicyBadge: React.FC = () => {
-	const settingsState = useSettingsState();
-	const accessor = useAccessor();
-	const sel = settingsState.modelSelectionOfFeature['Chat'];
-	if (!sel || (sel.providerName === 'auto' && sel.modelName === 'auto')) {
-		return null;
-	}
-	if (!isValidProviderModelSelection(sel)) {
-		return null;
-	}
-	const policy = accessor.get('IVibeModelsRegistryService').getTrainingPolicyForSelection(sel.providerName, sel.modelName);
-	const short = policy === undefined ? chatS.trainingUnknown
-		: policy === 'none' ? chatS.trainingNone
-			: policy === 'opt-in' ? chatS.trainingOptIn
-				: policy === 'opt-out-available' ? chatS.trainingOptOut
-					: chatS.trainingMayTrain;
-	const tip = policy === undefined
-		? chatS.trainingTipUnknown
-		: policy === 'none' ? chatS.trainingTipNone
-			: policy === 'opt-in' ? chatS.trainingTipOptIn
-				: policy === 'opt-out-available' ? chatS.trainingTipOptOut
-					: chatS.trainingTipMayTrain;
-	return (
-		<span
-			className="text-[10px] leading-tight text-vibe-fg-4 border border-vibe-border-2 rounded-xl px-1.5 py-0.5 max-w-[5.5rem] truncate"
-			title={`${displayInfoOfProviderName(sel.providerName).title}/${sel.modelName}\n${tip}`}
-		>
-			📚 {short}
-		</span>
-	);
-};
-
 /** Model dropdown that lights up (orange ring + ⚠ tooltip) when the current provider×model is
  *  degrading (3099): a series of provider errors (520/529, rate/usage limit, overload, stream
  *  stall) within ~10 min. Clicking the chip opens the model list as usual — the warning sits right
@@ -1641,7 +1623,7 @@ export const VibeChatArea: React.FC<VibeideChatAreaProps> = ({
                 flex flex-col p-2.5 relative input text-left shrink-0 w-full min-w-0
                 rounded-2xl
 				transition-colors duration-200
-				max-h-[80vh] overflow-y-auto
+				max-h-[80vh] overflow-y-auto @@vibe-scroll
                 ${className}
             `}
 			onClick={(e) => {
@@ -1732,7 +1714,7 @@ export const VibeChatArea: React.FC<VibeideChatAreaProps> = ({
 			</div>
 
 			{/* Bottom row — left: mode/model/options; right: loading + chat history */}
-			<div className='@@chat-composer-toolbar-rule flex flex-row items-center gap-2 mt-1 pt-2.5 min-w-0'>
+			<div className='@@chat-composer-toolbar-rule flex flex-row items-start gap-2 mt-1 pt-2.5 min-w-0'>
 				{showModelDropdown && (
 					<div className='flex items-center flex-wrap gap-x-2 gap-y-1 text-nowrap flex-1 min-w-0'>
 						{featureName === 'Chat' && <ChatModeDropdown className='text-xs text-vibe-fg-3 @@vibe-toolbar-pill rounded-xl overflow-hidden py-0.5 px-1.5' />}
@@ -1742,8 +1724,6 @@ export const VibeChatArea: React.FC<VibeideChatAreaProps> = ({
 						{featureName === 'Chat' && <ChatScoutToggleButton />}
 						{/* Context fill — running out of context is something the user must always see */}
 						{featureName === 'Chat' && <ChatContextMeterButton />}
-						{/* An indicator, not a knob: whether the provider may train on this chat */}
-						{featureName === 'Chat' && <ChatTrainingPolicyBadge />}
 						{/* The knobs sit one click away, each with its real value (ChatQuickSettings.tsx) */}
 						{featureName === 'Chat' ? <ChatQuickSettingsButton agentControls={<>
 							<ChatAgentAutopilotToggle />
@@ -1757,7 +1737,7 @@ export const VibeChatArea: React.FC<VibeideChatAreaProps> = ({
 						</>} /> : <ReasoningOptionSlider featureName={featureName} />}
 					</div>
 				)}
-				<div className='flex shrink-0 items-center gap-2'>
+				<div className='@@chat-composer-toolbar-line flex shrink-0 items-center gap-2'>
 					{isStreaming && loadingIcon ? (
 						<div className="flex items-center">
 							{loadingIcon}
@@ -1836,9 +1816,8 @@ const ChatScroller = React.forwardRef<HTMLDivElement, React.HTMLAttributes<HTMLD
 			<div
 				ref={ref}
 				{...rest}
-				// `@@vibe-chat-scroll-root`: opt out of the generic `.vibe-scope` 4px near-invisible
-				// scrollbar (vibeide.css) — the chat list gets an always-visible, grabbable thumb.
-				className='@@vibe-chat-scroll-root flex flex-col py-3 w-full h-full overflow-x-hidden overflow-y-auto'
+				// `@@vibe-chat-scroll-root` is the hook of the wide-chat layout; the scrollbar is the shared one
+				className='@@vibe-chat-scroll-root flex flex-col py-3 w-full h-full overflow-x-hidden overflow-y-auto @@vibe-scroll'
 				style={style}
 			>
 				{children}
@@ -2240,7 +2219,7 @@ const ToolHeaderWrapper = ({
 			{/* children */}
 			{<div
 				className={`overflow-hidden transition-all duration-200 ease-in-out ${isExpanded ? 'opacity-100 py-1' : 'max-h-0 opacity-0'}
-					text-vibe-fg-4 rounded-sm overflow-x-auto
+					text-vibe-fg-4 rounded-sm overflow-x-auto @@vibe-scroll
 				  `}
 			//    bg-black bg-opacity-10 border border-vibe-border-4 border-opacity-50
 			>
@@ -2610,7 +2589,7 @@ const UserMessageComponent = ({ chatMessage, messageIdx, isCheckpointGhost, curr
 			className={`
             text-left rounded-lg max-w-full
             ${mode === 'edit' ? ''
-					: mode === 'display' ? 'p-2 flex flex-col bg-vibe-bg-1 text-vibe-fg-1 overflow-x-auto cursor-pointer select-text' : ''
+					: mode === 'display' ? 'p-2 flex flex-col bg-vibe-bg-1 text-vibe-fg-1 overflow-x-auto @@vibe-scroll cursor-pointer select-text' : ''
 				}
         `}
 			onClick={() => {
@@ -3253,7 +3232,7 @@ export const ToolChildrenWrapper = ({ children, className }: { children: React.R
 	</div>;
 };
 export const CodeChildren = ({ children, className }: { children: React.ReactNode; className?: string }) => {
-	return <div className={`${className ?? ''} p-1 rounded-sm overflow-auto text-sm`}>
+	return <div className={`${className ?? ''} p-1 rounded-sm overflow-auto @@vibe-scroll text-sm`}>
 		<div className='!select-text cursor-auto'>
 			{children}
 		</div>
@@ -3292,7 +3271,7 @@ const EditToolChildren = ({ uri, code, type }: { uri: URI | undefined; code: str
 
 
 const LintErrorChildren = ({ lintErrors }: { lintErrors: LintErrorItem[] }) => {
-	return <div className="text-xs text-vibe-fg-4 opacity-80 border-l-2 border-vibe-warning px-2 py-0.5 flex flex-col gap-0.5 overflow-x-auto whitespace-nowrap">
+	return <div className="text-xs text-vibe-fg-4 opacity-80 border-l-2 border-vibe-warning px-2 py-0.5 flex flex-col gap-0.5 overflow-x-auto @@vibe-scroll whitespace-nowrap">
 		{lintErrors.map((error, i) => (
 			<div key={i}>Lines {error.startLineNumber}-{error.endLineNumber}: {error.message}</div>
 		))}
@@ -3317,7 +3296,7 @@ const BottomChildren = ({ children, title }: { children: React.ReactNode; title:
 			<div
 				className={`overflow-hidden transition-all duration-200 ease-in-out ${isOpen ? 'opacity-100' : 'max-h-0 opacity-0'} text-xs pl-4`}
 			>
-				<div className="overflow-x-auto text-vibe-fg-4 opacity-90 border-l-2 border-vibe-warning px-2 py-0.5">
+				<div className="overflow-x-auto @@vibe-scroll text-vibe-fg-4 opacity-90 border-l-2 border-vibe-warning px-2 py-0.5">
 					{children}
 				</div>
 			</div>
@@ -3457,7 +3436,7 @@ const CommandTool = ({ toolMessage, type, threadId }: { threadId: string } & ({
 			componentParams.info = persistentTerminalNameOfId(toolMessage.params.persistentTerminalId);
 		}
 
-		componentParams.children = <ToolChildrenWrapper className='whitespace-pre text-nowrap overflow-auto text-sm'>
+		componentParams.children = <ToolChildrenWrapper className='whitespace-pre text-nowrap overflow-auto @@vibe-scroll text-sm'>
 			<div className='!select-text cursor-auto'>
 				<BlockCode initValue={`${msg.trim()}`} language='shellscript' />
 			</div>
@@ -3756,7 +3735,7 @@ const builtinToolNameToComponent: { [T in BuiltinToolName]?: { resultWrapper: Re
 					: <ToolChildrenWrapper>
 						{result.children.map((child, i) => (<ListableToolItem key={i}
 							name={`${child.name}${child.isDirectory ? '/' : ''}`}
-							className='w-full overflow-auto'
+							className='w-full overflow-auto @@vibe-scroll'
 							onClick={() => {
 								voidOpenFileFn(child.uri, accessor);
 								// commandService.executeCommand('workbench.view.explorer'); // open in explorer folders view instead
@@ -3764,7 +3743,7 @@ const builtinToolNameToComponent: { [T in BuiltinToolName]?: { resultWrapper: Re
 							}}
 						/>))}
 						{result.hasNextPage &&
-							<ListableToolItem name={`Results truncated (${result.itemsRemaining} remaining).`} isSmall={true} className='w-full overflow-auto' />
+							<ListableToolItem name={`Results truncated (${result.itemsRemaining} remaining).`} isSmall={true} className='w-full overflow-auto @@vibe-scroll' />
 						}
 					</ToolChildrenWrapper>;
 			}
@@ -3808,11 +3787,11 @@ const builtinToolNameToComponent: { [T in BuiltinToolName]?: { resultWrapper: Re
 					: <ToolChildrenWrapper>
 						{result.uris.map((uri, i) => (<ListableToolItem key={i}
 							name={getBasename(uri.fsPath)}
-							className='w-full overflow-auto'
+							className='w-full overflow-auto @@vibe-scroll'
 							onClick={() => { voidOpenFileFn(uri, accessor); }}
 						/>))}
 						{result.hasNextPage &&
-							<ListableToolItem name={'Results truncated.'} isSmall={true} className='w-full overflow-auto' />
+							<ListableToolItem name={'Results truncated.'} isSmall={true} className='w-full overflow-auto @@vibe-scroll' />
 						}
 
 					</ToolChildrenWrapper>;
@@ -3863,11 +3842,11 @@ const builtinToolNameToComponent: { [T in BuiltinToolName]?: { resultWrapper: Re
 					: <ToolChildrenWrapper>
 						{result.uris.map((uri, i) => (<ListableToolItem key={i}
 							name={getBasename(uri.fsPath)}
-							className='w-full overflow-auto'
+							className='w-full overflow-auto @@vibe-scroll'
 							onClick={() => { voidOpenFileFn(uri, accessor); }}
 						/>))}
 						{result.hasNextPage &&
-							<ListableToolItem name={`Results truncated.`} isSmall={true} className='w-full overflow-auto' />
+							<ListableToolItem name={`Results truncated.`} isSmall={true} className='w-full overflow-auto @@vibe-scroll' />
 						}
 
 					</ToolChildrenWrapper>;
@@ -4267,7 +4246,7 @@ const builtinToolNameToComponent: { [T in BuiltinToolName]?: { resultWrapper: Re
 								Страница была длиннее окна модели и обрезана — поля из её конца могли не попасть.
 							</div>
 						)}
-						<div className='text-sm text-vibe-fg-2 whitespace-pre-wrap font-mono max-h-96 overflow-y-auto border border-vibe-border-2 bg-vibe-bg-3 rounded p-3'>
+						<div className='text-sm text-vibe-fg-2 whitespace-pre-wrap font-mono max-h-96 overflow-y-auto @@vibe-scroll border border-vibe-border-2 bg-vibe-bg-3 rounded p-3'>
 							{JSON.stringify(result.data, null, 2)}
 						</div>
 					</div>
@@ -4349,7 +4328,7 @@ const builtinToolNameToComponent: { [T in BuiltinToolName]?: { resultWrapper: Re
 									{urlStr}
 								</a>
 							)}
-							<div className='text-sm text-vibe-fg-2 whitespace-pre-wrap max-h-96 overflow-y-auto border border-vibe-border-2 bg-vibe-bg-3 rounded p-3'>
+							<div className='text-sm text-vibe-fg-2 whitespace-pre-wrap max-h-96 overflow-y-auto @@vibe-scroll border border-vibe-border-2 bg-vibe-bg-3 rounded p-3'>
 								{contentPreview}
 							</div>
 						</div>
@@ -4842,7 +4821,7 @@ const PlanComponent = React.memo(({ message, isCheckpointGhost, threadId, messag
 																		{isSuccess && toolMsg.result && (
 																			<details className="mt-1">
 																				<summary className="text-vibe-fg-3 cursor-pointer text-xs hover:text-vibe-fg-2">View result</summary>
-																				<pre className="mt-1 p-2 bg-vibe-bg-2 rounded text-xs overflow-auto max-h-32 border border-vibe-border-1">
+																				<pre className="mt-1 p-2 bg-vibe-bg-2 rounded text-xs overflow-auto @@vibe-scroll max-h-32 border border-vibe-border-1">
 																					{typeof toolMsg.result === 'string'
 																						? toolMsg.result
 																						: JSON.stringify(toolMsg.result, null, 2)}
@@ -4852,7 +4831,7 @@ const PlanComponent = React.memo(({ message, isCheckpointGhost, threadId, messag
 																		{isError && toolMsg.params && (
 																			<details className="mt-1">
 																				<summary className="text-vibe-fg-3 cursor-pointer text-xs hover:text-vibe-fg-2">View params</summary>
-																				<pre className="mt-1 p-2 bg-vibe-bg-2 rounded text-xs overflow-auto max-h-32 border border-vibe-border-1">
+																				<pre className="mt-1 p-2 bg-vibe-bg-2 rounded text-xs overflow-auto @@vibe-scroll max-h-32 border border-vibe-border-1">
 																					{JSON.stringify(toolMsg.params, null, 2)}
 																				</pre>
 																			</details>
@@ -5283,7 +5262,9 @@ const CommandBarInChat = ({ onJumpToPlan }: { onJumpToPlan?: (messageIdx: number
     const threadStatus = (
         chatThreadsStreamState?.isRunning === 'awaiting_user'
             ? { title: chatS.statusNeedsApproval, color: 'yellow', } as const
-            : (chatThreadsStreamState?.isRunning === 'LLM' || chatThreadsStreamState?.isRunning === 'tool' || chatThreadsStreamState?.isRunning === 'preparing')
+            : (chatThreadsStreamState?.isRunning === 'LLM' || chatThreadsStreamState?.isRunning === 'tool' || chatThreadsStreamState?.isRunning === 'preparing'
+                // A pause before a repeated send: the turn is still going
+                || (chatThreadsStreamState?.isRunning === 'idle' && !!chatThreadsStreamState.pauseInfo))
                 ? { title: chatThreadsStreamState?.isRunning === 'preparing' ? chatS.statusPreparing : chatS.statusRunning, color: 'orange', } as const
                 : { title: chatS.statusDone, color: 'dark', } as const
     );
@@ -5356,7 +5337,7 @@ const CommandBarInChat = ({ onJumpToPlan }: { onJumpToPlan?: (messageIdx: number
 
 
 	// !select-text cursor-auto
-	const fileDetailsContent = <div className="px-2 gap-1 w-full overflow-y-auto">
+	const fileDetailsContent = <div className="px-2 gap-1 w-full overflow-y-auto @@vibe-scroll">
 		{sortedCommandBarURIs.map((uri, i) => {
 			const basename = getBasename(uri.fsPath);
 
@@ -6291,8 +6272,10 @@ export const SidebarChat = () => {
 
 	// Only show streaming message when actively streaming (LLM, tool, or preparing)
 	// Don't show when idle/undefined to prevent duplicate messages and never-ending loading
-	// Only show stop button when actively running (LLM, tool, preparing), not when idle
+	// Only show stop button when actively running (LLM, tool, preparing) or waiting to repeat a send, not when idle
 	const isActivelyStreaming = isRunning === 'LLM' || isRunning === 'tool' || isRunning === 'preparing';
+	// The run waits before it repeats a failed send: it is not over, so the stop control stays
+	const isWaitingToRepeat = isRunning === 'idle' && !!currThreadStreamState?.pauseInfo;
 	const isWaitingForModelSentinel = isActivelyStreaming
 		&& displayContentSoFar === WAITING_FOR_MODEL_RESPONSE_SENTINEL
 		&& !reasoningSoFar;
@@ -6388,16 +6371,18 @@ export const SidebarChat = () => {
 			});
 		}
 
-		// Rate-limit auto-pause countdown — provider asked us to wait; the run resumes automatically.
-		if (currThreadStreamState?.isRunning === undefined && currThreadStreamState?.pauseInfo) {
-			const { resumeAtMs, attempt, maxAttempts } = currThreadStreamState.pauseInfo;
+		// Pause countdown — the chat waits before it sends the turn again, and the run resumes automatically
+		// `isRunning` is undefined while a rate-limit pause has parted from the run, and 'idle' while the run itself waits to repeat a send
+		if ((currThreadStreamState?.isRunning === undefined || currThreadStreamState?.isRunning === 'idle') && currThreadStreamState?.pauseInfo) {
+			const pause = currThreadStreamState.pauseInfo;
+			const retrying = currThreadStreamState.isRunning === 'idle';
 			items.push({
-				key: 'rate-limit-pause-banner',
-				render: () => <RateLimitPauseBanner
-					resumeAtMs={resumeAtMs}
-					attempt={attempt}
-					maxAttempts={maxAttempts}
+				key: 'provider-pause-banner',
+				render: () => <ProviderPauseBanner
+					pause={pause}
+					retrying={retrying}
 					onResumeNow={() => { chatThreadsService.resumeRateLimitPauseNow(threadId); }}
+					onStop={() => { chatThreadsService.abortRunning(threadId); }}
 				/>
 			});
 		}
@@ -7074,7 +7059,7 @@ export const SidebarChat = () => {
 		onSubmit={() => onSubmit()}
 		onContinue={(text) => onSubmit(text)}
 		onAbort={onAbort}
-		isStreaming={isActivelyStreaming}
+		isStreaming={isActivelyStreaming || isWaitingToRepeat}
 		isDisabled={isDisabled}
 		showSelections={true}
 		// showProspectiveSelections={previousMessagesHTML.length === 0}
@@ -7182,7 +7167,7 @@ export const SidebarChat = () => {
 					<div className='px-3 py-1 text-[10px] uppercase tracking-wide text-vibe-fg-3 border-b border-vibe-border-1'>
 						{slashMenuKind === 'builtin' ? 'Команды чата:' : 'Skills:'}
 					</div>
-					<div className='overflow-y-auto' style={{ maxHeight: dropdownH - HEADER_H }}>
+					<div className='overflow-y-auto @@vibe-scroll' style={{ maxHeight: dropdownH - HEADER_H }}>
 						{filteredSkillCmds.length === 0 && (
 							<div className='px-3 py-2 text-vibe-fg-3 text-[12px]'>
 								{slashMenuKind === 'builtin'
@@ -7328,7 +7313,7 @@ export const SidebarChat = () => {
 
     const landingPageContent = <div
 		ref={sidebarRef}
-		className='@@vibe-chat-neon-scope @@vibe-chat-landing w-full h-full max-h-full flex flex-col overflow-auto px-3'
+		className='@@vibe-chat-neon-scope @@vibe-chat-landing w-full h-full max-h-full flex flex-col overflow-auto @@vibe-scroll px-3'
 	>
 		<ErrorBoundary>
 			{landingPageInput}

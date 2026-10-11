@@ -104,7 +104,7 @@ export const VibeCommandsPalette: React.FC = () => {
 				value={query}
 				onChange={(e) => { setQuery(e.target.value); setActiveIndex(0); }}
 			/>
-			<div className="@@vibeide-cmdpalette-list" ref={listRef}>
+			<div className="@@vibeide-cmdpalette-list @@vibe-scroll" ref={listRef}>
 				{filtered.length === 0 && (
 					<div className="@@vibeide-cmdpalette-empty">Ничего не найдено</div>
 				)}

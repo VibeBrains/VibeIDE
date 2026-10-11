@@ -73,7 +73,7 @@ function renderPopup(
 ): IDisposable {
 	const disposables = new DisposableStore();
 
-	const root = $('div.vibe-cmd-popup');
+	const root = $('div.vibe-cmd-popup.vibe-scroll');
 	container.appendChild(root);
 
 	const renderRows = () => {

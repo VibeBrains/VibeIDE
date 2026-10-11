@@ -49,7 +49,7 @@ const ChatTabStrip = ({ historyCollapsed, onToggleHistory }: { historyCollapsed:
 	const [dragId, setDragId] = useState<string | null>(null);
 	const [overId, setOverId] = useState<string | null>(null);
 	return (
-		<div className="h-[34px] flex items-center gap-1 px-1 border-b border-vibe-border-1 overflow-x-auto flex-shrink-0 bg-vibe-bg-2">
+		<div className="h-[34px] flex items-center gap-1 px-1 border-b border-vibe-border-1 overflow-x-auto @@vibe-scroll flex-shrink-0 bg-vibe-bg-2">
 			{openTabIds.map(id => {
 				const thread = state.allThreads[id];
 				const active = id === current;

@@ -193,6 +193,13 @@ const OPENCODE_PROCESS_SESSION_ID = `vibeide-${generateUuid()}`;
 const RATE_LIMIT_FAIL_FAST_RETRY_AFTER_SECONDS = 10;
 
 /**
+ * Repeats of a failed request the SDK makes by itself (three sends in all, at 0, 2 and 6 s)
+ * It is the default for callers that have no retry loop of their own
+ * A caller that has one asks for none (`sdkMaxRetries: 0`), see the call options below
+ */
+const DEFAULT_SDK_MAX_RETRIES = 2;
+
+/**
  * The status a response had before `makeCustomFetch` re-statused it. A 429 turned into 402 so the SDK stops
  * retrying is still a rate limit for everyone after it, and this header says so as a field: the vendor's
  * own words (Google: «Resource has been exhausted») need not mention a rate limit at all.
@@ -2246,14 +2253,11 @@ export const sendViaAISdk = async (params: SendChatParams_Internal): Promise<voi
 		toolChoice,
 		abortSignal: abortController.signal,
 		...modelParams,
-		// AI SDK default maxRetries=2 (3 attempts total) is too aggressive for
-		// aggregator-proxied models (openCodeGo/zen → DeepSeek-thinking, BigPickle,
-		// minimax-m2.7) — those upstreams throttle on bursts of agentic steps and
-		// 3 attempts hit the same rate-limit window. 5 retries = 6 attempts with
-		// AI SDK's exp backoff (2^n: 0s / 2s / 4s / 8s / 16s / 32s ≈ ~60s spread),
-		// giving the upstream window time to reset. Doesn't affect non-throttled
-		// cases — successful first attempt skips backoff entirely.
-		maxRetries: 5,
+		// Repeating a failed request is the job of ONE layer
+		// The chat loop owns it: it sees the status, shows the pause, honours Retry-After and may hand the turn to another model
+		// So the loop asks for none here, and a failing request reaches it at once instead of sleeping inside the SDK
+		// Callers without such a loop keep the SDK's own repeats
+		maxRetries: runtimeOptions?.sdkMaxRetries ?? DEFAULT_SDK_MAX_RETRIES,
 		experimental_repairToolCall: repairToolCall,
 	};
 

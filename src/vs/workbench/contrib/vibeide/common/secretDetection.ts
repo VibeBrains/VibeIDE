@@ -3,6 +3,7 @@
  *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
 
+import { isPlaceholderValue, looksLikeSecretLiteral, standsAloneAsToken } from './secretLiteralShape.js';
 import { vibeLog } from './vibeLog.js';
 
 /**
@@ -25,10 +26,11 @@ export interface SecretPattern {
 	 * Optional post-match guard. The regex pre-filters by shape; `validate`
 	 * rejects shape-matching-but-not-actually-a-secret candidates (e.g. a 40-char
 	 * CamelCase class name matching the bare AWS-key length rule). Receives the
-	 * matched text; return false to discard the match. No `validate` = accept all
-	 * regex matches (previous behavior).
+	 * matched text and the regex match itself, whose named groups and `input` give
+	 * the context a rule needs (quote, key, line start); return false to discard the
+	 * match. No `validate` = accept all regex matches (previous behavior).
 	 */
-	validate?: (candidate: string) => boolean;
+	validate?: (candidate: string, match: RegExpExecArray) => boolean;
 }
 
 /** Shannon entropy in bits/char — low for words/identifiers, high for random keys. */
@@ -54,6 +56,45 @@ function shannonEntropy(s: string): number {
  */
 function looksLikeAwsSecret(s: string): boolean {
 	return /[0-9]/.test(s) && /[a-z]/.test(s) && /[A-Z]/.test(s) && shannonEntropy(s) >= 3.5;
+}
+
+/**
+ * Judges a match of `aws-secret-key`, which has no keyword in front of the run
+ *
+ * The run has to stand alone as a token first: a 40-character slice of an SRI hash, a base64 blob or a data URI
+ * has the entropy of a key and is not one
+ * Then the content is judged by `looksLikeAwsSecret`
+ * The cheap context check goes first, because the entropy count allocates
+ */
+function isAwsSecretKey(candidate: string, match: RegExpExecArray): boolean {
+	return standsAloneAsToken(match.input, match.index, match.index + candidate.length) && looksLikeAwsSecret(candidate);
+}
+
+/** Upper-case variable name with digits and underscores: `DB_PASSWORD`, `API_TOKEN` */
+const ENV_VARIABLE_NAME = /^[A-Z_][A-Z0-9_]*$/;
+
+/**
+ * Judges a match of `password-pattern`, which finds two kinds of lines
+ *
+ * Env line (`export DB_PASSWORD=value`): upper-case name at the line start, no spaces around `=`
+ * A `.env` value is never code, so anything but a placeholder is a secret
+ *
+ * Assignment (`password = value`, `token: value`): the value has to look like a literal, not like code
+ *
+ * A name glued to the keyword in another case (`my_password=`, `dbPassword=`) is not a match
+ */
+function isPasswordAssignmentSecret(_candidate: string, match: RegExpExecArray): boolean {
+	const { envPrefix, envWord, quote = '', quotedValue, bareValue } = match.groups ?? {};
+	const value = quotedValue ?? bareValue ?? '';
+	if (envWord !== undefined) {
+		if (ENV_VARIABLE_NAME.test((envPrefix ?? '') + envWord)) {
+			return !isPlaceholderValue(value);
+		}
+		if (envPrefix) {
+			return false;
+		}
+	}
+	return looksLikeSecretLiteral(value, quote);
 }
 
 export interface SecretMatch {
@@ -106,9 +147,12 @@ export const DEFAULT_SECRET_PATTERNS: SecretPattern[] = [
 	{
 		id: 'generic-api-key',
 		name: 'Generic API Key',
-		pattern: /\b(api[_-]?key|apikey)\s*[=:]\s*['"]?([a-zA-Z0-9_-]{20,})['"]?/gi,
+		// Keyword, separator, then a run of 20+ key characters
+		// The value is judged afterwards: a type or a variable name is code, a quoted run or one with a digit is a key
+		pattern: /\b(?:api[_-]?key|apikey)\s*[=:]\s*(?<quote>['"`]?)(?<value>[a-zA-Z0-9_-]{20,})['"`]?/gi,
 		enabled: true,
 		priority: 90,
+		validate: (_candidate, match) => looksLikeSecretLiteral(match.groups?.value ?? '', match.groups?.quote ?? ''),
 	},
 	// JWT tokens
 	{
@@ -122,9 +166,12 @@ export const DEFAULT_SECRET_PATTERNS: SecretPattern[] = [
 	{
 		id: 'bearer-token',
 		name: 'Bearer Token',
-		pattern: /\b(bearer\s+)([a-zA-Z0-9_-]{20,})\b/gi,
+		// Only a mask or a stand-in is rejected
+		// A bearer token is never quoted and may hold no digit, so the literal-or-code test would drop real ones
+		pattern: /\b(?:bearer\s+)(?<value>[a-zA-Z0-9_-]{20,})\b/gi,
 		enabled: true,
 		priority: 90,
+		validate: (_candidate, match) => !isPlaceholderValue(match.groups?.value ?? ''),
 	},
 	// AWS access keys
 	{
@@ -135,13 +182,15 @@ export const DEFAULT_SECRET_PATTERNS: SecretPattern[] = [
 		priority: 100,
 	},
 	// AWS secret keys (exclude '/' to avoid false positives on path segments, e.g. prof/vibeide/browser/convertTo)
+	// No '=': base64 pads only the end, and a 40-char key needs no padding, so '=' inside a run means `name=value`
+	// Whether the run stands alone or is cut out of a longer one is decided by `isAwsSecretKey`
 	{
 		id: 'aws-secret-key',
 		name: 'AWS Secret Key',
-		pattern: /\b([a-zA-Z0-9+=]{40})\b/g,
+		pattern: /\b([a-zA-Z0-9+]{40})\b/g,
 		enabled: true,
 		priority: 85,
-		validate: looksLikeAwsSecret,
+		validate: isAwsSecretKey,
 	},
 	// AWS secret key in its named form. The standalone rule above cannot allow '/', or every path
 	// segment of the right length would match — yet a real secret is base64 and very often contains
@@ -194,9 +243,17 @@ export const DEFAULT_SECRET_PATTERNS: SecretPattern[] = [
 	{
 		id: 'password-pattern',
 		name: 'Password',
-		pattern: /\b(password|passwd|pwd|secret|token)\s*[=:]\s*['"]?([a-zA-Z0-9!@#$%^&*()_+\-=\[\]{};':"\\|,.<>\/?]{8,})['"]?/gi,
+		// Two ways in, both ending in a quoted run or a bare run
+		// A quoted run is closed right after the value, so a sentence is no value, and may carry a string prefix (b"", @"")
+		// Env line: a name that CONTAINS the keyword (DB_PASSWORD) at the line start or after `export`, no spaces around `=`
+		// The lookbehind keeps `export` out of the match, and its bounds keep a long run of blanks from making the scan quadratic
+		// Assignment: the keyword as a whole word, then `=` or `:`, but not inside a variable reference like ${secret:NAME}
+		// A value on the next line counts only when it opens with a quote, because `token:` over a nested YAML key has none
+		// Whether the value is a secret or code is decided by `isPasswordAssignmentSecret`
+		pattern: /(?:(?<=^[ \t]{0,40}(?:export[ \t]{1,8})?)(?<envPrefix>[a-z0-9_]*?)(?<envWord>password|passwd|pwd|secret|token)=|(?<!\$\{)\b(?:password|passwd|pwd|secret|token)[ \t]*[=:](?!=)[ \t]*(?:\r?\n[ \t]*(?=['"`]))?)(?:(?:[bBrRuUfF]{1,2}|[@$]{1,2})?(?<quote>['"`])(?<quotedValue>(?:(?!\k<quote>)\S){8,})\k<quote>|(?<bareValue>[^\s'"`]{8,}))/gim,
 		enabled: true,
 		priority: 80,
+		validate: isPasswordAssignmentSecret,
 	},
 	// Private keys (RSA, EC, etc.)
 	{
@@ -307,6 +364,12 @@ export function getActivePatterns(config: SecretDetectionConfig = DEFAULT_CONFIG
 }
 
 /**
+ * Longest rejected match that is scanned again from its second character
+ * A run without blanks can be as long as the file, and rescanning it once per keyword inside it would be quadratic
+ */
+const MAX_RESCAN_SPAN = 2048;
+
+/**
  * Detects secrets in text and returns matches
  */
 export function detectSecrets(
@@ -344,7 +407,7 @@ export function detectSecrets(
 			// before overlap handling so a rejected candidate neither lands nor evicts
 			// a legitimately-matched lower-priority secret. The zero-length-bump below
 			// still runs because we only skip the push, not the loop iteration.
-			const accepted = !pattern.validate || pattern.validate(matchedText);
+			const accepted = !pattern.validate || pattern.validate(matchedText, match);
 
 			// Check for overlaps with existing matches (prefer higher priority)
 			const overlaps = matches.some(
@@ -376,6 +439,10 @@ export function detectSecrets(
 			// Prevent infinite loops on zero-length matches
 			if (match[0].length === 0) {
 				regex.lastIndex++;
+			} else if (!accepted && matchedText.length <= MAX_RESCAN_SPAN) {
+				// A rejected span can hold a real secret of its own (`token=login(password=...)`),
+				// so scanning resumes right after its start, not after its end
+				regex.lastIndex = start + 1;
 			}
 		}
 	}

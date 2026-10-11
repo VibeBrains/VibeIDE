@@ -31,6 +31,7 @@ import { GestureEvent } from '../../../base/browser/touch.js';
 import { IPaneCompositePart } from './paneCompositePart.js';
 import { IConfigurationService } from '../../../platform/configuration/common/configuration.js';
 import { IViewsService } from '../../services/views/common/viewsService.js';
+import { IPinPaneCompositeOptions } from '../../services/panecomposite/browser/panecomposite.js';
 
 interface IPlaceholderViewContainer {
 	readonly id: string;
@@ -83,6 +84,11 @@ export interface IPaneCompositeBarOptions {
 	readonly activityHoverOptions: IActivityHoverOptions;
 	readonly fillExtraContextMenuActions: (actions: IAction[], e?: MouseEvent | GestureEvent) => void;
 	readonly colors: (theme: IColorTheme) => ICompositeBarColors;
+
+	/**
+	 * VibeIDE: every tab can be closed, the last one hides the part
+	 */
+	readonly closableTabs?: boolean;
 }
 
 export class PaneCompositeBar extends Disposable {
@@ -151,7 +157,15 @@ export class PaneCompositeBar extends Disposable {
 			compositeSize: this.options.compositeSize,
 			overflowActionSize: this.options.overflowActionSize,
 			colors: theme => this.options.colors(theme),
+			closeComposite: this.options.closableTabs ? compositeId => this.closeComposite(compositeId) : undefined,
 		}));
+	}
+
+	// VibeIDE: the last tab is not unpinned but the whole part is hidden, so the part comes back with its tab
+	private closeComposite(compositeId: string): void {
+		if (!this.compositeBar.close(compositeId)) {
+			this.layoutService.setPartHidden(true, this.part);
+		}
 	}
 
 	private getContextMenuActionsForComposite(compositeId: string): IAction[] {
@@ -500,6 +514,15 @@ export class PaneCompositeBar extends Disposable {
 	getPaneCompositeIds(): string[] {
 		return this.compositeBar.getVisibleComposites()
 			.map(v => v.id);
+	}
+
+	// VibeIDE: brings back a tab the user took off, optionally in front of the others
+	pinPaneComposite(id: string, options?: IPinPaneCompositeOptions): void {
+		if (options?.first) {
+			this.compositeBar.pinFirst(id);
+		} else {
+			this.compositeBar.pin(id);
+		}
 	}
 
 	getContextMenuActions(): IAction[] {

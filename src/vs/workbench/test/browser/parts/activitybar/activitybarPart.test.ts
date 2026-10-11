@@ -44,6 +44,7 @@ class StubPaneCompositePart implements IPaneCompositePart {
 	getPinnedPaneCompositeIds(): string[] { return []; }
 	getVisiblePaneCompositeIds(): string[] { return []; }
 	getPaneCompositeIds(): string[] { return []; }
+	pinPaneComposite(): void { } // VibeIDE: member of IPaneCompositePart
 	layout(): void { }
 	dispose(): void { }
 }

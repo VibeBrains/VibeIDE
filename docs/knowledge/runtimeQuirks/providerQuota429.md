@@ -18,9 +18,10 @@
 величина `retry-after`.
 
 **Применение:**
-- `aiSdkAdapter.ts` → `customFetch`: 429 с `retry-after > 300с` перештамповывается в 402
-  (non-retryable для AI SDK) с сохранением тела — ошибка всплывает мгновенно
-  (`MAX_RETRYABLE_RETRY_AFTER_SECONDS`).
+- `aiSdkAdapter.ts` → `customFetch`: 429 с `retry-after` от 10 с перештамповывается в 402
+  (non-retryable для AI SDK) с сохранением тела и заголовком `x-vibe-original-status: 429` — ошибка всплывает мгновенно
+  (`RATE_LIMIT_FAIL_FAST_RETRY_AFTER_SECONDS = 10`; в записи от 2026-06-07 стоял порог 300 с, в коде его давно нет).
+  Дальше решает цикл чата: короткое ожидание он проводит сам, срок длиннее потолка ожидания — ошибка, см. `chatUx/llmErrorRetry.md`
 - `providerErrorTranslator.ts`: семейство «квота за период» стоит ПЕРЕД rate-limit — текст
   «Rate limit exceeded: Monthly usage limit reached» иначе матчился бы на rate-limit с ложным
   советом подождать.

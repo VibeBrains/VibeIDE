@@ -462,7 +462,7 @@ export const VibeProviderDiagnostics: React.FC = () => {
 				<button className="@@vibeide-provdiag-btn" onClick={() => commandService.executeCommand('workbench.action.toggleVibeideSettings')}>Открыть настройки</button>
 			</div>
 
-			<div className="@@vibeide-provdiag-list">
+			<div className="@@vibeide-provdiag-list @@vibe-scroll">
 				{rows.length === 0 && (
 					<div className="@@vibeide-provdiag-empty">Нет активных провайдеров (с прописанным API-ключом).</div>
 				)}

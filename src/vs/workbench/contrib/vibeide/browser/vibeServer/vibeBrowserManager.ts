@@ -506,7 +506,7 @@ export class VibeBrowserManager extends Disposable {
 	.vb-addr { flex: 1; height: 24px; border: 1px solid var(--vscode-input-border, transparent); background: var(--vscode-input-background); color: var(--vscode-input-foreground); border-radius: 4px; padding: 0 8px; font-size: 12px; outline: none; }
 	.vb-addr:focus { border-color: var(--vscode-focusBorder); }
 	.vb-select { height: 24px; background: var(--vscode-dropdown-background); color: var(--vscode-dropdown-foreground); border: 1px solid var(--vscode-dropdown-border, transparent); border-radius: 4px; font-size: 12px; }
-	.vb-stage { flex: 1; overflow: auto; display: flex; justify-content: center; background: var(--vscode-editorWidget-background); }
+	.vb-stage { flex: 1; overflow: auto; /* vibe-scroll: a webview document, its bar is styled by the webview host */ display: flex; justify-content: center; background: var(--vscode-editorWidget-background); }
 	.vb-frame-wrap { width: 100%; height: 100%; box-shadow: none; }
 	.vb-frame-wrap.sized { box-shadow: 0 0 0 1px var(--vscode-panel-border); margin: 8px auto; }
 	iframe { width: 100%; height: 100%; border: none; background: #fff; display: block; }

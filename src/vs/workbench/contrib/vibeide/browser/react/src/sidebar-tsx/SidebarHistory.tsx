@@ -216,7 +216,7 @@ const HistoryContent = () => {
 			</div>
 
 			{/* Thread list */}
-			<div className="flex-1 overflow-y-auto overflow-x-hidden">
+			<div className="flex-1 overflow-y-auto @@vibe-scroll overflow-x-hidden">
 				{!hasThreads ? (
 					<div className="px-3 py-6 text-xs text-vibe-fg-3 text-center select-none">
 						{chatS.historyEmptyState}

@@ -45,6 +45,8 @@ import './vibeCircuitBreakerCommands.js';
 import './media/vibeide.css';
 // Z.12 BISECT — temporarily disable VibeModal CSS to confirm/deny it as the freeze source
 import './media/vibeModal.css';
+import './media/vibeScroll.css';
+import './vibeScrollIndicator.contribution.js';
 
 // Builtin Vibe Neon — title-bar glow toggle registration + default theme chrome CSS (extensions/vibeide-neon)
 import './vibeNeonGlowTitleBar.js';
@@ -534,7 +536,6 @@ import './vibeForceResetChatStateAction.js';
 import './vibeChatHistoryActions.js';
 import './vibeChatPinAction.js';
 import './vibeExternalAccessActions.js';
-import './vibeRepairWarningContribution.js';
 
 // VibeIDE: Memory dispatcher — routes writes via memoryLayerRouter pure helper
 import './vibeMemoryDispatcherService.js';

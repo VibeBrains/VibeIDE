@@ -1,0 +1,113 @@
+/*---------------------------------------------------------------------------------------------
+ *  Copyright (c) Microsoft Corporation. All rights reserved.
+ *  Licensed under the MIT License. See License.txt in the project root for license information.
+ *--------------------------------------------------------------------------------------------*/
+
+/* ── The one scrollbar of VibeIDE's own surfaces ──────────────────────────────────────────
+   A thin bar in the grey scrollbar colours of the theme, the same ones the lists of VS Code use
+   It is absent until the pointer or the focus is in the container, or the container is being scrolled:
+   `vibeScrollIndicator.contribution.ts` puts `vibe-scrolling` on the element that scrolls and takes it off a second
+   after the last scroll event, CSS alone cannot see scrolling. So the bar shows where a list that scrolls itself is
+
+   Every scroll container of ours carries `vibe-scroll` (`@@vibe-scroll` in the React tree);
+   `scripts/vibe-scroll-gate.ts` refuses an `overflow: auto` without it. A container with none of these
+   selectors gets the system bar — a wide light strip across a dark theme
+
+   `.vibe-scope *` is the net under the React tree. `.vibe-scroll *` covers what a container holds but did not build:
+   tokenized code, rendered markdown. Unscoped on purpose: modal portals render outside `.vibe-scope`
+
+   `scrollbar-width` and `scrollbar-color` are reset to `auto`: once either is set, or inherited,
+   Chromium ignores every `::-webkit-scrollbar` rule and draws its own thin bar, which cannot hide or widen
+
+   The gutter is 8px so the bar is easy to grab; the thumb is drawn narrower by a transparent border:
+   4px at rest, 6px under the pointer
+
+   The lists and trees of the two side bars and the code editor are drawn by VS Code with elements, not by the browser:
+   the last blocks of this file give them the same thumb */
+:is(.vibe-scroll, .vibe-scroll *, .vibe-scope, .vibe-scope *) {
+	scrollbar-width: auto;
+	scrollbar-color: auto;
+}
+
+:is(.vibe-scroll, .vibe-scroll *, .vibe-scope, .vibe-scope *)::-webkit-scrollbar {
+	width: 8px;
+	height: 8px;
+	background-color: transparent;
+}
+
+:is(.vibe-scroll, .vibe-scroll *, .vibe-scope, .vibe-scope *)::-webkit-scrollbar-track,
+:is(.vibe-scroll, .vibe-scroll *, .vibe-scope, .vibe-scope *)::-webkit-scrollbar-corner {
+	background-color: transparent;
+}
+
+:is(.vibe-scroll, .vibe-scroll *, .vibe-scope, .vibe-scope *)::-webkit-scrollbar-thumb {
+	background-color: transparent;
+	background-clip: content-box;
+	border: 2px solid transparent;
+	border-radius: 9999px;
+	min-height: 40px;
+	min-width: 40px;
+}
+
+:is(.vibe-scroll, .vibe-scroll *, .vibe-scope, .vibe-scope *):is(:hover, :focus-within, .vibe-scrolling)::-webkit-scrollbar-thumb {
+	background-color: var(--vscode-scrollbarSlider-background, rgba(121, 121, 121, 0.4));
+}
+
+:is(.vibe-scroll, .vibe-scroll *, .vibe-scope, .vibe-scope *)::-webkit-scrollbar-thumb:hover {
+	background-color: var(--vscode-scrollbarSlider-hoverBackground, rgba(100, 100, 100, 0.7));
+	border-width: 1px;
+}
+
+:is(.vibe-scroll, .vibe-scroll *, .vibe-scope, .vibe-scope *)::-webkit-scrollbar-thumb:active {
+	background-color: var(--vscode-scrollbarSlider-activeBackground, rgba(191, 191, 191, 0.4));
+	border-width: 1px;
+}
+
+/* ── Lists and trees of the two side bars, and the code editor ─────────────────────────────
+   VS Code draws these bars itself: `.scrollbar > .slider`, sized by inline styles and shown and hidden by its own classes
+   (`visible`, `invisible`), which already follow the pointer and scrolling, so only the look is set here
+   The slider keeps the whole 8px lane as its hit area and paints the middle of it: the thumb is a transparent border
+   around the fill, 4px at rest and 6px when the border thins under the pointer or while it is dragged
+   The colours are the tokens VS Code gives the slider already, they are not set again
+   The editor is `.editor-scrollable`: its lane is the setting `editor.scrollbar.*ScrollbarSize`, which the product
+   defaults to 8px (`vibeDefaultSettingsOverrides.ts`), and the overview ruler lives in that lane at its full width
+   Editors inside the side bars keep their own bars: `.monaco-editor` is excluded from the first selector
+   Other places in the editor part (the settings editor, extension pages, webviews) are not styled here */
+:is(.part.sidebar, .part.auxiliarybar) .monaco-scrollable-element:not(.monaco-editor .monaco-scrollable-element),
+.part.editor .monaco-editor .monaco-scrollable-element.editor-scrollable {
+
+	& > .scrollbar > .slider {
+		box-sizing: border-box;
+		border: 2px solid transparent;
+		border-radius: 9999px;
+		background-clip: content-box;
+	}
+
+	& > .scrollbar > .slider:hover,
+	& > .scrollbar > .slider.active {
+		border-width: 1px;
+	}
+}
+
+/* The side bars get the geometry from here: their inline sizes can only be beaten with `!important`
+   The editor does not: a size the user picked in the settings still wins there */
+:is(.part.sidebar, .part.auxiliarybar) .monaco-scrollable-element:not(.monaco-editor .monaco-scrollable-element) {
+
+	& > .scrollbar.vertical {
+		width: 8px !important;
+	}
+
+	& > .scrollbar.horizontal {
+		height: 8px !important;
+	}
+
+	& > .scrollbar.vertical > .slider {
+		left: 0 !important;
+		width: 8px !important;
+	}
+
+	& > .scrollbar.horizontal > .slider {
+		top: 0 !important;
+		height: 8px !important;
+	}
+}

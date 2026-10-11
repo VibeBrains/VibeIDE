@@ -521,6 +521,8 @@ class VibeSubagentRunnerService extends Disposable implements IVibeSubagentRunne
 				overridesOfModel: this._settings.state.overridesOfModel,
 				// One subagent run is one conversation: every hop of it shares the cache key.
 				promptCacheKey: promptCacheKeyOf(opts.req.subagentId, opts.req.type),
+				// The run repeats a failed hop itself, with its own budget: the SDK repeating under it would multiply the sends
+				sdkMaxRetries: 0,
 				onText: () => { },
 				onFinalMessage: p => finish({ kind: 'final', fullText: p.fullText, toolCall: p.toolCall, usage: p.usage }),
 				onError: e => finish({ kind: 'error', message: e.message || String(e) }),
