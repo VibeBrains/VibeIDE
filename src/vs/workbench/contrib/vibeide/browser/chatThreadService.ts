@@ -24,6 +24,8 @@ import { DEFAULT_SLOP_GATE_ATTEMPTS, decideSlopGate, prosePaths, SLOP_GATE_ATTEM
 import { renderSlopReport } from '../common/textSlop/slopRender.js';
 import { SlopReport } from '../common/textSlop/textSlop.js';
 import { nextChatTraceTurn, recordChatTrace } from './vibeChatRunTrace.js';
+import { IChatJournalService } from './chatJournalService.js';
+import type { ChatJournalAction } from '../common/chatJournal.js';
 import { availableTools, builtinTools, builtinToolNames, chat_userMessageContent, isABuiltinToolName } from '../common/prompt/prompts.js';
 import { TOOL_NAME_ALIASES, applyParamAliases, detectToolByParamShape } from '../common/prompt/toolAliases.js';
 import { toolCallSignature, resolveAntiLoopThreshold, endsWithQuestion, looksLikeCompletionText, QUESTION_AUTO_CONTINUE_DEFAULT } from '../common/agentLoopHeuristics.js';
@@ -1198,6 +1200,7 @@ class ChatThreadService extends Disposable implements IChatThreadService {
 		@IVibeDesignContextService private readonly _designContextService: IVibeDesignContextService,
 		@IVibeTextSlopService private readonly _textSlopService: IVibeTextSlopService,
 		@IVibeDynamicProvidersService private readonly _dynamicProvidersService: IVibeDynamicProvidersService,
+		@IChatJournalService private readonly _chatJournal: IChatJournalService,
 	) {
 		super();
 		this.state = { allThreads: {}, currentThreadId: null as unknown as string, openTabIds: [] }; // default state
@@ -5640,11 +5643,12 @@ Output ONLY the JSON, no other text. Start with { and end with }.`;
 			if (!verdict || verdict.failures.length === 0) {
 				return;
 			}
+			if (verdict.decision === 'notify-complete') {
+				this._journalTurnChecksFinished(verdict.failures);
+				return;
+			}
 			const list = verdict.failures.map(f => `• ${f.detail}`).join('\n');
-			const note = verdict.decision === 'notify-complete'
-				? `⚠️ ПРОВЕРКИ ХОДА: ход завершён, но кое-что стоит посмотреть.\n\n${list}`
-				: `⛔ ПРОВЕРКИ ХОДА: ход завершён с проблемами, а вернуть агента на исправление уже некуда — он закончил без вызова инструмента.\n\n${list}`;
-			this.addAssistantNotice(threadId, note);
+			this.addAssistantNotice(threadId, `⛔ ПРОВЕРКИ ХОДА: ход завершён с проблемами, а вернуть агента на исправление уже некуда — он закончил без вызова инструмента.\n\n${list}`);
 		};
 		const noteToolCall = (toolName: string, rawParams?: unknown): void => {
 			calledToolsThisRun.push(toolName);
@@ -6929,7 +6933,7 @@ Output ONLY the JSON, no other text. Start with { and end with }.`;
 							vibeLog.info('llmTurn', 'cache miss', { reason: cacheMiss.kind, missedInputTokens: cacheMiss.missedInputTokens ?? 0, cachedInputTokens: usage?.cachedInputTokens ?? 0 });
 						}
 						if (isCostlyCacheMiss(cacheMiss)) {
-							this.addAssistantNotice(threadId, describeCacheMiss(cacheMiss));
+							this._chatJournal.append({ category: 'providers', level: 'warning', text: describeCacheMiss(cacheMiss) });
 						}
 
 						// Кто ответил на самом деле. Прокси, агрегатор и запасная цель подменяют модель молча, а счёт
@@ -6941,12 +6945,16 @@ Output ONLY the JSON, no other text. Start with { and end with }.`;
 							const pair = `${modelSelection.providerName}:${modelSelection.modelName}→${answeredModel}`;
 							if (!saidModelSubstituted.has(pair)) {
 								saidModelSubstituted.add(pair);
-								this.addAssistantNotice(threadId, [
-									'**Ответила другая модель**',
-									`Просили: \`${modelSelection.modelName}\``,
-									`Ответила: \`${answeredModel}\``,
-									'Счёт считается по запрошенной — у прокси, агрегатора и запасной цели это обычное дело',
-								].join('\n\n'));
+								this._chatJournal.append({
+									category: 'providers',
+									level: 'warning',
+									text: [
+										'**Ответила другая модель**',
+										`Просили: \`${modelSelection.modelName}\``,
+										`Ответила: \`${answeredModel}\``,
+										'Счёт считается по запрошенной — у прокси, агрегатора и запасной цели это обычное дело',
+									].join('\n'),
+								});
 							}
 							if (this._auditLogService.isEnabled()) {
 								void this._auditLogService.append({
@@ -7755,8 +7763,12 @@ Output ONLY the JSON, no other text. Start with { and end with }.`;
 							return;
 						}
 						if (decision === 'warn-complete' && verify) {
-							const note = `⚠️ VERIFY-GATE (режим предупреждения): команда «${verify.command}» завершилась с ошибкой (exit ${verify.exitCode ?? 'timeout'}), но ход завершён. Проверь результат.\n\nВывод команды:\n${verify.output}`;
-							this.addAssistantNotice(threadId, note);
+							this._chatJournal.append({
+								category: 'checks',
+								level: 'warning',
+								text: `VERIFY-GATE (режим предупреждения): команда «${verify.command}» завершилась с ошибкой (exit ${verify.exitCode ?? 'timeout'}), но ход завершён. Проверь результат.\n\nВывод команды:\n${verify.output}`,
+								actions: [{ kind: 'openSetting', settingId: 'vibeide.agent.verifyGate.mode' }],
+							});
 						}
 						// decision === 'complete' → gate inert / verify passed: fall through to normal completion.
 					}
@@ -7785,8 +7797,7 @@ Output ONLY the JSON, no other text. Start with { and end with }.`;
 							return;
 						}
 						if (turnDecision === 'notify-complete') {
-							const note = `⚠️ ПРОВЕРКИ ХОДА: ход завершён, но кое-что стоит посмотреть.\n\n${failures.map(f => `• ${f.detail}`).join('\n')}`;
-							this.addAssistantNotice(threadId, note);
+							this._journalTurnChecksFinished(failures);
 						}
 					}
 
@@ -7841,14 +7852,19 @@ Output ONLY the JSON, no other text. Start with { and end with }.`;
 						}
 						if (decision === 'note') {
 							const counts = summarize(findings);
-							const head = `🎨 DESIGN-HOOK: измерил страницу после правок интерфейса — ${counts.error} ошибок, ${counts.warning} предупреждений, ${counts.info} замечаний по вкусу`
+							const head = `DESIGN-HOOK: измерил страницу после правок интерфейса — ${counts.error} ошибок, ${counts.warning} предупреждений, ${counts.info} замечаний по вкусу`
 								+ (counts.accepted ? `; ещё ${counts.accepted} проект считает своей идентичностью.` : '.');
 							const list = findings.filter(f => !f.accepted).slice(0, DESIGN_HOOK_NOTE_LIMIT)
 								.map(f => `• [${f.severity}] ${f.message} — ${f.selector}`).join('\n');
 							const tail = counts.total > DESIGN_HOOK_NOTE_LIMIT
 								? `\n… и ещё ${counts.total - DESIGN_HOOK_NOTE_LIMIT}. Полный список — инструментом design_review.`
 								: '';
-							this.addAssistantNotice(threadId, `${head}\n\n${list}${tail}`);
+							this._chatJournal.append({
+								category: 'checks',
+								level: counts.error + counts.warning > 0 ? 'warning' : 'info',
+								text: `${head}\n\n${list}${tail}`,
+								actions: [{ kind: 'openSetting', settingId: DESIGN_HOOK_MODE_KEY }],
+							});
 						}
 						// decision === 'quiet' → hook off, page unreachable, or nothing to report.
 					}
@@ -8971,17 +8987,18 @@ Output ONLY the JSON, no other text. Start with { and end with }.`;
 			this._addMessageToThread(threadId, { role: 'user', content: corrective, displayContent: corrective, selections: null, isSyntheticNudge: true, state: defaultMessageState });
 			return 'bounced';
 		}
+		const slopSettings: readonly ChatJournalAction[] = [{ kind: 'openSetting', settingId: SLOP_GATE_MODE_KEY }];
 		if (decision === 'report') {
-			const note = localize('vibeide.slopGate.notify', "✍️ НЕЙРОСЛОП: текст, записанный в этом ходе, не прошёл проверку.\n\n{0}\n\nНаходки целиком — инструментом vibe_text_slop_check или действием редактора «Нейрослоп в тексте».{1}", summaryLines, uncheckedNote);
-			this.addAssistantNotice(threadId, note);
+			const note = localize('vibeide.slopGate.notify', "НЕЙРОСЛОП: текст, записанный в этом ходе, не прошёл проверку.\n\n{0}\n\nНаходки целиком — инструментом vibe_text_slop_check или действием редактора «Нейрослоп в тексте».{1}", summaryLines, uncheckedNote);
+			this._chatJournal.append({ category: 'checks', level: 'warning', text: note, actions: slopSettings });
 		} else if (decision === 'stop') {
 			const note = localize('vibeide.slopGate.stop', "⛔ НЕЙРОСЛОП: текст не прошёл проверку и после {0} попыток. Дальше решаете вы.\n\n{1}{2}", maxAttempts, summaryLines, uncheckedNote);
 			this.addAssistantNotice(threadId, note);
 			return 'stopped';
 		} else if (unchecked.length > 0 && failing.length === 0) {
 			// «Not checked» must never read as «clean»
-			const note = localize('vibeide.slopGate.onlyUnchecked', "✍️ НЕЙРОСЛОП: текст, записанный в этом ходе, не проверен.{0}", uncheckedNote);
-			this.addAssistantNotice(threadId, note);
+			const note = localize('vibeide.slopGate.onlyUnchecked', "НЕЙРОСЛОП: текст, записанный в этом ходе, не проверен.{0}", uncheckedNote);
+			this._chatJournal.append({ category: 'checks', level: 'info', text: note, actions: slopSettings });
 		}
 		return 'done';
 	}
@@ -10983,6 +11000,16 @@ We only need to do it for files that were edited since `from`, ie files between 
 
 	addAssistantNotice(threadId: string, markdown: string): void {
 		this._addMessageToThread(threadId, { role: 'assistant', displayContent: markdown, reasoning: '', anthropicReasoning: null, notice: true });
+	}
+
+	/** The turn-checks verdict of a turn that ended anyway: a remark for the reader, so it goes to the journal and not into the conversation */
+	private _journalTurnChecksFinished(failures: readonly { readonly detail: string }[]): void {
+		this._chatJournal.append({
+			category: 'checks',
+			level: 'warning',
+			text: `ПРОВЕРКИ ХОДА: ход завершён, но кое-что стоит посмотреть.\n\n${failures.map(f => `• ${f.detail}`).join('\n')}`,
+			actions: [{ kind: 'openSetting', settingId: 'vibeide.agent.turnChecks.mode' }],
+		});
 	}
 
 	private _addMessageToThread(threadId: string, message: ChatMessage) {

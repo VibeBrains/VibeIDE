@@ -4,7 +4,7 @@
  *--------------------------------------------------------------------------------------------*/
 
 import { localize } from '../../../../nls.js';
-import { contrastBorder, descriptionForeground, focusBorder, foreground, registerColor, transparent } from '../../../../platform/theme/common/colorRegistry.js';
+import { badgeBackground, badgeForeground, contrastBorder, descriptionForeground, editorBackground, editorWarningForeground, focusBorder, foreground, registerColor, transparent } from '../../../../platform/theme/common/colorRegistry.js';
 
 // Colour tokens of the chat message layout
 // media/vibeChatMessages.css reads them as `--vscode-vibeide-chat-<name>`
@@ -37,4 +37,32 @@ export const VIBEIDE_CHAT_ASSISTANT_RULE = registerColor(
 	'vibeide.chat.assistantRule',
 	{ dark: transparent(foreground, 0.25), light: transparent(foreground, 0.25), hcDark: contrastBorder, hcLight: contrastBorder },
 	localize('vibeide.chat.assistantRule', 'Цвет линии слева от ответа ассистента в чате VibeIDE.')
+);
+
+// The journal button in the header of the chat (media/vibeChatJournal.css)
+// The badge counts the unread entries and turns to the warning colour while one of them is a warning
+// Every default is a stock token, so the Vibe themes need no entry of their own: their badge and warning colours are already set
+
+export const VIBEIDE_CHAT_JOURNAL_BADGE_BACKGROUND = registerColor(
+	'vibeide.chat.journalBadgeBackground',
+	{ dark: badgeBackground, light: badgeBackground, hcDark: badgeBackground, hcLight: badgeBackground },
+	localize('vibeide.chat.journalBadgeBackground', 'Цвет фона счётчика непрочитанных записей на значке «Журнал» в шапке чата VibeIDE.')
+);
+
+export const VIBEIDE_CHAT_JOURNAL_BADGE_FOREGROUND = registerColor(
+	'vibeide.chat.journalBadgeForeground',
+	{ dark: badgeForeground, light: badgeForeground, hcDark: badgeForeground, hcLight: badgeForeground },
+	localize('vibeide.chat.journalBadgeForeground', 'Цвет цифры в счётчике непрочитанных записей на значке «Журнал» в шапке чата VibeIDE.')
+);
+
+export const VIBEIDE_CHAT_JOURNAL_WARNING = registerColor(
+	'vibeide.chat.journalWarning',
+	{ dark: editorWarningForeground, light: editorWarningForeground, hcDark: editorWarningForeground, hcLight: editorWarningForeground },
+	localize('vibeide.chat.journalWarning', 'Цвет предупреждения в журнале чата VibeIDE: фон счётчика, пока среди непрочитанных есть предупреждение, и значок предупреждения в записи.')
+);
+
+export const VIBEIDE_CHAT_JOURNAL_WARNING_FOREGROUND = registerColor(
+	'vibeide.chat.journalWarningForeground',
+	{ dark: editorBackground, light: editorBackground, hcDark: editorBackground, hcLight: editorBackground },
+	localize('vibeide.chat.journalWarningForeground', 'Цвет цифры на счётчике цвета предупреждения (vibeide.chat.journalWarning) на значке «Журнал» в шапке чата VibeIDE.')
 );

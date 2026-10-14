@@ -47,6 +47,7 @@ import './media/vibeide.css';
 import './media/vibeModal.css';
 import './media/vibeScroll.css';
 import './media/vibeChatMessages.css';
+import './media/vibeChatJournal.css';
 import './vibeScrollIndicator.contribution.js';
 
 // Builtin Vibe Neon — title-bar glow toggle registration + default theme chrome CSS (extensions/vibeide-neon)
@@ -773,7 +774,7 @@ import './vibeSubagentStatusBarContribution.js';
 // VibeIDE: «Субпин» — indicator + command for stopped subagents awaiting manual resume (durable handoff)
 import './vibeSubagentHandoffContribution.js';
 
-// VibeIDE: Live subagent start/finish notices in the chat thread (gated by vibeide.subagent.chatNotices)
+// VibeIDE: Subagent outcomes in the chat journal (gated by vibeide.subagent.chatNotices)
 import './vibeSubagentChatNoticeContribution.js';
 
 // VibeIDE: Background job service — descriptor, tool policy, budget enforcement (§ J.2)

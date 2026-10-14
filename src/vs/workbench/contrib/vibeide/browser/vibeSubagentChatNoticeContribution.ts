@@ -5,18 +5,17 @@
 
 
 /**
- * Subagent OUTCOME notices in the CHAT. A role's *running* state is surfaced live and transiently
+ * Subagent OUTCOME notices in the chat journal. A role's *running* state is surfaced live and transiently
  * by the sidebar (`useSubagentActivity` spinner) — this contribution only posts the terminal
- * outcome (done / stopped / skipped / failed, with tokens and ≈$) as a permanent record in the
- * parent thread. Gated by `vibeide.subagent.chatNotices`.
+ * outcome (done / stopped / skipped / failed, with tokens and ≈$) as an entry of the journal.
+ * Gated by `vibeide.subagent.chatNotices`.
  *
  * Internal roadmap-agent subagents ('explore' / 'implement-step' / 'recover-or-skip') are skipped:
- * they run mid-stream during a normal agent turn and would clutter the thread. Only the curated
+ * they run mid-stream during a normal agent turn and would clutter the journal. Only the curated
  * «команда ролей» (VA) roles post notices.
  *
- * Notices are buffered while the parent thread's turn is active. Appending a message mid-turn
- * corrupts the `messages[messages.length-1]` streaming invariant that tool swap/approve/reject
- * rely on — so a notice is held until the thread's streamState goes fully idle, then flushed.
+ * The journal is not part of any thread, so an entry may be written at any moment of the turn:
+ * nothing here waits for the thread to go idle.
  */
 
 import { Disposable } from '../../../../base/common/lifecycle.js';
@@ -29,7 +28,8 @@ import { IVibeSubagentService, SubagentEntry, SubagentType } from '../common/vib
 import { IVibeSubagentRegistryService } from '../common/vibeSubagentRegistryService.js';
 import { IVibeideSettingsService } from '../common/vibeideSettingsService.js';
 import { subagentCostUsd, formatUsd } from '../common/subagentCostEstimate.js';
-import { IChatThreadService } from './chatThreadService.js';
+import { IChatJournalService } from './chatJournalService.js';
+import type { ChatJournalLevel } from '../common/chatJournal.js';
 
 const INTERNAL_TYPES = new Set<SubagentType>(['explore', 'implement-step', 'recover-or-skip']);
 
@@ -38,19 +38,15 @@ class VibeSubagentChatNoticeContribution extends Disposable {
 	/** Entry ids whose terminal notice we already handled — dedupes repeated status events. */
 	private readonly _notified = new Set<string>();
 
-	/** Notices held until their thread's turn goes idle (keyed by threadId). */
-	private readonly _pending = new Map<string, string[]>();
-
 	constructor(
 		@IVibeSubagentService private readonly _subagentSvc: IVibeSubagentService,
-		@IChatThreadService private readonly _chat: IChatThreadService,
+		@IChatJournalService private readonly _journal: IChatJournalService,
 		@IVibeSubagentRegistryService private readonly _registry: IVibeSubagentRegistryService,
 		@IConfigurationService private readonly _config: IConfigurationService,
 		@IVibeideSettingsService private readonly _settings: IVibeideSettingsService,
 	) {
 		super();
 		this._register(this._subagentSvc.onSubagentStatusChanged(e => this._onStatus(e)));
-		this._register(this._chat.onDidChangeStreamState(({ threadId }) => this._maybeFlush(threadId)));
 	}
 
 	private _onStatus(entry: SubagentEntry): void {
@@ -68,7 +64,7 @@ class VibeSubagentChatNoticeContribution extends Disposable {
 			// Subagent ids are never reused after a terminal state; bound the set overall.
 			if (this._notified.size > 512) { this._notified.clear(); }
 			const name = this._registry.getPreset(entry.type).displayName;
-			this._post(entry.parentThreadId, this._finishText(name, entry));
+			this._post(entry.status === 'completed' || entry.status === 'skipped' ? 'info' : 'warning', this._finishText(name, entry));
 		}
 	}
 
@@ -79,17 +75,17 @@ class VibeSubagentChatNoticeContribution extends Disposable {
 			case 'completed': {
 				const usd = entry.result ? subagentCostUsd(entry.result, this._settings.state.overridesOfModel) : undefined;
 				const costPart = usd !== undefined ? localize('vibeide.subagent.chatCost', ", ≈${0}", formatUsd(usd)) : '';
-				return localize('vibeide.subagent.chatDone', "✅ Субагент «{0}» завершил задачу (~{1} токенов{2}).", name, String(tokens), costPart);
+				return localize('vibeide.subagent.chatDone', "Субагент «{0}» завершил задачу (~{1} токенов{2}).", name, String(tokens), costPart);
 			}
 			case 'stopped':
 				// No «субпин» promise here: while auto-resume is running the ticket is not yet open —
 				// the indicator appears only when the human's decision is actually needed. The metrics
 				// suffix shows WHAT bound (steps/tokens vs the limits), so «исчерпан лимит шагов» is legible.
-				return localize('vibeide.subagent.chatStopped', "⏸️ Субагент «{0}» остановлен: {1}{2}. Частичный результат сохранён.", name, reason, this._metrics(entry));
+				return localize('vibeide.subagent.chatStopped', "Субагент «{0}» остановлен: {1}{2}. Частичный результат сохранён.", name, reason, this._metrics(entry));
 			case 'skipped':
-				return localize('vibeide.subagent.chatSkipped', "⏭️ Субагент «{0}» пропущен: {1}{2}", name, reason, this._metrics(entry));
+				return localize('vibeide.subagent.chatSkipped', "Субагент «{0}» пропущен: {1}{2}", name, reason, this._metrics(entry));
 			default:
-				return localize('vibeide.subagent.chatFailed', "⚠️ Субагент «{0}»: {1}{2}", name, reason, this._metrics(entry));
+				return localize('vibeide.subagent.chatFailed', "Субагент «{0}»: {1}{2}", name, reason, this._metrics(entry));
 		}
 	}
 
@@ -104,24 +100,13 @@ class VibeSubagentChatNoticeContribution extends Disposable {
 		return parts.length ? ` (${parts.join(' · ')})` : '';
 	}
 
-	private _post(threadId: string, text: string): void {
-		if (!threadId) { return; }
-		// Safe to append only when the thread's turn is fully idle (no streaming/tool/awaiting_user
-		// message at the tail). Otherwise hold it and flush on the next idle transition.
-		if (this._chat.streamState[threadId]?.isRunning === undefined) {
-			this._chat.addAssistantNotice(threadId, text);
-			return;
-		}
-		const queue = this._pending.get(threadId);
-		if (queue) { queue.push(text); } else { this._pending.set(threadId, [text]); }
-	}
-
-	private _maybeFlush(threadId: string): void {
-		if (this._chat.streamState[threadId]?.isRunning !== undefined) { return; }
-		const queue = this._pending.get(threadId);
-		if (!queue) { return; }
-		this._pending.delete(threadId);
-		for (const text of queue) { this._chat.addAssistantNotice(threadId, text); }
+	private _post(level: ChatJournalLevel, text: string): void {
+		this._journal.append({
+			category: 'agents',
+			level,
+			text,
+			actions: [{ kind: 'openSetting', settingId: 'vibeide.subagent' }],
+		});
 	}
 }
 

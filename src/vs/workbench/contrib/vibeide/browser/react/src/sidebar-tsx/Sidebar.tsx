@@ -15,6 +15,7 @@ import { trackRenderLoop } from '../util/renderLoopGuard.js';
 import '../styles.css';
 import { SidebarChat } from './SidebarChat.js';
 import { SidebarHistory } from './SidebarHistory.js';
+import { ChatJournalButton } from './ChatJournal.js';
 import ErrorBoundary from './ErrorBoundary.js';
 
 // History rail width (px). The chat keeps its width; opening/closing the rail grows/shrinks the
@@ -31,7 +32,7 @@ const DEFAULT_WIDTH_APPLIED_KEY = 'vibeide.chatDefaultWidthApplied';
 
 // Multi-chat tab strip (refactor B): the in-view replacement for the old editor tabs. Renders the
 // service's `openTabIds` working set; click switches, X closes (thread stays in history), + opens new.
-// Also hosts the history rail collapse/expand toggle (right-aligned) so it's reachable in both states.
+// Also hosts the journal button and the history rail collapse/expand toggle (right-aligned) so they're reachable in both states.
 const tabLabel = (thread: { messages?: ReadonlyArray<{ role: string; displayContent?: string; content?: string }> } | undefined): string => {
 	const firstUser = thread?.messages?.find(m => m.role === 'user');
 	const txt = ((firstUser?.displayContent || firstUser?.content || '') as string).trim();
@@ -39,7 +40,7 @@ const tabLabel = (thread: { messages?: ReadonlyArray<{ role: string; displayCont
 	return txt.length > 22 ? txt.slice(0, 22) + '…' : txt;
 };
 
-const ChatTabStrip = ({ historyCollapsed, onToggleHistory }: { historyCollapsed: boolean; onToggleHistory: () => void }) => {
+const ChatTabStrip = ({ historyCollapsed, onToggleHistory, boundaryRef }: { historyCollapsed: boolean; onToggleHistory: () => void; boundaryRef: React.RefObject<HTMLElement | null> }) => {
 	const accessor = useAccessor();
 	const chatThreadsService = accessor.get('IChatThreadService');
 	const state = useChatThreadsState();
@@ -89,13 +90,17 @@ const ChatTabStrip = ({ historyCollapsed, onToggleHistory }: { historyCollapsed:
 				title={chatS.chatTabNewTooltip}
 				onClick={() => chatThreadsService.forceCreateNewThread()}
 			><IconPlus size={13} /></button>
-			{/* History rail toggle — pushed to the right edge of the strip. */}
-			<button
-				type="button"
-				className="shrink-0 ml-auto px-1 py-0.5 rounded text-vibe-fg-3 hover:text-vibe-fg-1 hover:bg-vibe-bg-3"
-				title={historyCollapsed ? chatS.historyExpandTooltip : chatS.historyCollapseTooltip}
-				onClick={onToggleHistory}
-			>{historyCollapsed ? <PanelRightOpen size={14} /> : <PanelRightClose size={14} />}</button>
+			{/* Journal button and history rail toggle — pushed to the right edge of the strip; they stay in view when the tabs overflow. */}
+			{/* A sticky box is a stacking context of its own: the z-index lifts the journal panel above the chat below the strip. */}
+			<div className="ml-auto flex items-center gap-0.5 shrink-0 sticky right-0 z-[10000] pl-1 bg-vibe-bg-2">
+				<ChatJournalButton boundaryRef={boundaryRef} />
+				<button
+					type="button"
+					className="shrink-0 px-1 py-0.5 rounded text-vibe-fg-3 hover:text-vibe-fg-1 hover:bg-vibe-bg-3"
+					title={historyCollapsed ? chatS.historyExpandTooltip : chatS.historyCollapseTooltip}
+					onClick={onToggleHistory}
+				>{historyCollapsed ? <PanelRightOpen size={14} /> : <PanelRightClose size={14} />}</button>
+			</div>
 		</div>
 	);
 };
@@ -169,7 +174,7 @@ export const Sidebar = ({ className }: { className: string }) => {
 			<div className="w-full flex-1 min-h-0 flex flex-row">
 				{/* Left column — chat tabs (multi-chat) + chat. Fills the bar minus the history rail. */}
 				<div ref={chatColRef} className="flex-1 min-w-0 h-full flex flex-col">
-					<ChatTabStrip historyCollapsed={historyCollapsed} onToggleHistory={toggleHistory} />
+					<ChatTabStrip historyCollapsed={historyCollapsed} onToggleHistory={toggleHistory} boundaryRef={chatColRef} />
 					<div className="flex-1 min-h-0">
 						<ErrorBoundary>
 							<SidebarChat key={currentThreadId} />
