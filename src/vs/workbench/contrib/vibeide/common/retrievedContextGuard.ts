@@ -38,7 +38,7 @@ export interface GuardedContext {
 }
 
 /** A warning about injection phrasing, as opposed to invisible-character cleanup. */
-const isInjectionWarning = (warning: string): boolean => warning.includes('prompt injection');
+export const isInjectionWarning = (warning: string): boolean => warning.includes('prompt injection');
 
 /**
  * Cleans retrieved chunks and returns them joined, numbered as before.

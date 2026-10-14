@@ -85,6 +85,8 @@ import { IWorkspaceContextService } from '../../../../platform/workspace/common/
 import { IDirectoryStrService } from '../common/directoryStrService.js';
 import { IFileService } from '../../../../platform/files/common/files.js';
 import { IMCPService } from '../common/mcpService.js';
+import { IVibePromptGuardService } from '../common/vibePromptGuardService.js';
+import { guardToolOutput } from '../common/untrustedToolOutputGuard.js';
 import { RawMCPToolCall } from '../common/mcpServiceTypes.js';
 import { preprocessImagesForQA } from './imageQAIntegration.js';
 import { autoFallbackCandidates, ITaskAwareModelRouter, TaskContext, TaskType } from '../common/modelRouter.js';
@@ -1201,6 +1203,7 @@ class ChatThreadService extends Disposable implements IChatThreadService {
 		@IVibeTextSlopService private readonly _textSlopService: IVibeTextSlopService,
 		@IVibeDynamicProvidersService private readonly _dynamicProvidersService: IVibeDynamicProvidersService,
 		@IChatJournalService private readonly _chatJournal: IChatJournalService,
+		@IVibePromptGuardService private readonly _promptGuard: IVibePromptGuardService,
 	) {
 		super();
 		this.state = { allThreads: {}, currentThreadId: null as unknown as string, openTabIds: [] }; // default state
@@ -5152,6 +5155,16 @@ Output ONLY the JSON, no other text. Start with { and end with }.`;
 			this._updateLatestTool(threadId, { role: 'tool', type: 'tool_error', params: toolParams, result: errorMessage, name: toolName, content: errorMessage, id: toolId, rawParams: opts.unvalidatedToolParams, mcpServerName });
 			return {};
 		}
+
+		// Web pages, search snippets and replies of MCP servers are text somebody else wrote
+		// The same guard as the file read, applied to the string the model gets: one place covers every MCP server
+		// A finding puts a line in front of the output, see common/untrustedToolOutputGuard.ts
+		toolResultStr = guardToolOutput({
+			toolName,
+			isMcpTool: !isBuiltInTool,
+			output: toolResultStr,
+			sanitize: (content, label) => this._promptGuard.sanitizeFileContent(content, label),
+		}).text;
 
 		// Project hooks, after the call. They cannot undo what ran, so their verdict is appended to
 		// the tool result instead: the agent reads it in the same place it reads the outcome, which
