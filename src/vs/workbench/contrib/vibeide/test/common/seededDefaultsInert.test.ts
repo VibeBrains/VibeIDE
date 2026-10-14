@@ -80,6 +80,20 @@ suite('засеянное окружение .vibe: что включено, а 
 	});
 
 	/**
+	 * MiniMax-Text-01 не думающая и не подтверждена вендором: записана только там, где её принимают.
+	 * Клон по Anthropic-протоколу в VibeIDEA наследует список родителя по id, поэтому там она явно выключена.
+	 */
+	test('MiniMax-Text-01 в каталоге: на OpenAI-маршруте без мышления, на Anthropic-маршруте выключена', () => {
+		const parsed = parseProvidersFile(seed('providers/minimax.jsonc'));
+		assert.ok(parsed.ok, 'minimax.jsonc не разобрался');
+		const textOf = (providerId: string) => parsed.providers.find(p => p.id === providerId)?.models?.static?.find(m => m.id === 'MiniMax-Text-01');
+		assert.deepStrictEqual({ openai: textOf('minimax'), anthropic: textOf('minimax-anthropic') }, {
+			openai: { id: 'MiniMax-Text-01', name: 'MiniMax Text-01 (1M, без мышления)', contextWindow: 1000000 },
+			anthropic: { id: 'MiniMax-Text-01', active: false },
+		});
+	});
+
+	/**
 	 * Гейт на даты в наборе, а не соглашение о них.
 	 *
 	 * WHY: `cost*` сломалось у соседа именно потому, что договорённость о написании поля не была
