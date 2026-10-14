@@ -359,7 +359,9 @@ const RenderToken = ({ token, inPTag, codeURI, chatMessageLocation, tokenIdx, ..
 	if (t.type === 'table') {
 
 		return (
-			<div>
+			// A wide table scrolls inside the column
+			// The answer is narrower than the panel (reply gutter), so what sticks out would cover the gutter
+			<div className='overflow-x-auto @@vibe-scroll'>
 				<table>
 					<thead>
 						<tr>

@@ -78,6 +78,8 @@
 		"vibeide.chatGroup.activeBorder": "#fc28a8",
 		"vibeide.chatGroup.tabsBackground": "#1d0e30",
 		"vibeide.chatGroup.glowColor": "#fc28a840",
+		"vibeide.chat.userMessageBackground": "#fc28a826",
+		"vibeide.chat.userMessageBorder": "#fc28a88c",
 		"tab.border": "#241b2f00",
 		"tab.activeBorder": "#880088",
 		"tab.inactiveBackground": "#262335",

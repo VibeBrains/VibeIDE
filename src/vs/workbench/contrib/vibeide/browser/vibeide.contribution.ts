@@ -46,6 +46,7 @@ import './media/vibeide.css';
 // Z.12 BISECT — temporarily disable VibeModal CSS to confirm/deny it as the freeze source
 import './media/vibeModal.css';
 import './media/vibeScroll.css';
+import './media/vibeChatMessages.css';
 import './vibeScrollIndicator.contribution.js';
 
 // Builtin Vibe Neon — title-bar glow toggle registration + default theme chrome CSS (extensions/vibeide-neon)
@@ -451,6 +452,9 @@ import './vibeCommands.js';
 
 // VibeIDE: Chat group color tokens (registerColor — must load before first theme application)
 import './vibeideChatGroupColors.js';
+
+// VibeIDE: Chat message color tokens (user bubble, assistant rule) — same loading rule as above
+import './vibeideChatMessageColors.js';
 
 // VibeIDE: Chat editor pane (split tab) + vibeide.chat.open command
 import './vibeideChatPane.js';

@@ -281,6 +281,8 @@ export const chatS = {
 	planResumeLabel: 'Возобновить',
 	agentContinueLabel: 'Продолжить',
 	agentContinueTitle: 'Подтолкнуть модель продолжить: она завершила ход текстом без вызова инструмента',
+	// Label of the caption above a user message in the tightest chat layout, the time follows it
+	userMessageLabel: 'Вы',
 	chatTabNewTooltip: 'Новый чат',
 	chatTabCloseTooltip: 'Закрыть вкладку (чат останется в истории)',
 	chatTabUntitled: 'Новый чат',
