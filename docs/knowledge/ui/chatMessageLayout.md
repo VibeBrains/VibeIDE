@@ -26,7 +26,8 @@
 - **Цвета — токены темы** (`vibeideChatMessageColors.ts`): `vibeide.chat.userMessageBackground`, `userMessageBorder`,
   `userMessageLabel`, `assistantRule`; в CSS — `var(--vscode-vibeide-chat-<имя>)`. Описания по-русски
 - **Что остаётся в потоке без пузыря и линии:** карточки инструментов, плашки ошибок и паузы, подсказки автопилота
-  (`isSyntheticNudge`), сообщения ассистента с `notice` — их пишет IDE («Прогон завершён…»)
+  (`isSyntheticNudge`), сообщения ассистента с `notice` — их пишет IDE («Прогон завершён…»).
+  Замечания, не объясняющие остановку хода, ушли в журнал: [chatJournal.md](chatJournal.md)
 - **Редактор сообщения** (режим правки) занимает всю строку: это форма
 
 **Применение:**

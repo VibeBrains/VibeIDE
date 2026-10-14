@@ -39,6 +39,23 @@ Portable ZIP-сборка без инсталлятора, Electron mirror пр�
 
 ---
 
+## [foot-gun] Без сети `npm run electron` опустошает `.build/electron` и падает
+
+**Контекст:** 14.10.2026 `.build/electron/VibeIDE.app` оказался пустой оболочкой (`Contents/Resources/VibeIDE.icns` и больше ничего),
+а `scripts/test.sh` и навык `launch` не нашли исполняемый файл. GitHub с этой машины не отвечал (`ConnectTimeoutError` на `github.com:443`).
+
+**Суть:** `preLaunch.ts` в `getElectron` выполняет `npm run electron` безусловно, цикл либо возвращает, либо завершает процесс, а проверка
+«нужная версия уже стоит» (`isExpectedElectronInstalled`) стоит после цикла и не достигается. `npm run electron` сначала удаляет
+`.build/electron`, потом разрешает адрес ассета на GitHub — и при обрыве оставляет заготовку. Навык `launch` зовёт `preLaunch.ts` сам,
+поэтому тоже падает. Нужный zip при этом лежит в кэше `@electron/get`: `~/Library/Caches/electron/<хеш>/electron-v<версия>-darwin-arm64.zip`.
+
+**Применение:** собрать оболочку из кэша без сети (`ditto -x -k <zip> .build/electron`, затем `Electron.app` → `VibeIDE.app`,
+`Contents/MacOS/Electron` → `Contents/MacOS/VibeIDE`, `CFBundleExecutable` через `PlistBuddy`, значок `VibeIDE.icns` вернуть на место;
+файл `version` приезжает в zip). Запуск — копией `launch.sh` без блока `preLaunch.ts` или `code.sh` с `VSCODE_SKIP_PRELAUNCH=1`.
+Саму ошибку (безусловный `npm run electron`) стоит исправить: пропускать загрузку, когда `.build/electron/version` совпадает с версией.
+
+---
+
 ## [vscode] Linux CI / `npm ci`: `native-keymap` и пакеты X11
 
 **Контекст:** падение GitHub Actions на **`npm ci`**: `node-gyp` в **`native-keymap`**, `pkg-config` не находит **`x11`** и **`xkbfile`** (2026-05).
