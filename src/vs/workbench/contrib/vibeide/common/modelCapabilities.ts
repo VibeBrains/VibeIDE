@@ -2375,6 +2375,7 @@ const minimaxModelOptions = {
 		supportsSystemMessage: 'system-role',
 		reasoningCapabilities: { supportsReasoning: true, canTurnOffReasoning: false, canIOReasoning: true, stripThinkTagsFromContent: ['<think>', '</think>'], reasoningSlider: { type: 'effort_slider', values: ['low', 'high'], default: 'low' } },
 	},
+	// Not found in the vendor documentation on 14.10.2026 (models-intro, pricing-paygo, text-anthropic-api) — verify before relying on it
 	'MiniMax-M2-Stable': {
 		contextWindow: 204_800,
 		reservedOutputTokenSpace: 8_192,
@@ -2385,13 +2386,31 @@ const minimaxModelOptions = {
 		supportsSystemMessage: 'system-role',
 		reasoningCapabilities: { supportsReasoning: true, canTurnOffReasoning: false, canIOReasoning: true, stripThinkTagsFromContent: ['<think>', '</think>'], reasoningSlider: { type: 'effort_slider', values: ['low', 'high'], default: 'low' } },
 	},
+	// Not a thinking model: the M2 profile would send `reasoning_effort` and mirror an empty reasoning slot, neither of which it takes
+	// The price is an aggregator estimate (the vendor publishes none); a zero would read as a free model to cost routing
+	// On the subscription it does not count against the limit, judging by a user report (14.10.2026): ~140k rewrite texts in ~23 h
+	// on the $11 plan, where M3 ran out after 2–3k. Not confirmed by the vendor — it may be closed without notice
+	// Worth it for bulk rewriting and long texts: 1M context, no reasoning tokens
+	'MiniMax-Text-01': {
+		contextWindow: 1_000_000,
+		reservedOutputTokenSpace: 8_192,
+		cost: { input: 0.20, output: 1.10 },
+		downloadable: false,
+		supportsFIM: false,
+		specialToolFormat: 'openai-style',
+		supportsSystemMessage: 'system-role',
+		reasoningCapabilities: false,
+	},
 } as const satisfies { [s: string]: VibeideStaticModelInfo };
 
 /**
- * The MiniMax profile of an id outside the table, by generation: `m3.1` → M3.1, `m3` → the 1M-context M3, anything else → M2
- * M3.1 comes first: its thinking cannot be switched off, and the M3 profile would send `thinking: disabled`, a 400
+ * The MiniMax profile of an id outside the table, by generation:
+ * `text-01` → the non-thinking 1M-context Text-01, `m3.1` → M3.1, `m3` → the 1M-context M3, anything else → M2
+ * Text-01 comes first: it does not think at all, and the M2 profile would send it a reasoning level it has no use for
+ * M3.1 comes before M3: its thinking cannot be switched off, and the M3 profile would send `thinking: disabled`, a 400
  */
 function minimaxProfileOf(modelName: string): keyof typeof minimaxModelOptions {
+	if (/text-?01/i.test(modelName)) { return 'MiniMax-Text-01'; }
 	return /m-?3[.-]1/i.test(modelName) ? 'MiniMax-M3.1-Flash-Preview' : /m-?3/i.test(modelName) ? 'MiniMax-M3' : 'MiniMax-M2';
 }
 

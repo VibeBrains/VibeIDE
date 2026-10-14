@@ -139,6 +139,15 @@
 			"observedAt": "2026-10-01"
 		},
 		{
+			"match": "minimax-text-01",
+			"forceEmptyReasoning": false,
+			"mirrorReasoningContent": false,
+			"reasoningAsThinkTags": false,
+			"note": "MiniMax-Text-01 не думающая модель: пустой слот рассуждения, зеркалирование reasoning_content и разбор тегов <think> ей не нужны, а правило семейства minimax включает их для всех минимаксов. Остальное (сэмплинг, отказ от принудительного выбора инструмента) наследуется от правила minimax. В документации вендора модели нет (models-intro, pricing-paygo, 14.10.2026): правило описывает поведение по данным агрегаторов.",
+			"source": "данные агрегаторов; в документации вендора (platform.minimax.io/docs/guides/models-intro) модели нет",
+			"observedAt": "2026-10-14"
+		},
+		{
 			"match": "minimax",
 			"temperature": 1.0,
 			"topP": 0.95,

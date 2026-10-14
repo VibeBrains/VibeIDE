@@ -59,6 +59,8 @@ suite('ModelQuirks — настоящий каталог resources/model-quirks.
 		// M3.1 sends reasoning in its own field, not in <think> tags like the rest of the family; thinks adaptively
 		['minimax-m3.1-flash-preview', { mirrorReasoningContent: true, reasoningAsThinkTags: false, adaptiveThinking: true, forcedToolChoiceUnsupported: true }],
 		['minimax-m3', { mirrorReasoningContent: true, reasoningAsThinkTags: true }],
+		// Text-01 does not think: the family's empty reasoning slot, mirroring and <think> parsing are switched off for it
+		['minimax-text-01', { forceEmptyReasoning: false, mirrorReasoningContent: false, reasoningAsThinkTags: false, forcedToolChoiceUnsupported: true, topK: 40 }],
 		['glm-5.1', { temperature: 1.0 }],
 		// Сэмплинг скоуплен на поколения, которые его ещё уважают: Google объявил
 		// temperature/top_p/top_k устаревшими, поэтому Gemini 3.x не должен совпасть ни с чем.
