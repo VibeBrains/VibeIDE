@@ -77,6 +77,10 @@ function longestTagRun(content: string): number {
 // Invisible CSS (display:none / visibility:hidden / opacity:0 / font-size:0)
 const INVISIBLE_CSS_PATTERN = /<[^>]+style\s*=\s*["'][^"']*(?:display\s*:\s*none|visibility\s*:\s*hidden|opacity\s*:\s*0|font-size\s*:\s*0)[^"']*["'][^>]*>/gi;
 
+function injectionWarning(pattern: RegExp, filePath: string): string {
+	return `Potential prompt injection detected in ${filePath}: matches pattern ${pattern.source.substring(0, 40)}...`;
+}
+
 /**
  * Pure helper. No DI, no logging. Returns the same `PromptGuardResult` shape as the
  * service method but is testable directly.
@@ -85,9 +89,11 @@ export function sanitizePromptText(content: string, filePath: string): PromptGua
 	const warnings: string[] = [];
 	let sanitized = content;
 
+	const flaggedInOriginal = new Set<RegExp>();
 	for (const pattern of INJECTION_PATTERNS) {
 		if (pattern.test(content)) {
-			warnings.push(`Potential prompt injection detected in ${filePath}: matches pattern ${pattern.source.substring(0, 40)}...`);
+			flaggedInOriginal.add(pattern);
+			warnings.push(injectionWarning(pattern, filePath));
 		}
 	}
 
@@ -120,6 +126,16 @@ export function sanitizePromptText(content: string, filePath: string): PromptGua
 			warnings.push(run > TAG_RUN_CRITICAL_LENGTH
 				? `Context poisoning: ${removedCount} invisible Unicode Tag characters removed from ${filePath} — a run of ${run} spells hidden instructions`
 				: `Context poisoning: ${removedCount} invisible Unicode Tag characters removed from ${filePath}`);
+		}
+	}
+
+	// A phrase split by an invisible character only reads as a phrase once the character is gone,
+	// and the model reads the stripped text: scan it too, or one zero-width joiner hides the injection
+	if (sanitized !== content) {
+		for (const pattern of INJECTION_PATTERNS) {
+			if (!flaggedInOriginal.has(pattern) && pattern.test(sanitized)) {
+				warnings.push(injectionWarning(pattern, filePath));
+			}
 		}
 	}
 
