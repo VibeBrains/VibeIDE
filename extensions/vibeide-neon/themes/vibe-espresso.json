@@ -137,6 +137,8 @@
 		"vibeide.chatGroup.activeBorder": "#c98d5c",
 		"vibeide.chatGroup.tabsBackground": "#171310",
 		"vibeide.chatGroup.glowColor": "#c98d5c",
+		"vibeide.chat.userMessageBackground": "#c98d5c26",
+		"vibeide.chat.userMessageBorder": "#c98d5c8c",
 		"tab.border": "#1c1612",
 		"tab.activeBackground": "#171310",
 		"tab.activeForeground": "#f9f5ee",

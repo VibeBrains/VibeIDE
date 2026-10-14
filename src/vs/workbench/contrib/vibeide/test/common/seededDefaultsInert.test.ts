@@ -12,6 +12,7 @@ import { parseHookConfig } from '../../common/hooks/hookConfig.js';
 import { parseProvidersFile } from '../../common/vibeProvidersFile.js';
 import { parseDeclaredMoment } from '../../common/modelPriceSchedule.js';
 import { isUntouchedPastRevision } from '../../common/vibeDefaults.js';
+import { parseRuleFrontmatter, parseAlwaysApply, parseTriggers, parseGlobs, decideRuleActivation } from '../../common/prompt/ruleFrontmatter.js';
 
 /**
  * Что засеянное окружение делает само, а чего не делает.
@@ -55,6 +56,20 @@ suite('засеянное окружение .vibe: что включено, а 
 		assert.deepStrictEqual(config.hooks, []);
 	});
 
+	/**
+	 * A rule that changes how the agent works on every turn ships OFF: the user switches it on with `alwaysApply: true`.
+	 * Off here means «listed as available, body not injected» — the same state the settings panel labels «по запросу».
+	 */
+	test('правило «бригадир» засевается выключенным: в списке доступных, но не в промпте', () => {
+		const parsed = parseRuleFrontmatter(seed('rules/brigadir-ekonomiya-tokenov.mdc'));
+		const meta = { alwaysApply: parseAlwaysApply(parsed.frontmatter), triggers: parseTriggers(parsed.frontmatter), globs: parseGlobs(parsed.frontmatter) };
+		assert.deepStrictEqual({ meta, activation: decideRuleActivation(meta, { userText: 'бригадир, экономим токены' }) }, {
+			meta: { alwaysApply: false, triggers: [], globs: [] },
+			activation: 'index',
+		});
+		assert.ok(parsed.frontmatter['description'], 'у правила нет description — в списке доступных оно будет безымянным');
+	});
+
 	test('servers.json разбирается и не поднимает серверов', () => {
 		const parsed = parseServersFile(seed('servers.json'));
 		assert.strictEqual(parsed.ok, true, `не разобрался: ${parsed.ok ? '' : parsed.error}`);
@@ -77,6 +92,20 @@ suite('засеянное окружение .vibe: что включено, а 
 			if (!parsed.ok) { bad.push(`${file.path}: ${parsed.error}`); }
 		}
 		assert.deepStrictEqual(bad, []);
+	});
+
+	/**
+	 * MiniMax-Text-01 не думающая и не подтверждена вендором: записана только там, где её принимают.
+	 * Клон по Anthropic-протоколу в VibeIDEA наследует список родителя по id, поэтому там она явно выключена.
+	 */
+	test('MiniMax-Text-01 в каталоге: на OpenAI-маршруте без мышления, на Anthropic-маршруте выключена', () => {
+		const parsed = parseProvidersFile(seed('providers/minimax.jsonc'));
+		assert.ok(parsed.ok, 'minimax.jsonc не разобрался');
+		const textOf = (providerId: string) => parsed.providers.find(p => p.id === providerId)?.models?.static?.find(m => m.id === 'MiniMax-Text-01');
+		assert.deepStrictEqual({ openai: textOf('minimax'), anthropic: textOf('minimax-anthropic') }, {
+			openai: { id: 'MiniMax-Text-01', name: 'MiniMax Text-01 (1M, без мышления)', contextWindow: 1000000 },
+			anthropic: { id: 'MiniMax-Text-01', active: false },
+		});
 	});
 
 	/**

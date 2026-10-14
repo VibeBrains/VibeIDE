@@ -42,6 +42,8 @@ import { IPathService } from '../../../../../../../workbench/services/path/commo
 import { IMetricsService } from '../../../../../../../workbench/contrib/vibeide/common/metricsService.js';
 import { URI } from '../../../../../../../base/common/uri.js';
 import { IChatThreadService, ThreadsState, ThreadStreamState } from '../../../chatThreadService.js';
+import { IChatJournalService } from '../../../chatJournalService.js';
+import type { ChatJournalEntry } from '../../../../common/chatJournal.js';
 import { ITerminalToolService } from '../../../terminalToolService.js';
 import { ILanguageService } from '../../../../../../../editor/common/languages/language.js';
 import { IVibeideModelService } from '../../../../common/vibeideModelService.js';
@@ -102,6 +104,9 @@ const chatThreadsStateListeners: Set<(s: ThreadsState) => void> = new Set();
 
 let chatThreadsStreamState: ThreadStreamState;
 const chatThreadsStreamStateListeners: Set<(threadId: string) => void> = new Set();
+
+let chatJournalEntries: readonly ChatJournalEntry[] = [];
+const chatJournalListeners: Set<(entries: readonly ChatJournalEntry[]) => void> = new Set();
 
 let settingsState: VibeideSettingsState;
 const settingsStateListeners: Set<(s: VibeideSettingsState) => void> = new Set();
@@ -164,9 +169,10 @@ export const _registerServices = (accessor: ServicesAccessor) => {
 		subagentService: accessor.get(IVibeSubagentService),
 		subagentRegistryService: accessor.get(IVibeSubagentRegistryService),
 		subagentHandoffStoreService: accessor.get(IVibeSubagentHandoffStore),
+		chatJournalService: accessor.get(IChatJournalService),
 	};
 
-	const { settingsStateService, chatThreadsStateService, refreshModelService, themeService, editCodeService, vibeideCommandBarService, modelService, mcpService, subagentService, subagentRegistryService, subagentHandoffStoreService } = stateServices;
+	const { settingsStateService, chatThreadsStateService, refreshModelService, themeService, editCodeService, vibeideCommandBarService, modelService, mcpService, subagentService, subagentRegistryService, subagentHandoffStoreService, chatJournalService } = stateServices;
 
 
 
@@ -185,6 +191,14 @@ export const _registerServices = (accessor: ServicesAccessor) => {
 		chatThreadsStateService.onDidChangeStreamState(({ threadId }) => {
 			chatThreadsStreamState = chatThreadsStateService.streamState;
 			chatThreadsStreamStateListeners.forEach(l => l(threadId));
+		})
+	);
+
+	chatJournalEntries = chatJournalService.entries;
+	disposables.push(
+		chatJournalService.onDidChange(() => {
+			chatJournalEntries = chatJournalService.entries;
+			chatJournalListeners.forEach(l => l(chatJournalEntries));
 		})
 	);
 
@@ -284,6 +298,7 @@ const getReactAccessor = (accessor: ServicesAccessor) => {
 			IVibeideSettingsService: accessor.get(IVibeideSettingsService),
 			IEditCodeService: accessor.get(IEditCodeService),
 			IChatThreadService: accessor.get(IChatThreadService),
+			IChatJournalService: accessor.get(IChatJournalService),
 
 			IInstantiationService: accessor.get(IInstantiationService),
 			ICodeEditorService: accessor.get(ICodeEditorService),
@@ -501,6 +516,17 @@ export const useSubagentHandoffCount = (): number => {
 		return () => { subagentHandoffListeners.delete(listener); };
 	}, []);
 	return n;
+};
+
+/** The entries of the chat journal, oldest first; a new array after every change */
+export const useChatJournal = (): readonly ChatJournalEntry[] => {
+	const [entries, setEntries] = useState(chatJournalEntries);
+	useEffect(() => {
+		setEntries(chatJournalEntries);
+		chatJournalListeners.add(setEntries);
+		return () => { chatJournalListeners.delete(setEntries); };
+	}, []);
+	return entries;
 };
 
 export const useRefreshModelState = () => {

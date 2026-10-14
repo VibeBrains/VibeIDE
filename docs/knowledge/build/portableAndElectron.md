@@ -39,6 +39,48 @@ Portable ZIP-сборка без инсталлятора, Electron mirror пр�
 
 ---
 
+## [foot-gun] Без сети `npm run electron` опустошал `.build/electron` и падал (исправлено)
+
+**Контекст:** 14.10.2026 `.build/electron/VibeIDE.app` оказался пустой оболочкой (`Contents/Resources/VibeIDE.icns` и больше ничего),
+а `scripts/test.sh` и навык `launch` не нашли исполняемый файл. GitHub с этой машины не отвечал (`ConnectTimeoutError` на `github.com:443`).
+
+**Что было:** `build/lib/electron.ts` (`npm run electron`) в `main` сначала стирал `.build/electron`, потом разрешал адрес ассета на GitHub
+и качал zip. Обрыв на любом шаге оставлял заготовку без Electron. `preLaunch.ts` вызывал `npm run electron` безусловно, а проверка
+«нужная версия уже стоит» (`isExpectedElectronInstalled`) стояла после цикла, который либо возвращал управление, либо завершал процесс, —
+недостижимый код. Тот же стирающий вызов делали `scripts/test.sh`, `scripts/node-electron.sh` и `scripts/test.bat`.
+Отдельно: ошибка скачивания шла не отказом промиса, а событием `error` на внутреннем потоке `@vscode/gulp-electron`, которое `pipe` дальше
+не передаёт, — процесс падал необработанным исключением, и никакая очистка выполниться не успевала.
+
+**Как теперь:**
+- **Версия уже стоит — качать нечего.** `build/lib/electronInstall.ts` (чистые функции без сторонних импортов, поэтому `preLaunch.ts` берёт
+  его до `npm ci`): `isExpectedElectronInstalled` сверяет файл `version` с версией из `.npmrc` (`target`) **и** проверяет, что исполняемый
+  файл на месте (macOS — `<nameLong>.app/Contents/MacOS/<nameShort>`, Windows — `<nameShort>.exe`, Linux — `applicationName`: так их зовут
+  `test.sh`, `test.bat`, `code.sh`). Папка с одним из двух — остаток обрыва, а не установка. Проверка стоит и в `electron.ts`, и в
+  `preLaunch.ts`, поэтому покрыты все вызывающие: `preLaunch` (`code.sh`, `code-cli.sh`, `code-server.sh`, `code-agent-host.sh`, их `.bat`),
+  `test.sh`, `node-electron.sh`, `test.bat`. Пропуск не работает, если архитектура в аргументе отличается от архитектуры процесса.
+  Принудительно — `node build/lib/electron.ts --force` (нужно, когда поменялись запечённые в установку имена продукта, значки или типы документов).
+- **Качается во временную папку.** `installDirectoryAtomically` пишет в `.build/electron.partial`, и только законченная и непустая папка
+  подменяет `.build/electron` (старая на время подмены стоит как `.build/electron.old` и возвращается, если подмена не удалась). Обрыв
+  оставляет прежнюю установку нетронутой, а при первой установке — вообще без `.build/electron`. Папка-заготовка убирается.
+- **Ошибка понятная.** Одно сообщение: что не удалось скачать (с причиной вложенной ошибки, а не голое `fetch failed`), осталась ли прежняя
+  установка, и что делать (сеть или `VIBE_ELECTRON_MIRROR`). `rejectOnUncaught` превращает ускользнувшее исключение потока в отказ промиса
+  на время скачивания.
+
+**Проверено (14.10.2026):** с установкой и мёртвым зеркалом `npm run electron` печатает «already holds Electron 42.8.0» и выходит за секунду,
+`preLaunch.ts` проходит; `--force` с мёртвым зеркалом (отказ соединения, пять повторов `gulp-electron`) — код 1, сообщение, `.build/electron`
+цела, `.partial` нет; то же без установки — `.build/electron` не создана; `--force` при сети — установка заменена настоящей
+(`VibeIDE Helper*.app` вместо `Electron Helper*.app` в ручной оболочке). Тесты — `build/lib/test/electronInstall.test.ts`
+(`node --test`, 6 штук): версия и исполняемый файл, неудачное скачивание не трогает старое, пустое скачивание — отказ, удачное заменяет.
+**Не проверено:** Windows и Linux (имена исполняемых файлов взяты из скриптов запуска), обрыв посреди распаковки настоящего zip, два
+одновременных запуска (имена `.partial`/`.old` общие, как были общими у прежнего стирания).
+
+**Если папка всё же пуста** (старый клон, ручное вмешательство): `node build/lib/electron.ts --force` при сети; без сети — собрать оболочку
+из кэша `@electron/get`: `~/Library/Caches/electron/<хеш>/electron-v<версия>-darwin-arm64.zip` (`ditto -x -k <zip> .build/electron`,
+затем `Electron.app` → `VibeIDE.app`, `Contents/MacOS/Electron` → `Contents/MacOS/VibeIDE`, `CFBundleExecutable` через `PlistBuddy`, значок
+`VibeIDE.icns` вернуть на место; `version` приезжает в zip). Запуск — `code.sh` с `VSCODE_SKIP_PRELAUNCH=1`.
+
+---
+
 ## [vscode] Linux CI / `npm ci`: `native-keymap` и пакеты X11
 
 **Контекст:** падение GitHub Actions на **`npm ci`**: `node-gyp` в **`native-keymap`**, `pkg-config` не находит **`x11`** и **`xkbfile`** (2026-05).

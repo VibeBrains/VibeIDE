@@ -510,6 +510,11 @@ suite('Secret Detection', () => {
 			const uniqueIds = new Set(ids);
 			assert.strictEqual(ids.length, uniqueIds.size, 'All pattern IDs should be unique');
 		});
+
+		/** The picker of `vibeide.secretDetection.disabledPatternIds` is built from these: a rule without a description is a bare id there */
+		test('у каждого встроенного правила есть описание для выбора в настройках', () => {
+			assert.deepStrictEqual(DEFAULT_SECRET_PATTERNS.filter(p => p.description.trim().length === 0).map(p => p.id), []);
+		});
 	});
 });
 

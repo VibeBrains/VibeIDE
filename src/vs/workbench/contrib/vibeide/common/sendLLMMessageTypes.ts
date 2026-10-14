@@ -321,6 +321,12 @@ export type ServiceSendLLMMessageParams = {
 	 * the session budget tracks the main agent only.
 	 */
 	excludeFromSessionBudget?: boolean;
+	/**
+	 * Renderer-side only (never forwarded over IPC): the turn this send belongs to, for the «hidden from the message»
+	 * notice. A rule is announced once per scope — the loop re-sends the whole history on every step, and a secret in it
+	 * would raise the same notice each time. Absent: every send announces (see `SecretNoticeLedger`).
+	 */
+	secretNoticeScope?: string;
 } & SendLLMType;
 
 /**

@@ -35,7 +35,7 @@ import { WarningBox } from '../vibe-settings-tsx/WarningBox.js';
 import { getModelCapabilities, getIsReasoningEnabledState, getReservedOutputTokenSpace } from '../../../../common/modelCapabilities.js';
 import { AlertTriangle, File, Ban, Check, ChevronRight, ChevronDown, Dot, FileIcon, Pencil, Undo, Undo2, X, Flag, Copy as CopyIcon, Info, CirclePlus, Ellipsis, CircleEllipsis, Folder, ALargeSmall, TypeOutline, Text, Paperclip, Waypoints, LoaderCircle, Maximize2, Maximize, Pin, FileDown, RotateCcw, StepForward, Footprints, Mic, GitBranch } from 'lucide-react';
 import { ChatMessage, CheckpointEntry, StagingSelectionItem, ToolMessage, PlanMessage, ReviewMessage, ScoutMessage, PlanStep, StepStatus, PlanApprovalState, ChatImageAttachment, ChatPDFAttachment, normalizePendingInjections, ReviewChecklist, EditBatch } from '../../../../common/chatThreadServiceTypes.js';
-import { formatChatTimestamp, chatTimestampToISO, CHAT_TIMESTAMP_STREAMING_PLACEHOLDER } from '../../../../common/chatTimestampFormatter.js';
+import { formatChatTimestamp, chatTimestampToISO, CHAT_TIMESTAMP_STREAMING_PLACEHOLDER, CHAT_TIMESTAMP_TOOLTIP_PATTERN, CHAT_USER_MESSAGE_TIME_PATTERN } from '../../../../common/chatTimestampFormatter.js';
 import { parseChatSlashCommand, splitWatchArgs, CHAT_SLASH_COMMANDS, SLASH_COMMAND_FILE_NAME_CHARS, findChatCommandSpans } from '../../../../common/chatSlashCommands.js';
 import { BuiltinToolCallParams, BuiltinToolName, ToolName, LintErrorItem, ToolApprovalType, toolApprovalTypes } from '../../../../common/toolsServiceTypes.js';
 import { approvalTypeOfBuiltinToolName } from '../../../../common/prompt/tools/index.js';
@@ -119,7 +119,7 @@ const NEON_TIMESTAMP_STYLE: React.CSSProperties = {
 	textShadow: 'var(--vibe-neon-timestamp-glow)',
 };
 
-const ChatTimestamp = ({ ts, align, streaming }: { ts: number | undefined; align: 'left' | 'right' | 'inline'; streaming?: boolean }) => {
+const ChatTimestamp = ({ ts, align, streaming }: { ts: number | undefined; align: 'left' | 'inline'; streaming?: boolean }) => {
 	const settingsState = useSettingsState();
 	if (settingsState.globalSettings.showChatTimestamps === false) {return null;}
 	const validTs = typeof ts === 'number' && Number.isFinite(ts);
@@ -130,14 +130,26 @@ const ChatTimestamp = ({ ts, align, streaming }: { ts: number | undefined; align
 	// NOTE: the session-token budget warning pulse lives on the context ring in the composer
 	// toolbar (ChatContextMeter.tsx) — NOT here. Chat timestamps stay neutral.
 	const timeNode = validTs
-		? <time dateTime={chatTimestampToISO(ts)} title={formatChatTimestamp(ts, 'DD.MM.YYYY HH:mm:ss')} style={NEON_TIMESTAMP_STYLE}>{text}</time>
+		? <time dateTime={chatTimestampToISO(ts)} title={formatChatTimestamp(ts, CHAT_TIMESTAMP_TOOLTIP_PATTERN)} style={NEON_TIMESTAMP_STYLE}>{text}</time>
 		: <span aria-hidden='true' style={NEON_TIMESTAMP_STYLE}>{text}</span>;
 	if (align === 'inline') {
 		return <span className='text-[11px] select-none'><span className='mx-1 opacity-70'>·</span>{timeNode}</span>;
 	}
-	return <div className={`text-[11px] select-none mt-0.5 px-0.5 ${align === 'right' ? 'text-right' : 'text-left'}`}>
+	return <div className='text-[11px] select-none mt-0.5 px-0.5 text-left'>
 		{timeNode}
 	</div>;
+};
+
+/**
+ * Time of a user message for its bubble: the `HH:mm` text, the `<time>` attribute and the full-date tooltip
+ * Null when timestamps are switched off or the message has no time
+ */
+const useUserMessageTime = (ts: number | undefined) => {
+	const settingsState = useSettingsState();
+	if (settingsState.globalSettings.showChatTimestamps === false) {return null;}
+	const text = formatChatTimestamp(ts, CHAT_USER_MESSAGE_TIME_PATTERN);
+	if (!text) {return null;}
+	return { text, iso: chatTimestampToISO(ts), title: formatChatTimestamp(ts, CHAT_TIMESTAMP_TOOLTIP_PATTERN) };
 };
 
 const IconArrowUp = ({ size, className = '' }: { size: number; className?: string }) => {
@@ -2407,6 +2419,7 @@ const UserMessageComponent = ({ chatMessage, messageIdx, isCheckpointGhost, curr
 
 	// local state
 	const mode: ChatBubbleMode = isBeingEdited ? 'edit' : 'display';
+	const userTime = useUserMessageTime(chatMessage.createdAt);
 	const [isFocused, setIsFocused] = useState(false);
 	const [isHovered, setIsHovered] = useState(false);
 	const [isDisabled, setIsDisabled] = useState(false);
@@ -2571,13 +2584,13 @@ const UserMessageComponent = ({ chatMessage, messageIdx, isCheckpointGhost, curr
 
 	const isMsgAfterCheckpoint = currCheckpointIdx !== undefined && currCheckpointIdx === messageIdx - 1;
 
+	const userTimeEl = userTime && <time dateTime={userTime.iso} title={userTime.title}>{userTime.text}</time>;
+
 	return <div
-		// align chatbubble accoridng to role
+		// the row of the message: layout (margins, widths per panel width) is in media/vibeChatMessages.css
 		className={`
-        relative ml-auto
-        ${mode === 'edit' ? 'w-full max-w-full'
-				: mode === 'display' ? `self-end w-fit max-w-full whitespace-pre-wrap` : '' // user words should be pre
-			}
+        @@vibe-chat-user-msg relative
+        ${mode === 'edit' ? '@@vibe-chat-user-msg-editing w-full max-w-full' : ''}
 
         ${isCheckpointGhost && !isMsgAfterCheckpoint ? 'opacity-50 pointer-events-none' : ''}
     `}
@@ -2585,11 +2598,11 @@ const UserMessageComponent = ({ chatMessage, messageIdx, isCheckpointGhost, curr
 		onMouseLeave={() => setIsHovered(false)}
 	>
 		<div
-			// style chatbubble according to role
+			// bubble of a request, the plain wrapper of the editor in edit mode
 			className={`
-            text-left rounded-lg max-w-full
-            ${mode === 'edit' ? ''
-					: mode === 'display' ? 'p-2 flex flex-col bg-vibe-bg-1 text-vibe-fg-1 overflow-x-auto @@vibe-scroll cursor-pointer select-text' : ''
+            text-left
+            ${mode === 'edit' ? 'rounded-lg max-w-full'
+					: mode === 'display' ? '@@vibe-chat-user-bubble text-vibe-fg-1 @@vibe-scroll cursor-pointer select-text' : ''
 				}
         `}
 			onClick={() => {
@@ -2600,10 +2613,13 @@ const UserMessageComponent = ({ chatMessage, messageIdx, isCheckpointGhost, curr
 				onOpenEdit();
 			}}
 		>
+			{/* Caption above the text, label and time: replaces the time in the corner when the panel is tight (CSS decides) */}
+			{mode === 'display' && <div className='@@vibe-chat-user-caption'>
+				{chatS.userMessageLabel}{userTimeEl && <>{' · '}{userTimeEl}</>}
+			</div>}
 			{chatbubbleContents}
+			{mode === 'display' && userTimeEl && <div className='@@vibe-chat-user-time'>{userTimeEl}</div>}
 		</div>
-
-		{mode === 'display' && <ChatTimestamp ts={chatMessage.createdAt} align='right' />}
 
 		<div
 			className="absolute -top-1 -right-1 translate-x-0 -translate-y-0 z-1 flex items-center gap-1"
@@ -2813,7 +2829,7 @@ const AssistantMessageComponent = React.memo(({ chatMessage, isCheckpointGhost, 
 	const isEmpty = !chatMessage.displayContent && !chatMessage.reasoning;
 	if (isEmpty) {return null;}
 
-	return <>
+	const answer = <>
 		{/* reasoning token */}
 		{hasReasoning &&
 			<div className={`${isCheckpointGhost ? 'opacity-50' : ''}`}>
@@ -2872,6 +2888,10 @@ const AssistantMessageComponent = React.memo(({ chatMessage, isCheckpointGhost, 
 			</div>
 		)}
 	</>;
+
+	// The reply of the model stands behind a rule on the left (media/vibeChatMessages.css)
+	// A notice written by the IDE (run finished, check report) is a service line: it stays in the plain flow
+	return chatMessage.notice ? answer : <div className='@@vibe-chat-assistant-msg'>{answer}</div>;
 
 }, (prev, next) => {
 	// Custom comparison: only re-render if message content, checkpoint state, or committed state changes

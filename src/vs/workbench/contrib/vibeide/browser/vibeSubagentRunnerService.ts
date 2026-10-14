@@ -25,6 +25,8 @@ import { ChatMessage } from '../common/chatThreadServiceTypes.js';
 import { BuiltinToolName, ToolName } from '../common/toolsServiceTypes.js';
 import { approvalTypeOfBuiltinToolName } from '../common/prompt/tools/index.js';
 import { truncateHeadTail } from '../common/toolHardening.js';
+import { IVibePromptGuardService } from '../common/vibePromptGuardService.js';
+import { guardToolOutput } from '../common/untrustedToolOutputGuard.js';
 import { IVibeSubagentRunner, SubagentRunRequest, SubagentRunOutcome } from '../common/vibeSubagentRunner.js';
 import { IVibeSubagentRegistryService } from '../common/vibeSubagentRegistryService.js';
 import { IVibeSpendLedgerService } from './vibeSpendLedgerService.js';
@@ -118,6 +120,7 @@ class VibeSubagentRunnerService extends Disposable implements IVibeSubagentRunne
 		@IVibeSpendLedgerService private readonly _spendLedger: IVibeSpendLedgerService,
 		@IVibeAgentRunLedgerService private readonly _runLedger: IVibeAgentRunLedgerService,
 		@IFileService private readonly _fileService: IFileService,
+		@IVibePromptGuardService private readonly _promptGuard: IVibePromptGuardService,
 	) {
 		super();
 	}
@@ -465,7 +468,13 @@ class VibeSubagentRunnerService extends Disposable implements IVibeSubagentRunne
 			try {
 				const { result } = await this._tools.callTool[toolName](params as never);
 				deniedActions = 0; // a tool ran cleanly — the «stuck» guard counts CONSECUTIVE misfires, not lifetime
-				const content = truncateHeadTail(this._tools.stringOfResult[toolName](params as never, result as never), SUBAGENT_TOOL_RESULT_MAX_CHARS);
+				// A role reads the web with the same tools as the chat, and its model is as exposed to a hostile page
+				const content = truncateHeadTail(guardToolOutput({
+					toolName,
+					isMcpTool: false,
+					output: this._tools.stringOfResult[toolName](params as never, result as never),
+					sanitize: (text, label) => this._promptGuard.sanitizeFileContent(text, label),
+				}).text, SUBAGENT_TOOL_RESULT_MAX_CHARS);
 				const paths = collectPathsFromRawParams(toolCall.rawParams);
 				touchedPaths.push(...paths);
 				if (WRITE_TOOL_NAMES.has(toolName)) { artifacts.push(...paths); }
@@ -521,6 +530,8 @@ class VibeSubagentRunnerService extends Disposable implements IVibeSubagentRunne
 				overridesOfModel: this._settings.state.overridesOfModel,
 				// One subagent run is one conversation: every hop of it shares the cache key.
 				promptCacheKey: promptCacheKeyOf(opts.req.subagentId, opts.req.type),
+				// A subagent run is one turn: a rule found in its history is announced once
+				secretNoticeScope: opts.req.subagentId,
 				// The run repeats a failed hop itself, with its own budget: the SDK repeating under it would multiply the sends
 				sdkMaxRetries: 0,
 				onText: () => { },

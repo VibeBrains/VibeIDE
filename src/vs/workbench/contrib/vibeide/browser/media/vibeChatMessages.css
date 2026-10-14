@@ -1,0 +1,134 @@
+/*---------------------------------------------------------------------------------------------
+ *  Copyright (c) Microsoft Corporation. All rights reserved.
+ *  Licensed under the MIT License. See License.txt in the project root for license information.
+ *--------------------------------------------------------------------------------------------*/
+
+/* ── Chat messages laid out like a messenger ───────────────────────────────────────────────
+   A reply of the assistant sits on the left with no bubble, behind a thin rule
+   A request of the user sits on the right in a bubble with its time in the corner
+   Tool cards, errors, pauses and the service notices of the agent are neither: they stay in the flow
+
+   The layout follows the width of the chat panel itself, not the window:
+   `.vibe-chat-scroll-root` is a query container, the markup is in SidebarChat.tsx
+
+   Wide   (over 360px)  reply: rule and a margin on the right, request: bubble with a margin on the left
+   Narrow (up to 360px) the reply takes the whole width and loses the rule, the margin of the bubble shrinks
+   Tight  (up to 280px) the bubble becomes a full-width plate with a bar on the left, the time moves into a caption above the text
+
+   Colours are theme tokens (vibeideChatMessageColors.ts), nothing is written here as a literal colour
+   Sizes are the variables of the first block, the only place to tune them
+   The widths 360px and 280px are written twice (the two @container rules): CSS cannot read a variable in a query
+
+   Every rule is scoped with `.vibe-scope`: the Tailwind preflight (`.vibe-scope *` resets the border of every element)
+   is injected after this file with the same specificity, so a bare class loses and the border never appears */
+
+.vibe-chat-scroll-root {
+	container: vibe-chat-feed / inline-size;
+
+	--vibe-chat-assistant-gutter: 18%;
+	--vibe-chat-assistant-rule-width: 2px;
+	--vibe-chat-assistant-rule-gap: 10px;
+
+	--vibe-chat-user-gutter: 22%;
+	--vibe-chat-user-radius: 14px 14px 4px 14px;
+	--vibe-chat-user-border-width: 1px;
+	--vibe-chat-user-padding: 8px 12px 6px;
+	--vibe-chat-user-meta-size: 11px;
+}
+
+/* ── Reply of the assistant ──────────────────────────────────────────────────────────────── */
+
+.vibe-scope .vibe-chat-assistant-msg {
+	min-width: 0;
+	margin-right: var(--vibe-chat-assistant-gutter);
+	padding-left: var(--vibe-chat-assistant-rule-gap);
+	border-left: var(--vibe-chat-assistant-rule-width) solid var(--vscode-vibeide-chat-assistantRule, transparent);
+}
+
+/* ── Request of the user ─────────────────────────────────────────────────────────────────── */
+
+.vibe-scope .vibe-chat-user-msg {
+	display: flex;
+	justify-content: flex-end;
+	min-width: 0;
+	margin-left: var(--vibe-chat-user-gutter);
+}
+
+/* The editor of a message needs the whole row: it is a form, not a bubble */
+.vibe-scope .vibe-chat-user-msg.vibe-chat-user-msg-editing {
+	display: block;
+	margin-left: 0;
+}
+
+.vibe-scope .vibe-chat-user-bubble {
+	display: flex;
+	flex-direction: column;
+	box-sizing: border-box;
+	min-width: 0;
+	max-width: 100%;
+	padding: var(--vibe-chat-user-padding);
+	border: var(--vibe-chat-user-border-width) solid var(--vscode-vibeide-chat-userMessageBorder, transparent);
+	border-radius: var(--vibe-chat-user-radius);
+	background: var(--vscode-vibeide-chat-userMessageBackground, transparent);
+	white-space: pre-wrap;
+	/* A long link or command wraps inside the bubble instead of stretching it */
+	overflow-wrap: anywhere;
+	overflow-x: auto; /* vibe-scroll: the class is set on the element in SidebarChat.tsx */
+}
+
+.vibe-scope .vibe-chat-user-time,
+.vibe-scope .vibe-chat-user-caption {
+	color: var(--vscode-vibeide-chat-userMessageLabel, inherit);
+	font-size: var(--vibe-chat-user-meta-size);
+	line-height: 1.2;
+	white-space: nowrap;
+	user-select: none;
+}
+
+/* Time in the corner of the bubble */
+.vibe-scope .vibe-chat-user-time {
+	align-self: flex-end;
+	margin-top: 2px;
+}
+
+/* Caption above the text, label and time: only the tight layout shows it */
+.vibe-scope .vibe-chat-user-caption {
+	display: none;
+	margin-bottom: 2px;
+}
+
+/* ── Narrow panel ────────────────────────────────────────────────────────────────────────── */
+
+@container vibe-chat-feed (max-width: 360px) {
+	.vibe-scope .vibe-chat-assistant-msg {
+		--vibe-chat-assistant-gutter: 0px;
+		--vibe-chat-assistant-rule-width: 0px;
+		--vibe-chat-assistant-rule-gap: 0px;
+	}
+
+	.vibe-scope .vibe-chat-user-msg {
+		--vibe-chat-user-gutter: 12%;
+	}
+}
+
+/* ── Tight panel ─────────────────────────────────────────────────────────────────────────── */
+
+@container vibe-chat-feed (max-width: 280px) {
+	.vibe-scope .vibe-chat-user-msg {
+		--vibe-chat-user-gutter: 0px;
+	}
+
+	.vibe-scope .vibe-chat-user-bubble {
+		--vibe-chat-user-radius: 8px;
+		width: 100%;
+		border-width: 0 0 0 3px;
+	}
+
+	.vibe-scope .vibe-chat-user-time {
+		display: none;
+	}
+
+	.vibe-scope .vibe-chat-user-caption {
+		display: block;
+	}
+}

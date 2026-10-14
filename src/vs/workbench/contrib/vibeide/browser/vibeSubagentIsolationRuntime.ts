@@ -116,7 +116,7 @@ Registry.as<IConfigurationRegistry>(ConfigurationExtensions.Configuration).regis
 		'vibeide.subagent.chatNotices': {
 			type: 'boolean',
 			default: true,
-			description: localize('vibeide.subagent.chatNotices', 'Показывать в чате компактные уведомления о старте и завершении субагентов команды ролей (Vibe Agents). Внутренние субагенты (поиск/шаги плана) не показываются. По умолчанию включено.'),
+			description: localize('vibeide.subagent.chatNotices', 'Показывать в чате живой индикатор работающих субагентов команды ролей (Vibe Agents) и записывать в журнал чата итог каждого: завершил, остановлен, пропущен, сбой. Внутренние субагенты (поиск/шаги плана) не показываются и не записываются. По умолчанию включено.'),
 		},
 		'vibeide.subagent.autoScout': {
 			type: 'boolean',

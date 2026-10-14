@@ -5,7 +5,7 @@
 
 import * as assert from 'assert';
 import { ensureNoDisposablesAreLeakedInTestSuite } from '../../../../../base/test/common/utils.js';
-import { builtinWireSdkNpm, getModelCapabilities, getProviderCapabilities, resolveProvider } from '../../common/modelCapabilities.js';
+import { builtinWireSdkNpm, getModelCapabilities, getProviderCapabilities, getSendableReasoningInfo, resolveProvider } from '../../common/modelCapabilities.js';
 import { deprecationStatus } from '../../common/modelDeprecation.js';
 import { providerNames } from '../../common/vibeideSettingsTypes.js';
 
@@ -305,6 +305,31 @@ suite('builtin model profiles — имя на проводе, профиль, п
 				'minimax/minimax-m3.1 ← MiniMax-M3.1-Flash-Preview | false | low/medium/high/xhigh/max | high',
 			],
 			high: { reasoning_effort: 'high' },
+		});
+	});
+	/**
+	 * MiniMax Text-01: не думающая модель с окном 1M — профиль M2 слал бы ей уровень рассуждения, которого у неё нет
+	 * Распознавание идёт раньше веток M3, а id провайдера-агрегатора ведёт в тот же профиль
+	 */
+	test('MiniMax Text-01: свой профиль без рассуждения, окно 1M, уровень не уходит', () => {
+		const card = (provider: 'minimax' | 'openRouter', modelName: string) => {
+			const caps = getModelCapabilities(provider, modelName, undefined);
+			return `${modelName} ← ${caps.recognizedModelName} | ${caps.reasoningCapabilities} | ${caps.contextWindow} | ${caps.specialToolFormat}`;
+		};
+		const payload = getProviderCapabilities('minimax').providerReasoningIOSettings?.input?.includeInPayload;
+		const sendable = getSendableReasoningInfo('Chat', 'minimax', 'MiniMax-Text-01', undefined, undefined);
+		assert.deepStrictEqual({
+			cards: [card('minimax', 'MiniMax-Text-01'), card('minimax', 'minimax-text01'), card('openRouter', 'minimax/minimax-text-01')],
+			sendable,
+			payload: payload?.(sendable),
+		}, {
+			cards: [
+				'MiniMax-Text-01 ← MiniMax-Text-01 | false | 1000000 | openai-style',
+				'minimax-text01 ← MiniMax-Text-01 | false | 1000000 | openai-style',
+				'minimax/minimax-text-01 ← MiniMax-Text-01 | false | 1000000 | openai-style',
+			],
+			sendable: null,
+			payload: null,
 		});
 	});
 });

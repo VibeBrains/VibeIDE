@@ -11,6 +11,7 @@ import { filter, jsonEditor } from './gulp/facade.ts';
 import * as util from './util.ts';
 import { getVersion } from './getVersion.ts';
 import { downloadFeedPackage } from './azureFeed.ts';
+import { electronExecutableRelPath, installDirectoryAtomically, isExpectedElectronInstalled } from './electronInstall.ts';
 import electron from '@vscode/gulp-electron';
 
 // VibeIDE: one env var from docs/knowledge/build/portableAndElectron.md / preLaunch; npm run electron does not use vibe-dev.bat.
@@ -250,7 +251,7 @@ export const config = {
 	productVersionString: versionedResourcesFolder,
 };
 
-function getElectron(arch: string): () => NodeJS.ReadWriteStream {
+function getElectron(arch: string, dest: string): () => NodeJS.ReadWriteStream {
 	return () => {
 		const electronOpts = {
 			...config,
@@ -264,19 +265,62 @@ function getElectron(arch: string): () => NodeJS.ReadWriteStream {
 			.pipe(jsonEditor({ name: product.nameShort }))
 			.pipe(electron(electronOpts))
 			.pipe(filter(['**', '!**/app/package.json']))
-			.pipe(vfs.dest('.build/electron'));
+			.pipe(vfs.dest(dest));
 	};
 }
 
-async function main(arch: string = process.arch): Promise<void> {
+/**
+ * `work` with the errors that escape its streams turned into a rejection
+ * `@vscode/gulp-electron` reports a failed download (refused or timed-out connection) on a stream inside it that nobody listens to,
+ * and `pipe` does not pass it on, so it surfaces as an uncaught exception that kills the process before any cleanup can run
+ */
+function rejectOnUncaught<T>(work: () => Promise<T>): Promise<T> {
+	return new Promise<T>((resolve, reject) => {
+		process.once('uncaughtException', reject);
+		work().then(resolve, reject).finally(() => process.off('uncaughtException', reject));
+	});
+}
+
+/**
+ * Puts Electron into `.build/electron`
+ * An install that is already there for the version in `.npmrc` is kept: it is not downloaded again, so this works without a network
+ * `--force` downloads anyway, for a change of the product names, icons or document types that the install has baked in
+ * The download goes to a staging folder and replaces the old install only when it is complete, so a failed
+ * download (no network, a reset connection) never leaves an empty `.build/electron`
+ */
+/** The message of an error with the message of its cause: `fetch failed` alone says nothing about why */
+function describeError(err: unknown): string {
+	if (!(err instanceof Error)) { return String(err); }
+	return err.cause instanceof Error ? `${err.message} (${err.cause.message})` : err.message;
+}
+
+async function main(arch: string = process.arch, force: boolean = false): Promise<void> {
 	const electronPath = path.join(root, '.build', 'electron');
-	await util.rimraf(electronPath)();
-	await util.streamToPromise(getElectron(arch)());
+	const executable = electronExecutableRelPath(process.platform, product);
+	if (!force && arch === process.arch && await isExpectedElectronInstalled(electronPath, electronVersion, executable)) {
+		console.log(`[electron] .build/electron already holds Electron ${electronVersion}, nothing to download (--force to download again)`);
+		return;
+	}
+	try {
+		await installDirectoryAtomically(electronPath, stagingPath => rejectOnUncaught(() => util.streamToPromise(getElectron(arch, stagingPath)())));
+	} catch (err) {
+		const hasInstall = fs.existsSync(path.join(electronPath, 'version'));
+		throw new Error(
+			`Could not download Electron ${electronVersion}: ${describeError(err)}\n`
+			+ (hasInstall
+				? '.build/electron was left as it was (the previous install is untouched).\n'
+				: '.build/electron has no Electron.\n')
+			+ 'Check the network or point the download at a mirror: set VIBE_ELECTRON_MIRROR=https://cdn.npmmirror.com/binaries/electron/ '
+			+ '(see docs/knowledge/build/portableAndElectron.md).',
+			{ cause: err }
+		);
+	}
 }
 
 if (import.meta.main) {
-	main(process.argv[2]).catch(err => {
-		console.error(err);
+	const args = process.argv.slice(2);
+	main(args.find(arg => !arg.startsWith('--')), args.includes('--force')).catch(err => {
+		console.error(err instanceof Error ? err.message : err);
 		process.exit(1);
 	});
 }

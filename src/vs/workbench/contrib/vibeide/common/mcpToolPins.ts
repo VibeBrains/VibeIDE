@@ -18,7 +18,7 @@
  * name, title, description, both schemas, annotations and the MCP Apps block that decides visibility.
  *
  * What this does NOT catch: a server that keeps its definitions and changes what its calls return.
- * Tool output is covered elsewhere — it reaches the model framed as data, not as instructions.
+ * Tool output is covered elsewhere: `untrustedToolOutputGuard` flags it and the system prompt says it is data, not instructions
  */
 
 import { IStorageService, StorageScope, StorageTarget } from '../../../../platform/storage/common/storage.js';

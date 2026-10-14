@@ -1123,6 +1123,14 @@ export class VibeideGlobalSettingsConfigurationContribution extends Disposable i
 					description: localize('vibeide.chat.maxOpenTabs', 'Максимум одновременно открытых вкладок чата. При превышении самая старая вкладка автоматически закрывается (тред остаётся в истории, не удаляется). Активная вкладка никогда не закрывается. Установите 1, чтобы держать только один чат за раз.'),
 					scope: ConfigurationScope.APPLICATION,
 				},
+				'vibeide.chat.journal.maxEntries': {
+					type: 'number',
+					default: 200,
+					minimum: 10,
+					maximum: 2000,
+					description: localize('vibeide.chat.journal.maxEntries', 'Сколько записей хранит «Журнал» чата — служебные сообщения IDE, которые не относятся к разговору (смена модели прокси, замечания проверок хода, итоги субагентов). Журнал открывается значком в шапке чата. Старейшие записи вытесняются новыми; одинаковые записи подряд складываются в одну со счётчиком. Дефолт 200.'),
+					scope: ConfigurationScope.APPLICATION,
+				},
 				'vibeide.chat.defaultWidth': {
 					type: 'number',
 					default: 650,

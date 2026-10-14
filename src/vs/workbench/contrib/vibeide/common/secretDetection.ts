@@ -3,6 +3,7 @@
  *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
 
+import { localize } from '../../../../nls.js';
 import { isPlaceholderValue, looksLikeSecretLiteral, standsAloneAsToken } from './secretLiteralShape.js';
 import { vibeLog } from './vibeLog.js';
 
@@ -16,6 +17,11 @@ export interface SecretPattern {
 	id: string;
 	/** Human-readable name (e.g., "OpenAI API Key") */
 	name: string;
+	/**
+	 * What the rule catches, in plain words: it feeds the picker of `vibeide.secretDetection.disabledPatternIds`.
+	 * Built-in rules always carry it (see `DEFAULT_SECRET_PATTERNS`); a custom pattern has its own `name` only
+	 */
+	description?: string;
 	/** Regex pattern to detect secrets */
 	pattern: RegExp;
 	/** Whether this pattern is enabled */
@@ -124,11 +130,12 @@ export interface SecretDetectionResult {
 /**
  * Default secret patterns covering common API keys, tokens, and passwords
  */
-export const DEFAULT_SECRET_PATTERNS: SecretPattern[] = [
+export const DEFAULT_SECRET_PATTERNS: Array<SecretPattern & { description: string }> = [
 	// OpenAI API keys (sk-...)
 	{
 		id: 'openai-key',
 		name: 'OpenAI API Key',
+		description: localize('secretRule.openai-key', 'Ключи OpenAI: sk-proj-… и прежние sk-… (ключи Anthropic ловит своё правило).'),
 		// Project keys (sk-proj-…, hyphenated body) and legacy keys (sk-… 20+ alnum).
 		// Negative lookahead keeps Anthropic keys (sk-ant-…) for their dedicated rule.
 		pattern: /\b(sk-proj-[a-zA-Z0-9_-]{4,}|sk-(?!ant-)[a-zA-Z0-9]{20,})\b/gi,
@@ -139,6 +146,7 @@ export const DEFAULT_SECRET_PATTERNS: SecretPattern[] = [
 	{
 		id: 'anthropic-key',
 		name: 'Anthropic API Key',
+		description: localize('secretRule.anthropic-key', 'Ключи Anthropic: sk-ant-….'),
 		pattern: /\b(sk-ant-[a-zA-Z0-9_-]{95,})\b/gi,
 		enabled: true,
 		priority: 100,
@@ -147,6 +155,7 @@ export const DEFAULT_SECRET_PATTERNS: SecretPattern[] = [
 	{
 		id: 'generic-api-key',
 		name: 'Generic API Key',
+		description: localize('secretRule.generic-api-key', 'Присваивание вида api_key = "…" с длинным значением, похожим на ключ, а не на имя типа или переменной.'),
 		// Keyword, separator, then a run of 20+ key characters
 		// The value is judged afterwards: a type or a variable name is code, a quoted run or one with a digit is a key
 		pattern: /\b(?:api[_-]?key|apikey)\s*[=:]\s*(?<quote>['"`]?)(?<value>[a-zA-Z0-9_-]{20,})['"`]?/gi,
@@ -158,6 +167,7 @@ export const DEFAULT_SECRET_PATTERNS: SecretPattern[] = [
 	{
 		id: 'jwt-token',
 		name: 'JWT Token',
+		description: localize('secretRule.jwt-token', 'Токены JWT: три части через точку, начало eyJ….'),
 		pattern: /\b(eyJ[a-zA-Z0-9_-]+\.eyJ[a-zA-Z0-9_-]+\.[a-zA-Z0-9_-]+)\b/g,
 		enabled: true,
 		priority: 95,
@@ -166,6 +176,7 @@ export const DEFAULT_SECRET_PATTERNS: SecretPattern[] = [
 	{
 		id: 'bearer-token',
 		name: 'Bearer Token',
+		description: localize('secretRule.bearer-token', 'Токен после слова Bearer (заголовок Authorization), 20 знаков и больше; заглушки и маски не считаются.'),
 		// Only a mask or a stand-in is rejected
 		// A bearer token is never quoted and may hold no digit, so the literal-or-code test would drop real ones
 		pattern: /\b(?:bearer\s+)(?<value>[a-zA-Z0-9_-]{20,})\b/gi,
@@ -177,6 +188,7 @@ export const DEFAULT_SECRET_PATTERNS: SecretPattern[] = [
 	{
 		id: 'aws-access-key',
 		name: 'AWS Access Key',
+		description: localize('secretRule.aws-access-key', 'Идентификаторы ключей доступа AWS: AKIA….'),
 		pattern: /\b(AKIA[0-9A-Z]{16})\b/g,
 		enabled: true,
 		priority: 100,
@@ -187,6 +199,7 @@ export const DEFAULT_SECRET_PATTERNS: SecretPattern[] = [
 	{
 		id: 'aws-secret-key',
 		name: 'AWS Secret Key',
+		description: localize('secretRule.aws-secret-key', 'Секретные ключи AWS без имени переменной: отдельная строка из 40 знаков с цифрами, обоими регистрами и высокой случайностью.'),
 		pattern: /\b([a-zA-Z0-9+]{40})\b/g,
 		enabled: true,
 		priority: 85,
@@ -200,6 +213,7 @@ export const DEFAULT_SECRET_PATTERNS: SecretPattern[] = [
 	{
 		id: 'aws-secret-key-named',
 		name: 'AWS Secret Key (assignment)',
+		description: localize('secretRule.aws-secret-key-named', 'Секретный ключ AWS в присваивании AWS_SECRET_ACCESS_KEY = ….'),
 		// Ends with a lookahead, not `\b`: base64 keys routinely end in `=`, `+` or `/`, and a word
 		// boundary after such a character never matches — the rule silently skipped roughly the keys
 		// it was written for. Verified: `…EXAMPLEKE=` and `…8901+/` matched only after this change.
@@ -211,6 +225,7 @@ export const DEFAULT_SECRET_PATTERNS: SecretPattern[] = [
 	{
 		id: 'github-token',
 		name: 'GitHub Token',
+		description: localize('secretRule.github-token', 'Токены GitHub: ghp_…, gho_…, ghu_…, ghs_…, ghr_….'),
 		pattern: /\b(ghp_[a-zA-Z0-9]{36,}|gho_[a-zA-Z0-9]{36,}|ghu_[a-zA-Z0-9]{36,}|ghs_[a-zA-Z0-9]{36,}|ghr_[a-zA-Z0-9]{36,})\b/g,
 		enabled: true,
 		priority: 100,
@@ -219,6 +234,7 @@ export const DEFAULT_SECRET_PATTERNS: SecretPattern[] = [
 	{
 		id: 'gitlab-token',
 		name: 'GitLab Token',
+		description: localize('secretRule.gitlab-token', 'Токены GitLab: glpat-….'),
 		pattern: /\b(glpat-[a-zA-Z0-9_-]{20,})\b/gi,
 		enabled: true,
 		priority: 95,
@@ -227,6 +243,7 @@ export const DEFAULT_SECRET_PATTERNS: SecretPattern[] = [
 	{
 		id: 'google-api-key',
 		name: 'Google API Key',
+		description: localize('secretRule.google-api-key', 'Ключи Google API: AIza….'),
 		pattern: /\b(AIza[0-9A-Za-z_-]{35})\b/g,
 		enabled: true,
 		priority: 100,
@@ -235,6 +252,7 @@ export const DEFAULT_SECRET_PATTERNS: SecretPattern[] = [
 	{
 		id: 'stripe-key',
 		name: 'Stripe API Key',
+		description: localize('secretRule.stripe-key', 'Боевые ключи Stripe: sk_live_… и pk_live_….'),
 		pattern: /\b(sk_live_[a-zA-Z0-9]{24,}|pk_live_[a-zA-Z0-9]{24,})\b/g,
 		enabled: true,
 		priority: 100,
@@ -243,6 +261,7 @@ export const DEFAULT_SECRET_PATTERNS: SecretPattern[] = [
 	{
 		id: 'password-pattern',
 		name: 'Password',
+		description: localize('secretRule.password-pattern', 'Пароли, секреты и токены в присваиваниях: password = "…", DB_PASSWORD=…. Самое частое ложное срабатывание: значение, похожее на литерал, но не секрет.'),
 		// Two ways in, both ending in a quoted run or a bare run
 		// A quoted run is closed right after the value, so a sentence is no value, and may carry a string prefix (b"", @"")
 		// Env line: a name that CONTAINS the keyword (DB_PASSWORD) at the line start or after `export`, no spaces around `=`
@@ -259,6 +278,7 @@ export const DEFAULT_SECRET_PATTERNS: SecretPattern[] = [
 	{
 		id: 'private-key',
 		name: 'Private Key',
+		description: localize('secretRule.private-key', 'Закрытые ключи в формате PEM: RSA, EC, DSA, OpenSSH.'),
 		pattern: /-----BEGIN\s+(RSA|EC|DSA|OPENSSH)\s+PRIVATE KEY-----[\s\S]*?-----END\s+(RSA|EC|DSA|OPENSSH)\s+PRIVATE KEY-----/gi,
 		enabled: true,
 		priority: 100,
@@ -267,6 +287,7 @@ export const DEFAULT_SECRET_PATTERNS: SecretPattern[] = [
 	{
 		id: 'generic-token',
 		name: 'Generic Token',
+		description: localize('secretRule.generic-token', 'Любая строка из 32, 40 или 64 шестнадцатеричных знаков. Выключено по умолчанию: ловит и настоящие секреты, и контрольные суммы, хеши коммитов. Включается настройкой vibeide.secretDetection.enabledPatternIds.'),
 		pattern: /\b([a-f0-9]{32}|[a-f0-9]{40}|[a-f0-9]{64})\b/g,
 		// Выключено по умолчанию: слишком много ложных срабатываний. Включается явным решением
 		// человека (`vibeide.secretDetection.enabledPatternIds`), и тогда судит всё подряд, включая

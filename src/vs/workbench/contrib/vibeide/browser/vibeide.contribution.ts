@@ -46,6 +46,8 @@ import './media/vibeide.css';
 // Z.12 BISECT — temporarily disable VibeModal CSS to confirm/deny it as the freeze source
 import './media/vibeModal.css';
 import './media/vibeScroll.css';
+import './media/vibeChatMessages.css';
+import './media/vibeChatJournal.css';
 import './vibeScrollIndicator.contribution.js';
 
 // Builtin Vibe Neon — title-bar glow toggle registration + default theme chrome CSS (extensions/vibeide-neon)
@@ -452,6 +454,9 @@ import './vibeCommands.js';
 // VibeIDE: Chat group color tokens (registerColor — must load before first theme application)
 import './vibeideChatGroupColors.js';
 
+// VibeIDE: Chat message color tokens (user bubble, assistant rule) — same loading rule as above
+import './vibeideChatMessageColors.js';
+
 // VibeIDE: Chat editor pane (split tab) + vibeide.chat.open command
 import './vibeideChatPane.js';
 
@@ -769,7 +774,7 @@ import './vibeSubagentStatusBarContribution.js';
 // VibeIDE: «Субпин» — indicator + command for stopped subagents awaiting manual resume (durable handoff)
 import './vibeSubagentHandoffContribution.js';
 
-// VibeIDE: Live subagent start/finish notices in the chat thread (gated by vibeide.subagent.chatNotices)
+// VibeIDE: Subagent outcomes in the chat journal (gated by vibeide.subagent.chatNotices)
 import './vibeSubagentChatNoticeContribution.js';
 
 // VibeIDE: Background job service — descriptor, tool policy, budget enforcement (§ J.2)

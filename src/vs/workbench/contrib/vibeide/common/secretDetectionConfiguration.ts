@@ -9,6 +9,8 @@ import { IWorkbenchContribution, registerWorkbenchContribution2, WorkbenchPhase 
 import { Registry } from '../../../../platform/registry/common/platform.js';
 import { IConfigurationRegistry, Extensions as ConfigurationExtensions, ConfigurationScope } from '../../../../platform/configuration/common/configurationRegistry.js';
 import { localize } from '../../../../nls.js';
+import { DEFAULT_SECRET_PATTERNS } from './secretDetection.js';
+import { SECRET_DISABLED_RULES_SETTING } from './secretNotice.js';
 
 export class SecretDetectionConfigurationContribution extends Disposable implements IWorkbenchContribution {
 	static readonly ID = 'workbench.contrib.secretDetectionConfiguration';
@@ -40,13 +42,17 @@ export class SecretDetectionConfigurationContribution extends Disposable impleme
 					description: localize('secretDetection.mode.description', 'Режим строгости: "block" — запрещает отправку секретов, "redact" — разрешает отправку с заменой на плейсхолдеры.'),
 					scope: ConfigurationScope.APPLICATION,
 				},
-				'vibeide.secretDetection.disabledPatternIds': {
+				[SECRET_DISABLED_RULES_SETTING]: {
 					type: 'array',
+					// The list comes from the rules themselves: a rule added to the detector shows up here by itself
 					items: {
 						type: 'string',
+						enum: DEFAULT_SECRET_PATTERNS.map(pattern => pattern.id),
+						enumDescriptions: DEFAULT_SECRET_PATTERNS.map(pattern => pattern.description),
 					},
+					uniqueItems: true,
 					default: [],
-					description: localize('secretDetection.disabledPatternIds', 'Список идентификаторов паттернов для отключения. Доступные паттерны: openai-key, anthropic-key, generic-api-key, jwt-token, bearer-token, aws-access-key, aws-secret-key, github-token, gitlab-token, google-api-key, stripe-key, password-pattern, private-key, generic-token.'),
+					description: localize('secretDetection.disabledPatternIds', 'Встроенные правила обнаружения секретов, которые не должны срабатывать. Правило выбирается из списка, рядом написано, что оно ловит. Быстрее всего выключить его кнопкой в уведомлении «Из сообщения модели скрыто похожее на секрет».'),
 					scope: ConfigurationScope.APPLICATION,
 				},
 				'vibeide.secretDetection.enabledPatternIds': {

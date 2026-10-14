@@ -38,12 +38,13 @@ import type { SecretMatch } from '../common/secretDetection.js';
 import { INotificationService, Severity } from '../../../../platform/notification/common/notification.js';
 import { ICommandService } from '../../../../platform/commands/common/commands.js';
 import { localize } from '../../../../nls.js';
-import { IConfigurationService } from '../../../../platform/configuration/common/configuration.js';
+import { ConfigurationTarget, IConfigurationService } from '../../../../platform/configuration/common/configuration.js';
 import { NormalizeCounterKey } from '../common/xmlToolNormalize.js';
 import type { LlmSendTraceEvent } from '../common/llmSendTrace.js';
 import { ILLMMessageService, TransportDiagnostics } from '../common/sendLLMMessageService.js';
 import { withBuiltinWireHints } from '../common/builtinWireHints.js';
 import { CLAUDE_THINKING_DISPLAY_SETTING, claudeThinkingDisplayOf } from '../common/wireReasoning.js';
+import { MAX_DISABLE_RULE_BUTTONS, SECRET_DISABLED_RULES_SETTING, SecretNoticeLedger, withRuleDisabled, withRuleEnabled } from '../common/secretNotice.js';
 
 /** Chat messages carry `content` (Anthropic and OpenAI shapes; Gemini's history uses the Anthropic one). */
 function isContentMessage(msg: LLMChatMessage): msg is AnthropicLLMChatMessage | OpenAILLMChatMessage {
@@ -68,6 +69,9 @@ export class LLMMessageService extends Disposable implements ILLMMessageService 
 			onError: {},
 			onAbort: {}, // NOT sent over the channel, result is instant when we call .abort()
 		};
+
+	/** Which rules the «hidden from the message» notice has already named, per agent turn */
+	private readonly secretNoticeLedger = new SecretNoticeLedger();
 
 	// list hooks
 	private readonly listHooks: {
@@ -171,10 +175,89 @@ export class LLMMessageService extends Disposable implements ILLMMessageService 
 		return this.channel.call('clearSendTrace');
 	}
 
+	/**
+	 * Tells the user what was hidden from the model's message
+	 * A rule is named once per scope (an agent turn), and its notice carries a button that switches the rule off in place
+	 */
+	private _notifySecretsRedacted(scope: string | undefined, matches: readonly SecretMatch[]): void {
+		const found = new Map<string, { name: string; count: number }>();
+		for (const { pattern } of matches) {
+			const entry = found.get(pattern.id) ?? { name: pattern.name, count: 0 };
+			entry.count++;
+			found.set(pattern.id, entry);
+		}
+		const fresh = new Set(this.secretNoticeLedger.claim(scope, [...found.keys()]));
+		const rules = [...found].filter(([id]) => fresh.has(id)).map(([id, info]) => ({ id, ...info }));
+		if (rules.length === 0) {
+			return;
+		}
+
+		const disableRuleActions = rules.slice(0, MAX_DISABLE_RULE_BUTTONS).map(({ id }) => ({
+			id: `vibeide.secrets.disableRule.${id}`,
+			enabled: true,
+			label: localize('vibeide.secrets.redactedFromMessage.disable', 'Выключить правило «{0}»', id),
+			tooltip: '',
+			class: undefined,
+			run: () => { void this._setSecretRuleDisabled(id, true); },
+		}));
+		this.notificationService.notify({
+			severity: Severity.Warning,
+			message: localize(
+				'vibeide.secrets.redactedFromMessage',
+				'Из сообщения модели скрыто похожее на секрет: {0}. Модель увидит вместо этого подстановку — если это не секрет, ответ может оказаться неверным. Правило: {1}.',
+				rules.map(r => `${r.name} (${r.count})`).join(', '), rules.map(r => r.id).join(', ')),
+			actions: {
+				primary: [...disableRuleActions, {
+					id: 'vibeide.secrets.openSettings',
+					enabled: true,
+					label: localize('vibeide.secrets.redactedFromMessage.settings', 'Настройки'),
+					tooltip: '',
+					class: undefined,
+					run: () => { void this.commandService.executeCommand('workbench.action.openSettings', SECRET_DISABLED_RULES_SETTING); },
+				}],
+			},
+		});
+	}
+
+	/**
+	 * Writes the rule into the user's list of switched-off rules, or takes it out
+	 * Switching off answers with a confirmation that carries the way back
+	 */
+	private async _setSecretRuleDisabled(ruleId: string, disabled: boolean): Promise<void> {
+		try {
+			const stored = this.configurationService.getValue<unknown>(SECRET_DISABLED_RULES_SETTING);
+			const current = Array.isArray(stored) ? stored.filter((id): id is string => typeof id === 'string') : [];
+			const next = disabled ? withRuleDisabled(current, ruleId) : withRuleEnabled(current, ruleId);
+			await this.configurationService.updateValue(SECRET_DISABLED_RULES_SETTING, next, ConfigurationTarget.USER);
+		} catch (error) {
+			vibeLog.warn('sendLLMMessage', `[SecretDetection] Could not update ${SECRET_DISABLED_RULES_SETTING}:`, error);
+			this.notificationService.warn(localize('vibeide.secrets.disableRule.failed', 'Не удалось записать настройку «{0}». Правило «{1}» можно внести в неё вручную.', SECRET_DISABLED_RULES_SETTING, ruleId));
+			return;
+		}
+		if (!disabled) {
+			this.notificationService.info(localize('vibeide.secrets.enableRule.done', 'Правило «{0}» снова включено.', ruleId));
+			return;
+		}
+		this.notificationService.notify({
+			severity: Severity.Info,
+			message: localize('vibeide.secrets.disableRule.done', 'Правило «{0}» выключено: такие места больше не скрываются из сообщений модели. Список выключенных правил — настройка «{1}».', ruleId, SECRET_DISABLED_RULES_SETTING),
+			actions: {
+				primary: [{
+					id: 'vibeide.secrets.enableRule',
+					enabled: true,
+					label: localize('vibeide.secrets.disableRule.undo', 'Вернуть'),
+					tooltip: '',
+					class: undefined,
+					run: () => { void this._setSecretRuleDisabled(ruleId, false); },
+				}],
+			},
+		});
+	}
+
 	sendLLMMessage(params: ServiceSendLLMMessageParams) {
 		// `extraBody` is taken out by name: left in `proxyParams` it would travel to the main process as a
 		// top-level field nobody reads, instead of inside `runtimeOptions` where the adapter merges it.
-		const { onText, onFinalMessage, onError, onAbort, modelSelection, forceToolUse, sdkMaxRetries, excludeFromSessionBudget, extraBody, promptCacheKey, previousResponseId, servedModel, ...proxyParams } = params;
+		const { onText, onFinalMessage, onError, onAbort, modelSelection, forceToolUse, sdkMaxRetries, excludeFromSessionBudget, secretNoticeScope, extraBody, promptCacheKey, previousResponseId, servedModel, ...proxyParams } = params;
 
 		// VibeIDE: Enforce session token budget before sending. Subagent sends opt out — they have
 		// their own quota, and the session gate must not block a role on the main-agent limit.
@@ -281,26 +364,10 @@ export class LLMMessageService extends Disposable implements ILLMMessageService 
 					// Предохранитель тут не спасает: в файле уже не секрет, а подстановка, и проверка хода
 					// не находит ничего.
 					//
-					// Поэтому: сказать, что скрыто и каким правилом, и дать дорогу «выключить навсегда».
-					// Уведомление показывается на каждой такой отправке намеренно (решение владельца
-					// 20.09.2026): пусть спрашивает каждый раз — или правило выключают совсем.
-					this.notificationService.notify({
-						severity: Severity.Warning,
-						message: localize(
-							'vibeide.secrets.redactedFromMessage',
-							'Из сообщения модели скрыто похожее на секрет: {0}. Модель увидит вместо этого подстановку — если это не секрет, ответ может оказаться неверным. Правило: {1}.',
-							typesListForUser, ruleIdsForUser),
-						actions: {
-							primary: [{
-								id: 'vibeide.secrets.openSettings',
-								enabled: true,
-								label: localize('vibeide.secrets.redactedFromMessage.where', 'Где выключить правило'),
-								tooltip: '',
-								class: undefined,
-								run: () => { void this.commandService.executeCommand('workbench.action.openSettings', 'vibeide.secretDetection.disabledPatternIds'); },
-							}],
-						},
-					});
+					// Поэтому: сказать, что скрыто и каким правилом, и дать дорогу «выключить правило».
+					// Правило называется один раз за ход агента: цикл шлёт историю целиком на каждом шаге,
+					// и секрет из неё находился бы снова и снова.
+					this._notifySecretsRedacted(secretNoticeScope, totalMatches);
 				}
 			}
 		}

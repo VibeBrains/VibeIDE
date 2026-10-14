@@ -28,6 +28,11 @@
    `build.ps1` клонирует тег, ставит зависимости, выравнивает платформенные пакеты и запускает
    `release-windows.ps1 -SkipPublish`. Версия не бампается: собирается то, что в теге.
 3. Упаковку без перекомпиляции повторяет `package.ps1`.
+   Если сборка упала на `fetch failed` при загрузке встроенных расширений, open-vsx.org недоступен:
+   перенести с мака готовую копию и запустить `package.ps1`:
+   ```bash
+   scp -r -i /Volumes/Storage/Caches/vibeide/windows/ssh/id_ed25519 .build/builtInExtensions vsadmin@192.168.64.5:C:/b/VibeIDE/.build/
+   ```
 4. Забрать артефакты из `C:\b\VibeIDE\.build\win32-x64\{system-setup,archive}` через `scp`.
 5. Сверить с эталоном прошлого релиза: состав бинарников и архитектура каждого `.node`, `.exe`, `.dll`.
    Смена архитектуры или пропавший платформенный пакет — дефект сборки, не выкладывать.
@@ -35,6 +40,8 @@
    ```bash
    gh release upload vX.Y.Z -R VibeBrains/VibeIDE VibeIDESetup.exe VibeIDE-X.Y.Z-win32-x64.zip
    ```
+   `uploads.github.com` бывает недоступен часами: при `dial tcp … i/o timeout` повторять, пока не откроется окно доступности.
+   Размер каждого файла после загрузки сверить с локальным (`gh release view vX.Y.Z --json assets`).
 7. Открыть PR в winget — с мака, после загрузки `.exe`:
    ```bash
    scripts/win-vm/wingetPr.sh --dry-run   # только отрендерить манифесты и посмотреть

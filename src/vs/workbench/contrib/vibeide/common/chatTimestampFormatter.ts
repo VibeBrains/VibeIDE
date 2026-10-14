@@ -44,6 +44,15 @@ export function formatChatTimestamp(ts: unknown, pattern: string = 'DD.MM.YYYY H
 	return pattern.replace(/YYYY|MM|DD|HH|mm|ss/g, m => tokens[m] ?? m);
 }
 
+/** Pattern of the tooltip over a time: the full date with seconds */
+export const CHAT_TIMESTAMP_TOOLTIP_PATTERN = 'DD.MM.YYYY HH:mm:ss';
+
+/**
+ * Pattern of the time inside a user message bubble.
+ * The bubble has no room for the date: the full date and seconds stay in the `title` of the `<time>` element
+ */
+export const CHAT_USER_MESSAGE_TIME_PATTERN = 'HH:mm';
+
 /**
  * Streaming placeholder string used before the first chunk arrives (assistant
  * messages only). Layout-stable: same character width as a real timestamp so the

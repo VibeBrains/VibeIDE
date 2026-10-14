@@ -5,6 +5,7 @@
 
 
 import type { ChatMode } from '../../../../common/vibeideSettingsTypes.js';
+import type { ChatJournalCategory } from '../../../../common/chatJournal.js';
 import { VIBE_WORKSPACE_FORMAT_VERSION } from '../../../../common/vibeDefaultWorkspaceReadme.js';
 
 const VV = VIBE_WORKSPACE_FORMAT_VERSION;
@@ -281,12 +282,41 @@ export const chatS = {
 	planResumeLabel: 'Возобновить',
 	agentContinueLabel: 'Продолжить',
 	agentContinueTitle: 'Подтолкнуть модель продолжить: она завершила ход текстом без вызова инструмента',
+	// Label of the caption above a user message in the tightest chat layout, the time follows it
+	userMessageLabel: 'Вы',
 	chatTabNewTooltip: 'Новый чат',
 	chatTabCloseTooltip: 'Закрыть вкладку (чат останется в истории)',
 	chatTabUntitled: 'Новый чат',
 	historyRailTitle: 'История',
 	historyCollapseTooltip: 'Свернуть историю (оставить только чат)',
 	historyExpandTooltip: 'Показать историю',
+	// Journal: the service lines of the IDE that are not part of the conversation (button in the chat header + panel under it)
+	journalTitle: 'Журнал',
+	journalButtonTitle: (unread: number) => unread > 0 ? `Журнал: непрочитанных ${unread}` : 'Журнал',
+	journalEmpty: 'Журнал пуст. Служебные сообщения IDE, которые не относятся к разговору, появятся здесь',
+	journalEmptyFiltered: 'Нет записей по этому фильтру',
+	journalOnlyWarnings: 'Только предупреждения',
+	journalClear: 'Очистить',
+	journalClearTitle: 'Удалить все записи журнала',
+	journalClose: 'Закрыть журнал',
+	journalFilterAria: 'Фильтр журнала',
+	journalShowAll: 'Показать полностью',
+	journalShowLess: 'Свернуть',
+	journalOpenSetting: 'Открыть настройку',
+	journalOpenFile: 'Открыть файл',
+	journalLevelInfo: 'Информация',
+	journalLevelWarning: 'Предупреждение',
+	journalNew: 'Новая запись',
+	journalRepeated: (n: number) => `Повторилось подряд: ${n}`,
+	journalCategory: {
+		providers: 'Провайдеры',
+		keys: 'Ключи',
+		hooks: 'Хуки',
+		config: 'Конфиг',
+		agents: 'Агенты',
+		checks: 'Проверки',
+		other: 'Прочее',
+	} as Record<ChatJournalCategory, string>,
 	exportChatCopyTooltip: 'Скопировать чат в Markdown (tool-результаты усечены — для полного лога используйте «Экспорт»)',
 	exportChatExportTooltip: 'Экспорт чата в .md (полные tool-результаты)',
 	exportChatSaveTitle: 'Экспорт чата в Markdown',
