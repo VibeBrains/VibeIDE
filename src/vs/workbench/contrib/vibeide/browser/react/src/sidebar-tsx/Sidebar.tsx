@@ -4,7 +4,7 @@
  *--------------------------------------------------------------------------------------------*/
 
 
-import { useState, useEffect, useRef, useCallback } from 'react';
+import { useState, useEffect, useLayoutEffect, useRef, useCallback } from 'react';
 import { useIsDark, useAccessor, useChatThreadsState } from '../util/services.js';
 import { X as IconClose, Plus as IconPlus, PanelRightClose, PanelRightOpen } from 'lucide-react';
 import { StorageScope, StorageTarget } from '../../../../../../../platform/storage/common/storage.js';
@@ -33,6 +33,8 @@ const DEFAULT_WIDTH_APPLIED_KEY = 'vibeide.chatDefaultWidthApplied';
 // Multi-chat tab strip (refactor B): the in-view replacement for the old editor tabs. Renders the
 // service's `openTabIds` working set; click switches, X closes (thread stays in history), + opens new.
 // Also hosts the journal button and the history rail collapse/expand toggle (right-aligned) so they're reachable in both states.
+// The tabs scroll in their own box and the buttons sit beside it, so the buttons never move and never cover a tab:
+// a tab that runs out of the box fades out at its edge (see vibe-tabstrip-fade-end in vibeChatJournal.css).
 const tabLabel = (thread: { messages?: ReadonlyArray<{ role: string; displayContent?: string; content?: string }> } | undefined): string => {
 	const firstUser = thread?.messages?.find(m => m.role === 'user');
 	const txt = ((firstUser?.displayContent || firstUser?.content || '') as string).trim();
@@ -49,50 +51,71 @@ const ChatTabStrip = ({ historyCollapsed, onToggleHistory, boundaryRef }: { hist
 	// Drag-and-drop reordering state: the tab being dragged + the tab currently hovered as drop target.
 	const [dragId, setDragId] = useState<string | null>(null);
 	const [overId, setOverId] = useState<string | null>(null);
+	// Tabs hidden past the right edge of the box: only then the edge fades, so a strip that fits is not dimmed
+	const tabsRef = useRef<HTMLDivElement>(null);
+	const [hasHiddenTabsAtEnd, setHasHiddenTabsAtEnd] = useState(false);
+	const measureHiddenTabs = useCallback(() => {
+		const el = tabsRef.current;
+		if (el) { setHasHiddenTabsAtEnd(el.scrollWidth - el.scrollLeft - el.clientWidth > 1); }
+	}, []);
+	// Tabs come, go and change their labels without the box changing size, so the measure runs after every render
+	useLayoutEffect(measureHiddenTabs);
+	useEffect(() => {
+		const el = tabsRef.current;
+		if (!el || typeof ResizeObserver === 'undefined') { return; }
+		const ro = new ResizeObserver(measureHiddenTabs);
+		ro.observe(el);
+		return () => ro.disconnect();
+	}, [measureHiddenTabs]);
 	return (
-		<div className="h-[34px] flex items-center gap-1 px-1 border-b border-vibe-border-1 overflow-x-auto @@vibe-scroll flex-shrink-0 bg-vibe-bg-2">
-			{openTabIds.map(id => {
-				const thread = state.allThreads[id];
-				const active = id === current;
-				const label = tabLabel(thread);
-				const isDragging = dragId === id;
-				const isDropTarget = !!dragId && dragId !== id && overId === id;
-				return (
-					<div
-						key={id}
-						draggable
-						onDragStart={(e) => { setDragId(id); e.dataTransfer.effectAllowed = 'move'; try { e.dataTransfer.setData('text/plain', id); } catch { /* some platforms reject setData */ } }}
-						onDragOver={(e) => { if (dragId && dragId !== id) { e.preventDefault(); e.dataTransfer.dropEffect = 'move'; if (overId !== id) { setOverId(id); } } }}
-						onDragLeave={() => { if (overId === id) { setOverId(null); } }}
-						onDrop={(e) => { e.preventDefault(); if (dragId && dragId !== id) { chatThreadsService.reorderOpenTabs(dragId, id); } setDragId(null); setOverId(null); }}
-						onDragEnd={() => { setDragId(null); setOverId(null); }}
-						onClick={() => chatThreadsService.switchToThread(id)}
-						title={label}
-						className={`group flex items-center gap-1 px-2 py-1 rounded-t text-xs cursor-pointer whitespace-nowrap max-w-[160px] border-b-2 transition-opacity ${isDragging ? 'opacity-40' : ''} ${isDropTarget ? 'border-l-2 border-l-blue-400 bg-vibe-bg-3' : 'border-l-2 border-l-transparent'} ${active
-							? 'bg-vibe-bg-1 text-vibe-fg-1 font-medium border-blue-400'
-							: 'text-vibe-fg-3 border-transparent hover:bg-vibe-bg-3 hover:text-vibe-fg-2'}`}
-					>
-						<span className="truncate">{label}</span>
-						{openTabIds.length > 1 && (
-							<button
-								type="button"
-								className="opacity-0 group-hover:opacity-100 hover:text-vibe-fg-1 shrink-0"
-								title={chatS.chatTabCloseTooltip}
-								onClick={(e) => { e.stopPropagation(); chatThreadsService.closeTab(id); }}
-							><IconClose size={11} /></button>
-						)}
-					</div>
-				);
-			})}
-			<button
-				type="button"
-				className="shrink-0 px-1 py-0.5 rounded text-vibe-fg-3 hover:text-vibe-fg-1 hover:bg-vibe-bg-3"
-				title={chatS.chatTabNewTooltip}
-				onClick={() => chatThreadsService.forceCreateNewThread()}
-			><IconPlus size={13} /></button>
-			{/* Journal button and history rail toggle — pushed to the right edge of the strip; they stay in view when the tabs overflow. */}
-			{/* A sticky box is a stacking context of its own: the z-index lifts the journal panel above the chat below the strip. */}
-			<div className="ml-auto flex items-center gap-0.5 shrink-0 sticky right-0 z-[10000] pl-1 bg-vibe-bg-2">
+		<div className="h-[34px] flex items-center border-b border-vibe-border-1 flex-shrink-0 bg-vibe-bg-2">
+			<div
+				ref={tabsRef}
+				onScroll={measureHiddenTabs}
+				className={`flex-1 min-w-0 h-full flex items-center gap-1 px-1 overflow-x-auto @@vibe-scroll ${hasHiddenTabsAtEnd ? '@@vibe-tabstrip-fade-end' : ''}`}
+			>
+				{openTabIds.map(id => {
+					const thread = state.allThreads[id];
+					const active = id === current;
+					const label = tabLabel(thread);
+					const isDragging = dragId === id;
+					const isDropTarget = !!dragId && dragId !== id && overId === id;
+					return (
+						<div
+							key={id}
+							draggable
+							onDragStart={(e) => { setDragId(id); e.dataTransfer.effectAllowed = 'move'; try { e.dataTransfer.setData('text/plain', id); } catch { /* some platforms reject setData */ } }}
+							onDragOver={(e) => { if (dragId && dragId !== id) { e.preventDefault(); e.dataTransfer.dropEffect = 'move'; if (overId !== id) { setOverId(id); } } }}
+							onDragLeave={() => { if (overId === id) { setOverId(null); } }}
+							onDrop={(e) => { e.preventDefault(); if (dragId && dragId !== id) { chatThreadsService.reorderOpenTabs(dragId, id); } setDragId(null); setOverId(null); }}
+							onDragEnd={() => { setDragId(null); setOverId(null); }}
+							onClick={() => chatThreadsService.switchToThread(id)}
+							title={label}
+							className={`group flex items-center gap-1 px-2 py-1 rounded-t text-xs cursor-pointer whitespace-nowrap max-w-[160px] border-b-2 transition-opacity ${isDragging ? 'opacity-40' : ''} ${isDropTarget ? 'border-l-2 border-l-blue-400 bg-vibe-bg-3' : 'border-l-2 border-l-transparent'} ${active
+								? 'bg-vibe-bg-1 text-vibe-fg-1 font-medium border-blue-400'
+								: 'text-vibe-fg-3 border-transparent hover:bg-vibe-bg-3 hover:text-vibe-fg-2'}`}
+						>
+							<span className="truncate">{label}</span>
+							{openTabIds.length > 1 && (
+								<button
+									type="button"
+									className="opacity-0 group-hover:opacity-100 hover:text-vibe-fg-1 shrink-0"
+									title={chatS.chatTabCloseTooltip}
+									onClick={(e) => { e.stopPropagation(); chatThreadsService.closeTab(id); }}
+								><IconClose size={11} /></button>
+							)}
+						</div>
+					);
+				})}
+				<button
+					type="button"
+					className="shrink-0 px-1 py-0.5 rounded text-vibe-fg-3 hover:text-vibe-fg-1 hover:bg-vibe-bg-3"
+					title={chatS.chatTabNewTooltip}
+					onClick={() => chatThreadsService.forceCreateNewThread()}
+				><IconPlus size={13} /></button>
+			</div>
+			{/* Journal button and history rail toggle — beside the scrolling tabs, so they stay in view however many tabs there are. */}
+			<div className="flex items-center gap-0.5 shrink-0 px-1 bg-vibe-bg-2">
 				<ChatJournalButton boundaryRef={boundaryRef} />
 				<button
 					type="button"

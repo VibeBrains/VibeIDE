@@ -162,3 +162,38 @@
 	background: var(--vibe-bg-3);
 	color: var(--vibe-fg-1);
 }
+
+/* ── Tab strip of the chat ─────────────────────────────────────────────────────────────────
+   The tabs scroll in a box of their own and the buttons of the header sit beside it
+   A tab that runs out of the box at the right fades out instead of being cut, the way the label of a tab in the right panel
+   fades under its close cross: a mask on the box, so the colour behind the tabs does not matter and no colour is written here
+   ChatTabStrip adds the class only while there are tabs past the edge */
+
+.vibe-scope .vibe-tabstrip-fade-end {
+	-webkit-mask-image: linear-gradient(to right, #000 calc(100% - 28px), transparent);
+	mask-image: linear-gradient(to right, #000 calc(100% - 28px), transparent);
+}
+
+/* ── File path in the text of an entry ─────────────────────────────────────────────────────
+   The short name stands for the whole path, which is in the tooltip; a dotted underline tells there is more behind it
+   A name becomes a link, with the link colour of the theme, only once the file is known to exist */
+
+.vibe-scope .vibe-journal-path {
+	padding: 0;
+	border: 0;
+	background: transparent;
+	color: inherit;
+	font: inherit;
+	text-decoration: underline dotted;
+	text-underline-offset: 2px;
+}
+
+.vibe-scope .vibe-journal-path-link {
+	color: var(--vscode-textLink-foreground);
+	cursor: pointer;
+}
+
+.vibe-scope .vibe-journal-path-link:hover {
+	color: var(--vscode-textLink-activeForeground);
+	text-decoration-style: solid;
+}

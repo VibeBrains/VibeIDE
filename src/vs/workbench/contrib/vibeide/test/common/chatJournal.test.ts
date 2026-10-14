@@ -17,6 +17,8 @@ import {
 	countChatJournalByCategory,
 	DEFAULT_CHAT_JOURNAL_MAX_ENTRIES,
 	filterChatJournal,
+	findFilePathsInText,
+	labelFilePaths,
 	markChatJournalRead,
 	parseChatJournal,
 	previewChatJournalText,
@@ -216,5 +218,59 @@ suite('Chat journal — pure model', () => {
 			unclosed: [{ text: '**не закрыто', style: 'plain' }],
 			empty: [],
 		});
+	});
+
+	test('paths: absolute file paths are found, directories, URLs, relative paths and versions are not', () => {
+		assert.deepStrictEqual({
+			posix: findFilePathsInText('Правка в /private/tmp/x/note.md не прошла'),
+			sentenceEnd: findFilePathsInText('Смотри /a/b/c.ts. И ещё (/a/b/d.ts), а также "/a/b/e.ts":'),
+			windows: findFilePathsInText('C:\\Users\\me\\proj\\note.md и D:/x/y.json'),
+			hiddenFile: findFilePathsInText('/home/me/.gitignore'),
+			skipped: findFilePathsInText('/usr/local/bin и https://host.ru/a/b.html и ./a/b.md и 12/10/2026 и /api/v1.2 и gpt-5 / x'),
+			spaceEnds: findFilePathsInText('/a/my dir/file.md'),
+		}, {
+			posix: [{ index: 9, path: '/private/tmp/x/note.md' }],
+			sentenceEnd: [{ index: 7, path: '/a/b/c.ts' }, { index: 25, path: '/a/b/d.ts' }, { index: 46, path: '/a/b/e.ts' }],
+			windows: [{ index: 0, path: 'C:\\Users\\me\\proj\\note.md' }, { index: 27, path: 'D:/x/y.json' }],
+			hiddenFile: [{ index: 0, path: '/home/me/.gitignore' }],
+			skipped: [],
+			spaceEnds: [],
+		});
+	});
+
+	test('paths: the label is the file name, the parent folder is added only where names collide', () => {
+		const labels = labelFilePaths(['/a/x/note.md', '/a/y/note.md', '/b/y/note.md', '/a/x/other.md', '/a/x/note.md', 'C:\\p\\q\\z.ts']);
+		assert.deepStrictEqual([...labels], [
+			['/a/x/note.md', 'x/note.md'],
+			['/a/y/note.md', 'a/y/note.md'],
+			['/b/y/note.md', 'b/y/note.md'],
+			['/a/x/other.md', 'other.md'],
+			['C:\\p\\q\\z.ts', 'z.ts'],
+		]);
+		assert.deepStrictEqual([...labelFilePaths(['/a/x/note.md', '/b/y/note.md'])], [['/a/x/note.md', 'x/note.md'], ['/b/y/note.md', 'y/note.md']]);
+		assert.deepStrictEqual([...labelFilePaths(['/a/note.md', '/a/note.md'])], [['/a/note.md', 'note.md']]);
+	});
+
+	test('spans: a path inside plain text and inside code is a span of its own with the short name', () => {
+		assert.deepStrictEqual(chatJournalSpansOf('Файл `/private/tmp/x/note.md` и /private/tmp/y/note.md изменён'), [
+			{ text: 'Файл ', style: 'plain' },
+			{ text: '/private/tmp/x/note.md', style: 'code', path: { path: '/private/tmp/x/note.md', label: 'x/note.md' } },
+			{ text: ' и ', style: 'plain' },
+			{ text: '/private/tmp/y/note.md', style: 'plain', path: { path: '/private/tmp/y/note.md', label: 'y/note.md' } },
+			{ text: ' изменён', style: 'plain' },
+		]);
+		// The head of an entry: the second path is cut off, but the first keeps the name it has in the whole text
+		const whole = 'Файлы: /p/x/note.md и /p/y/note.md';
+		assert.deepStrictEqual(chatJournalSpansOf('Файлы: /p/x/note.md и', whole), [
+			{ text: 'Файлы: ', style: 'plain' },
+			{ text: '/p/x/note.md', style: 'plain', path: { path: '/p/x/note.md', label: 'x/note.md' } },
+			{ text: ' и', style: 'plain' },
+		]);
+		assert.deepStrictEqual(chatJournalSpansOf('**Правка** /a/b/note.md.'), [
+			{ text: 'Правка', style: 'bold' },
+			{ text: ' ', style: 'plain' },
+			{ text: '/a/b/note.md', style: 'plain', path: { path: '/a/b/note.md', label: 'note.md' } },
+			{ text: '.', style: 'plain' },
+		]);
 	});
 });

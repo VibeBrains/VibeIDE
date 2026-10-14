@@ -159,18 +159,117 @@ export function previewChatJournalText(text: string): { readonly text: string; r
 	return { text: head.length > CHAT_JOURNAL_PREVIEW_CHARS ? `${head.slice(0, CHAT_JOURNAL_PREVIEW_CHARS - 1)}…` : `${head}…`, truncated: true };
 }
 
+/** A file path found in a text: the panel shows `label`, the tooltip and the click use `path` */
+export interface ChatJournalPathRef {
+	readonly path: string;
+	readonly label: string;
+}
+
 export interface ChatJournalSpan {
+	/** For a path span this is the full path as written */
 	readonly text: string;
 	readonly style: 'plain' | 'bold' | 'code';
+	readonly path?: ChatJournalPathRef;
 }
 
 const INLINE_MARKUP = /\*\*(?<bold>[^*\n]+)\*\*|`(?<code>[^`\n]+)`/g;
 
 /**
+ * An absolute path, POSIX (`/dir/file.md`) or Windows (`C:\dir\file.md`, `C:/dir/file.md`)
+ * Space, quotes, brackets and glob marks end a path
+ * The lookbehind keeps it from continuing a word, a URL (`host/a/b.html`) or a relative path (`./a/b.md`):
+ * a relative path is short already and cannot be told from a fraction or a date
+ */
+const FILE_PATH = /(?<![\w.~/\\:-])(?:\/(?:[^\s`'"<>|*?()[\]{}/\\]+\/)+[^\s`'"<>|*?()[\]{}/\\]+|[A-Za-z]:[\\/](?:[^\s`'"<>|*?()[\]{}/\\]+[\\/])*[^\s`'"<>|*?()[\]{}/\\]+)/g;
+const PATH_TRAILING_PUNCTUATION = /[.,;:!?]+$/;
+/** A file name has an extension with a letter in it: `note.md`, `.gitignore`; `v1.2` is a version */
+const FILE_EXTENSION = /\.(?=[A-Za-z0-9]*[A-Za-z])[A-Za-z0-9]{1,12}$/;
+
+export interface FoundFilePath {
+	readonly index: number;
+	readonly path: string;
+}
+
+/**
+ * The absolute paths of files in a text, in order of appearance
+ * Only a path whose last segment looks like a file name counts: a directory cannot be opened in an editor
+ * A path with a space in it ends at the space
+ */
+export function findFilePathsInText(text: string): readonly FoundFilePath[] {
+	const found: FoundFilePath[] = [];
+	for (const match of text.matchAll(FILE_PATH)) {
+		const path = match[0].replace(PATH_TRAILING_PUNCTUATION, '');
+		if (FILE_EXTENSION.test(path)) {
+			found.push({ index: match.index, path });
+		}
+	}
+	return found;
+}
+
+function pathSegmentsOf(path: string): readonly string[] {
+	return path.split(/[\\/]/).filter(segment => segment.length > 0);
+}
+
+/**
+ * The short name of every path: its file name
+ * Paths that would get the same name get the parent folder in front, and one more folder until the names differ
+ * The same path twice is one path and keeps the short name
+ */
+export function labelFilePaths(paths: readonly string[]): ReadonlyMap<string, string> {
+	const unique = [...new Set(paths)];
+	const segments = new Map(unique.map(path => [path, pathSegmentsOf(path)] as const));
+	const depth = new Map(unique.map(path => [path, 1]));
+	const labelOf = (path: string) => segments.get(path)!.slice(-depth.get(path)!).join('/');
+	for (; ;) {
+		const groups = new Map<string, string[]>();
+		for (const path of unique) {
+			const label = labelOf(path);
+			groups.set(label, [...(groups.get(label) ?? []), path]);
+		}
+		let widened = false;
+		for (const group of groups.values()) {
+			if (group.length < 2) { continue; }
+			for (const path of group) {
+				if (depth.get(path)! < segments.get(path)!.length) {
+					depth.set(path, depth.get(path)! + 1);
+					widened = true;
+				}
+			}
+		}
+		if (!widened) { break; }
+	}
+	return new Map(unique.map(path => [path, labelOf(path)] as const));
+}
+
+/**
+ * Each span cut at the file paths in it; the pieces that are paths carry the short name
+ * The names are made unique among the paths of `labelContext`, which is the whole text when the spans are only its head
+ */
+function withFilePaths(spans: readonly ChatJournalSpan[], labelContext: string): readonly ChatJournalSpan[] {
+	const perSpan = spans.map(span => findFilePathsInText(span.text));
+	const labels = labelFilePaths([...perSpan.flatMap(found => found.map(item => item.path)), ...findFilePathsInText(labelContext).map(item => item.path)]);
+	if (perSpan.every(found => found.length === 0)) { return spans; }
+	const out: ChatJournalSpan[] = [];
+	spans.forEach((span, i) => {
+		let from = 0;
+		for (const { index, path } of perSpan[i]!) {
+			if (index > from) { out.push({ text: span.text.slice(from, index), style: span.style }); }
+			out.push({ text: path, style: span.style, path: { path, label: labels.get(path)! } });
+			from = index + path.length;
+		}
+		if (from < span.text.length) { out.push({ text: span.text.slice(from), style: span.style }); }
+	});
+	return out;
+}
+
+/**
  * The text split into the two inline marks the sources use: `**bold**` and `` `code` ``
  * Nothing else is read as markup, so a path with an underscore or a list dash stays as written
+ * An absolute path to a file is a span of its own with a short name, see `findFilePathsInText`
+ * `labelContext` is the text the short names are made unique within: pass the whole entry when `text` is only its head,
+ * so that a path is not renamed when the rest of the entry is shown
  */
-export function chatJournalSpansOf(text: string): readonly ChatJournalSpan[] {
+export function chatJournalSpansOf(text: string, labelContext: string = text): readonly ChatJournalSpan[] {
 	const spans: ChatJournalSpan[] = [];
 	let from = 0;
 	for (const match of text.matchAll(INLINE_MARKUP)) {
@@ -180,7 +279,7 @@ export function chatJournalSpansOf(text: string): readonly ChatJournalSpan[] {
 		from = match.index + match[0].length;
 	}
 	if (from < text.length) { spans.push({ text: text.slice(from), style: 'plain' }); }
-	return spans;
+	return withFilePaths(spans, labelContext);
 }
 
 export function serializeChatJournal(entries: readonly ChatJournalEntry[]): string {

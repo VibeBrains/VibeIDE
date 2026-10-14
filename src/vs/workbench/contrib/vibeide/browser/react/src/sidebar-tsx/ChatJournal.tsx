@@ -13,6 +13,7 @@ import {
 	ChatJournalAction,
 	ChatJournalCategory,
 	ChatJournalEntry,
+	ChatJournalPathRef,
 	chatJournalSpansOf,
 	countChatJournalByCategory,
 	filterChatJournal,
@@ -38,10 +39,40 @@ const JournalActionButton = ({ action, onRun }: { action: ChatJournalAction; onR
 	);
 };
 
+/**
+ * A file path of the text, shown as its short name with the full path in the tooltip (the global `vibe-tooltip` of the chat)
+ * The name is a link only when the file exists: the check is asynchronous, so a path starts as plain text
+ */
+const JournalFilePath = ({ pathRef, onRun }: { pathRef: ChatJournalPathRef; onRun: (action: ChatJournalAction) => void }) => {
+	const fileService = useAccessor().get('IFileService');
+	const uri = useMemo(() => URI.file(pathRef.path), [pathRef.path]);
+	const [isFile, setIsFile] = useState(false);
+	useEffect(() => {
+		let isCurrent = true;
+		setIsFile(false);
+		fileService.stat(uri).then(stat => { if (isCurrent) { setIsFile(stat.isFile); } }, () => { /* a missing or unreadable file stays plain text */ });
+		return () => { isCurrent = false; };
+	}, [fileService, uri]);
+
+	const tooltip = { 'data-tooltip-id': 'vibe-tooltip', 'data-tooltip-content': pathRef.path, 'data-tooltip-place': 'top' } as const;
+	if (!isFile) {
+		return <span className='@@vibe-journal-path' {...tooltip}>{pathRef.label}</span>;
+	}
+	return (
+		<button
+			type='button'
+			className='@@vibe-journal-path @@vibe-journal-path-link'
+			{...tooltip}
+			onClick={() => onRun({ kind: 'openFile', resource: uri.toString() })}
+		>{pathRef.label}</button>
+	);
+};
+
 const JournalEntryRow = ({ entry, isFresh, onRun }: { entry: ChatJournalEntry; isFresh: boolean; onRun: (action: ChatJournalAction) => void }) => {
 	const [expanded, setExpanded] = useState(false);
 	const preview = useMemo(() => previewChatJournalText(entry.text), [entry.text]);
-	const spans = useMemo(() => chatJournalSpansOf(expanded ? entry.text : preview.text), [expanded, entry.text, preview.text]);
+	// The names are made unique within the whole text, so a path keeps its name when the entry is expanded
+	const spans = useMemo(() => chatJournalSpansOf(expanded ? entry.text : preview.text, entry.text), [expanded, entry.text, preview.text]);
 	const isWarning = entry.level === 'warning';
 	return (
 		<li className={`@@vibe-journal-entry ${isWarning ? '@@vibe-journal-entry-warning' : ''} ${isFresh ? '@@vibe-journal-entry-fresh' : ''}`}>
@@ -61,11 +92,14 @@ const JournalEntryRow = ({ entry, isFresh, onRun }: { entry: ChatJournalEntry; i
 					{isFresh && <span className='@@vibe-journal-fresh-dot' title={chatS.journalNew} />}
 				</div>
 				<div className='@@vibe-journal-text text-[12px] text-vibe-fg-1'>
-					{spans.map((span, i) => span.style === 'bold'
-						? <strong key={i}>{span.text}</strong>
-						: span.style === 'code'
-							? <code key={i} className='@@vibe-journal-code'>{span.text}</code>
-							: <span key={i}>{span.text}</span>)}
+					{spans.map((span, i) => {
+						const content = span.path ? <JournalFilePath pathRef={span.path} onRun={onRun} /> : span.text;
+						return span.style === 'bold'
+							? <strong key={i}>{content}</strong>
+							: span.style === 'code'
+								? <code key={i} className='@@vibe-journal-code'>{content}</code>
+								: <span key={i}>{content}</span>;
+					})}
 				</div>
 				{(preview.truncated || entry.actions?.length) ? (
 					<div className='flex flex-wrap items-center gap-1.5'>
