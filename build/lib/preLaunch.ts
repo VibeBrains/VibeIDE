@@ -5,6 +5,7 @@
 import path from 'path';
 import { spawn } from 'child_process';
 import { promises as fs } from 'fs';
+import { electronExecutableRelPath, isExpectedElectronInstalled } from './electronInstall.ts';
 
 const npm = process.platform === 'win32' ? 'npm.cmd' : 'npm';
 const rootDir = path.resolve(import.meta.dirname, '..', '..');
@@ -40,7 +41,18 @@ async function ensureNodeModules() {
 	}
 }
 
+/**
+ * Makes sure `.build/electron` holds the Electron from `.npmrc`
+ * `npm run electron` (`electron.ts`) keeps an install of that version and downloads into a staging folder otherwise,
+ * so a run without a network leaves the existing install in place instead of an empty folder
+ * It is also skipped here when the install matches, which saves a node start for every launch
+ * (and, on Windows, the file locks of an Electron that has just exited, that made the old delete-and-extract flaky)
+ */
 async function getElectron() {
+	if (await hasExpectedElectron()) {
+		return;
+	}
+
 	const max = Math.max(1, Number.parseInt(process.env['VSCODE_ELECTRON_DOWNLOAD_RETRIES'] ?? '5', 10) || 5);
 	for (let attempt = 1; attempt <= max; attempt++) {
 		const code = await runProcessReturnCode(npm, ['run', 'electron']);
@@ -56,26 +68,14 @@ async function getElectron() {
 			process.exit(code ?? 1);
 		}
 	}
-	// `npm run electron` deletes and re-downloads `.build/electron` on every
-	// invocation. When preLaunch runs repeatedly (e.g. once per integration test
-	// section) this is both wasteful and a source of flaky failures on Windows,
-	// where the just-exited Electron process can still hold file locks while the
-	// directory is being removed and re-extracted. Skip the refresh when the
-	// already-present Electron matches the expected version; any detection
-	// failure falls back to a (re)download to preserve the previous behavior.
-	if (await isExpectedElectronInstalled()) {
-		return;
-	}
-
-	await runProcess(npm, ['run', 'electron']);
 }
 
-async function isExpectedElectronInstalled(): Promise<boolean> {
+async function hasExpectedElectron(): Promise<boolean> {
 	try {
 		const { getElectronVersion } = await import('./util.ts');
 		const { electronVersion } = getElectronVersion();
-		const installedVersion = (await fs.readFile(path.join(rootDir, '.build', 'electron', 'version'), 'utf8')).trim().replace(/^v/, '');
-		return installedVersion === electronVersion;
+		const names = JSON.parse(await fs.readFile(path.join(rootDir, 'product.json'), 'utf8'));
+		return await isExpectedElectronInstalled(path.join(rootDir, '.build', 'electron'), electronVersion, electronExecutableRelPath(process.platform, names));
 	} catch {
 		return false;
 	}
