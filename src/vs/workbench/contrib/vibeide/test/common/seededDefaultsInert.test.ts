@@ -12,6 +12,7 @@ import { parseHookConfig } from '../../common/hooks/hookConfig.js';
 import { parseProvidersFile } from '../../common/vibeProvidersFile.js';
 import { parseDeclaredMoment } from '../../common/modelPriceSchedule.js';
 import { isUntouchedPastRevision } from '../../common/vibeDefaults.js';
+import { parseRuleFrontmatter, parseAlwaysApply, parseTriggers, parseGlobs, decideRuleActivation } from '../../common/prompt/ruleFrontmatter.js';
 
 /**
  * Что засеянное окружение делает само, а чего не делает.
@@ -53,6 +54,20 @@ suite('засеянное окружение .vibe: что включено, а 
 		const config = parseHookConfig(seed('hooks.json'));
 		assert.deepStrictEqual(config.problems, []);
 		assert.deepStrictEqual(config.hooks, []);
+	});
+
+	/**
+	 * A rule that changes how the agent works on every turn ships OFF: the user switches it on with `alwaysApply: true`.
+	 * Off here means «listed as available, body not injected» — the same state the settings panel labels «по запросу».
+	 */
+	test('правило «бригадир» засевается выключенным: в списке доступных, но не в промпте', () => {
+		const parsed = parseRuleFrontmatter(seed('rules/brigadir-ekonomiya-tokenov.mdc'));
+		const meta = { alwaysApply: parseAlwaysApply(parsed.frontmatter), triggers: parseTriggers(parsed.frontmatter), globs: parseGlobs(parsed.frontmatter) };
+		assert.deepStrictEqual({ meta, activation: decideRuleActivation(meta, { userText: 'бригадир, экономим токены' }) }, {
+			meta: { alwaysApply: false, triggers: [], globs: [] },
+			activation: 'index',
+		});
+		assert.ok(parsed.frontmatter['description'], 'у правила нет description — в списке доступных оно будет безымянным');
 	});
 
 	test('servers.json разбирается и не поднимает серверов', () => {
