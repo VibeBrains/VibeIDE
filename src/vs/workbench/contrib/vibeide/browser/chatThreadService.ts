@@ -50,6 +50,7 @@ import { BranchMessageShape, resolveBranchCutoff } from '../common/threadBranchi
 import { IVibeHooksService } from '../common/hooks/vibeHookTypes.js';
 import { toolMatchesPlanHints, resolveToolClass } from '../common/planToolDrift.js';
 import { promptCacheKeyOf } from '../common/promptCacheKey.js';
+import { SECRET_DISABLED_RULES_SETTING, secretNoticeScopeOf } from '../common/secretNotice.js';
 import { IVibeSpecsService } from './vibeSpecsService.js';
 import { IVibeTokenSavingsService } from './vibeTokenSavingsService.js';
 import { IBackgroundCommandExit, IToolsService } from './toolsService.js';
@@ -3757,6 +3758,7 @@ Output ONLY the JSON, no other text. Start with { and end with }.`;
 					modelSelectionOptions,
 					overridesOfModel: this._settingsService.state.overridesOfModel,
 					promptCacheKey: promptCacheKeyOf(threadId, 'plan'),
+					secretNoticeScope: secretNoticeScopeOf(threadId, thread.messages),
 					logging: { loggingName: 'Plan Generation', loggingExtras: { threadId } },
 					separateSystemMessage: undefined,
 					onText: ({ fullText }) => {
@@ -5362,7 +5364,7 @@ Output ONLY the JSON, no other text. Start with { and end with }.`;
 							label: localize('vibeide.agent.blockedByBreaker.disableForever', 'Где выключить правило'),
 							tooltip: '',
 							class: undefined,
-							run: () => { void this._commandService.executeCommand('workbench.action.openSettings', 'vibeide.secretDetection.disabledPatternIds'); },
+							run: () => { void this._commandService.executeCommand('workbench.action.openSettings', SECRET_DISABLED_RULES_SETTING); },
 						}, {
 							id: 'vibeide.agent.openCircuitBreakers',
 							enabled: true,
@@ -6792,6 +6794,7 @@ Output ONLY the JSON, no other text. Start with { and end with }.`;
 					// The loop below repeats a failed send itself, once and by one policy
 					sdkMaxRetries: 0,
 					promptCacheKey: promptCacheKeyOf(threadId, 'agent'),
+					secretNoticeScope: secretNoticeScopeOf(threadId, this.state.allThreads[threadId]?.messages ?? []),
 					previousResponseId: this._lastResponseIdOfConversation.get(promptCacheKeyOf(threadId, 'agent')),
 					servedModel: this._servedModelFor(threadId, modelSelection),
 					logging: { loggingName: `Chat - ${chatMode}`, loggingExtras: { threadId, nMessagesSent, chatMode, requestId: finalRequestId } },
