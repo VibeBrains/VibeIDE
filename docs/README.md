@@ -40,7 +40,7 @@
 - [serversSpec.md](manuals/serversSpec.md) — формат `.vibe/servers.json`: дев-стек проекта, порядок запуска, проверки готовности (скормить LLM → готовый конфиг).
 - [agentsSpec.md](manuals/agentsSpec.md) — формат `.vibe/agents.json`: внешние агенты проекта по ACP, разрешения и чекпоинты по их правкам (скормить LLM → готовый конфиг).
 - [hooksSpec.md](manuals/hooksSpec.md) — формат `.vibe/hooks.json`: команды проекта вокруг работы агента (скормить LLM → готовый конфиг).
-- [mcpSpec.md](manuals/mcpSpec.md) — формат `~/.vibeide/mcp.json`: MCP-серверы агента, команда или адрес, выбор транспорта, проверки при загрузке (скормить LLM → готовый конфиг).
+- [mcpSpec.md](manuals/mcpSpec.md) — формат `~/.vibe/mcp.json` и `.vibe/mcp.json` проекта (общий для VibeIDE и VibeIDEA): MCP-серверы агента, команда или адрес, выбор транспорта, перенос из прежнего файла, проверки при загрузке (скормить LLM → готовый конфиг).
 - [extractStructuredSpec.md](manuals/extractStructuredSpec.md) — инструмент `extract_structured`: данные со страницы по JSON-схеме через модель извлечения (скормить LLM → готовая схема).
 - [rolesSpec.md](manuals/rolesSpec.md) — формат `.vibe/roles.json`: умолчания ролей агента, общие с VibeIDEA; куда пишет `qa` (скормить LLM → готовый файл).
 - [agentPathRulesSpec.md](manuals/agentPathRulesSpec.md) — правила на пути агента: `.vibe/constraints.json`, `.vibe/permissions.json`, `.vibe/ignore` — шаблоны от корня проекта, порядок решения, примеры (скормить LLM → готовые файлы).

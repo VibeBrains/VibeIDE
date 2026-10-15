@@ -184,10 +184,24 @@ export interface MCPConfigFileEntryJSON {
 	 * are untrusted by the MCP spec, so a read-only profile is a list the user wrote, not a claim the server made.
 	 */
 	tools?: string[];
+
+	/**
+	 * The entry stays in the file but the server is not started, in VibeIDE and in VibeIDEA alike.
+	 * It switches the server off for good; the switch in the settings is VibeIDE's own and cannot override it.
+	 */
+	disabled?: boolean;
 }
 
 export interface MCPConfigFileJSON {
 	mcpServers: Record<string, MCPConfigFileEntryJSON>;
+}
+
+/**
+ * Names this window wants but cannot have: another window runs a server under the same name with a different launch.
+ * Sent to that window alone. Servers live in the main process and are shared, so a name is one server for every window.
+ */
+export interface MCPNameConflicts {
+	readonly names: readonly string[];
 }
 
 /**

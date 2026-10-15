@@ -8,6 +8,7 @@
 // can't make a service responsible for this, because it needs
 // to be connected to the main process and node dependencies
 
+import { localize } from '../../../../nls.js';
 import { vibeLog } from '../common/vibeLog.js';
 import { IConnectionHub, IServerChannel } from '../../../../base/parts/ipc/common/ipc.js';
 import { Emitter, Event } from '../../../../base/common/event.js';
@@ -17,10 +18,10 @@ import { ILifecycleMainService } from '../../../../platform/lifecycle/electron-m
 // MCP SDK client/transport modules are heavy and electron-main start-up sensitive; they are
 // loaded lazily via `await import(...)` inside `_createClientUnsafe`. Type-only positions use
 // inline `import('...')` type expressions so no value import reaches module scope.
-import { MCPConfigFileEntryJSON, MCPServer, MCPTool, RawMCPToolCall, MCPToolErrorResponse, MCPServerEventResponse, MCPToolCallParams, MCPReadResourceParams, MCPAppRequestOutcome, MCPSyncParams } from '../common/mcpServiceTypes.js';
+import { MCPConfigFileEntryJSON, MCPServer, MCPTool, RawMCPToolCall, MCPToolErrorResponse, MCPServerEventResponse, MCPToolCallParams, MCPReadResourceParams, MCPAppRequestOutcome, MCPSyncParams, MCPNameConflicts } from '../common/mcpServiceTypes.js';
 import { MCP } from '../../mcp/common/modelContextProtocol.js';
 import { mcpAppsClientCapabilities } from '../common/mcpApps.js';
-import { KnownMCPServer, MCPServerAction, mcpServerFingerprint, reconcileMCPServers, WantedMCPServer } from '../common/mcpReconcile.js';
+import { KnownMCPServer, MCPServerAction, mcpServerFingerprint, reconcileMCPServers, unitePictures, WantedMCPServer } from '../common/mcpReconcile.js';
 import { describeUnauthorizedHelper, helperHeadersOf, mergeServerEnv, transportRequestInit } from '../common/mcpServerEnv.js';
 import { McpCacheableMeta, parseCacheableMeta, refreshDelayMs } from '../common/mcpCacheableResult.js';
 import { describeUnansweredInput, parseInputRequired, withInputResponses } from '../common/mcpMultiRoundTrip.js';
@@ -77,6 +78,9 @@ function displayCommandOf(entry: MCPConfigFileEntryJSON): string {
  * MCP clients of the whole app. They live here, in the main process, and every window shares them, so
  * what runs here is the only truth about what runs: a window states the servers it wants
  * (`syncMCPServers`) and this channel brings the running set in line (common/mcpReconcile.ts).
+ *
+ * Every window's last picture is kept, and what runs is the union of them: windows read the same user file
+ * but not the same project file, and one window must not close what another window's project asks for.
  */
 export class MCPChannel extends Disposable implements IServerChannel {
 
@@ -90,6 +94,10 @@ export class MCPChannel extends Disposable implements IServerChannel {
 	private readonly _isOnOfName = new Map<string, boolean>();
 	/** Each window's MCP Apps setting by IPC context; clients announce MCP Apps while any window has it on. */
 	private readonly _appsEnabledOfWindow = new Map<string, boolean>();
+	/** Each window's last picture by IPC context, in the order the windows first spoke */
+	private readonly _pictureOfWindow = new Map<string, MCPSyncParams>();
+	/** The conflicts last told to each window, as a signature: a window hears only when its set changes */
+	private readonly _conflictSignatureOfWindow = new Map<string, string>();
 	/** Syncs and toggles run one at a time: two windows syncing at once would each start the same server. */
 	private _queue: Promise<void> = Promise.resolve();
 
@@ -108,13 +116,16 @@ export class MCPChannel extends Disposable implements IServerChannel {
 		};
 	};
 
+	/** Names a window cannot have, addressed to it by IPC context: other windows do not hear them */
+	private readonly _onNameConflicts = this._register(new Emitter<{ readonly ctx: string } & MCPNameConflicts>());
+
 	constructor(
 		connections: IConnectionHub<string>,
 		lifecycleMainService: ILifecycleMainService,
 	) {
 		super();
-		// A closed window has no more say in what the clients announce; a reloaded one says it again in its sync.
-		this._register(connections.onDidRemoveConnection(connection => this._appsEnabledOfWindow.delete(connection.ctx)));
+		// A closed window has no more say in what the clients announce or in what runs; a reloaded one says it again in its sync.
+		this._register(connections.onDidRemoveConnection(connection => this._forgetWindow(connection.ctx)));
 		// The clients end with the app instead of outliving it as orphaned server processes. Deliberately not
 		// registered with this channel: the app disposes its channels in an earlier listener of this same event,
 		// and a disposed listener is skipped — the clients would never be closed.
@@ -158,7 +169,7 @@ export class MCPChannel extends Disposable implements IServerChannel {
 	}
 
 	// browser uses this to listen for changes
-	listen<T>(_: unknown, event: string): Event<T> {
+	listen<T>(ctx: unknown, event: string): Event<T> {
 
 		// server events
 		if (event === 'onAdd_server') { return this.mcpEmitters.serverEvent.onAdd.event as Event<T>; }
@@ -166,6 +177,8 @@ export class MCPChannel extends Disposable implements IServerChannel {
 		else if (event === 'onDelete_server') { return this.mcpEmitters.serverEvent.onDelete.event as Event<T>; }
 		// Просьба сервера о вводе (MRTR): окно показывает вопрос и отвечает `answerInputRequest`.
 		else if (event === 'onInputRequest') { return this._onInputRequest.event as Event<T>; }
+		// A name taken by another window's server: told to the window it concerns only.
+		else if (event === 'onNameConflicts') { return Event.filter(this._onNameConflicts.event, e => e.ctx === ctx) as Event<T>; }
 		// else if (event === 'onLoading_server') return this.mcpEmitters.serverEvent.onChangeLoading.event;
 
 		// tool call events
@@ -243,21 +256,57 @@ export class MCPChannel extends Disposable implements IServerChannel {
 	 */
 	private _syncMCPServers(ctx: string, params: MCPSyncParams): Promise<void> {
 		this._appsEnabledOfWindow.set(ctx, params.appsEnabled);
-		return this._enqueue(async () => {
-			const appsEnabled = this._effectiveAppsEnabled();
-			const known: Record<string, KnownMCPServer> = {};
-			for (const [name, info] of Object.entries(this.infoOfClientId)) {
-				known[name] = this._knownOf(info);
+		this._pictureOfWindow.set(ctx, params);
+		return this._enqueue(() => this._reconcileWindows());
+	}
+
+	/**
+	 * A closed window takes its picture with it: a server only its project asked for is closed.
+	 * The last window going away changes nothing — the app may stay open without windows, and the servers with it.
+	 */
+	private _forgetWindow(ctx: string): void {
+		this._appsEnabledOfWindow.delete(ctx);
+		this._conflictSignatureOfWindow.delete(ctx);
+		if (this._pictureOfWindow.delete(ctx) && this._pictureOfWindow.size > 0) {
+			void this._enqueue(() => this._reconcileWindows());
+		}
+	}
+
+	/** What runs, brought in line with the union of every window's picture */
+	private async _reconcileWindows(): Promise<void> {
+		const appsEnabled = this._effectiveAppsEnabled();
+		const known: Record<string, KnownMCPServer> = {};
+		const runningFingerprintOfName: Record<string, string> = {};
+		for (const [name, info] of Object.entries(this.infoOfClientId)) {
+			known[name] = this._knownOf(info);
+			if (info.client !== undefined) {
+				runningFingerprintOfName[name] = info.fingerprint;
 			}
-			const wanted: Record<string, WantedMCPServer> = {};
-			for (const [name, entry] of Object.entries(params.entries)) {
-				const isOn = this._isOnOfName.get(name) ?? params.enabledOfName[name] !== false;
-				wanted[name] = { fingerprint: mcpServerFingerprint(entry, appsEnabled), isOn };
+		}
+		const united = unitePictures(this._pictureOfWindow, runningFingerprintOfName, appsEnabled);
+		const wanted: Record<string, WantedMCPServer> = {};
+		for (const [name, entry] of Object.entries(united.entries)) {
+			// `disabled` in the file is final: the settings switch cannot turn on what the file turned off
+			const isOn = entry.disabled !== true && (this._isOnOfName.get(name) ?? united.enabledOfName[name] !== false);
+			wanted[name] = { fingerprint: mcpServerFingerprint(entry, appsEnabled), isOn };
+		}
+		const actions = reconcileMCPServers(known, wanted);
+		await Promise.allSettled(Object.entries(actions).map(([name, action]) =>
+			this._applyAction(name, action, Object.hasOwn(united.entries, name) ? united.entries[name] : undefined, appsEnabled)));
+		this._tellConflicts(united.conflictsOfWindow);
+	}
+
+	/** A window hears its conflicts when they change, an empty list included: that is how it learns a name is free again */
+	private _tellConflicts(conflictsOfWindow: Readonly<Record<string, readonly string[]>>): void {
+		for (const [ctx, names] of Object.entries(conflictsOfWindow)) {
+			const signature = [...names].sort().join('\n');
+			const before = this._conflictSignatureOfWindow.get(ctx) ?? '';
+			if (signature === before) {
+				continue;
 			}
-			const actions = reconcileMCPServers(known, wanted);
-			await Promise.allSettled(Object.entries(actions).map(([name, action]) =>
-				this._applyAction(name, action, Object.hasOwn(params.entries, name) ? params.entries[name] : undefined, appsEnabled)));
-		});
+			this._conflictSignatureOfWindow.set(ctx, signature);
+			this._onNameConflicts.fire({ ctx, names });
+		}
 	}
 
 	/** Tell every window a server's state; a server new to them arrives as added. */
@@ -290,7 +339,11 @@ export class MCPChannel extends Disposable implements IServerChannel {
 		}
 		await this._closeClient(name);
 		if (action === 'off') {
-			const offline: MCPServer = { status: 'offline', tools: [], command: displayCommandOf(entry) };
+			// Said where the person looks: a switch that shows «on» next to a dead server reads as a bug
+			const offline: MCPServer = {
+				status: 'offline', tools: [], command: displayCommandOf(entry),
+				...(entry.disabled === true ? { error: localize('vibeide.mcp.disabledInFile', "Сервер выключен в файле mcp.json (disabled: true). Переключатель его не включит: уберите поле в файле.") } : {}),
+			};
 			this.infoOfClientId[name] = { entry, fingerprint: mcpServerFingerprint(entry, appsEnabled), mcpServer: offline };
 			this._fireState(name, prevServer, offline);
 			return;
@@ -668,7 +721,7 @@ export class MCPChannel extends Disposable implements IServerChannel {
 			const appsEnabled = this._effectiveAppsEnabled();
 			const actions = reconcileMCPServers(
 				{ [serverName]: this._knownOf(info) },
-				{ [serverName]: { fingerprint: mcpServerFingerprint(info.entry, appsEnabled), isOn } },
+				{ [serverName]: { fingerprint: mcpServerFingerprint(info.entry, appsEnabled), isOn: isOn && info.entry.disabled !== true } },
 			);
 			await this._applyAction(serverName, actions[serverName], info.entry, appsEnabled);
 		});
