@@ -7747,6 +7747,13 @@ docs.z.ai, mimo.mi.com, agentclientprotocol.com, GHSA python-sdk, ncsc.gov.uk, a
       разбиение как множество множеств путей, подпись каждой подсистемы, одиночки — в пяти перестановках `files` и `links` (как в файле, обратный порядок, вразнобой ×3).
       Образец — `modelEchoVectors.test.ts`: версия и состав полей файла записаны в тесте, незнакомое поле роняет его. Проверено на силу: `GUESS_WEIGHT` 0.25 → 4 и сдвиг на единицу
       в `diffIdxAfterResolve` (правка собранного `out/`) роняют по одному тесту. Расхождения с VibeIDEA нет: все 8 случаев в 5 перестановках совпали с первого прогона
+- [x] **Каталог голосовых моделей — из общего набора, констант в коде нет** — ✅ (15.10.2026, `next`) `common/voice/vibeVoiceModels.ts` больше не держит адреса, размеры, SHA256 и состав профилей:
+      они читаются из `.vibe-defaults/voice/sttModels.jsonc`, который генератор `scripts/gen-stt-models.ts` вшивает в `common/voice/sttModels.generated.ts` (по образцу `slopCatalog.generated.ts`,
+      в цепочке `gen:all` и в гейте `generated-fresh-check`). Разбор и проверка — `common/voice/sttModelsCatalog.ts`: уникальные архивы, https, SHA256, размер, и каждый файл модели
+      профиля есть среди файлов её архива; тот же код читает каталог в генераторе (файл без `import`, Node стирает типы сам), так что сборка и IDE судят одинаково. Публичный интерфейс
+      `vibeVoiceModels.ts` не изменился: прежние тесты прошли без правок (пути, файлы, байты, URL). Новые: `sttModelsCatalog.test.ts` (разбор и отказы), `test/node/sttModelsFromSet.test.ts`
+      (сгенерированный модуль равен файлу набора, файл той версии и состава — незнакомое поле роняет тест). VibeIDEA тот же файл уже читала (`SttCatalog.kt`).
+      Лицензии `nemo-ctc-en` small и medium в файле набора пусты намеренно — не выдумывались
 
 ## REL-126. Релиз v1.26.0 (2026-10-15, macOS arm64 + Windows x64)
 

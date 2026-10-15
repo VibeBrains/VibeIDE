@@ -4,7 +4,7 @@
  *--------------------------------------------------------------------------------------------*/
 
 /**
- * Три файла `*.generated.ts` собираются из источников (документация, набор сидов, спеки) и при
+ * Файлы `*.generated.ts` собираются из источников (документация, набор сидов, спеки) и при
  * этом лежат в git. `precompile` перегенерирует их перед каждой компиляцией, поэтому СБОРКА
  * всегда свежая — а вот версия в репозитории отстаёт молча, пока кто-нибудь не заметит чужой
  * файл в `git status` и не догадается, что это не мусор.
@@ -34,6 +34,7 @@ const GENERATED: ReadonlyArray<{ readonly script: string; readonly out: string }
 	{ script: 'scripts/gen-specs-help.mjs', out: 'src/vs/workbench/contrib/vibeide/common/vibeSpecsHelp.generated.ts' },
 	{ script: 'scripts/gen-docs-bundle.mjs', out: 'src/vs/workbench/contrib/vibeide/common/vibeDocsBundle.generated.ts' },
 	{ script: 'scripts/gen-slop-catalog.ts', out: 'src/vs/workbench/contrib/vibeide/common/slopCatalog.generated.ts' },
+	{ script: 'scripts/gen-stt-models.ts', out: 'src/vs/workbench/contrib/vibeide/common/voice/sttModels.generated.ts' },
 ];
 
 const before = new Map<string, string>();
