@@ -296,6 +296,7 @@
 			"import './contrib/themes/browser/themes.test.contribution.js';",
 			"import './contrib/userDataSync/electron-browser/userDataSync.contribution.js';",
 			"import './contrib/vibeide/browser/vibeide.contribution.js';",
+			"import './contrib/vibeide/electron-browser/acp/vibeAcpIdeMcpService.js';",
 			"import './contrib/vibeide/electron-browser/acp/vibeAcpRegistryImportService.js';",
 			"import './contrib/vibeide/electron-browser/acp/vibeAcpService.js';",
 			"import './contrib/vibeide/electron-browser/hooks/vibeHooksService.js';",
