@@ -9,7 +9,7 @@ import {
 	formatChatTimestamp,
 	chatTimestampToISO,
 	CHAT_TIMESTAMP_STREAMING_PLACEHOLDER,
-	CHAT_USER_MESSAGE_TIME_PATTERN,
+	CHAT_JOURNAL_TIME_PATTERN,
 } from '../../common/chatTimestampFormatter.js';
 import { ensureNoDisposablesAreLeakedInTestSuite } from '../../../../../base/test/common/utils.js';
 
@@ -64,7 +64,7 @@ suite('Chat timestamp formatter — pure helpers', () => {
 
 		test('journal time pattern is the zero-padded time without the date', () => {
 			const d = new Date(2026, 4, 8, 9, 3, 7);
-			assert.strictEqual(formatChatTimestamp(d.getTime(), CHAT_USER_MESSAGE_TIME_PATTERN), '09:03');
+			assert.strictEqual(formatChatTimestamp(d.getTime(), CHAT_JOURNAL_TIME_PATTERN), '09:03');
 		});
 
 		test('non-finite input returns empty string', () => {

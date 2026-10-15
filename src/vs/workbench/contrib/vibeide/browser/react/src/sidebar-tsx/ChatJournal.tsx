@@ -20,7 +20,7 @@ import {
 	previewChatJournalText,
 	summarizeChatJournal,
 } from '../../../../common/chatJournal.js';
-import { CHAT_TIMESTAMP_TOOLTIP_PATTERN, CHAT_USER_MESSAGE_TIME_PATTERN, chatTimestampToISO, formatChatTimestamp } from '../../../../common/chatTimestampFormatter.js';
+import { CHAT_TIMESTAMP_TOOLTIP_PATTERN, CHAT_JOURNAL_TIME_PATTERN, chatTimestampToISO, formatChatTimestamp } from '../../../../common/chatTimestampFormatter.js';
 
 /** The widest the panel gets; in a narrow chat it takes the width of the chat column instead */
 const PANEL_MAX_WIDTH_PX = 420;
@@ -85,7 +85,7 @@ const JournalEntryRow = ({ entry, isFresh, onRun }: { entry: ChatJournalEntry; i
 			<div className='min-w-0 flex flex-col gap-1'>
 				<div className='flex items-center gap-1.5 text-[11px] text-vibe-fg-3 select-none'>
 					<time dateTime={chatTimestampToISO(entry.at)} title={formatChatTimestamp(entry.at, CHAT_TIMESTAMP_TOOLTIP_PATTERN)}>
-						{formatChatTimestamp(entry.at, CHAT_USER_MESSAGE_TIME_PATTERN)}
+						{formatChatTimestamp(entry.at, CHAT_JOURNAL_TIME_PATTERN)}
 					</time>
 					<span className='@@vibe-journal-category'>{chatS.journalCategory[entry.category]}</span>
 					{entry.count > 1 && <span className='@@vibe-journal-repeat' title={chatS.journalRepeated(entry.count)}>×{entry.count}</span>}
