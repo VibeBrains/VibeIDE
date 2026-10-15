@@ -144,7 +144,7 @@ const FALLBACK_CHAIN_LENGTH = 3;
  */
 const NO_REASONING_PENALTY_ON_DEMANDING_TASK = 20;
 
-/** Points a model that reasons earns on any task, and the extra for one that outputs its reasoning */
+/** Points a model that reasons earns on a task that leans on reasoning, and the extra for one that outputs its reasoning */
 const REASONING_BONUS = 12;
 const OUTPUT_REASONING_BONUS = 5;
 
@@ -161,15 +161,19 @@ export function taskDemandsReasoning(context: TaskContext): boolean {
 
 /**
  * What the model's reasoning adds to its score for this task
- * A model that reasons gets its bonus on every task, one that outputs its reasoning a little more
- * A model that does not reason loses points only where the task leans on reasoning
+ * It counts only where the task leans on reasoning:
+ * a model that reasons gets its bonus there, one that outputs its reasoning a little more, one that does not loses points
+ * On a light task (a plain chat, a rewrite of a text) nobody gets a bonus for thinking, so the cheaper and faster model can win
  */
 export function reasoningScoreOf(capabilities: Pick<VibeideStaticModelInfo, 'reasoningCapabilities'>, context: TaskContext): number {
+	if (!taskDemandsReasoning(context)) {
+		return 0;
+	}
 	const reasoning = capabilities.reasoningCapabilities;
 	if (reasoning && typeof reasoning === 'object' && reasoning.supportsReasoning) {
 		return reasoning.canIOReasoning ? REASONING_BONUS + OUTPUT_REASONING_BONUS : REASONING_BONUS;
 	}
-	return taskDemandsReasoning(context) ? -NO_REASONING_PENALTY_ON_DEMANDING_TASK : 0;
+	return -NO_REASONING_PENALTY_ON_DEMANDING_TASK;
 }
 
 /** The runners-up of a ranking sorted best first */
@@ -1262,8 +1266,9 @@ export class TaskAwareModelRouter extends Disposable implements ITaskAwareModelR
 			}
 		}
 
-		// Reasoning capabilities (valuable for complex tasks); a model that does not reason is weak for such a task
-		// It ranks below the models that reason, while its tier and the other bonuses still count
+		// Reasoning capabilities, valuable for tasks that lean on reasoning and nothing on the others
+		// A model that does not reason is weak for such a task: it ranks below the models that reason,
+		// while its tier and the other bonuses still count
 		score += reasoningScoreOf(capabilities, context);
 
 		// ===== COST & LATENCY PREFERENCES (Secondary Factors) =====

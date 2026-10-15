@@ -17,6 +17,7 @@ import { vibeLog } from '../../common/vibeLog.js';
 /**
  * Слабость модели для задачи — оценка, а не запрет: модель без рассуждения остаётся кандидатом «Авто»
  * Она теряет очки только там, где задача опирается на рассуждение (код, несколько шагов, отладка, ревью, безопасность)
+ * Там же думающая модель получает бонус; на лёгкой задаче (обычный чат, переписывание текста) бонуса нет ни у кого
  * Оценка читает признаки задачи, которые роутер уже знает, и профиль модели, но не её имя
  */
 suite('«Авто»: модель без рассуждения слаба для задач, которые на рассуждение опираются', () => {
@@ -60,7 +61,7 @@ suite('«Авто»: модель без рассуждения слаба дл�
 		});
 	});
 
-	/** Рассуждающая модель получает бонус везде; не рассуждающая — штраф только на задаче, что опирается на рассуждение */
+	/** Бонус и штраф есть только на задаче, что опирается на рассуждение; на лёгкой оценка рассуждения нулевая у всех */
 	test('оценка рассуждения: бонус тем, кто думает, штраф тем, кто нет, и только на трудной задаче', () => {
 		const light: TaskContext = { taskType: 'chat', isSimpleQuestion: true };
 		const demanding: TaskContext = { taskType: 'code', hasCode: true, requiresComplexReasoning: true };
@@ -72,7 +73,7 @@ suite('«Авто»: модель без рассуждения слаба дл�
 			'Text-01, трудная задача': reasoningScoreOf(caps(textModel), demanding),
 			'GPT-5 думает, не выводит рассуждение': reasoningScoreOf(getModelCapabilities('openAI', 'gpt-5', undefined), demanding),
 		}, {
-			'M3 думает и выводит рассуждение, лёгкая задача': 17,
+			'M3 думает и выводит рассуждение, лёгкая задача': 0,
 			'M3, трудная задача': 17,
 			'Text-01 не думает, лёгкая задача': 0,
 			'Text-01, трудная задача': -20,
@@ -123,6 +124,7 @@ suite('«Авто»: модель без рассуждения слаба дл�
 		assert.deepStrictEqual(await pickedByTask([m3, m2, flashPreview, textModel]), {
 			// The fast path takes the first model whose name looks fast («MiniMax» holds «mini») and builds no chain
 			'простой вопрос': [m3],
+			// A light task gives nobody a bonus for thinking: the four tie, and the order of the list decides
 			'обычный чат': withTextLast,
 			'длинный текст на переписывание': withTextLast,
 			'код': withTextLast,
@@ -133,18 +135,38 @@ suite('«Авто»: модель без рассуждения слаба дл�
 		});
 	});
 
-	test('MiniMax, модели файла впереди каталога: Text-01 на трудных задачах последняя, на простом вопросе её берёт быстрый путь', async () => {
+	test('MiniMax, модели файла впереди каталога: Text-01 на лёгких задачах впереди, на трудных последняя', async () => {
 		const thinkingFirst = [flashPreview, m3, m2, textModel];
+		const listOrder = [textModel, flashPreview, m3, m2];
 		assert.deepStrictEqual(await pickedByTask([textModel, flashPreview, m3, m2]), {
 			// Nothing bans the model: it is available, and the fast path does not weigh anything
 			'простой вопрос': [textModel],
-			'обычный чат': thinkingFirst,
-			'длинный текст на переписывание': thinkingFirst,
+			// Nobody gets a bonus for thinking on a light task, so the four tie and the first in the list answers
+			'обычный чат': listOrder,
+			'длинный текст на переписывание': listOrder,
 			'код': thinkingFirst,
 			'сложный код': thinkingFirst,
 			'несколько шагов': thinkingFirst,
 			'отладка': thinkingFirst,
 			'вопрос по кодовой базе': thinkingFirst,
+		});
+	});
+
+	/**
+	 * Думающая модель с окном 16K (окно задано настройкой) не получает очков за окно, а Text-01 с окном 1M получает
+	 * Раньше бонус за рассуждение (17 очков) на любой задаче держал думающую впереди; теперь на лёгкой задаче его нет
+	 * На трудной задаче бонус возвращается: сложный код ведёт думающая
+	 */
+	test('бонус за рассуждение только на трудной задаче: Text-01 впереди на лёгкой и позади на трудной', async () => {
+		const router = createMinimaxRouter([textModel, m2], { minimax: { [m2]: { contextWindow: 16_000 } } });
+		assert.deepStrictEqual({
+			'обычный чат': ranking(await router.route({ taskType: 'chat', preferLowLatency: true })),
+			'длинный текст на переписывание': ranking(await router.route({ taskType: 'chat', isLongMessage: true, isDocumentationTask: true })),
+			'сложный код': ranking(await router.route({ taskType: 'code', hasCode: true, requiresComplexReasoning: true })),
+		}, {
+			'обычный чат': [textModel, m2],
+			'длинный текст на переписывание': [textModel, m2],
+			'сложный код': [m2, textModel],
 		});
 	});
 
