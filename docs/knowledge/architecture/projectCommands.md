@@ -21,17 +21,26 @@ disposable-ы. Не пихать registerCommand/registerKeybindingRule в ко�
 **Применение.** Любой dynamic `vibeide.commands.run.<id>` = `Map<registryId,
 IDisposable>` в contribution. `onDidChangeCommands` → dispose all → re-register.
 
-### 2. FNV-1a stable hash для trust file
+### 2. Разрешение на запуск: хранилище IDE и SHA-256, не файл в репозитории
 
-**Контекст.** `decideRunConfirm` нужен `commandShapeHash` для определения
-«изменилась ли команда с последнего approve». Crypto не нужно — trust file
-local-only, threat model ≠ adversary-controlled collisions.
+**Контекст.** Раньше разрешение лежало в `.vibe/commands.trust.json`, а отпечаток был
+32-битным FNV-1a. Комментарий у хеша говорил «trust file is local-only», но локальным
+файл делал только `.gitignore`, а его пишет автор репозитория. Репозиторий, несущий
+`commands.json` и `commands.trust.json`, одобрял свою команду сам, подобрать FNV под запись — секунды.
+Нашёл VibeIDEA (хендофф 10.10.2026), проверено чтением кода; у себя они хранят разрешение вне репозитория.
 
-**Суть.** FNV-1a 32-bit над `[command, args.join(\x1f), cwd, sorted-env-entries,
-shell?].join(\x1e)`. Math.imul для безопасного 32-bit multiply.
+**Суть.** Разрешение — запись `CommandTrustEntry` в `IStorageService` (`StorageScope.PROFILE`,
+`StorageTarget.MACHINE`, ключ `vibeide.commands.trust:<uri папки проекта>`); файл в `.vibe/` не читается
+и не мигрируется. Отпечаток — `commandFingerprint`: SHA-256 от `[id, command, args.join(\x1f), cwd,
+env (ключи по кодовым единицам UTF-16, не по локали), shell].join(\x1e)`, первые 32 hex. Состав и разделители
+совпадают с VibeIDEA, хранилища разные: одобрение в одной IDE не значит одобрение в другой.
+В папке без Workspace Trust `decideRunConfirm` отвечает `untrusted-workspace` при любой записи в хранилище,
+и одобрение в такой папке не запоминается.
 
-**Применение.** Для любого «did this change since last approval» — FNV-1a + 8-char
-hex prefix. Если нужно cross-machine — SHA-256, но это уже crypto.
+**Применение.** Состояние «человек разрешил» не хранится там, куда пишет автор чужого кода.
+Тест уровня сервиса (`test/browser/vibeCustomCommandsService.test.ts`) кладёт в репозиторий trust-файл с
+верным старым хешем и с верным нынешним отпечатком и требует вопроса в обоих случаях: проверка функций по
+отдельности такую дыру не видит.
 
 ### 3. Resolver результат имеет **two shapes**: `resolved` и `redactedForAudit`
 

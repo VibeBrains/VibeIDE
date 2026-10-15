@@ -118,4 +118,31 @@ suite('extractGrammar — обёртки потока ответа', () => {
 			guessed: { call: undefined, text: 'Так выглядит `<invoke name="x">` в тексте.', notice: undefined },
 		});
 	});
+
+	/**
+	 * Тред владельца от 28.09.2026 (MiniMax-M3.1-Flash-Preview, Promed): вызов пришёл разметкой DSML без маркеров,
+	 * с пробелом после `<` и `</` и обёрткой `calls`, и лежал в чате сырым текстом
+	 * Вызов взят из сохранённого треда дословно, смешанная форма — сообщение 14 того же треда с укороченным путём
+	 * Текст режется на куски по семь символов, как придёт из сети
+	 */
+	test('вызов текстом: DSML без маркеров из треда 28.09 исполняется, смешанная форма названа, разметки в потоке нет', () => {
+		const offered = {
+			ls_dir: { type: 'object', properties: { uri: { type: 'string' } } },
+			run_command: { type: 'object', properties: { command: { type: 'string' }, cwd: { type: 'string' } } },
+		};
+		const wrap: Wrapper = (onText, onFinal) => grammar.extractTextToolCallsWrapper(onText, onFinal, offered, { providerName: 'minimax', modelName: 'MiniMax-M3.1-Flash-Preview' });
+		const pieces = (text: string): Chunk[] => (text.match(/[\s\S]{1,7}/g) ?? []).map(piece => ({ text: piece }));
+		const call = '< calls>\n< invoke name="ls_dir">\n< parameter name="uri" string="true">/Users/borodatych/Projects/VibeCode/Promed</ parameter>\n</ invoke>\n</ calls>';
+		const mixed = '< calls>\n< invoke name="run_command">\n<command>git diff --stat | cat</command>\n<cwd>/p</cwd>\n</run_command>\n\n</parameter>';
+		const marked = (shown: readonly string[]) => shown.some(text => /[<>]|calls|invoke|parameter/.test(text));
+		const read = stream(wrap, pieces(call));
+		const unread = stream(wrap, pieces(mixed));
+		assert.deepStrictEqual({
+			read: { call: read.final?.toolCall && `${read.final.toolCall.name} ${JSON.stringify(read.final.toolCall.rawParams)}`, text: read.final?.fullText, markupShown: marked(read.shown), notice: read.final?.finishNotice },
+			unread: { call: unread.final?.toolCall, text: unread.final?.fullText, markupShown: marked(unread.shown), notice: unread.final?.finishNotice?.kind },
+		}, {
+			read: { call: 'ls_dir {"uri":"/Users/borodatych/Projects/VibeCode/Promed"}', text: '', markupShown: false, notice: undefined },
+			unread: { call: undefined, text: '', markupShown: false, notice: 'unparsedToolCall' },
+		});
+	});
 });

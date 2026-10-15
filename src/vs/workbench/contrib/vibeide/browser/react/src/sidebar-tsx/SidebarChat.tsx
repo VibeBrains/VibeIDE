@@ -5,6 +5,7 @@
 
 
 import { vibeLog } from '../../../../common/vibeLog.js';
+import { resolveVoiceButtonPhase, voiceButtonCancelsOnEscape, voiceButtonClickAction, voiceButtonTooltip } from '../../../../common/voice/vibeVoiceButtonState.js';
 import React, { ButtonHTMLAttributes, FormEvent, FormHTMLAttributes, Fragment, KeyboardEvent, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Virtuoso, VirtuosoHandle } from 'react-virtuoso';
 
@@ -24,6 +25,8 @@ import { IDisposable } from '../../../../../../../base/common/lifecycle.js';
 import { ErrorDisplay } from './ErrorDisplay.js';
 import { BlockCode, TextAreaFns, VibeCustomDropdownBox, VibeInputBox2, VibeSlider, VibeSwitch, VibeDiffEditor } from '../util/inputs.js';
 import { ModelDropdown, } from '../vibe-settings-tsx/ModelDropdown.js';
+import { AcpModeControl, AcpPermissionCard, AcpToolCard, useAcpAgentCommands } from './AcpChat.js';
+import { agentCommandOf } from '../../../../common/acp/acpProtocol.js';
 import { PastThreadsList, ChatHistoryToolbarDropdown } from './SidebarThreadSelector.js';
 import { ChatContextMeterButton } from './ChatContextMeter.js';
 import { ChatQuickSettingsButton } from './ChatQuickSettings.js';
@@ -35,8 +38,9 @@ import { WarningBox } from '../vibe-settings-tsx/WarningBox.js';
 import { getModelCapabilities, getIsReasoningEnabledState, getReservedOutputTokenSpace } from '../../../../common/modelCapabilities.js';
 import { AlertTriangle, File, Ban, Check, ChevronRight, ChevronDown, Dot, FileIcon, Pencil, Undo, Undo2, X, Flag, Copy as CopyIcon, Info, CirclePlus, Ellipsis, CircleEllipsis, Folder, ALargeSmall, TypeOutline, Text, Paperclip, Waypoints, LoaderCircle, Maximize2, Maximize, Pin, FileDown, RotateCcw, StepForward, Footprints, Mic, GitBranch } from 'lucide-react';
 import { ChatMessage, CheckpointEntry, StagingSelectionItem, ToolMessage, PlanMessage, ReviewMessage, ScoutMessage, PlanStep, StepStatus, PlanApprovalState, ChatImageAttachment, ChatPDFAttachment, normalizePendingInjections, ReviewChecklist, EditBatch } from '../../../../common/chatThreadServiceTypes.js';
-import { formatChatTimestamp, chatTimestampToISO, CHAT_TIMESTAMP_STREAMING_PLACEHOLDER, CHAT_TIMESTAMP_TOOLTIP_PATTERN, CHAT_USER_MESSAGE_TIME_PATTERN } from '../../../../common/chatTimestampFormatter.js';
+import { formatChatTimestamp, chatTimestampToISO, CHAT_TIMESTAMP_STREAMING_PLACEHOLDER, CHAT_TIMESTAMP_TOOLTIP_PATTERN } from '../../../../common/chatTimestampFormatter.js';
 import { parseChatSlashCommand, splitWatchArgs, CHAT_SLASH_COMMANDS, SLASH_COMMAND_FILE_NAME_CHARS, findChatCommandSpans } from '../../../../common/chatSlashCommands.js';
+import { historyKeyApplies, navigateHistory } from '../../../../common/promptHistory.js';
 import { BuiltinToolCallParams, BuiltinToolName, ToolName, LintErrorItem, ToolApprovalType, toolApprovalTypes } from '../../../../common/toolsServiceTypes.js';
 import { approvalTypeOfBuiltinToolName } from '../../../../common/prompt/tools/index.js';
 import { CopyButton, EditToolAcceptRejectButtonsHTML, IconShell1, JumpToFileButton, JumpToTerminalButton, StatusIndicator, StatusIndicatorForApplyButton, useApplyStreamState, useEditToolStreamState } from '../markdown/ApplyBlockHoverButtons.js';
@@ -141,13 +145,13 @@ const ChatTimestamp = ({ ts, align, streaming }: { ts: number | undefined; align
 };
 
 /**
- * Time of a user message for its bubble: the `HH:mm` text, the `<time>` attribute and the full-date tooltip
- * Null when timestamps are switched off or the message has no time
+ * Time of a user message for its bubble: the same `DD.MM.YYYY HH:mm` text as the assistant message,
+ * the `<time>` attribute and the seconds in the tooltip. Null when timestamps are switched off or there is no time
  */
 const useUserMessageTime = (ts: number | undefined) => {
 	const settingsState = useSettingsState();
 	if (settingsState.globalSettings.showChatTimestamps === false) {return null;}
-	const text = formatChatTimestamp(ts, CHAT_USER_MESSAGE_TIME_PATTERN);
+	const text = formatChatTimestamp(ts);
 	if (!text) {return null;}
 	return { text, iso: chatTimestampToISO(ts), title: formatChatTimestamp(ts, CHAT_TIMESTAMP_TOOLTIP_PATTERN) };
 };
@@ -1413,10 +1417,11 @@ const ChatVoiceInputButton = ({ containerRef }: { containerRef: React.RefObject<
 	useEffect(() => {
 		const d1 = voice.onDidChangeState(s => {
 			setState(s);
-			if (!s.recording) {
+			if (!s.recording) { setLevel(0); }
+			// Слот живёт и в расшифровке: итоговая фраза приходит после остановки и должна заменить interim, а не лечь рядом
+			if (!s.recording && !s.transcribing) {
 				const ta = findTextArea();
 				if (ta) { voiceInsertSlots.delete(ta); }
-				setLevel(0);
 			}
 		});
 		const d2 = voice.onText(e => applyText(e.text, e.kind));
@@ -1424,9 +1429,12 @@ const ChatVoiceInputButton = ({ containerRef }: { containerRef: React.RefObject<
 		return () => { d1.dispose(); d2.dispose(); d3.dispose(); };
 	}, [voice, applyText, findTextArea]);
 
-	// Esc во время записи — отмена без вставки (capture-фаза, чтобы опередить другие Esc-обработчики)
+	const phase = resolveVoiceButtonPhase(state);
+
+	// Esc во время записи или расшифровки — отмена без вставки (capture-фаза, чтобы опередить другие Esc-обработчики)
+	const cancelsOnEscape = voiceButtonCancelsOnEscape(phase);
 	useEffect(() => {
-		if (!state.recording) { return; }
+		if (!cancelsOnEscape) { return; }
 		const onKeyDown = (e: globalThis.KeyboardEvent) => {
 			if (e.key === 'Escape') {
 				e.preventDefault();
@@ -1436,42 +1444,49 @@ const ChatVoiceInputButton = ({ containerRef }: { containerRef: React.RefObject<
 		};
 		window.addEventListener('keydown', onKeyDown, true);
 		return () => window.removeEventListener('keydown', onKeyDown, true);
-	}, [state.recording, voice]);
+	}, [cancelsOnEscape, voice]);
 
-	if (!state.available) { return null; }
+	if (phase === 'hidden') { return null; }
 
 	const onClick = () => {
-		if (state.recording) {
+		const action = voiceButtonClickAction(phase);
+		if (action === 'stop') {
 			voice.stop();
-		} else if (state.modelState !== 'downloading') {
+		} else if (action === 'start') {
 			const ta = findTextArea();
 			if (ta) {
 				voiceInsertSlots.set(ta, { start: ta.selectionStart ?? ta.value.length, interimLen: 0, lastApplied: '' });
 			}
 			void voice.start();
 		}
+		// 'ignore': расшифровка и загрузка моделей не отменяются случайным кликом
 	};
 
 	const downloadMb = Math.max(1, Math.round(state.downloadBytes / (1024 * 1024)));
-	const tooltip = state.recording ? chatS.voiceStopTitle
-		: state.modelState === 'downloading' ? chatS.voiceDownloadingTitle.replace('{0}', String(state.downloadPercent))
-			: state.modelState === 'missing' ? chatS.voiceDownloadTitle.replace('{0}', String(downloadMb))
-				: chatS.voiceStartTitle;
+	const tooltipKind = voiceButtonTooltip(phase);
+	const tooltip = tooltipKind === 'stop' ? chatS.voiceStopTitle
+		: tooltipKind === 'transcribing' ? chatS.voiceTranscribingTitle
+			: tooltipKind === 'downloading' ? chatS.voiceDownloadingTitle.replace('{0}', String(state.downloadPercent))
+				: tooltipKind === 'missing' ? chatS.voiceDownloadTitle.replace('{0}', String(downloadMb))
+					: chatS.voiceStartTitle;
+	const busy = phase === 'transcribing' || phase === 'downloading';
 
 	return (
 		<button
 			type="button"
 			onClick={onClick}
-			className={`flex-shrink-0 p-1.5 rounded-xl transition-colors ${state.recording ? 'bg-red-500/20 text-red-400' : 'hover:bg-vibe-bg-2-alt text-vibe-fg-4 hover:text-vibe-fg-2'}`}
+			className={`flex-shrink-0 p-1.5 rounded-xl transition-colors ${phase === 'recording' ? 'bg-[var(--vscode-vibeide-chat-voiceRecordingBackground)] text-[var(--vscode-vibeide-chat-voiceRecordingForeground)]' : busy ? 'text-vibe-fg-2 cursor-progress' : 'hover:bg-vibe-bg-2-alt text-vibe-fg-4 hover:text-vibe-fg-2'}`}
 			aria-label={chatS.voiceAria}
+			aria-busy={busy}
+			data-voice-phase={phase}
 			data-tooltip-id='vibe-tooltip'
 			data-tooltip-content={tooltip}
 			data-tooltip-place='top'
 			data-tooltip-delay-show={1000}
 		>
-			{state.modelState === 'downloading'
+			{busy
 				? <LoaderCircle size={16} className="animate-spin" />
-				: <Mic size={16} style={state.recording ? { transform: `scale(${1 + Math.min(0.4, level * 0.5)})` } : undefined} />}
+				: <Mic size={16} style={phase === 'recording' ? { transform: `scale(${1 + Math.min(0.4, level * 0.5)})` } : undefined} />}
 		</button>
 	);
 };
@@ -1555,6 +1570,9 @@ export const VibeChatArea: React.FC<VibeideChatAreaProps> = ({
 	const [isDragOver, setIsDragOver] = React.useState(false);
 	const attachInputRef = React.useRef<HTMLInputElement>(null);
 	const containerRef = React.useRef<HTMLDivElement>(null);
+	// An external agent leads this thread: the chat's own knobs — route, scout, context meter, reasoning — steer nothing there
+	const composerThreads = useChatThreadsState();
+	const ledByAgent = featureName === 'Chat' && !!composerThreads.allThreads[composerThreads.currentThreadId]?.acpAgent;
 
 	// Paste of files (images / PDFs) is handled directly on the textarea via onPaste prop in VibeInputBox2 —
 	// container-level paste listener was removed because it duplicated processing in bubble phase.
@@ -1729,15 +1747,19 @@ export const VibeChatArea: React.FC<VibeideChatAreaProps> = ({
 			<div className='@@chat-composer-toolbar-rule flex flex-row items-start gap-2 mt-1 pt-2.5 min-w-0'>
 				{showModelDropdown && (
 					<div className='flex items-center flex-wrap gap-x-2 gap-y-1 text-nowrap flex-1 min-w-0'>
-						{featureName === 'Chat' && <ChatModeDropdown className='text-xs text-vibe-fg-3 @@vibe-toolbar-pill rounded-xl overflow-hidden py-0.5 px-1.5' />}
+						{featureName === 'Chat' && !ledByAgent && <ChatModeDropdown className='text-xs text-vibe-fg-3 @@vibe-toolbar-pill rounded-xl overflow-hidden py-0.5 px-1.5' />}
+						{/* The agent's conversation has modes of its own: how much it may do without asking */}
+						{ledByAgent && <AcpModeControl className='text-xs text-vibe-fg-3 @@vibe-toolbar-pill rounded-xl overflow-hidden py-0.5 px-1.5' />}
 						<ChatModelHealthDropdown featureName={featureName} className='text-xs text-vibe-fg-3 @@vibe-toolbar-pill rounded-xl overflow-hidden py-0.5 px-1.5' />
+						{/* The pill names the agent; this says what that changes: the chat's own checks do not reach a foreign loop */}
+						{ledByAgent && <span className='text-[11px] text-vibe-fg-4' title={chatS.agentLeadsTitle}>{chatS.agentLeads}</span>}
 						{/* Behaviour/paths — role-route (subagent) + scout, right after the model: interaction, not a chat knob */}
-						{featureName === 'Chat' && <ChatRunRouteButton />}
-						{featureName === 'Chat' && <ChatScoutToggleButton />}
+						{featureName === 'Chat' && !ledByAgent && <ChatRunRouteButton />}
+						{featureName === 'Chat' && !ledByAgent && <ChatScoutToggleButton />}
 						{/* Context fill — running out of context is something the user must always see */}
-						{featureName === 'Chat' && <ChatContextMeterButton />}
+						{featureName === 'Chat' && !ledByAgent && <ChatContextMeterButton />}
 						{/* The knobs sit one click away, each with its real value (ChatQuickSettings.tsx) */}
-						{featureName === 'Chat' ? <ChatQuickSettingsButton agentControls={<>
+						{ledByAgent ? null : featureName === 'Chat' ? <ChatQuickSettingsButton agentControls={<>
 							<ChatAgentAutopilotToggle />
 							<ChatRuleLinksRecursiveToggle />
 							<ChatSessionResetButton />
@@ -2119,7 +2141,7 @@ type ToolHeaderParams = {
 	className?: string;
 };
 
-const ToolHeaderWrapper = ({
+export const ToolHeaderWrapper = ({
 	icon,
 	title,
 	desc1,
@@ -2401,6 +2423,8 @@ const UserMessageComponent = ({ chatMessage, messageIdx, isCheckpointGhost, curr
 	// Subscribe to thread state changes properly
 	const chatThreadsState = useChatThreadsState();
 	const currentThreadId = chatThreadsState.currentThreadId;
+	// An external agent has already taken this message into its own history: it can be neither rewritten nor pinned nor branched from here
+	const ledByAgent = !!chatThreadsState.allThreads[currentThreadId]?.acpAgent;
 
 	// global state
 	let isBeingEdited = false;
@@ -2602,11 +2626,11 @@ const UserMessageComponent = ({ chatMessage, messageIdx, isCheckpointGhost, curr
 			className={`
             text-left
             ${mode === 'edit' ? 'rounded-lg max-w-full'
-					: mode === 'display' ? '@@vibe-chat-user-bubble text-vibe-fg-1 @@vibe-scroll cursor-pointer select-text' : ''
+					: mode === 'display' ? `@@vibe-chat-user-bubble text-vibe-fg-1 @@vibe-scroll select-text ${ledByAgent ? '' : 'cursor-pointer'}` : ''
 				}
         `}
 			onClick={() => {
-				if (mode !== 'display') {return;}
+				if (mode !== 'display' || ledByAgent) {return;}
 				// Don't open edit mode if the user is selecting text inside the bubble.
 				const sel = typeof window !== 'undefined' ? window.getSelection() : null;
 				if (sel && !sel.isCollapsed && sel.toString().length > 0) {return;}
@@ -2621,7 +2645,7 @@ const UserMessageComponent = ({ chatMessage, messageIdx, isCheckpointGhost, curr
 			{mode === 'display' && userTimeEl && <div className='@@vibe-chat-user-time'>{userTimeEl}</div>}
 		</div>
 
-		<div
+		{!ledByAgent && <div
 			className="absolute -top-1 -right-1 translate-x-0 -translate-y-0 z-1 flex items-center gap-1"
 		>
 			{/* Pin-context: keep this message verbatim through context truncation. Shown on
@@ -2691,7 +2715,7 @@ const UserMessageComponent = ({ chatMessage, messageIdx, isCheckpointGhost, curr
 					}
 				}}
 			/>
-		</div>
+		</div>}
 
 
 	</div>;
@@ -5170,6 +5194,10 @@ const _ChatBubble = React.memo(({ threadId, chatMessage, currCheckpointIdx, isCo
 		/>;
 	}
 
+	else if (role === 'acp_tool') {
+		return <AcpToolCard message={chatMessage} isCheckpointGhost={isCheckpointGhost} />;
+	}
+
 	// Unknown role: render nothing rather than `undefined`, which React treats as an error.
 	return null;
 
@@ -5629,6 +5657,10 @@ export const SidebarChat = () => {
 	const commandService = accessor.get('ICommandService');
 	const chatThreadsService = accessor.get('IChatThreadService');
 	const notificationService = accessor.get('INotificationService');
+	// History of what was sent from this composer: the position in it, and the draft put aside while the person steps back
+	const promptHistoryService = accessor.get('IChatPromptHistoryService');
+	const historyIndexRef = useRef<number>(promptHistoryService.entries.length);
+	const draftBeforeHistoryRef = useRef<string>('');
 
 	const settingsState = useSettingsState();
 	// ----- HIGHER STATE -----
@@ -5906,11 +5938,19 @@ export const SidebarChat = () => {
 		// send message to LLM
 		const userMessage = _forceSubmit || textAreaRef.current?.value || '';
 
+		// ↑ replays what was sent, to whichever target it went: a model or an external agent
+		promptHistoryService.remember(userMessage);
+		historyIndexRef.current = promptHistoryService.entries.length;
+		draftBeforeHistoryRef.current = '';
+
 		// Built-in chat slash commands intercept BEFORE the LLM (common/chatSlashCommands.ts).
 		// `/watch` runs the video pipeline instead of a normal send; parsed-but-unhandled
 		// commands (currently `/commit`) fall through to the LLM as literal text, exactly
 		// as they did before the parser was wired.
-		const slash = parseChatSlashCommand(userMessage);
+		// A command the thread's agent announced is the agent's: it goes to it even if the IDE has one of the same name
+		const slash = currentThread.acpAgent && agentCommandOf(userMessage, agentCommands)
+			? { matched: false as const }
+			: parseChatSlashCommand(userMessage);
 		if (slash.matched && slash.parsed.command === 'watch') {
 			const videoChatService = accessor.get('IVibeVideoChatService');
 			const { target, hint } = splitWatchArgs(slash.parsed.args);
@@ -6426,10 +6466,10 @@ export const SidebarChat = () => {
 								{isRunning === 'preparing' && currThreadStreamState?.llmInfo?.displayContentSoFar
 									? currThreadStreamState.llmInfo.displayContentSoFar
 									: isRunning === 'preparing'
-										? 'Preparing request…'
-										: 'Generating response…'}
+										? chatS.preparingRequest
+										: chatS.generatingResponse}
 							</span>
-							<span className="text-[11px] text-vibe-fg-3 opacity-50">Press Escape to cancel</span>
+							<span className="text-[11px] text-vibe-fg-3 opacity-50">{chatS.escapeToCancel}</span>
 						</div>
 					</div>
 				</ProseWrapper>
@@ -6508,7 +6548,15 @@ export const SidebarChat = () => {
 		if ((isRunning === 'LLM' || isRunning === 'preparing') && (displayContentSoFar || reasoningSoFar)) {
 			items.push({
 				key: 'escape-hint',
-				render: () => <p className="text-xs text-vibe-fg-3 opacity-60 mt-1" role="status">Press Escape to cancel</p>
+				render: () => <p className="text-xs text-vibe-fg-3 opacity-60 mt-1" role="status">{chatS.escapeToCancel}</p>
+			});
+		}
+
+		// The question of an external agent that waits for the person
+		if (isRunning === 'awaiting_user' && currentThread.acpAgent) {
+			items.push({
+				key: 'acp-permission',
+				render: () => <ProseWrapper><AcpPermissionCard threadId={threadId} /></ProseWrapper>,
 			});
 		}
 
@@ -6618,6 +6666,7 @@ export const SidebarChat = () => {
 		chatThreadsService,
 		commandService,
 		currentThread.id,
+		currentThread.acpAgent,
 		showSubagentActivity,
 		reviewChecklist,
 		editBatch,
@@ -6670,7 +6719,7 @@ export const SidebarChat = () => {
 	// skills menu. Filter-as-you-type, arrow/Tab/Enter to insert, Escape to dismiss. The
 	// trigger is detected from text-before-cursor on every onChangeText; we re-derive open
 	// state rather than tracking it imperatively so it always reflects current cursor context.
-	type SkillCmd = { name: string; description: string; category: 'skill' | 'builtin' };
+	type SkillCmd = { name: string; description: string; category: 'skill' | 'builtin'; group?: string };
 	const [skillCmds, setSkillCmds] = useState<SkillCmd[]>([]);
 	const [skillMenuOpen, setSkillMenuOpen] = useState(false);
 	const [slashMenuKind, setSlashMenuKind] = useState<'skill' | 'builtin'>('skill');
@@ -6740,15 +6789,30 @@ export const SidebarChat = () => {
 
 	// Chat commands for the bare-`/` menu. The `/skill:` entry has no trailing
 	// space on insert, so picking it immediately re-triggers the skills menu.
-	const builtinSlashCmds = useMemo<SkillCmd[]>(() => [
-		...CHAT_SLASH_COMMANDS.map(c => ({
+	// In a thread led by an external agent the menu is the agent's own: its commands first, then the ones the IDE runs
+	// itself (/watch, /shot). Prompt commands and skills are expanded for the chat's own models, and the agent would get
+	// them as bare text. A command both have is shown once, as the agent's: that is the one that runs
+	const agentCommands = useAcpAgentCommands(currentThread.acpAgent?.agentId);
+	const builtinSlashCmds = useMemo<SkillCmd[]>(() => {
+		const own = CHAT_SLASH_COMMANDS.map(c => ({
 			name: c.name,
 			description: c.argsHint ? `${c.argsHint} — ${c.description}` : c.description,
 			category: 'builtin' as const,
-		})),
-		...promptCmds,
-		{ name: 'skill:', description: 'Вызвать навык из .vibe/skills', category: 'builtin' as const },
-	], [promptCmds]);
+		}));
+		if (!currentThread.acpAgent) {
+			return [...own, ...promptCmds, { name: 'skill:', description: 'Вызвать навык из .vibe/skills', category: 'builtin' as const }];
+		}
+		const ownNames = new Set<string>(own.map(c => c.name));
+		return [
+			...agentCommands.map(c => ({
+				name: c.name,
+				description: [c.hint ? `${c.hint} — ` : '', c.description, ownNames.has(c.name) ? ' (такая команда есть и в IDE, выполнит агент)' : ''].join(''),
+				category: 'builtin' as const,
+				group: chatS.agentCommandsGroup(currentThread.acpAgent!.agentName),
+			})),
+			...own.filter(c => !agentCommands.some(agentCommand => agentCommand.name === c.name)).map(c => ({ ...c, group: chatS.ideCommandsGroup })),
+		];
+	}, [promptCmds, agentCommands, currentThread.acpAgent]);
 
 	// Filtered list shown in dropdown (source depends on which trigger opened the menu).
 	const filteredSkillCmds = useMemo(() => {
@@ -6837,6 +6901,29 @@ export const SidebarChat = () => {
 				return;
 			}
 		}
+		// ↑/↓ walk through what was sent before — from the first line of the text for ↑, from the last for ↓
+		if ((e.key === 'ArrowUp' || e.key === 'ArrowDown') && !e.shiftKey && !e.altKey && !e.ctrlKey && !e.metaKey && !e.nativeEvent.isComposing) {
+			const ta = textAreaRef.current;
+			const direction: -1 | 1 = e.key === 'ArrowUp' ? -1 : 1;
+			const entries = promptHistoryService.entries;
+			if (ta && entries.length > 0 && historyKeyApplies(ta.value, ta.selectionStart, ta.selectionEnd, direction)) {
+				// The list can be shorter than when the box last stepped through it (another window trimmed it)
+				historyIndexRef.current = Math.min(historyIndexRef.current, entries.length);
+				// On the first ↑ from the present the draft is put aside, so ↓ past the newest entry brings it back
+				if (historyIndexRef.current === entries.length && direction === -1) {
+					draftBeforeHistoryRef.current = ta.value;
+				}
+				const step = navigateHistory(entries, historyIndexRef.current, direction);
+				if (step.value !== null) {
+					e.preventDefault();
+					historyIndexRef.current = step.newIndex;
+					const value = step.value === '' ? draftBeforeHistoryRef.current : step.value;
+					textAreaFnsRef.current?.setValue(value);
+					requestAnimationFrame(() => { ta.setSelectionRange(value.length, value.length); });
+					return;
+				}
+			}
+		}
 		if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) {
 			// Check isDisabled again at the time of key press (not closure value)
 			if (!isDisabled && !isRunning) {
@@ -6850,7 +6937,7 @@ export const SidebarChat = () => {
 		} else if (e.key === 'Escape' && isRunning) {
 			onAbort();
 		}
-	}, [onSubmit, onAbort, onInject, isRunning, isDisabled, skillMenuOpen, filteredSkillCmds, skillIdx, insertSelectedSkill]);
+	}, [onSubmit, onAbort, onInject, isRunning, isDisabled, skillMenuOpen, filteredSkillCmds, skillIdx, insertSelectedSkill, promptHistoryService]);
 
 	// Context usage calculation + warning (partially memoized - draft tokens calculated on each render)
 	const [ctxWarned, setCtxWarned] = useState(false);
@@ -7197,20 +7284,26 @@ export const SidebarChat = () => {
 										: `Нет скиллов по фильтру «${skillFilter}»`}
 							</div>
 						)}
+						{currentThread.acpAgent && slashMenuKind === 'builtin' && agentCommands.length === 0 && (
+							<div className='px-3 py-1 text-vibe-fg-3 text-[11px]'>{chatS.agentCommandsPending(currentThread.acpAgent.agentName)}</div>
+						)}
 						{filteredSkillCmds.map((cmd, i) => {
 							const desc = sanitizeDesc(cmd.description);
+							const startsGroup = !!cmd.group && cmd.group !== filteredSkillCmds[i - 1]?.group;
 							return (
-								<div
-									key={cmd.name}
-									ref={(el) => { skillItemRefs.current[i] = el; }}
-									className='@@skill-menu-item px-3 py-1.5 cursor-pointer'
-									data-active={i === skillIdx ? '' : undefined}
-									onMouseEnter={() => setSkillIdx(i)}
-									onClick={() => insertSelectedSkill(cmd)}
-								>
-									<div className='@@skill-menu-item-title text-vibe-fg-1 text-[13px] font-semibold truncate'>/{cmd.name}</div>
-									{desc && <div className='text-vibe-fg-3 text-[11px] truncate mt-0.5'>{desc}</div>}
-								</div>
+								<React.Fragment key={cmd.name}>
+									{startsGroup && <div className='px-3 pt-1.5 pb-0.5 text-[10px] text-vibe-fg-3 select-none'>{cmd.group}</div>}
+									<div
+										ref={(el) => { skillItemRefs.current[i] = el; }}
+										className='@@skill-menu-item px-3 py-1.5 cursor-pointer'
+										data-active={i === skillIdx ? '' : undefined}
+										onMouseEnter={() => setSkillIdx(i)}
+										onClick={() => insertSelectedSkill(cmd)}
+									>
+										<div className='@@skill-menu-item-title text-vibe-fg-1 text-[13px] font-semibold truncate'>/{cmd.name}</div>
+										{desc && <div className='text-vibe-fg-3 text-[11px] truncate mt-0.5'>{desc}</div>}
+									</div>
+								</React.Fragment>
 							);
 						})}
 					</div>

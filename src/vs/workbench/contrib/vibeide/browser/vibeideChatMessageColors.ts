@@ -4,7 +4,7 @@
  *--------------------------------------------------------------------------------------------*/
 
 import { localize } from '../../../../nls.js';
-import { badgeBackground, badgeForeground, contrastBorder, descriptionForeground, editorBackground, editorWarningForeground, focusBorder, foreground, registerColor, transparent } from '../../../../platform/theme/common/colorRegistry.js';
+import { badgeBackground, badgeForeground, contrastBorder, darken, descriptionForeground, editorBackground, editorWarningForeground, errorForeground, focusBorder, foreground, lighten, registerColor, transparent } from '../../../../platform/theme/common/colorRegistry.js';
 
 // Colour tokens of the chat message layout
 // media/vibeChatMessages.css reads them as `--vscode-vibeide-chat-<name>`
@@ -24,9 +24,14 @@ export const VIBEIDE_CHAT_USER_MESSAGE_BORDER = registerColor(
 	localize('vibeide.chat.userMessageBorder', 'Цвет рамки сообщения пользователя в чате VibeIDE. В самой узкой панели это цвет полосы слева.')
 );
 
+// The label sits on the tinted bubble, not on the plain panel that `descriptionForeground` is tuned for
+// Over the bubble the stock value drops under 4.5:1 in light themes that leave it unset (Light+, Solarized Light, Quiet Light)
+// It does the same in some dark ones (Tomorrow Night Blue in an editor tab)
+// So the default moves away from the bubble: lighter on dark, darker on light
+// High contrast themes have no bubble fill, so their stock value stays
 export const VIBEIDE_CHAT_USER_MESSAGE_LABEL = registerColor(
 	'vibeide.chat.userMessageLabel',
-	{ dark: descriptionForeground, light: descriptionForeground, hcDark: descriptionForeground, hcLight: descriptionForeground },
+	{ dark: lighten(descriptionForeground, 0.1), light: darken(descriptionForeground, 0.2), hcDark: descriptionForeground, hcLight: descriptionForeground },
 	localize('vibeide.chat.userMessageLabel', 'Цвет подписи сообщения пользователя в чате VibeIDE: время и подпись «Вы».')
 );
 
@@ -65,4 +70,21 @@ export const VIBEIDE_CHAT_JOURNAL_WARNING_FOREGROUND = registerColor(
 	'vibeide.chat.journalWarningForeground',
 	{ dark: editorBackground, light: editorBackground, hcDark: editorBackground, hcLight: editorBackground },
 	localize('vibeide.chat.journalWarningForeground', 'Цвет цифры на счётчике цвета предупреждения (vibeide.chat.journalWarning) на значке «Журнал» в шапке чата VibeIDE.')
+);
+
+// The mic button of the composer while it records
+// SidebarChat.tsx reads them as `--vscode-vibeide-chat-voiceRecording*`
+// Both default to the stock error colour, so a theme that sets `errorForeground` recolours the button on its own
+// The fill is the same colour at low strength: the button reads as lit, not as a second red button
+
+export const VIBEIDE_CHAT_VOICE_RECORDING_FOREGROUND = registerColor(
+	'vibeide.chat.voiceRecordingForeground',
+	{ dark: errorForeground, light: errorForeground, hcDark: errorForeground, hcLight: errorForeground },
+	localize('vibeide.chat.voiceRecordingForeground', 'Цвет значка микрофона в поле ввода чата VibeIDE, пока идёт запись голоса.')
+);
+
+export const VIBEIDE_CHAT_VOICE_RECORDING_BACKGROUND = registerColor(
+	'vibeide.chat.voiceRecordingBackground',
+	{ dark: transparent(errorForeground, 0.2), light: transparent(errorForeground, 0.2), hcDark: transparent(errorForeground, 0.2), hcLight: transparent(errorForeground, 0.2) },
+	localize('vibeide.chat.voiceRecordingBackground', 'Цвет фона кнопки микрофона в поле ввода чата VibeIDE, пока идёт запись голоса.')
 );

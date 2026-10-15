@@ -28,6 +28,7 @@
 import { localize } from '../../../../nls.js';
 import { builtinToolNames } from './prompt/prompts.js';
 import { PARAM_ALIASES_BY_TOOL, TOOL_NAME_ALIASES } from './prompt/toolAliases.js';
+import { isInsideCode } from './codeState.js';
 
 /**
  * Separator/case-insensitive tool-name key. Collapses `FileRead`, `file_read`,
@@ -224,9 +225,24 @@ const SPACED_MARKUP_NAMES: readonly string[] = ['invoke', 'parameter', ...VENDOR
 
 /**
  * `< invoke` / `</ parameter` / `< /calls` → `<invoke` / `</parameter` / `</calls`
- * The tag must close on the same line, so prose such as `a < tools` is left as written
+ * What follows the name makes it a tag: the bracket itself (`< calls>`, `</ parameter >`)
+ * Or the `name=` of a call or a parameter
+ * Prose such as `a < tools` or `n < calls && m > 3` has neither right after the word and is left as written
  */
-const SPACED_MARKUP_RE = new RegExp(`<(\\s*)(\\/?)(\\s*)(${SPACED_MARKUP_NAMES.join('|')})\\b(?=[^<>\\n]*>)`, 'gi');
+const SPACED_MARKUP_TAIL = '(?=\\s*>|\\s+name\\s*=)';
+const SPACED_MARKUP_RE = new RegExp(`<(\\s*)(\\/?)(\\s*)(${SPACED_MARKUP_NAMES.join('|')})\\b${SPACED_MARKUP_TAIL}`, 'gi');
+
+/**
+ * The spaced call markup of a text, outside code, with the space taken out
+ * The parsers read the spaced form themselves, so the net needs this on its own: a text they did not claim,
+ * or one saved before they existed, reaches the reader as written, and the scrub below knows only the glued tags
+ * Markup in a code block or a code span is the text of the answer: a model that explains the form keeps its example
+ */
+const gluedSpacedMarkup = (text: string): string => text.replace(
+	SPACED_MARKUP_RE,
+	(match: string, _before: string, slash: string, _after: string, name: string, offset: number) =>
+		isInsideCode(text, offset) ? match : `<${slash}${name}`,
+);
 
 /** `invoke name="…"` / `parameter name="…"` in any spacing, with or without DSML markers around the tag name */
 const TOOL_CALL_MARKUP_RE = /\b(?:invoke|parameter)\s+name\s*=\s*["']/i;
@@ -688,7 +704,7 @@ export const stripUnclaimedToolTags = (text: string, attribution?: NormalizeAttr
 
 const stripUnclaimedToolTagsImpl = (text: string): string => {
 	if (!text || text.indexOf('<') === -1) { return text; }
-	let out = text;
+	let out = gluedSpacedMarkup(text);
 	let placeholder: string | null = null;
 	// Vendor-wrapper leaks first (Anthropic <invoke>, <tool_calls>, truncated
 	// <tool_c/</inv) — these escape the canonical-name passes below. The block pass
@@ -723,6 +739,11 @@ const stripUnclaimedToolTagsImpl = (text: string): string => {
 			out = out.replace(selfClosing, placeholder);
 			bumpCounter('safetyNetSelfClosing');
 		}
+	}
+	// One call torn into pieces by the passes above (a block per parameter) is still one call: one placeholder
+	if (placeholder !== null) {
+		const one = escapeRegexLiteral(placeholder);
+		out = out.replace(new RegExp(`${one}(?:\\s*${one})+`, 'g'), placeholder);
 	}
 	return out;
 };

@@ -6,6 +6,7 @@
 
 import * as assert from 'assert';
 import {
+	ACP_TOOL_OUTPUT_MAX_CHARS,
 	AcpStreamDecoder,
 	agentCommandOf,
 	agentSupportsClose,
@@ -23,6 +24,7 @@ import {
 	setConfigOptionParams,
 	authMethodsOf,
 	parseSessionUpdate,
+	promptCapabilitiesOf,
 	stopReasonOf,
 	toolCallFacts,
 	type JsonValue,
@@ -93,6 +95,8 @@ suite('acpProtocol', () => {
 			assert.deepStrictEqual(fs['fs'], { readTextFile: true, writeTextFile: true });
 			// The card shows an on/off setting as a checkbox, so a boolean option is welcome
 			assert.deepStrictEqual(fs['session'], { configOptions: { boolean: {} } });
+			// The marker is what makes a guest send a command's output and exit code in the call's `_meta`
+			assert.deepStrictEqual(fs['_meta'], { terminal_output: true });
 		});
 
 		test('session/new несёт обязательный mcpServers даже пустым', () => {
@@ -100,9 +104,30 @@ suite('acpProtocol', () => {
 			assert.deepStrictEqual([params['cwd'], params['mcpServers']], ['/Users/me/project', []]);
 		});
 
-		test('prompt передаётся блоками содержимого', () => {
-			const params = promptParams('s1', 'почини сборку') as Record<string, JsonValue>;
-			assert.deepStrictEqual(params['prompt'], [{ type: 'text', text: 'почини сборку' }]);
+		test('prompt передаётся блоками содержимого — текст, ссылка и встроенный файл', () => {
+			const params = promptParams('s1', [
+				{ type: 'text', text: 'почини сборку' },
+				{ type: 'resource_link', uri: 'file:///app/a.ts', name: 'a.ts' },
+				{ type: 'resource', resource: { uri: 'file:///app/b.ts#L1-2', text: 'код' } },
+			]) as Record<string, JsonValue>;
+			assert.deepStrictEqual(params['prompt'], [
+				{ type: 'text', text: 'почини сборку' },
+				{ type: 'resource_link', uri: 'file:///app/a.ts', name: 'a.ts' },
+				{ type: 'resource', resource: { uri: 'file:///app/b.ts#L1-2', text: 'код' } },
+			]);
+		});
+
+		test('что агент принимает в prompt: объявленное читается, отсутствующее — нет', () => {
+			// Shape taken from the live greeting of the Claude Code adapter
+			const declared = promptCapabilitiesOf({ agentCapabilities: { promptCapabilities: { image: true, embeddedContext: true } } });
+			const silent = promptCapabilitiesOf({ agentCapabilities: {} });
+			const broken = promptCapabilitiesOf({ agentCapabilities: { promptCapabilities: { image: 'yes', audio: 1 } } });
+			assert.deepStrictEqual([declared, silent, broken, promptCapabilitiesOf(undefined)], [
+				{ image: true, audio: false, embeddedContext: true },
+				{ image: false, audio: false, embeddedContext: false },
+				{ image: false, audio: false, embeddedContext: false },
+				{ image: false, audio: false, embeddedContext: false },
+			]);
 		});
 	});
 
@@ -150,7 +175,43 @@ suite('acpProtocol', () => {
 				status: 'completed',
 				paths: ['/app/hello.txt'],
 				diffs: [{ path: '/app/hello.txt', oldText: 'привет мир', newText: 'привет друг' }],
+				output: '',
 			});
+		});
+
+		test('вывод команды приезжает в _meta, код выхода — отдельно; без метки — текстовым блоком', () => {
+			const withMeta = parseSessionUpdate({
+				sessionId: 's',
+				update: {
+					sessionUpdate: 'tool_call_update',
+					toolCallId: 'toolu_02',
+					status: 'completed',
+					content: [{ type: 'terminal', terminalId: 'toolu_02' }],
+					_meta: { terminal_output: { terminal_id: 'toolu_02', data: 'ok\n' }, terminal_exit: { terminal_id: 'toolu_02', exit_code: 2, signal: null } },
+				},
+			});
+			const asText = parseSessionUpdate({
+				sessionId: 's',
+				update: {
+					sessionUpdate: 'tool_call_update',
+					toolCallId: 'toolu_03',
+					status: 'completed',
+					content: [{ type: 'content', content: { type: 'text', text: '```console\nok\n```' } }],
+				},
+			});
+			assert.deepStrictEqual(
+				[withMeta, asText].map(update => update?.kind === 'tool' ? [update.output, update.exitCode] : undefined),
+				[['ok\n', 2], ['```console\nok\n```', undefined]]);
+		});
+
+		test('длинный вывод обрезается: у команды остаётся конец, у текста начало', () => {
+			const long = 'x'.repeat(ACP_TOOL_OUTPUT_MAX_CHARS) + 'КОНЕЦ';
+			const command = parseSessionUpdate({ update: { sessionUpdate: 'tool_call_update', toolCallId: 't', _meta: { terminal_output: { data: long } } } });
+			const text = parseSessionUpdate({ update: { sessionUpdate: 'tool_call_update', toolCallId: 't', content: [{ type: 'content', content: { type: 'text', text: 'НАЧАЛО' + long } }] } });
+			const [commandOut, textOut] = [command, text].map(update => update?.kind === 'tool' ? update.output : '');
+			assert.deepStrictEqual(
+				[commandOut.endsWith('КОНЕЦ'), commandOut.startsWith('…'), textOut.startsWith('НАЧАЛО'), textOut.endsWith('…'), commandOut.length, textOut.length],
+				[true, true, true, true, ACP_TOOL_OUTPUT_MAX_CHARS + 1, ACP_TOOL_OUTPUT_MAX_CHARS + 1]);
 		});
 
 		test('незнакомая стадия не выдаётся за завершённую, а отмена читается отменой', () => {
@@ -158,8 +219,8 @@ suite('acpProtocol', () => {
 			// `cancelled` объявлен в схеме v2 и прислать его вправе любой агент.
 			const cancelled = parseSessionUpdate({ update: { sessionUpdate: 'tool_call', toolCallId: 't', status: 'cancelled' } });
 			assert.deepStrictEqual([unknown, cancelled], [
-				{ kind: 'tool', toolCallId: 't', title: '', name: '', toolKind: '', status: 'unknown', paths: [], diffs: [] },
-				{ kind: 'tool', toolCallId: 't', title: '', name: '', toolKind: '', status: 'cancelled', paths: [], diffs: [] },
+				{ kind: 'tool', toolCallId: 't', title: '', name: '', toolKind: '', status: 'unknown', paths: [], diffs: [], output: '' },
+				{ kind: 'tool', toolCallId: 't', title: '', name: '', toolKind: '', status: 'cancelled', paths: [], diffs: [], output: '' },
 			]);
 		});
 
@@ -233,8 +294,13 @@ suite('acpProtocol', () => {
 			assert.deepStrictEqual(facts.diffs, [{ path: '/app/new.ts', oldText: '', newText: 'содержимое' }]);
 		});
 
+		test('команда оболочки берётся из аргументов вызова, а не из заголовка', () => {
+			const facts = toolCallFacts({ title: 'Run tests', kind: 'execute', rawInput: { command: 'npm test', description: 'Run tests' } });
+			assert.deepStrictEqual([facts.title, facts.command], ['Run tests', 'npm test']);
+		});
+
 		test('вызов без файлов не выдумывает путей', () => {
-			assert.deepStrictEqual(toolCallFacts({ kind: 'execute', title: 'Bash' }), { title: 'Bash', name: '', toolKind: 'execute', paths: [], diffs: [] });
+			assert.deepStrictEqual(toolCallFacts({ kind: 'execute', title: 'Bash' }), { title: 'Bash', name: '', toolKind: 'execute', command: '', paths: [], diffs: [] });
 		});
 	});
 

@@ -15,13 +15,14 @@
  * user already trusted this exact command shape?»
  *
  * Adoption order (in `IVibeCustomCommandsService.run`):
- *   1. Compute `commandShapeHash(cmd)` (caller decides hash function — typically
- *      SHA-256 over command|args|env|cwd, same hash used by `commandTrustRevoke`).
- *   2. Call `decideRunConfirm({ command, currentHash, trustEntry? })`.
+ *   1. Compute the fingerprint of the command (`commandFingerprint`, SHA-256 — the same hash
+ *      is used by `commandTrustRevoke`).
+ *   2. Call `decideRunConfirm({ command, currentHash, trustEntry?, workspaceTrusted })`.
  *   3. On `auto-allow` → spawn directly.
  *   4. On `require-confirm` → open `IDialogService` confirm with
- *      `describeConfirmReason()` body; on approve persist a new
- *      `CommandTrustEntry` to `.vibe/commands.trust.json` (atomic temp+rename).
+ *      `describeConfirmReason()` body; on approve persist a new `CommandTrustEntry`
+ *      to the profile storage (never to a file inside the repository, see `projectCommandsFingerprint`).
+ *      Nothing is persisted for an untrusted workspace.
  */
 
 import { ProjectCommand } from './projectCommandsTypes.js';
@@ -30,7 +31,8 @@ import { CommandTrustEntry } from './commandTrustRevoke.js';
 export type RunConfirmReason =
 	| 'first-run'
 	| 'shape-changed-since-trust'
-	| 'always-confirm';
+	| 'always-confirm'
+	| 'untrusted-workspace';
 
 export type RunConfirmDecision =
 	| { readonly kind: 'auto-allow' }
@@ -40,15 +42,21 @@ export interface RunConfirmInput {
 	readonly command: Pick<ProjectCommand, 'id' | 'confirm'>;
 	readonly currentHash: string;
 	readonly trustEntry?: CommandTrustEntry;
+	/** Workspace Trust verdict of the folder the commands come from. */
+	readonly workspaceTrusted: boolean;
 }
 
 /**
  * Decision tree (top-down — first match wins):
  *
  *   1. command.confirm === true                        → 'always-confirm'
- *   2. trustEntry === undefined                        → 'first-run'
- *   3. trustEntry.commandShapeHash !== currentHash     → 'shape-changed-since-trust'
- *   4. otherwise                                       → 'auto-allow'
+ *   2. workspace is not trusted                        → 'untrusted-workspace'
+ *   3. trustEntry === undefined                        → 'first-run'
+ *   4. trustEntry.commandShapeHash !== currentHash     → 'shape-changed-since-trust'
+ *   5. otherwise                                       → 'auto-allow'
+ *
+ * An untrusted folder never gets `auto-allow`, whatever the storage remembers:
+ * the commands in it are written by whoever wrote the repository.
  *
  * Note: when shape changes, the *up-front* decision is `require-confirm` —
  * the *retroactive* revoke decision is the responsibility of
@@ -57,6 +65,9 @@ export interface RunConfirmInput {
 export function decideRunConfirm(input: RunConfirmInput): RunConfirmDecision {
 	if (input.command.confirm === true) {
 		return { kind: 'require-confirm', reason: 'always-confirm' };
+	}
+	if (!input.workspaceTrusted) {
+		return { kind: 'require-confirm', reason: 'untrusted-workspace' };
 	}
 	if (input.trustEntry === undefined) {
 		return { kind: 'require-confirm', reason: 'first-run' };
@@ -76,12 +87,13 @@ export function decideRunConfirm(input: RunConfirmInput): RunConfirmDecision {
 export function decideRunConfirmBulk(
 	commands: ReadonlyArray<{ command: RunConfirmInput['command']; currentHash: string }>,
 	trust: ReadonlyArray<CommandTrustEntry>,
+	workspaceTrusted: boolean,
 ): readonly { readonly id: string; readonly decision: RunConfirmDecision }[] {
 	const trustById = new Map<string, CommandTrustEntry>();
 	for (const t of trust) { trustById.set(t.id, t); }
 	return commands.map(({ command, currentHash }) => ({
 		id: command.id,
-		decision: decideRunConfirm({ command, currentHash, trustEntry: trustById.get(command.id) }),
+		decision: decideRunConfirm({ command, currentHash, trustEntry: trustById.get(command.id), workspaceTrusted }),
 	}));
 }
 
@@ -98,6 +110,8 @@ export function describeConfirmReason(reason: RunConfirmReason, name: string): s
 			return `Команда «${name}» изменилась с момента последнего разрешения. Подтвердите запуск.`;
 		case 'always-confirm':
 			return `Команда «${name}» помечена как требующая подтверждения при каждом запуске.`;
+		case 'untrusted-workspace':
+			return `Папка проекта не помечена как доверенная, поэтому команда «${name}» запускается только с вашего подтверждения каждый раз. Запустить?`;
 	}
 }
 

@@ -29,9 +29,11 @@ import './autocompleteService.js';
 // settings pane
 import './vibeideSettingsPane.js';
 import './vibeAgentsDispatchPane.js';
-import './vibeExternalAgentsPane.js';
 import './acp/vibeAcpRegistryService.js';
 import './acp/vibeAcpSessionsService.js';
+import './chatPromptHistoryService.js';
+import './vibeSettingsNavigationService.js';
+import './acp/vibeAcpAgentsCommand.js';
 import '../common/vibeAgentRunLedgerService.js';
 import './vibeAgentPreflightService.js';
 import './vibeAgentPreflightCommand.js';

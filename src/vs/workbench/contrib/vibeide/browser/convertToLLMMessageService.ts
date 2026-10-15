@@ -9,6 +9,7 @@ import { registerSingleton, InstantiationType } from '../../../../platform/insta
 import { createDecorator } from '../../../../platform/instantiation/common/instantiation.js';
 import { IWorkspaceContextService } from '../../../../platform/workspace/common/workspace.js';
 import { IEditorService } from '../../../services/editor/common/editorService.js';
+import { editorWorkingSet } from './editorWorkingSet.js';
 import { ChatMessage, ChatImageAttachment } from '../common/chatThreadServiceTypes.js';
 import { recordChatTrace } from './vibeChatRunTrace.js';
 import { guardHistorySummary, guardRetrievedChunks, retrievedContextFraming } from '../common/retrievedContextGuard.js';
@@ -1748,10 +1749,9 @@ class ConvertToLLMMessageService extends Disposable implements IConvertToLLMMess
 	 * the rules this request switched on, and the file tree when it changed since an earlier message carried one
 	 */
 	private async _turnContextFor(chatMode: ChatMode, local: boolean, activatedRules: string, history: readonly ChatMessage[], providerName: string, modelName: string): Promise<string> {
-		const openedURIs = local
-			? this.editorService.editors.map(e => e.resource?.fsPath || '').filter(Boolean)
-			: this.modelService.getModels().filter(m => m.isAttachedToEditor()).map(m => m.uri.fsPath);
-		const activeURI = this.editorService.activeEditor?.resource?.fsPath;
+		const workingSet = editorWorkingSet(this.editorService, this.modelService, local ? 'tabs' : 'liveEditors');
+		const activeURI = workingSet.activeFile?.fsPath;
+		const openedURIs = workingSet.openFiles.map(uri => uri.fsPath);
 		const directoryStr = local ? undefined : await this.directoryStrService.getAllDirectoriesStr({
 			cutOffMessage: chatMode === 'agent' || chatMode === 'gather' || chatMode === 'plan' ?
 				`...Directories string cut off, use tools to read more...`
@@ -2267,8 +2267,9 @@ class ConvertToLLMMessageService extends Disposable implements IConvertToLLMMess
 		// R.2 — file context for glob-scoped rules ("Auto Attached"): open editors + active editor
 		// + files the agent touched (read/edited) this thread, normalised to workspace-relative paths.
 		const ruleWsFolders = this.workspaceContextService.getWorkspace().folders.map(f => f.uri.fsPath);
-		const ruleOpenFiles = this.editorService.editors.map(e => e.resource?.fsPath).filter((p): p is string => !!p);
-		const ruleActiveFile = this.editorService.activeEditor?.resource?.fsPath;
+		const ruleWorkingSet = editorWorkingSet(this.editorService, this.modelService, 'tabs');
+		const ruleActiveFile = ruleWorkingSet.activeFile?.fsPath;
+		const ruleOpenFiles = ruleWorkingSet.openFiles.map(uri => uri.fsPath);
 		const ruleContextFiles = [
 			...ruleOpenFiles,
 			...(ruleActiveFile ? [ruleActiveFile] : []),

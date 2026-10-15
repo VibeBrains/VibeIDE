@@ -3,6 +3,7 @@
  *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
 
+import { CodeState, codeAfter, FENCE, NO_CODE } from './codeState.js';
 import { TEXT_TOOL_CALL_FORMATS, TextToolCall, TextToolCallFormat, TextToolCallSchema } from './textToolCallFormats.js';
 
 /**
@@ -41,8 +42,6 @@ export interface TextToolCallsRead {
 /** Offered tool name → the JSON schema of its parameters */
 export type OfferedToolSchemas = Readonly<Record<string, TextToolCallSchema | undefined>>;
 
-const FENCE = '```';
-
 /** Every literal a cut stream may be in the middle of: the openers and a code fence */
 const WAIT_FOR: readonly string[] = [...TEXT_TOOL_CALL_FORMATS.flatMap(format => format.openers), FENCE];
 
@@ -53,50 +52,6 @@ const TAG_PREFIX = 40;
 const ANSWER_OPENING = 80;
 
 const PYTHON_START = '<|python_start|>';
-
-/**
- * Where the text stands with respect to code, which markup inside is not a call: a fenced block, an inline code span
- * The state after a text is the state before the next piece of a stream
- */
-interface CodeState {
-	readonly inFence: boolean;
-	readonly inSpan: boolean;
-	readonly atLineStart: boolean;
-}
-
-const NO_CODE: CodeState = { inFence: false, inSpan: false, atLineStart: true };
-
-/** The state after `text`: a fence opens a line (maybe indented), a run of ticks elsewhere opens or closes a span */
-function codeAfter(state: CodeState, text: string, end = text.length): CodeState {
-	let { inFence, inSpan, atLineStart } = state;
-	let i = 0;
-	while (i < end) {
-		const c = text[i];
-		if (c === '\n') {
-			atLineStart = true;
-			inSpan = false;
-		} else if (atLineStart && (c === ' ' || c === '\t')) {
-			// Indentation keeps the line's start
-		} else if (c === '`') {
-			let run = i;
-			while (run < end && text[run] === '`') {
-				run++;
-			}
-			if (atLineStart && run - i >= FENCE.length) {
-				inFence = !inFence;
-			} else if (!inFence) {
-				inSpan = !inSpan;
-			}
-			atLineStart = false;
-			i = run;
-			continue;
-		} else {
-			atLineStart = false;
-		}
-		i++;
-	}
-	return { inFence, inSpan, atLineStart };
-}
 
 /** The format that opens first outside code, and where */
 function firstOpening(text: string, code: CodeState, atAnswerStart: boolean): { readonly format: TextToolCallFormat; readonly at: number } | undefined {

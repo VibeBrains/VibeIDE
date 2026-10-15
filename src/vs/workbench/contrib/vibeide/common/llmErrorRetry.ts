@@ -3,7 +3,8 @@
  *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
 
-import { isContextOverflow, parseContextOverflowError } from './sendLLMMessageTypes.js';
+import { ModelUnavailability } from './modelAvailability.js';
+import { isContextOverflow, parseContextOverflowError, REGION_RESTRICTION_PATTERN } from './sendLLMMessageTypes.js';
 
 /** What the chat knows about a failed model call when it decides whether to ask again */
 export interface LlmErrorFacts {
@@ -70,13 +71,18 @@ const LOCAL_PROVIDER_FIRST_RETRY_DELAY_MS = 500;
 /** The server of the provider answered with an error: the provider is down, or its upstream is */
 const SERVER_ERROR_STATUSES = { from: 500, to: 599 } as const;
 
+/** Statuses that say the key, the plan or the balance does not reach the model */
+const UNAUTHORIZED_STATUS = 401;
+const PAYMENT_REQUIRED_STATUS = 402;
+const FORBIDDEN_STATUS = 403;
+
 /** Statuses the adapter writes into its own 5xx message when the response itself carries none */
 const STATUS_IN_MESSAGE = /\(HTTP (?<status>\d{3})\)/;
 
 /** No answer came at all: the connection was refused, reset, cut or never resolved */
 const NETWORK_FAILURE = /APIConnectionError|Failed to connect|fetch failed|Connection error|ECONNREFUSED|ECONNRESET|ENOTFOUND|EAI_AGAIN|ETIMEDOUT|EPIPE|socket hang ?up|network error|getaddrinfo|\bterminated\b/i;
 
-type LlmErrorClass = 'fatal' | 'rejected' | 'rateLimit' | 'serverError' | 'network' | 'transient';
+type LlmErrorClass = 'fatal' | 'unavailable' | 'rejected' | 'rateLimit' | 'serverError' | 'network' | 'transient';
 
 function statusOf(facts: LlmErrorFacts): number | undefined {
 	if (facts.httpStatus !== undefined) {
@@ -86,21 +92,57 @@ function statusOf(facts: LlmErrorFacts): number | undefined {
 	return fromMessage === undefined ? undefined : Number(fromMessage);
 }
 
+/** Only the person can change the outcome, and the model and the provider are not what failed */
+function isFatal(facts: LlmErrorFacts): boolean {
+	return facts.safetyRefusal
+		|| facts.emptyBreakerTripped
+		|| !!parseContextOverflowError(facts.message)
+		|| isContextOverflow(facts.message);
+}
+
+/**
+ * Does the error show the model closed to this person, and what does it prove about the rest of the provider
+ * A spent quota is the account's, so it closes the whole provider
+ * A region lock, a refused key (401, 403) and a model outside the plan close only the model that answered with them
+ * A safety refusal and a context that does not fit say nothing about access, whatever status they came with
+ * The same fact the retry policy acts on and «Авто» remembers, so the two cannot disagree
+ */
+export function unavailabilityOf(facts: LlmErrorFacts): ModelUnavailability | undefined {
+	if (isFatal(facts)) {
+		return undefined;
+	}
+	if (REGION_RESTRICTION_PATTERN.test(facts.message)) {
+		return { scope: 'model', reason: 'region' };
+	}
+	const status = statusOf(facts);
+	if (facts.refusalKind === 'quota' || status === PAYMENT_REQUIRED_STATUS) {
+		return { scope: 'provider', reason: 'quota' };
+	}
+	if (facts.refusalKind === 'auth' || status === UNAUTHORIZED_STATUS || status === FORBIDDEN_STATUS) {
+		return { scope: 'model', reason: 'access' };
+	}
+	return undefined;
+}
+
 /**
  * `fatal`: only the person can change the outcome
- * That is a context that does not fit, a spent quota, a safety refusal and a tripped breaker
+ * That is a context that does not fit, a safety refusal and a tripped breaker
  * Those errors also carry a recovery action in the chat, and a retry behind the person's back would hide it
  *
- * `rejected`: a 4xx answer is about the request itself, so the same model answers the same way
+ * `unavailable`: the model is closed to this person (see {@link unavailabilityOf})
+ * That is a spent quota, a region lock, a refused key or a model outside the plan
+ * The same model refuses the same way, but another one may answer, so Auto moves on and a pinned model stops
+ *
+ * `rejected`: any other 4xx answer is about the request itself, so the same model answers the same way
  *
  * Everything else is transient: an unreadable successful response, a gateway 5xx, a dropped connection
  */
 function classifyLlmError(facts: LlmErrorFacts): LlmErrorClass {
-	if (facts.safetyRefusal || facts.emptyBreakerTripped || facts.refusalKind === 'quota') {
+	if (isFatal(facts)) {
 		return 'fatal';
 	}
-	if (parseContextOverflowError(facts.message) || isContextOverflow(facts.message)) {
-		return 'fatal';
+	if (unavailabilityOf(facts)) {
+		return 'unavailable';
 	}
 	const status = statusOf(facts);
 	if (status !== undefined && status >= 400 && status < 500 && !TRANSIENT_CLIENT_STATUSES.has(status)) {
@@ -119,6 +161,7 @@ function classifyLlmError(facts: LlmErrorFacts): LlmErrorClass {
  * What to do with a failed model call: one policy for the whole chat, so no layer under it repeats on its own
  *
  * Ends the turn at once on an error only the person can fix
+ * A model closed to this person (quota, region, key, plan) ends a pinned turn too, and in Auto the next model takes it
  * A 429 that names no wait is repeated twice quickly, then the visible rate-limit pause takes over
  * Everything else is repeated up to the configured count with a growing delay
  * The provider's `Retry-After` raises that delay, and a longer ask than the agent sits out ends the turn
@@ -128,6 +171,13 @@ export function decideLlmRetry(facts: LlmErrorFacts, context: LlmRetryContext): 
 	const errorClass = classifyLlmError(facts);
 	if (errorClass === 'fatal') {
 		return { kind: 'stop', reason: 'notRetryable' };
+	}
+	if (errorClass === 'unavailable') {
+		// Another model may answer what this one is closed for
+		// The other models of a provider whose quota is spent are no way out
+		return facts.canSwitchModel
+			? { kind: 'nextModel', skipFailedProvider: unavailabilityOf(facts)?.scope === 'provider' }
+			: { kind: 'stop', reason: 'notRetryable' };
 	}
 	if (errorClass === 'rejected') {
 		// Another model may answer what this one refuses

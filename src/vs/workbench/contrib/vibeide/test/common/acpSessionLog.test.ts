@@ -33,7 +33,7 @@ suite('acpSessionLog', () => {
 		// Иначе сказанное до действия и сказанное после читались бы как одна мысль.
 		const log = new AcpSessionLog();
 		log.appendText('сейчас прочитаю', false);
-		log.applyTool({ toolCallId: 't1', title: 'Read', name: '', toolKind: 'read', status: 'completed', paths: ['/app/a.ts'], diffs: [] });
+		log.applyTool({ toolCallId: 't1', title: 'Read', name: '', toolKind: 'read', status: 'completed', paths: ['/app/a.ts'], diffs: [], output: '' });
 		log.appendText('прочитал', false);
 		assert.deepStrictEqual(log.snapshot.entries.map(entry => entry.id), ['m1', 't1', 'm2']);
 	});
@@ -41,8 +41,8 @@ suite('acpSessionLog', () => {
 	/** Имя инструмента стабилизировано в ACP v1; в обновлении пустое значит «не менять». */
 	test('имя инструмента запоминается и не затирается пустым кадром, отмена не читается как «неизвестно»', () => {
 		const log = new AcpSessionLog();
-		log.applyTool({ toolCallId: 't9', title: 'Читаю файл', name: 'read_file', toolKind: 'read', status: 'in_progress', paths: [], diffs: [] });
-		log.applyTool({ toolCallId: 't9', title: '', name: '', toolKind: '', status: 'cancelled', paths: [], diffs: [] });
+		log.applyTool({ toolCallId: 't9', title: 'Читаю файл', name: 'read_file', toolKind: 'read', status: 'in_progress', paths: [], diffs: [], output: '' });
+		log.applyTool({ toolCallId: 't9', title: '', name: '', toolKind: '', status: 'cancelled', paths: [], diffs: [], output: '' });
 		const entry = log.snapshot.entries[0];
 		assert.deepStrictEqual(
 			entry.kind === 'tool' ? [entry.name, entry.title, entry.status] : [],
@@ -53,9 +53,9 @@ suite('acpSessionLog', () => {
 	test('кадры одного вызова сворачиваются в одну карточку, дифф доживает до конца', () => {
 		// Порядок живого прогона: дифф в среднем кадре, завершающий приходит пустым.
 		const log = new AcpSessionLog();
-		log.applyTool({ toolCallId: 't1', title: 'Edit', name: '', toolKind: 'edit', status: 'pending', paths: [], diffs: [] });
-		log.applyTool({ toolCallId: 't1', title: 'Edit /app/hello.txt', name: '', toolKind: 'edit', status: 'unknown', paths: ['/app/hello.txt'], diffs: [diff] });
-		log.applyTool({ toolCallId: 't1', title: '', name: '', toolKind: '', status: 'completed', paths: [], diffs: [] });
+		log.applyTool({ toolCallId: 't1', title: 'Edit', name: '', toolKind: 'edit', status: 'pending', paths: [], diffs: [], output: '' });
+		log.applyTool({ toolCallId: 't1', title: 'Edit /app/hello.txt', name: '', toolKind: 'edit', status: 'unknown', paths: ['/app/hello.txt'], diffs: [diff], output: '' });
+		log.applyTool({ toolCallId: 't1', title: '', name: '', toolKind: '', status: 'completed', paths: [], diffs: [], output: '' });
 		assert.deepStrictEqual(log.snapshot.entries, [{
 			kind: 'tool',
 			id: 't1',
@@ -65,21 +65,42 @@ suite('acpSessionLog', () => {
 			status: 'completed',
 			paths: ['/app/hello.txt'],
 			diffs: [diff],
+			output: '',
 		}]);
+	});
+
+	test('вывод и код выхода команды доживают до пустого завершающего кадра', () => {
+		const log = new AcpSessionLog();
+		log.applyTool({ toolCallId: 't1', title: 'git status', name: 'Bash', toolKind: 'execute', status: 'in_progress', paths: [], diffs: [], output: '' });
+		log.applyTool({ toolCallId: 't1', title: '', name: '', toolKind: '', status: 'completed', paths: [], diffs: [], output: 'чисто\n', exitCode: 0 });
+		log.applyTool({ toolCallId: 't1', title: '', name: '', toolKind: '', status: 'completed', paths: [], diffs: [], output: '' });
+		const entry = log.snapshot.entries[0] as { output: string; exitCode?: number };
+		assert.deepStrictEqual([entry.output, entry.exitCode], ['чисто\n', 0]);
 	});
 
 	test('провал вызова виден: стадия меняется в любую сторону', () => {
 		const log = new AcpSessionLog();
-		log.applyTool({ toolCallId: 't1', title: 'Edit', name: '', toolKind: 'edit', status: 'in_progress', paths: [], diffs: [diff] });
-		log.applyTool({ toolCallId: 't1', title: '', name: '', toolKind: '', status: 'failed', paths: [], diffs: [] });
+		log.applyTool({ toolCallId: 't1', title: 'Edit', name: '', toolKind: 'edit', status: 'in_progress', paths: [], diffs: [diff], output: '' });
+		log.applyTool({ toolCallId: 't1', title: '', name: '', toolKind: '', status: 'failed', paths: [], diffs: [], output: '' });
 		assert.strictEqual((log.snapshot.entries[0] as { status: string }).status, 'failed');
+	});
+
+	test('конец хода снимает «идёт» с карточек без завершающего кадра и не трогает завершённые', () => {
+		const log = new AcpSessionLog();
+		log.applyTool({ toolCallId: 't1', title: 'curl', name: 'Bash', toolKind: 'execute', status: 'in_progress', paths: [], diffs: [], output: '' });
+		log.applyTool({ toolCallId: 't2', title: 'Read', name: 'Read', toolKind: 'read', status: 'pending', paths: [], diffs: [], output: '' });
+		log.applyTool({ toolCallId: 't3', title: 'Edit', name: 'Edit', toolKind: 'edit', status: 'failed', paths: [], diffs: [], output: '' });
+		log.applyTool({ toolCallId: 't4', title: 'ls', name: 'Bash', toolKind: 'execute', status: 'completed', paths: [], diffs: [], output: '' });
+		log.applyTool({ toolCallId: 't5', title: 'rm', name: 'Bash', toolKind: 'execute', status: 'unknown', paths: [], diffs: [], output: '' });
+		log.settleTurn();
+		assert.deepStrictEqual(log.snapshot.entries.map(entry => (entry as { status: string }).status), ['cancelled', 'cancelled', 'failed', 'completed', 'cancelled']);
 	});
 
 	test('карточка обновляется на месте, а не уезжает в конец ленты', () => {
 		const log = new AcpSessionLog();
-		log.applyTool({ toolCallId: 't1', title: 'Read', name: '', toolKind: 'read', status: 'pending', paths: [], diffs: [] });
+		log.applyTool({ toolCallId: 't1', title: 'Read', name: '', toolKind: 'read', status: 'pending', paths: [], diffs: [], output: '' });
 		log.appendText('пишу', false);
-		log.applyTool({ toolCallId: 't1', title: 'Read', name: '', toolKind: 'read', status: 'completed', paths: [], diffs: [] });
+		log.applyTool({ toolCallId: 't1', title: 'Read', name: '', toolKind: 'read', status: 'completed', paths: [], diffs: [], output: '' });
 		assert.deepStrictEqual(log.snapshot.entries.map(entry => entry.id), ['t1', 'm1']);
 	});
 

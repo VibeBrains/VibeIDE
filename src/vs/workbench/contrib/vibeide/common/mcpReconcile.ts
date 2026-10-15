@@ -40,8 +40,9 @@ export type MCPServerAction = 'keep' | 'start' | 'restart' | 'off' | 'remove';
 /**
  * Entry fields that do not shape the launch. `tools` is the list of tools the agent may see; the window
  * enforces it, the server process never learns it — editing it must not restart the server.
+ * `disabled` decides whether the server runs at all, not how: it reaches the reconciliation as the server's on/off.
  */
-const NOT_PART_OF_LAUNCH: readonly string[] = ['tools'];
+const NOT_PART_OF_LAUNCH: readonly string[] = ['tools', 'disabled'];
 
 /**
  * The launch an entry describes, as a comparable string.
@@ -96,4 +97,66 @@ export function reconcileMCPServers(
 		}
 	}
 	return actions;
+}
+
+/** What one window wants: its entries after Config Guard and which of them its settings switch on. */
+export interface WindowPicture {
+	readonly entries: Readonly<Record<string, MCPConfigFileEntryJSON>>;
+	readonly enabledOfName: Readonly<Record<string, boolean>>;
+}
+
+export interface UnitedPictures {
+	/** The entry that runs under each wanted name */
+	readonly entries: Record<string, MCPConfigFileEntryJSON>;
+	/** On/off by the window whose entry runs */
+	readonly enabledOfName: Record<string, boolean>;
+	/** Per window: names it wants with a launch that differs from the one running, so it cannot have them */
+	readonly conflictsOfWindow: Record<string, readonly string[]>;
+}
+
+/**
+ * The windows' pictures as one, for the reconciliation against what runs.
+ *
+ * Servers are shared by every window, so a name is ONE server. Windows usually agree — they read the same user file —
+ * but a project file adds servers one window has and another does not, and a project may give a name another launch.
+ * The union keeps a server wanted by any window, and a name wanted two ways goes to one of them:
+ * the launch that already runs, else the window that came first. The others are told, not given a second server
+ * under the same name: its tools would be called from the wrong project.
+ *
+ * Windows are in the order they first spoke. A window's stale picture can lose a name for a moment while it catches up
+ * with an edit of the user file; the conflict ends with the window's next picture.
+ */
+export function unitePictures(
+	pictures: ReadonlyMap<string, WindowPicture>,
+	runningFingerprintOfName: Readonly<Record<string, string>>,
+	appsEnabled: boolean,
+): UnitedPictures {
+	const wantsOfName = new Map<string, { readonly window: string; readonly fingerprint: string }[]>();
+	for (const [window, picture] of pictures) {
+		for (const [name, entry] of Object.entries(picture.entries)) {
+			const wants = wantsOfName.get(name) ?? [];
+			wants.push({ window, fingerprint: mcpServerFingerprint(entry, appsEnabled) });
+			wantsOfName.set(name, wants);
+		}
+	}
+	const entries: Record<string, MCPConfigFileEntryJSON> = {};
+	const enabledOfName: Record<string, boolean> = {};
+	const conflicts = new Map<string, string[]>();
+	for (const [name, wants] of wantsOfName) {
+		const running = Object.hasOwn(runningFingerprintOfName, name) ? runningFingerprintOfName[name] : undefined;
+		const holder = wants.find(want => want.fingerprint === running) ?? wants[0];
+		const picture = pictures.get(holder.window)!;
+		entries[name] = picture.entries[name];
+		enabledOfName[name] = picture.enabledOfName[name] !== false;
+		for (const want of wants) {
+			if (want.fingerprint !== holder.fingerprint) {
+				conflicts.set(want.window, [...(conflicts.get(want.window) ?? []), name]);
+			}
+		}
+	}
+	const conflictsOfWindow: Record<string, readonly string[]> = {};
+	for (const window of pictures.keys()) {
+		conflictsOfWindow[window] = conflicts.get(window) ?? [];
+	}
+	return { entries, enabledOfName, conflictsOfWindow };
 }

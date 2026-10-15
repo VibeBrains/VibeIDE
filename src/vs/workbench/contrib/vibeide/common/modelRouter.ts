@@ -9,6 +9,7 @@ import { ModelSelection } from './vibeideSettingsTypes.js';
 import { isLocalProvider } from './isLocalProvider.js';
 import { getModelCapabilities, VibeideStaticModelInfo } from './modelCapabilities.js';
 import { retiredForAutoPick } from './modelDeprecation.js';
+import { ModelAvailabilityRegistry, ModelUnavailability, providerSetupKey } from './modelAvailability.js';
 import { IVibeideSettingsService, VibeideSettingsState } from './vibeideSettingsService.js';
 import { Disposable } from '../../../../base/common/lifecycle.js';
 import { createDecorator } from '../../../../platform/instantiation/common/instantiation.js';
@@ -136,6 +137,46 @@ export interface RoutingDecision {
 /** How many runners-up a scored decision keeps for the error fallback */
 const FALLBACK_CHAIN_LENGTH = 3;
 
+/**
+ * Points a model that does not reason loses on a task that leans on reasoning
+ * A weakness for the task is an assessment, never a ban: such a model still answers when nothing better is left,
+ * and on light tasks it is not touched
+ */
+const NO_REASONING_PENALTY_ON_DEMANDING_TASK = 20;
+
+/** Points a model that reasons earns on a task that leans on reasoning, and the extra for one that shows it */
+const REASONING_BONUS = 12;
+const OUTPUT_REASONING_BONUS = 5;
+
+/**
+ * Does the task lean on the model's own reasoning?
+ * Code, several steps, debugging, review, performance, security, or a request the chat flagged as complex
+ * Read off the task flags the router already scores by, never off a model name
+ */
+export function taskDemandsReasoning(context: TaskContext): boolean {
+	return context.taskType === 'code'
+		|| !!(context.requiresComplexReasoning || context.isMultiStepTask || context.isDebuggingTask
+			|| context.isCodeReviewTask || context.isPerformanceTask || context.isSecurityTask);
+}
+
+/**
+ * What the model's reasoning adds to its score for this task
+ * It counts only where the task leans on reasoning:
+ * A model that reasons gets its bonus there, one that shows its reasoning a little more, one that does not loses points
+ * On a light task (a plain chat, a rewrite of a text) nobody gets a bonus for thinking
+ * So the cheaper and faster model can win there
+ */
+export function reasoningScoreOf(capabilities: Pick<VibeideStaticModelInfo, 'reasoningCapabilities'>, context: TaskContext): number {
+	if (!taskDemandsReasoning(context)) {
+		return 0;
+	}
+	const reasoning = capabilities.reasoningCapabilities;
+	if (reasoning && typeof reasoning === 'object' && reasoning.supportsReasoning) {
+		return reasoning.canIOReasoning ? REASONING_BONUS + OUTPUT_REASONING_BONUS : REASONING_BONUS;
+	}
+	return -NO_REASONING_PENALTY_ON_DEMANDING_TASK;
+}
+
 /** The runners-up of a ranking sorted best first */
 function fallbackChainOf(ranked: readonly { readonly model: ModelSelection }[]): ModelSelection[] {
 	return ranked.slice(1, 1 + FALLBACK_CHAIN_LENGTH).map(entry => entry.model);
@@ -152,6 +193,24 @@ export function autoFallbackCandidates(decision: RoutingDecision): readonly Mode
 	return [decision.modelSelection, ...(decision.fallbackChain ?? [])];
 }
 
+/** What a fallback pick skips: models that failed in this turn, providers shown to be down, models held back */
+export interface AutoFallbackSkips {
+	/** Keys `provider/model` of the models the turn already tried */
+	readonly tried: ReadonlySet<string>;
+	readonly providersDown: ReadonlySet<string>;
+	readonly isUnavailable: (model: ModelSelection) => boolean;
+}
+
+/**
+ * The model that takes the turn after the current one failed: the best of the ranking that the turn has not tried,
+ * whose provider is not down and that no earlier error closed
+ */
+export function nextAutoFallback(ranking: readonly ModelSelection[] | undefined, skips: AutoFallbackSkips): ModelSelection | undefined {
+	return ranking?.find(candidate => !skips.tried.has(`${candidate.providerName}/${candidate.modelName}`)
+		&& !skips.providersDown.has(candidate.providerName)
+		&& !skips.isUnavailable(candidate));
+}
+
 export interface ITaskAwareModelRouter {
 	readonly _serviceBrand: undefined;
 	route(context: TaskContext): Promise<RoutingDecision>;
@@ -159,6 +218,15 @@ export interface ITaskAwareModelRouter {
 	getRoutingExplanation(context: TaskContext): Promise<string>;
 	/** Settle the journal entry of a decision with what came of its turn */
 	reportOutcome(outcomeId: string, verdict: RoutingVerdict): void;
+	/**
+	 * An error showed the model closed to this person (region, quota, key, plan): «Авто» stops picking it
+	 * The next ranking is built without it, and so is the ranking of every later turn until the hold lifts
+	 */
+	reportUnavailable(model: ModelSelection, unavailability: ModelUnavailability): void;
+	/** The model answered: whatever held it back is lifted */
+	reportAvailable(model: ModelSelection): void;
+	/** Is «Авто» holding the model back right now? */
+	isUnavailable(model: ModelSelection): boolean;
 }
 
 export const ITaskAwareModelRouter = createDecorator<ITaskAwareModelRouter>('TaskAwareModelRouter');
@@ -214,6 +282,9 @@ export class TaskAwareModelRouter extends Disposable implements ITaskAwareModelR
 		}
 		return capabilities;
 	}
+
+	/** Models an error showed closed to this person: not candidates until an answer, a new setup or the TTL */
+	private readonly availability = new ModelAvailabilityRegistry();
 
 	// Cache for common routing decisions (fast path optimization)
 	private readonly routingCache: Map<string, { decision: RoutingDecision; timestamp: number }> = new Map();
@@ -695,6 +766,30 @@ export class TaskAwareModelRouter extends Disposable implements ITaskAwareModelR
 		this.evaluationService.updateOutcome(outcomeId, verdict);
 	}
 
+	reportUnavailable(model: ModelSelection, unavailability: ModelUnavailability): void {
+		if (model.providerName === 'auto') { return; }
+		this.availability.mark(model, unavailability, this.setupKeyOf(model), Date.now());
+		// Decisions made before the mark may lead with the model or carry it in their fallback chain
+		this.routingCache.clear();
+		vibeLog.warn('modelRouter', `[ModelRouter] ${model.providerName}/${model.modelName} is closed (${unavailability.reason}, ${unavailability.scope}): «Авто» holds it back`);
+	}
+
+	reportAvailable(model: ModelSelection): void {
+		if (model.providerName === 'auto') { return; }
+		if (this.availability.clear(model)) {
+			this.routingCache.clear();
+			vibeLog.info('modelRouter', `[ModelRouter] ${model.providerName}/${model.modelName} answered: the hold on it is lifted`);
+		}
+	}
+
+	isUnavailable(model: ModelSelection): boolean {
+		return this.availability.unavailabilityOf(model, () => this.setupKeyOf(model), Date.now()) !== undefined;
+	}
+
+	private setupKeyOf(model: ModelSelection): string {
+		return providerSetupKey(this.settingsService.state.settingsOfProvider, model.providerName);
+	}
+
 	/**
 	 * Get learned score based on historical success
 	 */
@@ -813,11 +908,13 @@ export class TaskAwareModelRouter extends Disposable implements ITaskAwareModelR
 	}
 
 	/**
-	 * A model the vendor already turned off is never a candidate: the router picks on the user's behalf
+	 * A model the vendor already turned off, or one an error showed closed to this person, is never a candidate:
+	 * the router picks on the user's behalf
 	 * Filtered at the source, so the later stages that fall back to «all models» fall back without it too
 	 */
 	private isAutoPickable(model: ModelSelection, settingsState: VibeideSettingsState): boolean {
-		return !retiredForAutoPick(getModelCapabilities(model.providerName, model.modelName, settingsState.overridesOfModel), Date.now());
+		return !retiredForAutoPick(getModelCapabilities(model.providerName, model.modelName, settingsState.overridesOfModel), Date.now())
+			&& !this.isUnavailable(model);
 	}
 
 	/**
@@ -1170,13 +1267,10 @@ export class TaskAwareModelRouter extends Disposable implements ITaskAwareModelR
 			}
 		}
 
-		// Reasoning capabilities (valuable for complex tasks)
-		if (capabilities.reasoningCapabilities && typeof capabilities.reasoningCapabilities === 'object' && capabilities.reasoningCapabilities.supportsReasoning) {
-			score += 12;
-			if (capabilities.reasoningCapabilities.canIOReasoning) {
-				score += 5; // bonus for models that output reasoning
-			}
-		}
+		// Reasoning capabilities, valuable for tasks that lean on reasoning and nothing on the others
+		// A model that does not reason is weak for such a task: it ranks below the models that reason,
+		// while its tier and the other bonuses still count
+		score += reasoningScoreOf(capabilities, context);
 
 		// ===== COST & LATENCY PREFERENCES (Secondary Factors) =====
 

@@ -26,7 +26,6 @@
  *  - Events: DidChange / DidStart / DidEnd (success/failure tracked via `onExit`).
  *
  * **Deferred (separate roadmap items):**
- *  - Trust confirm dialog + `.vibe/commands.trust.json` writes.
  *  - Audit log redaction + `IVibeAuditLogService` hookup.
  *  - Dynamic `vibeide.commands.run.<id>` registration in `CommandsRegistry`.
  *  - Status-bar indicator + top-bar pinned-buttons contribution.
@@ -40,11 +39,12 @@ import { Emitter, Event } from '../../../../base/common/event.js';
 import { RunOnceScheduler } from '../../../../base/common/async.js';
 import { joinPath } from '../../../../base/common/resources.js';
 import { URI } from '../../../../base/common/uri.js';
-import { VSBuffer } from '../../../../base/common/buffer.js';
 import { createDecorator } from '../../../../platform/instantiation/common/instantiation.js';
 import { registerSingleton, InstantiationType } from '../../../../platform/instantiation/common/extensions.js';
 import { IFileService } from '../../../../platform/files/common/files.js';
 import { IConfigurationService } from '../../../../platform/configuration/common/configuration.js';
+import { IStorageService, StorageScope, StorageTarget } from '../../../../platform/storage/common/storage.js';
+import { IWorkspaceTrustManagementService } from '../../../../platform/workspace/common/workspaceTrust.js';
 import { IWorkspaceContextService } from '../../../../platform/workspace/common/workspace.js';
 import { ILogService } from '../../../../platform/log/common/log.js';
 import { IDialogService } from '../../../../platform/dialogs/common/dialogs.js';
@@ -69,6 +69,7 @@ import {
 	describeConfirmReason,
 	buildTrustEntryAfterApproval,
 } from '../common/projectCommandsTrustConfirm.js';
+import { commandFingerprint, commandTrustStorageKey } from '../common/projectCommandsFingerprint.js';
 import {
 	CommandTrustEntry,
 	decodeCommandTrustEntries,
@@ -98,38 +99,12 @@ import {
 } from '../common/projectCommandsSanitizer.js';
 
 const COMMANDS_FILE_NAME = '.vibe/commands.json';
-const TRUST_FILE_NAME = '.vibe/commands.trust.json';
 const WATCHER_DEBOUNCE_MS = 250;
 /**
  * Notify only when the suspect-id set changes between reloads — otherwise
  * a single committed leak would re-warn on every editor save. Kept on the
  * instance (see `_lastSuspectIds`).
  */
-
-/**
- * Cheap stable hash of the parts of a ProjectCommand that affect trust.
- * Re-runs require re-approval when any of these change. Args + env order is
- * preserved (Object.entries already returns insertion order in modern V8).
- * Avoids crypto deps for a workbench-side trust file.
- */
-function hashCommandShape(c: Pick<ProjectCommand, 'command' | 'args' | 'cwd' | 'env' | 'shell'>): string {
-	const parts = [
-		c.command,
-		(c.args ?? []).join('\x1f'),
-		c.cwd ?? '',
-		Object.entries(c.env ?? {}).sort(([a], [b]) => a.localeCompare(b)).map(([k, v]) => `${k}=${v}`).join('\x1f'),
-		c.shell ? '1' : '0',
-	];
-	const s = parts.join('\x1e');
-	// FNV-1a 32-bit — fast, no crypto. The trust file is local-only; collision
-	// resistance against an adversarial attacker isn't a threat model here.
-	let h = 0x811c9dc5;
-	for (let i = 0; i < s.length; i++) {
-		h ^= s.charCodeAt(i);
-		h = Math.imul(h, 0x01000193);
-	}
-	return (h >>> 0).toString(16).padStart(8, '0');
-}
 
 export const IVibeCustomCommandsService = createDecorator<IVibeCustomCommandsService>('vibeCustomCommandsService');
 
@@ -160,7 +135,7 @@ export interface IVibeCustomCommandsService {
 	/** Run a command by id. Returns once the spawned terminal process has exited. */
 	run(id: string): Promise<RunCommandOutcome>;
 
-	/** Return ids of all currently-trusted commands (from .vibe/commands.trust.json). */
+	/** Return ids of all currently-trusted commands (approvals kept in the profile storage). */
 	getTrustedCommandIds(): Promise<readonly string[]>;
 
 	/**
@@ -170,7 +145,7 @@ export interface IVibeCustomCommandsService {
 	revokeTrust(id: string): Promise<void>;
 }
 
-class VibeCustomCommandsService extends Disposable implements IVibeCustomCommandsService {
+export class VibeCustomCommandsService extends Disposable implements IVibeCustomCommandsService {
 	declare readonly _serviceBrand: undefined;
 
 	private _merged: ProjectCommand[] = [];
@@ -207,6 +182,8 @@ class VibeCustomCommandsService extends Disposable implements IVibeCustomCommand
 		@ISecretStorageService private readonly _secrets: ISecretStorageService,
 		@INotificationService private readonly _notification: INotificationService,
 		@IVibeConstraintsService private readonly _constraints: IVibeConstraintsService,
+		@IStorageService private readonly _storage: IStorageService,
+		@IWorkspaceTrustManagementService private readonly _workspaceTrust: IWorkspaceTrustManagementService,
 	) {
 		super();
 
@@ -319,15 +296,14 @@ class VibeCustomCommandsService extends Disposable implements IVibeCustomCommand
 	}
 
 	async getTrustedCommandIds(): Promise<readonly string[]> {
-		const entries = await this._readTrustEntries();
-		return entries.map(e => e.id);
+		return this._readTrustEntries().map(e => e.id);
 	}
 
 	async revokeTrust(id: string): Promise<void> {
-		const trust = await this._readTrustEntries();
-		const commands = this._merged.map(c => ({ id: c.id, commandShapeHash: hashCommandShape(c) }));
+		const trust = this._readTrustEntries();
+		const commands = await this._fingerprintMerged();
 		const result = decideTrustRevocations({ trust, commands, explicitlyRevokedId: id });
-		await this._writeTrustEntries(result.keep);
+		this._writeTrustEntries(result.keep);
 		for (const entry of buildTrustRevokeAuditEntries(result)) {
 			void this._audit.append({
 				ts: Date.now(),
@@ -339,13 +315,17 @@ class VibeCustomCommandsService extends Disposable implements IVibeCustomCommand
 		}
 	}
 
+	private async _fingerprintMerged(): Promise<{ id: string; commandShapeHash: string }[]> {
+		return Promise.all(this._merged.map(async c => ({ id: c.id, commandShapeHash: await commandFingerprint(c) })));
+	}
+
 	private async _pruneTrustOnLoad(): Promise<void> {
-		const trust = await this._readTrustEntries();
+		const trust = this._readTrustEntries();
 		if (trust.length === 0) { return; }
-		const commands = this._merged.map(c => ({ id: c.id, commandShapeHash: hashCommandShape(c) }));
+		const commands = await this._fingerprintMerged();
 		const result = decideTrustRevocations({ trust, commands });
 		if (result.revoke.length === 0) { return; }
-		await this._writeTrustEntries(result.keep);
+		this._writeTrustEntries(result.keep);
 		for (const entry of buildTrustRevokeAuditEntries(result)) {
 			void this._audit.append({
 				ts: Date.now(),
@@ -544,25 +524,26 @@ class VibeCustomCommandsService extends Disposable implements IVibeCustomCommand
 		}
 
 		// ── Trust confirm gate (roadmap L331) ────────────────────────────────
-		const currentHash = hashCommandShape(cmd);
-		const trustEntries = await this._readTrustEntries();
-		const trustEntry = trustEntries.find(t => t.id === cmd.id);
-		const confirmDecision = decideRunConfirm({ command: cmd, currentHash, trustEntry });
+		const currentHash = await commandFingerprint(cmd);
+		const trustEntry = this._readTrustEntries().find(t => t.id === cmd.id);
+		const workspaceTrusted = this._workspaceTrust.isWorkspaceTrusted();
+		const confirmDecision = decideRunConfirm({ command: cmd, currentHash, trustEntry, workspaceTrusted });
 		if (confirmDecision.kind === 'require-confirm') {
 			const body = describeConfirmReason(confirmDecision.reason, cmd.name);
 			const confirmed = await this._dialog.confirm({
 				message: localize('vibeide.commands.runConfirm.title', 'Project Commands — подтверждение запуска'),
 				detail: body,
 				primaryButton: localize('vibeide.commands.runConfirm.primary', 'Запустить'),
-				type: confirmDecision.reason === 'shape-changed-since-trust' ? 'warning' : 'info',
+				type: confirmDecision.reason === 'shape-changed-since-trust' || confirmDecision.reason === 'untrusted-workspace' ? 'warning' : 'info',
 			});
 			if (!confirmed.confirmed) {
 				return { outcome: 'cancelled', reason: 'user-rejected-confirm', invocationId };
 			}
 			// On approval, persist trust entry (only if not `always-confirm`, which is opt-in re-prompt).
-			if (confirmDecision.reason !== 'always-confirm') {
+			// An untrusted workspace is asked every time: nothing is remembered about it.
+			if (confirmDecision.reason !== 'always-confirm' && confirmDecision.reason !== 'untrusted-workspace') {
 				const next = buildTrustEntryAfterApproval(cmd, currentHash, Date.now());
-				await this._upsertTrustEntry(next);
+				this._upsertTrustEntry(next);
 				await this._audit.append({
 					ts: Date.now(),
 					actor: 'human',
@@ -758,68 +739,51 @@ class VibeCustomCommandsService extends Disposable implements IVibeCustomCommand
 		return `'${arg.replace(/'/g, `'\\''`)}'`;
 	}
 
-	// ── Trust file I/O (workspace-scoped) ────────────────────────────────────
-	// .vibe/commands.trust.json lives next to commands.json. Missing file is
-	// treated as "no trust entries yet"; malformed file is logged + ignored so
-	// the IDE doesn't refuse to spawn anything on a single corrupt write.
+	// ── Trust store (profile storage, keyed by the project folder) ───────────
+	// Approvals are kept in the IDE storage, never in the repository: a file next to commands.json
+	// would arrive with the same pull request that brought the command and approve it by itself.
+	// A leftover `.vibe/commands.trust.json` from older versions is not read and not migrated.
+	// A corrupt value is logged and ignored: the IDE asks again instead of refusing to run anything.
 
-	private _trustUri(): URI | undefined {
+	private _trustKey(): string | undefined {
 		const folder = this._workspace.getWorkspace().folders[0];
-		if (!folder) { return undefined; }
-		return joinPath(folder.uri, ...TRUST_FILE_NAME.split('/'));
+		return folder ? commandTrustStorageKey(folder.uri.toString()) : undefined;
 	}
 
-	private async _readTrustEntries(): Promise<readonly CommandTrustEntry[]> {
-		const uri = this._trustUri();
-		if (!uri) { return []; }
-		let buf;
+	private _readTrustEntries(): readonly CommandTrustEntry[] {
+		const key = this._trustKey();
+		if (!key) { return []; }
+		const raw = this._storage.get(key, StorageScope.PROFILE);
+		if (!raw) { return []; }
+		let parsed: unknown;
 		try {
-			buf = await this._fileService.readFile(uri);
-		} catch {
+			parsed = JSON.parse(raw);
+		} catch (e) {
+			this._log.warn(`[VibeCustomCommands] stored approvals parse failed: ${(e as Error).message}`);
 			return [];
 		}
-		// L304: tolerate JSONC + corruption — empty/invalid trust file = "no trust yet".
-		const parseResult = safeParseConfigJson(buf.value.toString());
-		if (!parseResult.ok) {
-			if (parseResult.reason !== 'empty') {
-				this._log.warn(`[VibeCustomCommands] ${TRUST_FILE_NAME} parse failed: ${parseResult.reason}`);
-			}
-			return [];
-		}
-		const decoded = decodeCommandTrustEntries(parseResult.value);
+		const decoded = decodeCommandTrustEntries(parsed);
 		if (decoded === null) {
-			this._log.warn(`[VibeCustomCommands] ${TRUST_FILE_NAME} shape invalid; ignoring`);
+			this._log.warn('[VibeCustomCommands] stored approvals shape invalid; ignoring');
 			return [];
 		}
 		return decoded;
 	}
 
-	private async _upsertTrustEntry(entry: CommandTrustEntry): Promise<void> {
-		const existing = await this._readTrustEntries();
-		const next: CommandTrustEntry[] = [];
-		let replaced = false;
-		for (const e of existing) {
-			if (e.id === entry.id) {
-				next.push(entry);
-				replaced = true;
-			} else {
-				next.push(e);
-			}
-		}
-		if (!replaced) {
-			next.push(entry);
-		}
-		await this._writeTrustEntries(next);
+	private _upsertTrustEntry(entry: CommandTrustEntry): void {
+		const next = this._readTrustEntries().filter(e => e.id !== entry.id);
+		next.push(entry);
+		this._writeTrustEntries(next);
 	}
 
-	private async _writeTrustEntries(entries: readonly CommandTrustEntry[]): Promise<void> {
-		const uri = this._trustUri();
-		if (!uri) { return; }
-		try {
-			await this._fileService.writeFile(uri, VSBuffer.fromString(JSON.stringify(entries, null, '\t') + '\n'));
-		} catch (e) {
-			this._log.error(`[VibeCustomCommands] failed to persist ${TRUST_FILE_NAME}: ${(e as Error).message}`);
+	private _writeTrustEntries(entries: readonly CommandTrustEntry[]): void {
+		const key = this._trustKey();
+		if (!key) { return; }
+		if (entries.length === 0) {
+			this._storage.remove(key, StorageScope.PROFILE);
+			return;
 		}
+		this._storage.store(key, JSON.stringify(entries), StorageScope.PROFILE, StorageTarget.MACHINE);
 	}
 }
 

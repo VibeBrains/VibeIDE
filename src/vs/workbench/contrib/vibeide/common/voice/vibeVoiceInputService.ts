@@ -23,6 +23,8 @@ export interface IVibeVoiceInputState {
 	/** False when the feature is disabled (`vibeide.voice.enabled`) — UI should hide. */
 	readonly available: boolean;
 	readonly recording: boolean;
+	/** The mic is closed, the engine is flushing the tail of speech into the last `final` (bounded by a main-side watchdog). */
+	readonly transcribing: boolean;
 	readonly modelState: VoiceInputModelState;
 	/** Bytes to download for the current language profile (shown before first use). */
 	readonly downloadBytes: number;

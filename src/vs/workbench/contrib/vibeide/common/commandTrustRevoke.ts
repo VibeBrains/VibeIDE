@@ -7,8 +7,8 @@
 /**
  * Project Commands — trust revocation policy (pure helper).
  *
- * K.2 line 923 — `.vibe/commands.trust.json` records a "trust" verdict per
- * project command id, persisted across runs. The current design has no revoke
+ * K.2 line 923 — the profile storage records a "trust" verdict per
+ * project command id, persisted across runs. The original design had no revoke
  * path: trust granted once stays forever, even if the command body has been
  * edited to do something different. This helper provides three revoke triggers:
  *
@@ -17,10 +17,10 @@
  *   - orphaned         command id no longer exists in `.vibe/commands.json`
  *
  * Adoption order:
- *   1. `IVibeCustomCommandsService` computes a `commandShapeHash(cmd)` (caller
- *      decides: SHA-256 over command|args|env|cwd is fine).
+ *   1. `IVibeCustomCommandsService` computes the fingerprint of every command
+ *      (`commandFingerprint`: SHA-256 over id|command|args|cwd|env|shell).
  *   2. On every command load, runs `decideTrustRevocations({ trust, commands,
- *      hashOf, explicitlyRevokedId? })` and writes `keep[]` back.
+ *      explicitlyRevokedId? })` and writes `keep[]` back.
  *   3. Each entry in `revoke[]` becomes one `command_trust_revoked` audit event.
  *   4. Palette command `vibeide.commands.revokeTrust` opens a Quick Pick of the
  *      currently-trusted ids and passes the picked id as `explicitlyRevokedId`.
@@ -45,7 +45,7 @@ export type RevocationReason = 'explicit' | 'shape-changed' | 'orphaned';
 export interface RevocationDecision {
 	readonly id: string;
 	readonly reason: RevocationReason;
-	/** The hash currently stored in trust.json — useful for the audit payload. */
+	/** The hash currently stored with the approval — useful for the audit payload. */
 	readonly oldHash: string;
 	/** The current command's hash, when applicable (orphaned entries have no current shape). */
 	readonly newHash?: string;

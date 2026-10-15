@@ -173,6 +173,9 @@ export const initializeParams = (): JsonValue => ({
 		terminal: false,
 		// The session header shows an on/off option as a checkbox: without this an agent must not send one
 		session: { configOptions: { boolean: {} } },
+		// A command's output comes in `_meta.terminal_output` and its exit code in `_meta.terminal_exit` of the call
+		// Without the marker an agent folds the output into a text block, and the exit code is lost
+		_meta: { terminal_output: true },
 	},
 	clientInfo: { name: 'VibeIDE', version: '1' },
 });
@@ -187,6 +190,27 @@ export const initializeParams = (): JsonValue => ({
 export function agentSupportsHttpMcp(greeting: JsonValue): boolean {
 	const caps = (greeting as { agentCapabilities?: { mcpCapabilities?: { http?: unknown } } } | null)?.agentCapabilities;
 	return caps?.mcpCapabilities?.http === true;
+}
+
+/**
+ * What the agent accepts in a prompt, from `agentCapabilities.promptCapabilities`
+ * `text` and `resource_link` are mandatory for every agent by the spec; the three below are declared
+ * An absent field is `false`: a block the agent did not declare may be refused or dropped without a word
+ */
+export interface IAcpPromptCapabilities {
+	readonly image: boolean;
+	readonly audio: boolean;
+	/** A `resource` block with the contents inside; without it the agent gets a `resource_link` and reads the file itself */
+	readonly embeddedContext: boolean;
+}
+
+export function promptCapabilitiesOf(greeting: JsonValue | undefined): IAcpPromptCapabilities {
+	const caps = objectAt(asObject(greeting)?.['agentCapabilities'], 'promptCapabilities');
+	return {
+		image: caps?.['image'] === true,
+		audio: caps?.['audio'] === true,
+		embeddedContext: caps?.['embeddedContext'] === true,
+	};
 }
 
 /** Способ войти, объявленный агентом в ответе на `initialize`. */
@@ -358,10 +382,21 @@ export const returnToSessionParams = (sessionId: string, cwd: string, mcpServers
 	mcpServers: [...mcpServers],
 });
 
+/**
+ * A block of a prompt, as the spec shapes it
+ * `text` and `resource_link` go to every agent; `resource` only when the agent declared `embeddedContext`,
+ * `image` only with `image` (see `IAcpPromptCapabilities`)
+ */
+export type AcpContentBlock =
+	| { readonly type: 'text'; readonly text: string }
+	| { readonly type: 'resource_link'; readonly uri: string; readonly name: string }
+	| { readonly type: 'resource'; readonly resource: { readonly uri: string; readonly text: string } }
+	| { readonly type: 'image'; readonly data: string; readonly mimeType: string };
+
 /** Параметры `session/prompt`: сообщение пользователя блоками содержимого. */
-export const promptParams = (sessionId: string, text: string): JsonValue => ({
+export const promptParams = (sessionId: string, blocks: readonly AcpContentBlock[]): JsonValue => ({
 	sessionId,
-	prompt: [{ type: 'text', text }],
+	prompt: blocks.map(block => block as unknown as JsonValue),
 });
 
 /**
@@ -410,6 +445,11 @@ export interface IAcpDiff {
  */
 export type AcpToolStatus = 'pending' | 'in_progress' | 'completed' | 'failed' | 'cancelled' | 'unknown';
 
+/** A call that has not ended: `unknown` counts, because an agent that sent no recognizable stage has not said it ended either */
+export function isToolOpen(status: AcpToolStatus): boolean {
+	return status !== 'completed' && status !== 'failed' && status !== 'cancelled';
+}
+
 /**
  * Что приехало в `session/update`.
  *
@@ -421,7 +461,7 @@ export type AcpUpdate =
 	/** Кусок ответа или размышления агента. */
 	| { readonly kind: 'text'; readonly text: string; readonly thought: boolean }
 	/** Вызов инструмента: чем занят агент и что именно меняет. */
-	| { readonly kind: 'tool'; readonly toolCallId: string; readonly title: string; readonly name: string; readonly toolKind: string; readonly status: AcpToolStatus; readonly paths: readonly string[]; readonly diffs: readonly IAcpDiff[] }
+	| { readonly kind: 'tool'; readonly toolCallId: string; readonly title: string; readonly name: string; readonly toolKind: string; readonly status: AcpToolStatus; readonly paths: readonly string[]; readonly diffs: readonly IAcpDiff[]; readonly output: string; readonly exitCode?: number }
 	/** Расход контекста и денег за ход. */
 	| { readonly kind: 'usage'; readonly used: number; readonly size: number; readonly costUsd?: number }
 	/** The agent changed the session's settings itself: the full list, as in a response */
@@ -454,6 +494,8 @@ export function parseSessionUpdate(params: JsonValue | undefined): AcpUpdate | u
 			status: toolStatusOf(update['status']),
 			paths: facts.paths,
 			diffs: facts.diffs,
+			output: toolOutputOf(update),
+			...exitCodeOf(update),
 		};
 	}
 
@@ -518,6 +560,39 @@ export function cancelledRequestIdOf(params: JsonValue | undefined): number | st
 	return typeof id === 'number' || (typeof id === 'string' && id) ? id : undefined;
 }
 
+/** How much of a call's output is kept: more would swell the log of a session with one `cat` of a large file */
+export const ACP_TOOL_OUTPUT_MAX_CHARS = 20_000;
+
+/**
+ * What a call printed or returned
+ * A command's output comes in `_meta.terminal_output` (the client asked for it in `initialize`); an agent that does not
+ * know the marker writes it as a text block of the call's `content` instead
+ * The end of a command's output says how it ended, so a cut keeps the end; a text result keeps its beginning
+ */
+export function toolOutputOf(update: Record<string, JsonValue>): string {
+	const terminal = stringAt(objectAt(objectAt(update, '_meta'), 'terminal_output'), 'data');
+	if (terminal) {
+		return terminal.length > ACP_TOOL_OUTPUT_MAX_CHARS ? `…${terminal.slice(-ACP_TOOL_OUTPUT_MAX_CHARS)}` : terminal;
+	}
+	const content = update['content'];
+	if (!Array.isArray(content)) { return ''; }
+	const parts: string[] = [];
+	for (const entry of content) {
+		const record = asObject(entry);
+		if (record?.['type'] !== 'content') { continue; }
+		const text = stringAt(objectAt(record, 'content'), 'text');
+		if (text) { parts.push(text); }
+	}
+	const text = parts.join('\n');
+	return text.length > ACP_TOOL_OUTPUT_MAX_CHARS ? `${text.slice(0, ACP_TOOL_OUTPUT_MAX_CHARS)}…` : text;
+}
+
+/** The exit code of a command, from `_meta.terminal_exit`; absent when the call was not a command or has not ended */
+function exitCodeOf(update: Record<string, JsonValue>): { readonly exitCode?: number } {
+	const code = numberAt(objectAt(objectAt(update, '_meta'), 'terminal_exit'), 'exit_code');
+	return code === undefined ? {} : { exitCode: code };
+}
+
 function toolStatusOf(raw: JsonValue | undefined): AcpToolStatus {
 	switch (typeof raw === 'string' ? raw : '') {
 		case 'pending': return 'pending';
@@ -536,7 +611,7 @@ function toolStatusOf(raw: JsonValue | undefined): AcpToolStatus {
  * `session/request_permission`. Разбор общий: иначе вопрос человеку и журнал правок однажды
  * разойдутся в том, какой файл меняется.
  */
-export function toolCallFacts(toolCall: JsonValue | undefined): { readonly title: string; readonly name: string; readonly toolKind: string; readonly paths: readonly string[]; readonly diffs: readonly IAcpDiff[] } {
+export function toolCallFacts(toolCall: JsonValue | undefined): { readonly title: string; readonly name: string; readonly toolKind: string; readonly command: string; readonly paths: readonly string[]; readonly diffs: readonly IAcpDiff[] } {
 	const record = asObject(toolCall) ?? {};
 	return {
 		title: stringAt(record, 'title') ?? '',
@@ -545,6 +620,8 @@ export function toolCallFacts(toolCall: JsonValue | undefined): { readonly title
 		// склейка карточки ниже пустое имя игнорирует.
 		name: stringAt(record, 'name') ?? '',
 		toolKind: stringAt(record, 'kind') ?? '',
+		// The command line of a shell call as the agent passed it to its tool; the title is free text and may only describe it
+		command: stringAt(asObject(record['rawInput']), 'command') ?? '',
 		paths: pathsOf(record),
 		diffs: diffsOf(record['content']),
 	};

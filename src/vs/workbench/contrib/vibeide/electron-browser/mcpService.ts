@@ -17,6 +17,8 @@
 
 import { IQuickInputService } from '../../../../platform/quickinput/common/quickInput.js';
 import { IWorkspaceContextService } from '../../../../platform/workspace/common/workspace.js';
+import { IWorkspaceTrustManagementService } from '../../../../platform/workspace/common/workspaceTrust.js';
+import { Schemas } from '../../../../base/common/network.js';
 import { coerceFieldValue, ElicitationAnswer, ElicitationForm, McpInputAsk, rootsAnswer } from '../common/mcpElicitation.js';
 import { AcpMcpExportResult, buildAcpMcpServers } from '../common/acp/acpMcpExport.js';
 import { localize } from '../../../../nls.js';
@@ -25,14 +27,16 @@ import { vibeLog } from '../common/vibeLog.js';
 import { URI } from '../../../../base/common/uri.js';
 import { Disposable, DisposableStore, MutableDisposable } from '../../../../base/common/lifecycle.js';
 import { registerSingleton, InstantiationType } from '../../../../platform/instantiation/common/extensions.js';
-import { IFileService } from '../../../../platform/files/common/files.js';
+import { FileChangeType, IFileService } from '../../../../platform/files/common/files.js';
 import { IPathService } from '../../../services/path/common/pathService.js';
 import { IEditorService } from '../../../services/editor/common/editorService.js';
 import { IProductService } from '../../../../platform/product/common/productService.js';
 import { VSBuffer } from '../../../../base/common/buffer.js';
 import { IChannel } from '../../../../base/parts/ipc/common/ipc.js';
 import { IMainProcessService } from '../../../../platform/ipc/common/mainProcessService.js';
-import { MCPConfigFileJSON, MCPConfigFileEntryJSON, MCPServer, MCPToolCallParams, RawMCPToolCall, MCPServerEventResponse, MCPAppRequestOutcome, MCPReadResourceParams, MCPTool, MCPSyncParams } from '../common/mcpServiceTypes.js';
+import { MCPConfigFileJSON, MCPConfigFileEntryJSON, MCPServer, MCPToolCallParams, RawMCPToolCall, MCPServerEventResponse, MCPAppRequestOutcome, MCPReadResourceParams, MCPTool, MCPSyncParams, MCPNameConflicts } from '../common/mcpServiceTypes.js';
+import { describeMcpFileProblem, MCP_FILE_NAME, McpFileProblem, McpLayer, mergeMcpLayers, parseMcpServersFile, VIBE_FAMILY_DIR_NAME } from '../common/mcpServersFile.js';
+import { migrateLegacyMcpFile } from '../common/mcpLegacyMigration.js';
 import { MCP } from '../../mcp/common/modelContextProtocol.js';
 import { mcpAppsEnabledConfig } from '../../../../platform/mcp/common/mcpManagement.js';
 import { isMcpToolCallableByApp, isMcpToolVisibleToModel, mcpAppUiOfTool } from '../common/mcpApps.js';
@@ -54,11 +58,10 @@ import { IMCPService, MCPServiceState } from '../common/mcpService.js';
 import { FoundHeadersHelper, FoundMemoryServer, FoundTeamServer, teamServerOfSidecar, VIBE_MEMORY_DIR_ENV, VIBE_MEMORY_SERVER_NAME, VIBE_MEMORY_TEAM_SERVER_PREFIX, VIBE_MEMORY_TEAM_SIDECAR, VIBE_MEMORY_TOKENS_FOLDER, vibeMemoryEngine, VibeMemoryEngine, vibeMemoryHelperPathSegments, vibeMemoryServerPathSegments, withDiscoveredMemoryServer, withDiscoveredTeamServers } from '../common/vibeMemoryServerDiscovery.js';
 import { IShellEnvironmentService } from '../../../services/environment/electron-browser/shellEnvironmentService.js';
 import { MEMORY_PROJECT_RESOLVE_TOOL, MemoryProjectAnswer, parseProjectResolveAnswer, TeamMemoryProject } from '../common/vibeMemoryProject.js';
-import { dirname, isEqual, joinPath } from '../../../../base/common/resources.js';
+import { basename, dirname, isEqual, joinPath } from '../../../../base/common/resources.js';
 import { ResourceSet } from '../../../../base/common/map.js';
 import { isWindows } from '../../../../base/common/platform.js';
 
-const MCP_CONFIG_FILE_NAME = 'mcp.json';
 /** How long prompt assembly waits for the memory server to name a folder's project. */
 const MEMORY_PROJECT_RESOLVE_TIMEOUT_MS = 3000;
 const MCP_CONFIG_SAMPLE = { mcpServers: {} };
@@ -113,6 +116,16 @@ class MCPService extends Disposable implements IMCPService {
 		void this._refreshMCPServers();
 	}, 350));
 
+	/**
+	 * Names another window's server holds with a different launch: this window does not get them.
+	 * Events about such a name are the other window's server speaking, so they are not shown as this window's own.
+	 */
+	private _conflictedNames: ReadonlySet<string> = new Set();
+	/** Names of the last refresh: only a server that vanished from THIS window's config loses its saved on/off */
+	private _lastConfiguredNames: ReadonlySet<string> = new Set();
+	/** Complaints already shown, so a file read again on every edit does not repeat the same notice */
+	private readonly _shownFileComplaints = new Set<string>();
+
 	// private readonly _onLoadingServersChange = new Emitter<MCPServerEventLoadingParam>();
 	// public readonly onLoadingServersChange = this._onLoadingServersChange.event;
 
@@ -130,6 +143,7 @@ class MCPService extends Disposable implements IMCPService {
 		@IQuickInputService private readonly _quickInput: IQuickInputService,
 		@IWorkspaceContextService private readonly _workspace: IWorkspaceContextService,
 		@IShellEnvironmentService private readonly _shellEnvironmentService: IShellEnvironmentService,
+		@IWorkspaceTrustManagementService private readonly _trust: IWorkspaceTrustManagementService,
 		@IStorageService storageService: IStorageService,
 	) {
 		super();
@@ -139,11 +153,13 @@ class MCPService extends Disposable implements IMCPService {
 
 		const onEvent = (e: MCPServerEventResponse) => {
 			// console.log('GOT EVENT', e)
+			if (this._conflictedNames.has(e.response.name)) { return; }
 			this._setMCPServerState(e.response.name, e.response.newServer);
 		};
 		this._register((this.channel.listen('onAdd_server') satisfies Event<MCPServerEventResponse>)(onEvent));
 		this._register((this.channel.listen('onUpdate_server') satisfies Event<MCPServerEventResponse>)(onEvent));
 		this._register((this.channel.listen('onDelete_server') satisfies Event<MCPServerEventResponse>)(onEvent));
+		this._register((this.channel.listen('onNameConflicts') satisfies Event<MCPNameConflicts>)(e => this._onNameConflicts(e.names)));
 
 		// MRTR: сервер просит ввод — вопрос показывается ЧЕЛОВЕКУ здесь, в окне, и ответ уходит
 		// обратно в главный процесс, который повторяет вызов. Модель в этом не участвует.
@@ -153,6 +169,14 @@ class MCPService extends Disposable implements IMCPService {
 		this._register(this._configurationService.onDidChangeConfiguration(e => {
 			if (e.affectsConfiguration(mcpAppsEnabledConfig)) { this._scheduleMcpConfigRefresh.schedule(); }
 		}));
+
+		// A project's own file is another set of servers: opening or closing a folder changes what to read and watch,
+		// and trusting the folder is what lets the servers of its file start.
+		this._register(this._workspace.onDidChangeWorkspaceFolders(() => {
+			void this._watchConfigFiles();
+			this._scheduleMcpConfigRefresh.schedule();
+		}));
+		this._register(this._trust.onDidChangeTrust(() => this._scheduleMcpConfigRefresh.schedule()));
 
 		this._initialize();
 	}
@@ -227,14 +251,18 @@ class MCPService extends Disposable implements IMCPService {
 		try {
 			await this.vibeideSettingsService.waitForInitState;
 
-			// Create .mcpConfig if it doesn't exist
+			// The servers of the old per-product file move before anything reads the shared one
+			await this._migrateLegacyConfig();
+
+			// Create the shared file if it doesn't exist
 			const mcpConfigUri = await this._getMCPConfigFilePath();
 			const fileExists = await this._configFileExists(mcpConfigUri);
 			if (!fileExists) {
 				await this._createMCPConfigFile(mcpConfigUri);
 				vibeLog.info('mcp', 'MCP Config file created:', mcpConfigUri.toString());
 			}
-			await this._addMCPConfigFileWatcher();
+			void this._watchVibeMemory();
+			await this._watchConfigFiles();
 			await this._refreshMCPServers();
 		} catch (error) {
 			vibeLog.error('mcp', 'Error initializing MCPService:', error);
@@ -497,18 +525,45 @@ class MCPService extends Disposable implements IMCPService {
 	}
 
 
-	private async _addMCPConfigFileWatcher(): Promise<void> {
-		void this._watchVibeMemory();
-		const mcpConfigUri = await this._getMCPConfigFilePath();
-		this._register(
-			this.fileService.watch(mcpConfigUri)
-		);
+	private readonly _configWatchers = this._register(new MutableDisposable<DisposableStore>());
+	/** Told apart so a slow earlier call cannot replace the watchers a later one has already set up */
+	private _configWatchGeneration = 0;
 
-		this._register(this.fileService.onDidFilesChange(e => {
-			if (!e.contains(mcpConfigUri)) { return; }
-			// Debounce bursts while editing mcp.json so tools refresh once without full window reload.
-			this._scheduleMcpConfigRefresh.schedule();
-		}));
+	/**
+	 * Watch the shared file and every open project's own file, each through its nearest existing folder:
+	 * a project's `.vibe/mcp.json` usually is not there yet, and creating it must be noticed.
+	 * Correlated watchers, so the folder of one file is not watched on behalf of another.
+	 */
+	private async _watchConfigFiles(): Promise<void> {
+		const generation = ++this._configWatchGeneration;
+		const store = new DisposableStore();
+		const targets: { readonly file: URI; readonly stop: URI }[] = [{ file: await this._getMCPConfigFilePath(), stop: await this.pathService.userHome() }];
+		for (const folder of this._projectFolders()) {
+			targets.push({ file: joinPath(folder, VIBE_FAMILY_DIR_NAME, MCP_FILE_NAME), stop: folder });
+		}
+		for (const { file, stop } of targets) {
+			const chain = [file, dirname(file)];
+			const anchor = await this._nearestExistingFolder(dirname(file), stop);
+			if (generation !== this._configWatchGeneration) {
+				store.dispose();
+				return;
+			}
+			if (!anchor) { continue; }
+			const watcher = store.add(this.fileService.createWatcher(anchor, { recursive: false, excludes: [] }));
+			store.add(watcher.onDidChange(e => {
+				if (!chain.some(path => e.contains(path))) { return; }
+				// The file or its folder appeared or went: the nearest existing folder may be another one now
+				if (chain.some(path => e.contains(path, FileChangeType.ADDED, FileChangeType.DELETED))) { void this._watchConfigFiles(); }
+				// Debounce bursts while editing mcp.json so tools refresh once without full window reload.
+				this._scheduleMcpConfigRefresh.schedule();
+			}));
+		}
+		this._configWatchers.value = store;
+	}
+
+	/** Roots of the open folders that live on disk: a remote folder has no `.vibe/mcp.json` this window could start */
+	private _projectFolders(): URI[] {
+		return this._workspace.getWorkspace().folders.map(folder => folder.uri).filter(uri => uri.scheme === Schemas.file);
 	}
 
 	// Client-side functions
@@ -616,11 +671,17 @@ class MCPService extends Disposable implements IMCPService {
 		return params;
 	}
 
+	/**
+	 * `~/.vibe/mcp.json` — the person's servers, one file for VibeIDE and VibeIDEA.
+	 * The same path for a release and a dev build: the folder is the family's, not the product's.
+	 */
 	private async _getMCPConfigFilePath(): Promise<URI> {
-		const appName = this.productService.dataFolderName;
-		const userHome = await this.pathService.userHome();
-		const uri = URI.joinPath(userHome, appName, MCP_CONFIG_FILE_NAME);
-		return uri;
+		return joinPath(await this.pathService.userHome(), VIBE_FAMILY_DIR_NAME, MCP_FILE_NAME);
+	}
+
+	/** The file this build read before the shared one existed: `~/<dataFolderName>/mcp.json` */
+	private async _getLegacyConfigFilePath(): Promise<URI> {
+		return joinPath(await this.pathService.userHome(), this.productService.dataFolderName, MCP_FILE_NAME);
 	}
 
 	private async _configFileExists(mcpConfigUri: URI): Promise<boolean> {
@@ -633,23 +694,151 @@ class MCPService extends Disposable implements IMCPService {
 	}
 
 
+	/**
+	 * Every file that holds servers, folded into one picture: the shared file, then the open projects' own files.
+	 * A project entry wins over a user entry of the same name; with several folders open, the earlier folder wins.
+	 * Null when the shared file cannot be read at all — the servers that run are left as they are.
+	 */
 	private async _parseMCPConfigFile(): Promise<MCPConfigFileJSON | null> {
-		const mcpConfigUri = await this._getMCPConfigFilePath();
+		const userUri = await this._getMCPConfigFilePath();
+		let userText: string;
 		try {
-			const fileContent = await this.fileService.readFile(mcpConfigUri);
-			const contentString = fileContent.value.toString();
-			const configFileJson = JSON.parse(contentString);
-			if (!configFileJson.mcpServers) {
-				throw new Error('Missing mcpServers property');
-			}
-			return configFileJson as MCPConfigFileJSON;
+			userText = (await this.fileService.readFile(userUri)).value.toString();
 		} catch (error) {
-			const fullError = `Error parsing MCP config file: ${error}`;
-			this._setHasError(fullError);
+			this._setHasError(localize('vibeide.mcp.readFailed', "Не удалось прочитать {0}: {1}", this._labelOfUserFile(), String(error)));
 			return null;
+		}
+		const user = parseMcpServersFile(userText);
+		const fatal = user.problems.find(problem => problem.problem === 'NOT_JSON' || problem.problem === 'NO_SECTION');
+		if (fatal) {
+			this._setHasError(localize('vibeide.mcp.parseFailed', "Не удалось разобрать {0}: {1}", this._labelOfUserFile(), describeMcpFileProblem(fatal)));
+			return null;
+		}
+		this._reportFileComplaints(this._labelOfUserFile(), user.problems);
+
+		// Weakest first: the shared file, then the folders from the last to the first
+		const layers: McpLayer[] = [{ source: 'user', servers: user.servers }];
+		for (const folder of this._projectFolders().reverse()) {
+			const project = await this._readProjectLayer(folder);
+			if (project) { layers.push(project); }
+		}
+		const merged = mergeMcpLayers(layers);
+		for (const name of merged.overridden) {
+			if (merged.sourceOfName[name] === 'project') {
+				vibeLog.info('mcp', `MCP server "${name}": the project's entry replaces the one in the shared file`);
+			}
+		}
+		return { mcpServers: merged.servers };
+	}
+
+	/** Where a complaint says the shared file is: the person's own name for it, not a URI */
+	private _labelOfUserFile(): string {
+		return `~/${VIBE_FAMILY_DIR_NAME}/${MCP_FILE_NAME}`;
+	}
+
+	/**
+	 * A folder's `.vibe/mcp.json` as a layer, or nothing when it has none or may not run yet.
+	 * A cloned repository must not start programs just by being opened: the file is read only once the folder is trusted.
+	 */
+	private async _readProjectLayer(folder: URI): Promise<McpLayer | undefined> {
+		const uri = joinPath(folder, VIBE_FAMILY_DIR_NAME, MCP_FILE_NAME);
+		const label = `${basename(folder)}/${VIBE_FAMILY_DIR_NAME}/${MCP_FILE_NAME}`;
+		let text: string;
+		try {
+			text = (await this.fileService.readFile(uri)).value.toString();
+		} catch {
+			return undefined;
+		}
+		const project = parseMcpServersFile(text);
+		this._reportFileComplaints(label, project.problems);
+		const names = Object.keys(project.servers);
+		if (names.length === 0) {
+			return undefined;
+		}
+		if (!this._trust.isWorkspaceTrusted()) {
+			this._tellOnce(`untrusted:${label}`, Severity.Warning, localize('vibeide.mcp.projectUntrusted', "Серверы из {0} не подключены: папка не доверена. Доверьте её, и они запустятся: {1}.", label, names.join(', ')));
+			return undefined;
+		}
+		return { source: 'project', servers: project.servers };
+	}
+
+	/** The entries of a file that were skipped, named once per distinct set: a file read on every edit would repeat itself */
+	private _reportFileComplaints(label: string, problems: readonly McpFileProblem[]): void {
+		const entryProblems = problems.filter(problem => problem.name !== undefined);
+		if (entryProblems.length === 0) {
+			return;
+		}
+		const phrases = entryProblems.map(describeMcpFileProblem);
+		this._tellOnce(`problems:${label}:${phrases.join('|')}`, Severity.Warning, localize('vibeide.mcp.entriesSkipped', "В {0} пропущено записей: {1}. {2}", label, entryProblems.length, phrases.join('; ')));
+	}
+
+	private _tellOnce(signature: string, severity: Severity, message: string): void {
+		if (this._shownFileComplaints.has(signature)) {
+			return;
+		}
+		this._shownFileComplaints.add(signature);
+		this._notificationService.notify({ severity, message });
+	}
+
+	/**
+	 * Move the servers of the old per-product file into the shared one, once ([migrateLegacyMcpFile]).
+	 * Then say what happened where the person looks: a notice names the servers and the file they went to.
+	 */
+	private async _migrateLegacyConfig(): Promise<void> {
+		const legacy = await this._getLegacyConfigFilePath();
+		const shared = await this._getMCPConfigFilePath();
+		if (isEqual(legacy, shared)) {
+			return;
+		}
+		const outcome = await migrateLegacyMcpFile({
+			exists: resource => this.fileService.exists(resource),
+			read: async resource => (await this.fileService.readFile(resource)).value.toString(),
+			write: async (resource, text) => { await this.fileService.writeFile(resource, VSBuffer.fromString(text)); },
+			move: async (from, to) => { await this.fileService.move(from, to); },
+		}, legacy, shared);
+		const legacyLabel = `~/${this.productService.dataFolderName}/${MCP_FILE_NAME}`;
+		const sharedLabel = this._labelOfUserFile();
+		switch (outcome.kind) {
+			case 'none':
+				return;
+			case 'legacyUnreadable':
+				this._tellOnce('legacy-unreadable', Severity.Warning, localize('vibeide.mcp.migrate.unreadable', "Серверы из {0} не перенесены: {1}. Исправьте файл или перенесите записи в {2} сами; пока этого нет, они не подключаются.", legacyLabel, describeMcpFileProblem({ problem: outcome.problem }), sharedLabel));
+				return;
+			case 'sharedUnreadable':
+				this._tellOnce('shared-unreadable', Severity.Warning, localize('vibeide.mcp.migrate.sharedUnreadable', "Серверы из {0} не перенесены: {1} не разобрался как JSON. Исправьте его, и перенос выполнится при следующем запуске.", legacyLabel, sharedLabel));
+				return;
+			case 'failed':
+				vibeLog.error('mcp', 'Не удалось перенести MCP-серверы в общий файл', outcome.error);
+				this._tellOnce('migrate-failed', Severity.Warning, localize('vibeide.mcp.migrate.failed', "Не удалось перенести MCP-серверы из {0} в {1}: {2}", legacyLabel, sharedLabel, String(outcome.error)));
+				return;
+			case 'migrated': {
+				if (outcome.moved.length === 0 && outcome.conflicts.length === 0) {
+					return;
+				}
+				const parts = [localize('vibeide.mcp.migrate.done', "MCP-серверы из {0} перенесены в общий файл {1} — его читают VibeIDE и VibeIDEA: {2}. Прежний файл больше не читается и переименован в {3}.", legacyLabel, sharedLabel, outcome.moved.join(', ') || '—', outcome.keptAs)];
+				if (outcome.conflicts.length > 0) {
+					parts.push(localize('vibeide.mcp.migrate.conflicts', "В общем файле уже были серверы с этими именами, но другой записью: {0}. Остались записи общего файла; прежние — в {1}.", outcome.conflicts.join(', '), outcome.keptAs));
+				}
+				this._notificationService.notify({ severity: outcome.conflicts.length > 0 ? Severity.Warning : Severity.Info, message: parts.join(' ') });
+			}
 		}
 	}
 
+	/** A name that another window's server holds under a different launch is not ours; a freed one is asked for again */
+	private _onNameConflicts(names: readonly string[]): void {
+		const before = this._conflictedNames;
+		this._conflictedNames = new Set(names);
+		for (const name of names) {
+			this._setMCPServerState(name, {
+				status: 'error',
+				error: localize('vibeide.mcp.nameTaken', "Имя «{0}» занято: сервер с таким именем уже запущен окном другого проекта, и его запись отличается. Переименуйте сервер в .vibe/mcp.json.", name),
+			});
+		}
+		if ([...before].some(name => !this._conflictedNames.has(name))) {
+			// The servers kept their state while this window was not listening; a sync makes the channel tell it again
+			this._scheduleMcpConfigRefresh.schedule();
+		}
+	}
 
 	/**
 	 * Run the Config Guard over the MCP server entries: log every finding and notify once per distinct
@@ -804,8 +993,7 @@ class MCPService extends Disposable implements IMCPService {
 		this._setHasError(undefined);
 
 		const newConfigFileJSON = await this._parseMCPConfigFile();
-		if (!newConfigFileJSON) { vibeLog.info('mcp', `Not setting state: MCP config file not found`); return; }
-		if (!newConfigFileJSON?.mcpServers) { vibeLog.info('mcp', `Not setting state: MCP config file did not have an 'mcpServers' field`); return; }
+		if (!newConfigFileJSON) { vibeLog.info('mcp', `Not setting state: MCP config file could not be read`); return; }
 		this._serverEntries = { ...newConfigFileJSON.mcpServers };
 
 		// The family's shared memory joins by itself when VibeMemory is installed; a user entry with the
@@ -840,7 +1028,10 @@ class MCPService extends Disposable implements IMCPService {
 			if (!Object.hasOwn(savedStateOfName, name)) { newStateOfName[name] = { isOn: true }; }
 		}
 		await this.vibeideSettingsService.addMCPUserStateOfNames(newStateOfName);
-		await this.vibeideSettingsService.removeMCPUserStateOfNames(Object.keys(savedStateOfName).filter(name => !configuredNames.includes(name)));
+		// The saved on/off is shared by every window, and a window sees only its own project's servers: a name this window
+		// never had is another window's, and forgetting it would turn its switched-off server on at the next start
+		await this.vibeideSettingsService.removeMCPUserStateOfNames(Object.keys(savedStateOfName).filter(name => this._lastConfiguredNames.has(name) && !configuredNames.includes(name)));
+		this._lastConfiguredNames = new Set(configuredNames);
 
 		// This window's list follows the config at once; what runs is the main process's to say.
 		const wantedNames = Object.keys(newConfigFileJSON.mcpServers);
@@ -964,7 +1155,8 @@ class MCPService extends Disposable implements IMCPService {
 		return buildAcpMcpServers({
 			entries: this._serverEntries,
 			allowed: names,
-			isEnabled: name => userState[name]?.isOn !== false,
+			// `disabled` in the file switches a server off for the guest too, whatever the switch in the settings says
+			isEnabled: name => userState[name]?.isOn !== false && this._serverEntries[name]?.disabled !== true,
 		});
 	}
 

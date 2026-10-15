@@ -5,14 +5,47 @@
 
 
 /**
- * Pure helpers for the Ctrl+K Quick Edit prompt history (roadmap §"prompt
- * history"). Keeps recent submissions so the user can ↑/↓ through previous
- * prompts. UI wire-up reads + writes via these helpers; storage layer is
- * an opaque key-value store interface so the same logic works for memento
- * (browser) or file-backed (CLI) persistence.
+ * Pure helpers for the history of what the person typed into a prompt box (the chat composer, Ctrl+K Quick Edit):
+ * recent submissions to step through with ↑/↓.
+ * The storage is up to the caller — an opaque key-value store, so the same logic serves the memento of a window and a file.
  */
 
-export const QUICK_EDIT_HISTORY_DEFAULT_MAX = 50;
+/** How many submissions a history keeps */
+export const PROMPT_HISTORY_DEFAULT_MAX = 50;
+
+/** A longer submission (a pasted log, a whole file) is not remembered: stepping back to it would flood the box, and storing it would swell the storage */
+export const PROMPT_HISTORY_MAX_ENTRY_CHARS = 4000;
+
+/** Where the chat composer's history lives: in the storage of the workspace, so each project keeps its own */
+export const CHAT_PROMPT_HISTORY_STORAGE_KEY = 'vibeide.chat.promptHistory';
+
+/** The history as it was stored; anything that is not a list of non-empty strings is dropped rather than trusted */
+export function parsePromptHistory(raw: string | undefined, maxSize: number = PROMPT_HISTORY_DEFAULT_MAX): string[] {
+	if (!raw) { return []; }
+	let value: unknown;
+	try {
+		value = JSON.parse(raw);
+	} catch {
+		return [];
+	}
+	if (!Array.isArray(value)) { return []; }
+	return value.filter((entry): entry is string => typeof entry === 'string' && entry.trim().length > 0).slice(-Math.max(1, maxSize));
+}
+
+/** Whether a submission is worth keeping in the history */
+export function isRememberablePrompt(prompt: string): boolean {
+	return prompt.trim().length > 0 && prompt.length <= PROMPT_HISTORY_MAX_ENTRY_CHARS;
+}
+
+/**
+ * Whether ↑ or ↓ in a box with this text and caret walks the history instead of moving the caret
+ * In a one-line box the keys have nothing else to do. In a several-line text they belong to the caret until it stands
+ * on the first line (for ↑) or the last (for ↓), as in a terminal. A selection is the person's, and the keys leave it alone
+ */
+export function historyKeyApplies(text: string, selectionStart: number, selectionEnd: number, direction: -1 | 1): boolean {
+	if (selectionStart !== selectionEnd) { return false; }
+	return direction === -1 ? !text.slice(0, selectionStart).includes('\n') : !text.slice(selectionEnd).includes('\n');
+}
 
 /**
  * Append `prompt` to `history` with deduplication: if the new prompt equals
@@ -25,7 +58,7 @@ export const QUICK_EDIT_HISTORY_DEFAULT_MAX = 50;
 export function appendPromptToHistory(
 	history: readonly string[],
 	newPrompt: string,
-	maxSize: number = QUICK_EDIT_HISTORY_DEFAULT_MAX,
+	maxSize: number = PROMPT_HISTORY_DEFAULT_MAX,
 ): string[] {
 	if (typeof newPrompt !== 'string') { return [...history]; }
 	const trimmed = newPrompt.trim();

@@ -72,6 +72,21 @@ suite('acpAudit — гостевой агент в журнале аудита',
 		});
 	});
 
+	test('автоматический ответ записан как ответ системы, с причиной: человек на него не смотрел', () => {
+		assert.deepStrictEqual(buildAcpPermissionAudit({
+			...scope, toolCallId: 'call-8', title: 'Edit src/a.ts', name: 'Edit', toolKind: 'edit', paths: ['/ws/src/a.ts'], optionKind: 'allow_once', decidedBy: 'policy', reason: 'modeEdits',
+		}, 6), {
+			ts: 6,
+			actor: 'system',
+			action: 'acp_permission',
+			traceId: 's-1',
+			toolCallId: 'call-8',
+			ok: true,
+			files: ['/ws/src/a.ts'],
+			meta: { agentId: 'claude', outcome: 'allowed', decidedBy: 'policy', reason: 'modeEdits', optionKind: 'allow_once', name: 'Edit', title: 'Edit src/a.ts', toolKind: 'edit' },
+		});
+	});
+
 	test('границы сессии: открывает и переподключает человек, обрыв — событие гостя', () => {
 		assert.deepStrictEqual([
 			buildAcpSessionAudit({ ...scope, phase: 'started' }, 1),

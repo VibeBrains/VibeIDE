@@ -5,7 +5,7 @@
 
 import * as assert from 'assert';
 import { ensureNoDisposablesAreLeakedInTestSuite } from '../../../../../base/test/common/utils.js';
-import { KnownMCPServer, mcpServerFingerprint, reconcileMCPServers, WantedMCPServer } from '../../common/mcpReconcile.js';
+import { KnownMCPServer, mcpServerFingerprint, reconcileMCPServers, unitePictures, WantedMCPServer, WindowPicture } from '../../common/mcpReconcile.js';
 import { MCPConfigFileEntryJSON } from '../../common/mcpServiceTypes.js';
 
 /**
@@ -83,5 +83,66 @@ suite('mcpReconcile — сверка запущенных MCP-серверов �
 	test('адрес объектом URL и тот же адрес строкой — один и тот же запуск', () => {
 		const asObject = { ...remote, url: new URL('https://mcp.example.com/mcp') } as unknown as MCPConfigFileEntryJSON;
 		assert.strictEqual(mcpServerFingerprint(asObject, true), mcpServerFingerprint(remote, true));
+	});
+
+	test('disabled в записи — это «работает ли», а не «как запущен»: включение сервера не перезапускает его соседей', () => {
+		assert.strictEqual(mcpServerFingerprint({ ...stub, disabled: true }, true), mcpServerFingerprint(stub, true));
+	});
+});
+
+/**
+ * Серверы общие для всех окон, а файл проекта у каждого окна свой: что запущено — объединение картин окон.
+ * Без этого окно без проекта закрывало бы серверы окна с проектом, а два проекта с одним именем делили бы сервер.
+ */
+suite('unitePictures — картины окон как одна', () => {
+
+	ensureNoDisposablesAreLeakedInTestSuite();
+
+	const shared: MCPConfigFileEntryJSON = { command: 'node', args: ['/shared/server.mjs'] };
+	const billing: MCPConfigFileEntryJSON = { command: 'node', args: ['/billing/db.mjs'] };
+	const shop: MCPConfigFileEntryJSON = { command: 'node', args: ['/shop/db.mjs'] };
+
+	const picture = (entries: Record<string, MCPConfigFileEntryJSON>, enabledOfName: Record<string, boolean> = {}): WindowPicture => ({ entries, enabledOfName });
+	const unite = (windows: Record<string, WindowPicture>, running: Record<string, string> = {}) =>
+		unitePictures(new Map(Object.entries(windows)), running, true);
+
+	test('окна с общим файлом согласны: сервер один, конфликтов нет', () => {
+		assert.deepStrictEqual(
+			unite({ a: picture({ shared }), b: picture({ shared }) }),
+			{ entries: { shared }, enabledOfName: { shared: true }, conflictsOfWindow: { a: [], b: [] } },
+		);
+	});
+
+	test('сервер проекта одного окна не закрывается синхронизацией окна без проекта', () => {
+		const united = unite({ a: picture({ shared, db: billing }), b: picture({ shared }) });
+		assert.deepStrictEqual({ names: Object.keys(united.entries), conflicts: united.conflictsOfWindow }, { names: ['shared', 'db'], conflicts: { a: [], b: [] } });
+	});
+
+	test('одно имя и разные запуски: остаётся запущенный, второе окно называется в конфликтах', () => {
+		const united = unite(
+			{ a: picture({ db: billing }), b: picture({ db: shop }) },
+			{ db: mcpServerFingerprint(shop, true) },
+		);
+		assert.deepStrictEqual({ db: united.entries['db'], conflicts: united.conflictsOfWindow }, { db: shop, conflicts: { a: ['db'], b: [] } });
+	});
+
+	test('ничего не запущено — имя достаётся окну, заговорившему первым', () => {
+		const united = unite({ a: picture({ db: billing }), b: picture({ db: shop }) });
+		assert.deepStrictEqual({ db: united.entries['db'], conflicts: united.conflictsOfWindow }, { db: billing, conflicts: { a: [], b: ['db'] } });
+	});
+
+	test('окно закрылось — имя свободно, конфликт снят', () => {
+		const united = unite({ b: picture({ db: shop }) }, { db: mcpServerFingerprint(billing, true) });
+		assert.deepStrictEqual({ db: united.entries['db'], conflicts: united.conflictsOfWindow }, { db: shop, conflicts: { b: [] } });
+	});
+
+	test('список tools запуском не считается: окна, различающиеся только им, не спорят', () => {
+		const united = unite({ a: picture({ shared: { ...shared, tools: ['read'] } }), b: picture({ shared }) });
+		assert.deepStrictEqual(united.conflictsOfWindow, { a: [], b: [] });
+	});
+
+	test('включён ли сервер, решает окно, чья запись действует', () => {
+		const united = unite({ a: picture({ db: billing }, { db: false }), b: picture({ db: shop }, { db: true }) }, { db: mcpServerFingerprint(shop, true) });
+		assert.deepStrictEqual(united.enabledOfName, { db: true });
 	});
 });

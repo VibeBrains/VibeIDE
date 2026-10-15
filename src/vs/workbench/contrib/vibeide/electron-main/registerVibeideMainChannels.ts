@@ -42,6 +42,8 @@ import { CLAUDE_SDK_DIR } from '../common/claudeCode/claudeCodeProvision.js';
 import { VIBE_CLAUDE_CODE_CHANNEL } from '../common/claudeCode/vibeClaudeCodeTypes.js';
 import { VibeAcpMainService } from './acp/vibeAcpMainService.js';
 import { VibeAcpInstallerMainService } from './acp/vibeAcpInstallerMainService.js';
+import { VibeAcpIdeMcpMainService } from './acp/vibeAcpIdeMcpMainService.js';
+import { VIBE_ACP_IDE_MCP_CHANNEL } from '../common/acp/acpIdeMcpTypes.js';
 import { VIBE_ACP_INSTALLER_CHANNEL } from '../common/acp/acpInstallerTypes.js';
 import { VIBE_ACP_CHANNEL } from '../common/acp/acpTypes.js';
 import { VibeHttpApiMainService } from './httpApi/vibeHttpApiMainService.js';
@@ -252,6 +254,15 @@ export function registerVibeideMainProcessChannels(
 	mainProcessElectronServer.registerChannel(
 		VIBE_ACP_CHANNEL,
 		ProxyChannel.fromService(acpService, disposables),
+	);
+
+	// The editor's own MCP server for those agents: the open file, the selection, the markers. The socket sits here
+	// next to the processes; the answers come from the window that started the session, so the window service
+	// tells it when a window closes.
+	const acpIdeMcpService = disposables.add(new VibeAcpIdeMcpMainService(accessor.get(IWindowsMainService)));
+	mainProcessElectronServer.registerChannel(
+		VIBE_ACP_IDE_MCP_CHANNEL,
+		ProxyChannel.fromService(acpIdeMcpService, disposables),
 	);
 
 	// Agents added from the ACP Registry: the download and the unpacking need the network and the disk,

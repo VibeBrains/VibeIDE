@@ -5,7 +5,6 @@
 
 import { Disposable } from '../../../base/common/lifecycle.js';
 import { IObservable, observableValue } from '../../../base/common/observable.js';
-import { isWeb } from '../../../base/common/platform.js';
 import { IConfigurationService } from '../../configuration/common/configuration.js';
 import { ChatAIDisabledSettingId } from '../../chat/common/chatSettings.js';
 import { IContextKey, IContextKeyService } from '../../contextkey/common/contextkey.js';
@@ -54,12 +53,17 @@ export class AgentHostEnablementService extends Disposable implements IAgentHost
 	}
 }
 
+/**
+ * VibeIDE ships no agent host process: the vendor harnesses and the `agentHostMain` entry point
+ * were removed, so there is nothing to connect to and the runtime is never available.
+ * Keeping it disabled stops the renderer from asking the main process for a connection.
+ */
 class BrowserAgentHostEnablementService extends AgentHostEnablementService {
 	constructor(
 		@IConfigurationService configurationService: IConfigurationService,
 		@IContextKeyService contextKeyService: IContextKeyService,
 	) {
-		super(!isWeb, configurationService, contextKeyService);
+		super(false, configurationService, contextKeyService);
 	}
 }
 

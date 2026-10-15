@@ -397,7 +397,7 @@ export class VibeTelegramBridgeContribution extends Disposable implements IWorkb
 		const delivered = await this._main.send({ chatId, text: escapeTelegramHtml('🤝 Задача ушла внешнему агенту.') });
 		this._acpSessionOf.set(chatId, sessionId);
 		this._acpTurns.set(chatId, { messageId: delivered.messageId, lastEditMs: 0, lastText: '' });
-		void this._acp.prompt(sessionId, prompt);
+		void this._acp.prompt(sessionId, { text: prompt });
 	}
 
 	private async _stopAcp(chatId: number): Promise<void> {
@@ -442,7 +442,7 @@ export class VibeTelegramBridgeContribution extends Disposable implements IWorkb
 	/**
 	 * Сессии изменились: показать ход и вопросы тем чатам, которые их ждут.
 	 *
-	 * Источник правды один — сервис сессий, поэтому телефон и вкладка всегда показывают одно и
+	 * Источник правды один — сервис сессий, поэтому телефон и чат IDE всегда показывают одно и
 	 * то же состояние, а ответ существует в единственном экземпляре.
 	 */
 	private async _onAcpChanged(): Promise<void> {
@@ -462,9 +462,9 @@ export class VibeTelegramBridgeContribution extends Disposable implements IWorkb
 	/**
 	 * Вопрос — на телефон, ответ — в общую очередь.
 	 *
-	 * Карточка гаснет, если на вопрос ответили во вкладке: живая кнопка на телефоне разрешила бы
+	 * Карточка гаснет, если на вопрос ответили в IDE: живая кнопка на телефоне разрешила бы
 	 * потом то, к чему агент уже перешёл. Обратное тоже верно — ответ с телефона снимает вопрос
-	 * во вкладке, потому что очередь одна.
+	 * в чате IDE, потому что очередь одна.
 	 */
 	private async _mirrorAcpPermission(chatId: number, session: IVibeAcpSessionView): Promise<void> {
 		const shown = [...this._acpApprovals].find(([, pending]) => pending.sessionId === session.sessionId);

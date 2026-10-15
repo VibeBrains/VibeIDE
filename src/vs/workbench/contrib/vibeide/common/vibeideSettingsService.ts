@@ -19,6 +19,7 @@ import { retiredForAutoPick } from './modelDeprecation.js';
 import type { VibeProviderEntry, VibeReasoningDialect } from './vibeProvidersFile.js';
 import { VOID_SETTINGS_STORAGE_KEY } from './storageKeys.js';
 import type { BuiltinWireHints } from './builtinWireHints.js';
+import { withBuiltinFileModels, withoutFileModels } from './builtinFileModels.js';
 import { autoFallbackProviderIds, defaultSettingsOfProvider, FeatureName, isBuiltinProviderId, ProviderId, ProviderName, ModelSelectionOfFeature, SettingsOfProvider, SettingName, providerNames, ModelSelection, modelSelectionsEqual, featureNames, VibeideStatefulModelInfo, GlobalSettings, GlobalSettingName, defaultGlobalSettings, ModelSelectionOptions, OptionsOfModelSelection, ChatMode, OverridesOfModel, defaultOverridesOfModel, MCPUserStateOfName as MCPUserStateOfName, MCPUserState, MinimalismMode } from './vibeideSettingsTypes.js';
 
 
@@ -101,9 +102,10 @@ export type VibeideSettingsState = {
 	 *  file); the dynamic-providers service folds these back into key resolution + the seeded entry. */
 	readonly dynamicProviderApiKeys?: Record<string, string>;
 
-	/** Per-model hide toggles for DYNAMIC providers, keyed by provider id then model id. Explicit user
-	 *  overrides of the default (file `static` models default shown; catalog-only models default hidden).
-	 *  Persisted; applied by the dynamic-providers service to gate the chat picker. */
+	/** Per-model hide toggles for models a provider FILE declares: DYNAMIC providers, and the `static` models a file adds to a
+	 *  built-in; keyed by provider id then model id. Explicit user overrides of the default (file `static` models default shown;
+	 *  catalog-only models of a dynamic provider default hidden). Persisted; applied by the dynamic-providers service to gate
+	 *  the chat picker, and by `withBuiltinFileModels` for a built-in. */
 	readonly dynamicModelHidden?: Record<string, Record<string, boolean>>;
 
 	/** Per-role model mapping for Vibe Agents subagents (VA.2 «модель на роль»), keyed by SubagentType.
@@ -438,27 +440,23 @@ export type DynamicProviderSeed = {
 };
 
 /**
- * The picker entries of one BUILT-IN provider: its catalogue models, then the file's `static` models the catalogue lacks
- * A file `active: false` hides a model from both; a hidden catalogue model stays hidden, a static one is the file's choice
+ * The picker entries of one BUILT-IN provider: the models of its list that are switched on
+ * The list already carries the file's `static` models (`withBuiltinFileModels`), so Settings and the picker read one set
+ * A file `active: false` hides a catalogue model; a file model the user hid in Settings stays out of the picker too
  */
 export function builtinProviderModelOptions(
 	providerName: ProviderName,
 	providerTitle: string,
-	models: readonly { readonly modelName: string; readonly isHidden: boolean }[],
+	models: readonly { readonly modelName: string; readonly isHidden: boolean; readonly fileNote?: 'override' | 'manual' }[],
 	disabledModels: ReadonlySet<string> | undefined,
 	fileStaticModels: readonly { readonly id: string; readonly name?: string }[] | undefined,
 ): ModelOption[] {
+	const fileNames = new Map((fileStaticModels ?? []).map(m => [m.id, m.name]));
 	const options: ModelOption[] = [];
-	const listed = new Set<string>();
-	for (const { modelName, isHidden } of models) {
-		listed.add(modelName);
+	for (const { modelName, isHidden, fileNote } of models) {
 		if (isHidden || disabledModels?.has(modelName)) { continue; }
-		options.push({ name: `${modelName} (${providerTitle})`, selection: { providerName, modelName } });
-	}
-	for (const { id, name } of fileStaticModels ?? []) {
-		if (listed.has(id) || disabledModels?.has(id)) { continue; }
-		listed.add(id);
-		options.push({ name: `${name || id} (${providerTitle})`, selection: { providerName, modelName: id }, fileNote: 'manual' });
+		const label = fileNote ? fileNames.get(modelName) || modelName : modelName;
+		options.push({ name: `${label} (${providerTitle})`, selection: { providerName, modelName }, ...(fileNote ? { fileNote } : {}) });
 	}
 	return options;
 }
@@ -526,6 +524,19 @@ const _validatedModelState = (state: Omit<VibeideSettingsState, '_modelOptions'>
 
 	// A file's `runsLocally` on a built-in: set where declared, removed where the file no longer says it
 	newSettingsOfProvider = withBuiltinLocality(newSettingsOfProvider, _providerActiveOverrides?.builtinLocality ?? {});
+
+	// The `static` models a file declares for a built-in join its model list: Settings shows them next to the
+	// catalogue, switchable like any other, and the picker reads the same list. Derived each time, never stored.
+	for (const providerName of providerNames) {
+		const settingsAtProvider = newSettingsOfProvider[providerName];
+		const models = withBuiltinFileModels(
+			settingsAtProvider.models,
+			_providerActiveOverrides?.builtinStaticModels?.[providerName],
+			state.dynamicModelHidden?.[providerName],
+		);
+		if (models === settingsAtProvider.models) { continue; }
+		newSettingsOfProvider = { ...newSettingsOfProvider, [providerName]: { ...settingsAtProvider, models } };
+	}
 
 	// update model options
 	const newModelOptions: ModelOption[] = [];
@@ -888,7 +899,12 @@ class VoidSettingsService extends Disposable implements IVibeideSettingsService 
 		// its hide toggles (dynamicModelHidden).
 		const cleanedSettingsOfProvider: Record<string, unknown> = {};
 		for (const k of Object.keys(state.settingsOfProvider)) {
-			if (isBuiltinProviderId(k)) { cleanedSettingsOfProvider[k] = withoutDerivedLocality(state.settingsOfProvider[k]); }
+			if (!isBuiltinProviderId(k)) { continue; }
+			const withoutLocality = withoutDerivedLocality(state.settingsOfProvider[k]);
+			// Models a provider file added are derived too (`withBuiltinFileModels`): stored, they would outlive the file
+			cleanedSettingsOfProvider[k] = withoutLocality && Array.isArray(withoutLocality.models)
+				? { ...withoutLocality, models: withoutFileModels(withoutLocality.models) }
+				: withoutLocality;
 		}
 		const toStore = { ...state, settingsOfProvider: cleanedSettingsOfProvider };
 		const encryptedState = await this._encryptionService.encrypt(JSON.stringify(toStore));
@@ -1173,12 +1189,11 @@ class VoidSettingsService extends Disposable implements IVibeideSettingsService 
 	};
 	toggleModelHidden(providerName: ProviderId, modelName: string) {
 
-		// Config providers (providers.json): the model list is derived from the file/catalog
-		// overlay, so a hide toggle persists as an explicit override; the config-providers service
-		// re-applies it (and re-gates the chat picker) on the resulting state change.
-		if (!isBuiltinProviderId(providerName)) {
-			const seed = this.state.settingsOfProvider[providerName];
-			const cur = seed?.models?.find(m => m.modelName === modelName);
+		// Config providers (providers.json) and the models a file adds to a built-in: the list is derived from
+		// the file/catalog overlay, so a hide toggle persists as an explicit override; the overlay is re-applied
+		// (and the chat picker re-gated) on the resulting state change.
+		const cur = this.state.settingsOfProvider[providerName]?.models?.find(m => m.modelName === modelName);
+		if (!isBuiltinProviderId(providerName) || cur?.fileNote) {
 			if (!cur) { return; }
 			const newHidden = !cur.isHidden;
 			const newState: VibeideSettingsState = {

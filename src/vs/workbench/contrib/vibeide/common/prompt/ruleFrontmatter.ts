@@ -18,6 +18,17 @@
  * We strip the frontmatter from the body (the body is the instruction the model reads) and
  * expose the parsed keys so callers can later gate by `alwaysApply` / `globs`. Pure & dependency-free
  * so it unit-tests without the workspace services.
+ *
+ * List keys (`globs`, `triggers`) are written in any of three forms, with the same items:
+ *
+ *   globs: **\/*.{css,scss}, docs/**\/*.md       (comma-separated)
+ *   globs: ["**\/*.{css,scss}", "docs/**\/*.md"]   (flow list in brackets)
+ *   globs:                                       (block list, one `- item` per line)
+ *     - **\/*.{css,scss}
+ *     - docs/**\/*.md
+ *
+ * A comma separates items only outside quotes, `{}` and `[]`
+ * `{css,scss}` is a glob alternation, not two globs
  */
 
 import { match as globMatch } from '../../../../../base/common/glob.js';
@@ -31,6 +42,7 @@ export interface ParsedRuleFile {
 // a block, then a closing `---` line. CRLF and LF both tolerated. Non-greedy block match.
 const FRONTMATTER_RE = /^﻿?---[ \t]*\r?\n([\s\S]*?)\r?\n---[ \t]*(?:\r?\n|$)/;
 const KEY_VALUE_RE = /^([A-Za-z0-9_-]+)[ \t]*:[ \t]*(.*)$/;
+const BLOCK_LIST_ITEM_RE = /^[ \t]*-[ \t]+(.*)$/;
 
 export function parseRuleFrontmatter(content: string): ParsedRuleFile {
 	const match = FRONTMATTER_RE.exec(content);
@@ -38,11 +50,29 @@ export function parseRuleFrontmatter(content: string): ParsedRuleFile {
 		return { frontmatter: {}, body: content };
 	}
 	const frontmatter: Record<string, string> = {};
-	for (const line of match[1].split(/\r?\n/)) {
-		const kv = KEY_VALUE_RE.exec(line);
-		if (kv) {
-			frontmatter[kv[1].toLowerCase()] = kv[2].trim();
+	const lines = match[1].split(/\r?\n/);
+	for (let i = 0; i < lines.length; i++) {
+		const kv = KEY_VALUE_RE.exec(lines[i]);
+		if (!kv) { continue; }
+		let value = kv[2].trim();
+		if (value === '') {
+			// `key:` with nothing after it opens a YAML block list
+			// The `- item` lines below are its value, one item per line
+			// Without items the key stays empty and the next line is read as usual
+			const items: string[] = [];
+			let next = i + 1;
+			for (; next < lines.length; next++) {
+				if (lines[next].trim() === '') { continue; }
+				const item = BLOCK_LIST_ITEM_RE.exec(lines[next]);
+				if (!item) { break; }
+				items.push(item[1].trim());
+			}
+			if (items.length > 0) {
+				value = items.join('\n');
+				i = next - 1;
+			}
 		}
+		frontmatter[kv[1].toLowerCase()] = value;
 	}
 	return { frontmatter, body: content.slice(match[0].length) };
 }
@@ -84,11 +114,78 @@ export function parseAlwaysApply(frontmatter: Readonly<Record<string, string>>):
 	return frontmatter['alwaysapply'].trim().toLowerCase() === 'true';
 }
 
-/** Split a comma-separated frontmatter list, stripping surrounding quotes/whitespace and empties. */
+interface ListScan {
+	readonly items: string[];
+	/** False when a `]` closed nothing, so the text is not the inside of a bracketed list */
+	readonly balanced: boolean;
+}
+
+/**
+ * One pass over a list value
+ * Items are cut at a comma outside quotes, `{}` and `[]`, and at every newline
+ * A block list keeps one item per line, so a stray bracket cannot swallow the lines below it
+ * A quote opens a quoted span only at the start of an item: `don't stop` keeps its apostrophe
+ */
+function scanList(text: string): ListScan {
+	const items: string[] = [];
+	let depth = 0;
+	let balanced = true;
+	let itemStart = 0;
+	let atItemStart = true;
+	const endItem = (at: number) => {
+		items.push(text.slice(itemStart, at));
+		itemStart = at + 1;
+		atItemStart = true;
+		depth = 0;
+	};
+	for (let i = 0; i < text.length; i++) {
+		const ch = text[i];
+		if (ch === '\n') {
+			endItem(i);
+			continue;
+		}
+		if (atItemStart && (ch === '"' || ch === '\'')) {
+			const close = text.indexOf(ch, i + 1);
+			const lineEnd = text.indexOf('\n', i);
+			if (close > i && (lineEnd < 0 || close < lineEnd)) {
+				i = close;
+				atItemStart = false;
+				continue;
+			}
+		}
+		if (ch === '{' || ch === '[') {
+			depth++;
+		} else if (ch === '}' || ch === ']') {
+			if (depth > 0) {
+				depth--;
+			} else if (ch === ']') {
+				balanced = false;
+			}
+		} else if (ch === ',' && depth === 0) {
+			endItem(i);
+			continue;
+		}
+		if (ch !== ' ' && ch !== '\t') {
+			atItemStart = false;
+		}
+	}
+	items.push(text.slice(itemStart));
+	return { items, balanced };
+}
+
+/**
+ * Split a frontmatter list value (comma-separated, `[a, b]` or block list), stripping surrounding quotes/whitespace and empties
+ * Brackets around the whole value are list syntax only when the opening one closes at the very end
+ * `[a, b]` is a list, while the glob `[ab]*.ts` or `src/[a-c].ts` is left alone
+ */
 function splitList(value: string | undefined): string[] {
 	if (!value) { return []; }
-	return value
-		.split(',')
+	const text = value.trim();
+	const inner = text.length >= 2 && !text.includes('\n') && text.startsWith('[') && text.endsWith(']')
+		? scanList(text.slice(1, -1))
+		: undefined;
+	const { items } = inner?.balanced ? inner : scanList(text);
+	return items
 		.map(s => s.trim().replace(/^["']|["']$/g, '').trim())
 		.filter(s => s.length > 0);
 }

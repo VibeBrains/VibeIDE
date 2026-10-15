@@ -8,11 +8,15 @@ import * as assert from 'assert';
 import {
 	appendPromptToHistory,
 	navigateHistory,
-	QUICK_EDIT_HISTORY_DEFAULT_MAX,
-} from '../../common/quickEditPromptHistory.js';
+	PROMPT_HISTORY_DEFAULT_MAX,
+	PROMPT_HISTORY_MAX_ENTRY_CHARS,
+	historyKeyApplies,
+	isRememberablePrompt,
+	parsePromptHistory,
+} from '../../common/promptHistory.js';
 import { ensureNoDisposablesAreLeakedInTestSuite } from '../../../../../base/test/common/utils.js';
 
-suite('quickEditPromptHistory', () => {
+suite('promptHistory', () => {
 
 	ensureNoDisposablesAreLeakedInTestSuite();
 
@@ -58,7 +62,7 @@ suite('quickEditPromptHistory', () => {
 		});
 
 		test('default max size is 50', () => {
-			assert.strictEqual(QUICK_EDIT_HISTORY_DEFAULT_MAX, 50);
+			assert.strictEqual(PROMPT_HISTORY_DEFAULT_MAX, 50);
 			const filled = Array.from({ length: 50 }, (_, i) => `p${i}`);
 			const result = appendPromptToHistory(filled, 'new');
 			assert.strictEqual(result.length, 50);
@@ -133,6 +137,38 @@ suite('quickEditPromptHistory', () => {
 		test('out-of-bounds currentIndex is clamped', () => {
 			const out = navigateHistory(hist, 100, -1);
 			assert.strictEqual(out.value, 'newest');
+		});
+	});
+
+	suite('хранение на рабочую папку', () => {
+		test('сохранённое читается списком непустых строк; чужая форма и мусор отбрасываются', () => {
+			assert.deepStrictEqual(parsePromptHistory('["a","","  ","b",1,null]'), ['a', 'b']);
+			assert.deepStrictEqual([parsePromptHistory(undefined), parsePromptHistory('не json'), parsePromptHistory('{"a":1}')], [[], [], []]);
+		});
+
+		test('прочитанное обрезается до предела с хвоста: старые уходят, свежие остаются', () => {
+			assert.deepStrictEqual(parsePromptHistory('["a","b","c","d"]', 2), ['c', 'd']);
+		});
+
+		test('длинная вставка (лог, файл) в историю не идёт, обычная фраза и фраза ровно в предел — идут', () => {
+			assert.deepStrictEqual(
+				['', '   ', 'почини сборку', 'x'.repeat(PROMPT_HISTORY_MAX_ENTRY_CHARS), 'x'.repeat(PROMPT_HISTORY_MAX_ENTRY_CHARS + 1)].map(isRememberablePrompt),
+				[false, false, true, true, false]);
+		});
+	});
+
+	suite('когда ↑ и ↓ ходят по истории', () => {
+		test('в однострочном тексте — всегда, если нет выделения', () => {
+			assert.deepStrictEqual(
+				[historyKeyApplies('привет', 3, 3, -1), historyKeyApplies('привет', 3, 3, 1), historyKeyApplies('', 0, 0, -1), historyKeyApplies('привет', 0, 6, -1)],
+				[true, true, true, false]);
+		});
+
+		test('в многострочном — ↑ с первой строки, ↓ с последней; в середине стрелки остаются за кареткой', () => {
+			const text = 'раз\nдва\nтри';
+			assert.deepStrictEqual(
+				[historyKeyApplies(text, 2, 2, -1), historyKeyApplies(text, 6, 6, -1), historyKeyApplies(text, 6, 6, 1), historyKeyApplies(text, 10, 10, 1)],
+				[true, false, false, true]);
 		});
 	});
 });

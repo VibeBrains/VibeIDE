@@ -44,6 +44,7 @@ import { vibeLog } from '../common/vibeLog.js';
 import { VIBE_COMMAND_CATEGORY } from '../common/vibeCommandCategory.js';
 import {
 	buildStepInput,
+	composePipelineBrief,
 	composeReviewGoal,
 	composeReworkRequest,
 	effectiveWriteScope,
@@ -69,7 +70,7 @@ import { IVibeDynamicProvidersService } from './vibeDynamicProvidersService.js';
 import { CollectedDiff, IVibeRunDiffService } from '../common/vibeideSCMTypes.js';
 import { IVibeVerifyGateService } from './vibeVerifyGateService.js';
 import { VSBuffer } from '../../../../base/common/buffer.js';
-import { resolveRuntimeStatePath } from '../common/vibeRuntimeStateLocation.js';
+import { resolveRuntimeStatePath, VIBE_LOCAL_DIR } from '../common/vibeRuntimeStateLocation.js';
 import { compactPipelineRunJournal, parsePipelineRunJournal, pipelineShapeOf, PipelineRunRecord, ResumableRun, resumableRunOf, serializePipelineRun } from '../common/pipeline/pipelineRunJournal.js';
 
 const CONFIG_REVIEWER_SEES_SUMMARY = 'vibeide.pipeline.reviewerSeesStepSummary';
@@ -127,6 +128,9 @@ export interface IVibePipelineService {
 
 /** The journal of pipeline runs, beside the agents' own in `.vibe/local` */
 const PIPELINE_JOURNAL_FILE = 'pipeline-runs.jsonl';
+/** What outlives the feed of one run lives in `.vibe/local/runs/<run>/`, as in VibeIDEA: the brief is its first file */
+const PIPELINE_RUNS_DIR = 'runs';
+const PIPELINE_BRIEF_FILE = 'brief.md';
 /** A live run signs its record this often; three missed beats mean its window is gone, not busy — the agents' ledger cadence */
 const PIPELINE_HEARTBEAT_MS = 30_000;
 const PIPELINE_STALE_AFTER_MS = 3 * PIPELINE_HEARTBEAT_MS;
@@ -152,6 +156,8 @@ interface PipelineRunContext {
 	readonly live: Set<string>;
 	/** Verify checks, one at a time: two builds in one folder write the same output and break each other. */
 	readonly verify: Sequencer;
+	/** The task of the run as the person wrote it, taken before the first step: what a step with `againstBrief` judges by */
+	readonly brief: string;
 	/** The snapshot every judge's diff is measured from; `undefined` when nothing needed it or git could not pin it. */
 	readonly baseline: string | undefined;
 	/** Whether anything was pinned — then the run's pins are released at its end. */
@@ -190,6 +196,22 @@ export class VibePipelineService extends Disposable implements IVibePipelineServ
 	private readonly _epoch = generateUuid();
 	/** Journal writes one at a time: two runs of one window must not read the same file and each drop the other's line */
 	private readonly _journalWrites = new Sequencer();
+
+	/**
+	 * The brief goes to the run folder before the first step, for the person to read and for the other product to find.
+	 * Best effort: a note that could not be saved is no reason to stop a run, and the brief itself travels in memory.
+	 */
+	private async _recordBrief(runId: string, brief: string): Promise<void> {
+		const root = this._workspace.getWorkspace().folders[0]?.uri;
+		if (!root) {
+			return;
+		}
+		try {
+			await this._fileService.writeFile(joinPath(root, '.vibe', VIBE_LOCAL_DIR, PIPELINE_RUNS_DIR, runId, PIPELINE_BRIEF_FILE), VSBuffer.fromString(brief));
+		} catch (err) {
+			vibeLog.warn('Pipeline', `бриф прогона не записан: ${err instanceof Error ? err.message : String(err)}`);
+		}
+	}
 
 	private async _journalPath(): Promise<URI | undefined> {
 		return resolveRuntimeStatePath(this._fileService, this._workspace.getWorkspace().folders[0]?.uri, PIPELINE_JOURNAL_FILE);
@@ -395,6 +417,8 @@ export class VibePipelineService extends Disposable implements IVibePipelineServ
 
 		const groups = pipelineGroups(pipeline.steps);
 		const runId = generateUuid();
+		const brief = composePipelineBrief(pipeline);
+		await this._recordBrief(runId, brief);
 		// The point every judge's diff is measured from, pinned before the first step touches anything.
 		// Only when a judge comes after the first group — a pipeline nobody judges leaves no refs behind.
 		const judged = groups.slice(1).some(group => pipeline.steps.slice(group.start, group.end + 1).some(wantsRunDiff));
@@ -432,6 +456,7 @@ export class VibePipelineService extends Disposable implements IVibePipelineServ
 			totalSteps: pipeline.steps.length,
 			qaWritePaths: roles.qaWritePaths ?? QA_DEFAULT_WRITE_PATHS,
 			writersIsolated,
+			brief,
 			token: cancellation.token,
 			cancel: () => cancellation.cancel(),
 			live: new Set<string>(),
@@ -664,7 +689,7 @@ export class VibePipelineService extends Disposable implements IVibePipelineServ
 		const stepNumber = index + 1;
 		const progress = { pipelineId, stepIndex: index, totalSteps, role: step.role, ...(wave ? { wave } : {}) };
 		this._onProgress.fire({ ...progress, state: 'started' });
-		const input = buildStepInput(step, before, totalSteps);
+		const input = buildStepInput(step, before, totalSteps, ctx.brief);
 		const label = pipelineStepLabel(stepNumber, totalSteps, wave);
 		const identity = { role: step.role, step: stepNumber, ...(wave ? { wave } : {}) };
 		// Runs of this step stay registered until the step is decided: the author's conversation

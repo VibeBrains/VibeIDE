@@ -31,6 +31,7 @@ suite('Project Commands — first-run trust confirm decision', () => {
 				command: { id: 'a', confirm: true },
 				currentHash: HASH_A,
 				trustEntry: trust('a'),
+				workspaceTrusted: true,
 			});
 			assert.deepStrictEqual(r, { kind: 'require-confirm', reason: 'always-confirm' });
 		});
@@ -40,6 +41,7 @@ suite('Project Commands — first-run trust confirm decision', () => {
 				command: { id: 'a' },
 				currentHash: HASH_A,
 				trustEntry: undefined,
+				workspaceTrusted: true,
 			});
 			assert.deepStrictEqual(r, { kind: 'require-confirm', reason: 'first-run' });
 		});
@@ -49,6 +51,7 @@ suite('Project Commands — first-run trust confirm decision', () => {
 				command: { id: 'a' },
 				currentHash: HASH_B,
 				trustEntry: trust('a', HASH_A),
+				workspaceTrusted: true,
 			});
 			assert.deepStrictEqual(r, { kind: 'require-confirm', reason: 'shape-changed-since-trust' });
 		});
@@ -58,6 +61,7 @@ suite('Project Commands — first-run trust confirm decision', () => {
 				command: { id: 'a', confirm: false },
 				currentHash: HASH_A,
 				trustEntry: trust('a', HASH_A),
+				workspaceTrusted: true,
 			});
 			assert.deepStrictEqual(r, { kind: 'auto-allow' });
 		});
@@ -67,6 +71,7 @@ suite('Project Commands — first-run trust confirm decision', () => {
 				command: { id: 'a' },
 				currentHash: HASH_A,
 				trustEntry: trust('a', HASH_A),
+				workspaceTrusted: true,
 			});
 			assert.deepStrictEqual(r, { kind: 'auto-allow' });
 		});
@@ -76,11 +81,43 @@ suite('Project Commands — first-run trust confirm decision', () => {
 				command: { id: 'a', confirm: true },
 				currentHash: HASH_B,
 				trustEntry: trust('a', HASH_A),
+				workspaceTrusted: true,
 			});
 			assert.strictEqual(r.kind, 'require-confirm');
 			if (r.kind === 'require-confirm') {
 				assert.strictEqual(r.reason, 'always-confirm');
 			}
+		});
+	});
+
+	suite('decideRunConfirm — untrusted workspace', () => {
+		test('untrusted workspace asks even when storage holds a matching approval', () => {
+			const r = decideRunConfirm({
+				command: { id: 'a' },
+				currentHash: HASH_A,
+				trustEntry: trust('a', HASH_A),
+				workspaceTrusted: false,
+			});
+			assert.deepStrictEqual(r, { kind: 'require-confirm', reason: 'untrusted-workspace' });
+		});
+
+		test('untrusted workspace asks on first run too', () => {
+			const r = decideRunConfirm({ command: { id: 'a' }, currentHash: HASH_A, workspaceTrusted: false });
+			assert.deepStrictEqual(r, { kind: 'require-confirm', reason: 'untrusted-workspace' });
+		});
+
+		test('always-confirm still names itself in an untrusted workspace', () => {
+			const r = decideRunConfirm({ command: { id: 'a', confirm: true }, currentHash: HASH_A, workspaceTrusted: false });
+			assert.deepStrictEqual(r, { kind: 'require-confirm', reason: 'always-confirm' });
+		});
+
+		test('bulk: no command of an untrusted workspace is auto-allowed', () => {
+			const r = decideRunConfirmBulk(
+				[{ command: { id: 'trusted' }, currentHash: HASH_A }],
+				[trust('trusted', HASH_A)],
+				false,
+			);
+			assert.deepStrictEqual(r.map(x => x.decision), [{ kind: 'require-confirm', reason: 'untrusted-workspace' }]);
 		});
 	});
 
@@ -93,6 +130,7 @@ suite('Project Commands — first-run trust confirm decision', () => {
 					{ command: { id: 'forced', confirm: true }, currentHash: HASH_A },
 				],
 				[trust('trusted', HASH_A), trust('forced', HASH_A)],
+				true,
 			);
 			assert.deepStrictEqual(r.map(x => x.decision.kind), ['require-confirm', 'auto-allow', 'require-confirm']);
 			assert.strictEqual(r[0].decision.kind === 'require-confirm' && r[0].decision.reason, 'first-run');
@@ -106,12 +144,13 @@ suite('Project Commands — first-run trust confirm decision', () => {
 					{ command: { id: 'a' }, currentHash: HASH_A },
 				],
 				[],
+				true,
 			);
 			assert.deepStrictEqual(r.map(x => x.id), ['b', 'a']);
 		});
 
 		test('empty inputs', () => {
-			assert.deepStrictEqual(decideRunConfirmBulk([], []), []);
+			assert.deepStrictEqual(decideRunConfirmBulk([], [], true), []);
 		});
 	});
 
@@ -120,6 +159,12 @@ suite('Project Commands — first-run trust confirm decision', () => {
 			const s = describeConfirmReason('first-run', 'Build');
 			assert.ok(s.includes('Build'));
 			assert.ok(s.includes('впервые'));
+		});
+
+		test('untrusted-workspace names the command and the folder state', () => {
+			const s = describeConfirmReason('untrusted-workspace', 'Build');
+			assert.ok(s.includes('Build'));
+			assert.ok(s.includes('не помечена как доверенная'));
 		});
 
 		test('shape-changed-since-trust', () => {

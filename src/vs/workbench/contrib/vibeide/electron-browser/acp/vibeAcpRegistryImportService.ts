@@ -149,7 +149,7 @@ class VibeAcpRegistryImportService extends Disposable implements IVibeAcpRegistr
 			return;
 		}
 		if (this._registry.agents.some(entry => entry.id === agent.id)) {
-			this._notifications.info(localize('vibeide.acp.registry.exists', "Агент «{0}» уже есть в списке. Новая версия ставится кнопкой обновления во вкладке «Внешние агенты».", agent.name));
+			this._notifications.info(localize('vibeide.acp.registry.exists', "Агент «{0}» уже есть в списке. Новая версия ставится кнопкой обновления в Настройки → «Агенты».", agent.name));
 			return;
 		}
 		const layer = plan.kind === 'binary' ? 'machine' : await this._pickLayer();
@@ -173,7 +173,7 @@ class VibeAcpRegistryImportService extends Disposable implements IVibeAcpRegistr
 			await this._fileService.writeFile(fileUri, VSBuffer.fromString(withAgentAppended(await this._read(fileUri), entry)));
 			this._audit(agent, plan, layer);
 			await this._registry.reload();
-			this._notifications.info(localize('vibeide.acp.registry.done', "Агент «{0}» добавлен — позвать его можно во вкладке «Внешние агенты».", agent.name));
+			this._notifications.info(localize('vibeide.acp.registry.done', "Агент «{0}» добавлен — выберите его в списке моделей чата.", agent.name));
 		} catch (err) {
 			this._notifications.error(localize('vibeide.acp.registry.failed', "Не удалось добавить «{0}»: {1}", agent.name, err instanceof Error ? err.message : String(err)));
 		}

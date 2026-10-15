@@ -60,6 +60,7 @@ import { useAccessor, useIsDark, useIsOptedOut, useMCPServiceState, useRefreshMo
 import { X, RefreshCw, Loader2, Check, Asterisk, Plus, ChevronRight, ChevronDown, ImageOff, Image, Play, Copy } from 'lucide-react';
 import { joinPath } from '../../../../../../../base/common/resources.js';
 import { ModelDropdown } from './ModelDropdown.js';
+import { AgentsPanel } from './AgentsPanel.js';
 import { AgentRoleModels } from './AgentRoleModels.js';
 import { VibeWorkspaceFormsPanel } from './VibeWorkspaceForms.js';
 import { ChatMarkdownRender } from '../markdown/ChatMarkdownRender.js';
@@ -86,6 +87,7 @@ type Tab =
 	| 'providers'
 	| 'featureOptions'
 	| 'mcp'
+	| 'agents'
 	| 'workspace'
 	| 'general'
 	| 'appearance'
@@ -3567,10 +3569,25 @@ export const Settings = () => {
 		{ tab: 'notifications', label: nav.notifications },
 		{ tab: 'safety', label: nav.safety },
 		{ tab: 'mcp', label: nav.mcp },
+		{ tab: 'agents', label: nav.agents },
 		{ tab: 'all', label: nav.all },
 	];
 	const shouldShowTab = (tab: Tab) => selectedSection === 'all' || selectedSection === tab;
 	const accessor = useAccessor();
+	// A command that opens the settings on a section (the external agents' command opens them on «Агенты»)
+	const settingsNavigation = accessor.get('IVibeSettingsNavigationService');
+	useEffect(() => {
+		const open = (section: string | undefined) => {
+			const target = navItems.find(item => item.tab === section);
+			if (target) { setSelectedSection(target.tab); }
+		};
+		open(settingsNavigation.pullPendingSection());
+		const listener = settingsNavigation.onDidRequestSection(section => {
+			settingsNavigation.pullPendingSection();
+			open(section);
+		});
+		return () => listener.dispose();
+	}, [settingsNavigation]);
 	const commandService = accessor.get('ICommandService');
 	const environmentService = accessor.get('IEnvironmentService');
 	const nativeHostService = accessor.get('INativeHostService');
@@ -4047,6 +4064,26 @@ export const Settings = () => {
 										</AllSettingsFold>
 									) : (
 										<SafetyPanel />
+									)}
+								</ErrorBoundary>
+							</div>
+
+							{/* External agents (ACP) */}
+							<div className={shouldShowTab('agents') ? `` : 'hidden'}>
+								<ErrorBoundary>
+									{selectedSection === 'all' ? (
+										<AllSettingsFold
+											title={nav.agents}
+											open={!!allSettingsExpanded.agents}
+											onToggle={() => toggleAllSettingsGroup('agents')}
+										>
+											<AgentsPanel />
+										</AllSettingsFold>
+									) : (
+										<>
+											<h2 className='text-3xl mb-2'>{nav.agents}</h2>
+											<AgentsPanel />
+										</>
 									)}
 								</ErrorBoundary>
 							</div>

@@ -29,6 +29,7 @@ import { NullTelemetryService } from '../../../../../platform/telemetry/common/t
 import { VoiceBatchDecodeResult, VoiceDownloadProgress, VoiceModelsState, VoiceProfileId, VoiceSessionEvent, VoiceStartSessionOptions, VoiceWorkerRequest, VoiceWorkerResponse, VOICE_PROFILE_IDS, VOICE_SAMPLE_RATE } from '../../common/voice/vibeVoiceTypes.js';
 import { resolveVoiceBatchOfflinePaths, resolveVoiceSessionModelPaths, VoiceEnglishBatchTier, VoiceModelArchive, voiceArchivesForProfile, voiceBatchArchivesForProfile, voiceBatchDownloadBytesForProfile, voiceBatchRequiredFilesForProfile, voiceDownloadBytesForProfile, voiceRequiredFilesForProfile } from '../../common/voice/vibeVoiceModels.js';
 import { clampVoiceEndpointSilenceMs, clampVoiceKeepAliveSec, resolveVoiceEngine, resolveVoiceEnglishBatchTier, resolveVoiceThreads, VOICE_ENDPOINT_SILENCE_KEY, VOICE_ENGINE_KEY, VOICE_ENGLISH_BATCH_MODEL_KEY, VOICE_KEEP_ALIVE_KEY, VOICE_MODELS_PATH_KEY, VOICE_THREADS_KEY } from '../../common/voice/vibeVoiceConfiguration.js';
+import { VOICE_ENGINE_TIMEOUT_MESSAGE } from '../../common/voice/vibeVoiceErrors.js';
 import { GeminiTranscribeSession } from './vibeVoiceGeminiSession.js';
 import { downloadWithSha256 } from '../vibeVerifiedDownload.js';
 
@@ -372,6 +373,10 @@ export class VibeVoiceMainService extends Disposable {
 		this.stopWatchdogs.set(sessionId, setTimeout(() => {
 			this.logService.warn(`[vibeVoice] worker did not confirm ${t} of session ${sessionId} in ${STOP_TIMEOUT_MS}ms — recycling`);
 			this.finishSession(sessionId);
+			// A hung flush after the person's stop is a failure they must hear about; after their cancel nothing is lost
+			if (t === 'stop') {
+				this._onSessionEvent.fire({ sessionId, type: 'error', message: VOICE_ENGINE_TIMEOUT_MESSAGE });
+			}
 			this._onSessionEvent.fire({ sessionId, type: 'stopped' });
 			this.killWorker();
 		}, STOP_TIMEOUT_MS));

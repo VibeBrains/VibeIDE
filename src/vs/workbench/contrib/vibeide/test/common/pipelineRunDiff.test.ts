@@ -15,11 +15,12 @@ suite('pipelineRunDiff', () => {
 	const done: PipelineStepOutcome = { role: 'backend-dev', step: 1, status: 'success', summary: 'сделал', artifacts: ['src/a.ts'] };
 	const section = (path: string, body: string) => `diff --git a/${path} b/${path}\n--- a/${path}\n+++ b/${path}\n@@ -1 +1 @@\n${body}\n`;
 
-	test('judges get the diff once something ran; fresh eyes and makers do not', () => {
+	test('judges get the diff once something ran; fresh eyes, a judge of the brief and makers do not', () => {
 		assert.deepStrictEqual({
 			critic: receivesRunDiff({ role: 'critic' }, [done]),
 			criticFirst: receivesRunDiff({ role: 'critic' }, []),
 			freshEyes: receivesRunDiff({ role: 'code-reviewer', ignorePreviousArtifacts: true }, [done]),
+			againstBrief: receivesRunDiff({ role: 'critic', againstBrief: true }, [done]),
 			maker: receivesRunDiff({ role: 'backend-dev' }, [done]),
 			orchestrator: wantsRunDiff({ role: 'orchestrator' }),
 			judges: ['explore', 'planner', 'code-reviewer', 'security', 'critic'].map(role => wantsRunDiff({ role })),
@@ -27,6 +28,7 @@ suite('pipelineRunDiff', () => {
 			critic: true,
 			criticFirst: false,
 			freshEyes: false,
+			againstBrief: false,
 			maker: false,
 			orchestrator: false,
 			judges: [true, true, true, true, true],

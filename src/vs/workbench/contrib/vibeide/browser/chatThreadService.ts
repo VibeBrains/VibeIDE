@@ -8,7 +8,7 @@ import { vibeLog } from '../common/vibeLog.js';
 import { Disposable, DisposableMap, IDisposable, MutableDisposable, toDisposable } from '../../../../base/common/lifecycle.js';
 import { RunOnceScheduler, timeout } from '../../../../base/common/async.js';
 import { registerSingleton, InstantiationType } from '../../../../platform/instantiation/common/extensions.js';
-import { createDecorator } from '../../../../platform/instantiation/common/instantiation.js';
+import { createDecorator, IInstantiationService } from '../../../../platform/instantiation/common/instantiation.js';
 import { IStorageService, StorageScope, StorageTarget } from '../../../../platform/storage/common/storage.js';
 
 import { URI, UriComponents } from '../../../../base/common/uri.js';
@@ -25,6 +25,8 @@ import { renderSlopReport } from '../common/textSlop/slopRender.js';
 import { SlopReport } from '../common/textSlop/textSlop.js';
 import { nextChatTraceTurn, recordChatTrace } from './vibeChatRunTrace.js';
 import { IChatJournalService } from './chatJournalService.js';
+import { AcpChatRunner, AcpThreadBinding } from './acp/acpChatRunner.js';
+import { AcpPermissionMode, DEFAULT_ACP_PERMISSION_MODE } from '../common/acp/acpPermissionPolicy.js';
 import type { ChatJournalAction } from '../common/chatJournal.js';
 import { availableTools, builtinTools, builtinToolNames, chat_userMessageContent, isABuiltinToolName } from '../common/prompt/prompts.js';
 import { TOOL_NAME_ALIASES, applyParamAliases, detectToolByParamShape } from '../common/prompt/toolAliases.js';
@@ -38,7 +40,7 @@ import { isQuotaLow, pickRateLimitHeaders, ProviderQuotaSnapshot, tightestBucket
 import { IVibeSpendLedgerService } from './vibeSpendLedgerService.js';
 import { ModelHealthTracker, HEALTH_FAILURE_THRESHOLD, HEALTH_WINDOW_MS, classifyProviderError } from '../common/modelHealthTracker.js';
 import { translateProviderError } from '../common/providerErrorTranslator.js';
-import { decideLlmRetry, firstRetryAfterSeconds, formatWaitDuration, LlmErrorFacts, LlmRetryContext, MAX_RETRY_AFTER_WAIT_SECONDS } from '../common/llmErrorRetry.js';
+import { decideLlmRetry, firstRetryAfterSeconds, formatWaitDuration, LlmErrorFacts, LlmRetryContext, MAX_RETRY_AFTER_WAIT_SECONDS, unavailabilityOf } from '../common/llmErrorRetry.js';
 import { generateUuid } from '../../../../base/common/uuid.js';
 import { autoFallbackProviderIds, ChatMode, FeatureName, ModelSelection, ModelSelectionOptions, ProviderName } from '../common/vibeideSettingsTypes.js';
 import { isModelVisionCapable } from '../common/modelVisionHeuristics.js';
@@ -89,7 +91,8 @@ import { IVibePromptGuardService } from '../common/vibePromptGuardService.js';
 import { guardToolOutput } from '../common/untrustedToolOutputGuard.js';
 import { RawMCPToolCall } from '../common/mcpServiceTypes.js';
 import { preprocessImagesForQA } from './imageQAIntegration.js';
-import { autoFallbackCandidates, ITaskAwareModelRouter, TaskContext, TaskType } from '../common/modelRouter.js';
+import { autoFallbackCandidates, ITaskAwareModelRouter, nextAutoFallback, TaskContext } from '../common/modelRouter.js';
+import { buildAutoTaskContext } from '../common/autoTaskSignals.js';
 import { chatLatencyAudit } from '../common/chatLatencyAudit.js';
 import { suggestAlternateTool as suggestAlternateToolPure } from '../common/toolSchemaSuggest.js';
 import { IEditRiskScoringService, EditContext, EditRiskScore } from '../common/editRiskScoringService.js';
@@ -437,6 +440,13 @@ export type ThreadType = {
 	workspaceLabel?: string; // Human-readable project name (first folder basename) captured at stamp time, for the "all projects" badge.
 	/** Per-tab chat config (model/mode/autopilot/iterations). Undefined until the tab first snapshots the globals. */
 	chatConfig?: ThreadChatConfig;
+	/**
+	 * The external agent that leads this thread, chosen before the first message and kept for the whole conversation:
+	 * the agent has its own history, so the conversation cannot move to another model or agent halfway
+	 * `sessionId` is the agent's session, which the thread comes back to after a restart
+	 * `mode` is the person's mode for the conversation (Вручную, Правки, План, Автопилот); absent means manual
+	 */
+	acpAgent?: { agentId: string; agentName: string; sessionId?: string; mode?: AcpPermissionMode };
 
 	messages: ChatMessage[];
 	filesWithUserChanges: Set<string>;
@@ -586,7 +596,7 @@ export type ThreadStreamState = {
 		isRunning: 'preparing';
 		error?: undefined;
 		llmInfo: {
-			displayContentSoFar: string; // status message like "Selecting best model..." or "Preparing request..."
+			displayContentSoFar: string; // status message such as the model-selection or request-preparation step
 			reasoningSoFar: string;
 			toolCallSoFar: RawToolCallObj | null;
 		};
@@ -724,6 +734,14 @@ export interface IChatThreadService {
 	readonly onDidOfferThreadDraft: Event<{ threadId: string; text: string }>;
 	/** Per-tab chat config snapshot (model/mode/autopilot/iterations), persisted with the thread. */
 	setThreadChatConfig(threadId: string, cfg: ThreadChatConfig): void;
+	/**
+	 * Hand the thread to an external agent, or take it back to the chat's own models (`undefined`)
+	 * Only an empty thread can change its leader: the agent keeps its own history, so a conversation does not move
+	 * mid-way. Returns false when the thread already has messages and the leader would change
+	 */
+	setThreadAcpAgent(threadId: string, agent: { agentId: string; agentName: string } | undefined): boolean;
+	/** The person's mode for a conversation led by an external agent; applied to the live session at once */
+	setThreadAcpMode(threadId: string, mode: AcpPermissionMode): void;
 
 	// thread selector
 	deleteThread(threadId: string): void;
@@ -1204,8 +1222,10 @@ class ChatThreadService extends Disposable implements IChatThreadService {
 		@IVibeDynamicProvidersService private readonly _dynamicProvidersService: IVibeDynamicProvidersService,
 		@IChatJournalService private readonly _chatJournal: IChatJournalService,
 		@IVibePromptGuardService private readonly _promptGuard: IVibePromptGuardService,
+		@IInstantiationService instantiationService: IInstantiationService,
 	) {
 		super();
+		this._acpRunner = this._register(instantiationService.createInstance(AcpChatRunner, this._acpPort()));
 		this.state = { allThreads: {}, currentThreadId: null as unknown as string, openTabIds: [] }; // default state
 		// When set for a thread, the next call to _shouldGeneratePlan will return false and clear the flag
 		this._suppressPlanOnceByThread = {};
@@ -1260,6 +1280,50 @@ class ChatThreadService extends Disposable implements IChatThreadService {
 
 		// keep track of user-modified files
 
+	}
+
+	/** Takes a message of a thread whose person chose an external agent; the agent runs the turn, not the chat's own loop */
+	private readonly _acpRunner: AcpChatRunner;
+
+	/** What the runner may do with the chat: write messages and the stream state of its thread */
+	private _acpPort() {
+		return {
+			getThread: (threadId: string) => this.state.allThreads[threadId],
+			addUserMessage: (threadId: string, message: { content: string; displayContent: string; selections: StagingSelectionItem[]; images?: ChatImageAttachment[]; pdfs?: ChatPDFAttachment[] }) =>
+				this._addMessageToThread(threadId, { role: 'user', ...message, state: defaultMessageState }),
+			addMessage: (threadId: string, message: ChatMessage) => this._addMessageToThread(threadId, message),
+			editMessage: (threadId: string, messageIdx: number, message: ChatMessage) => this._editMessageInThread(threadId, messageIdx, message),
+			setStreamState: (threadId: string, state: ThreadStreamState[string]) => this._setStreamState(threadId, state),
+			setBinding: (threadId: string, binding: AcpThreadBinding) => this._setAcpBinding(threadId, binding),
+		};
+	}
+
+	private _setAcpBinding(threadId: string, binding: AcpThreadBinding): void {
+		const thread = this.state.allThreads[threadId];
+		if (!thread) { return; }
+		const updated: ChatThreads = { ...this.state.allThreads, [threadId]: { ...thread, acpAgent: binding } };
+		this._storeAllThreads(updated);
+		this._setState({ allThreads: updated }, true);
+	}
+
+	setThreadAcpMode(threadId: string, mode: AcpPermissionMode): void {
+		const thread = this.state.allThreads[threadId];
+		if (!thread?.acpAgent || (thread.acpAgent.mode ?? DEFAULT_ACP_PERMISSION_MODE) === mode) { return; }
+		this._setAcpBinding(threadId, { ...thread.acpAgent, mode });
+		void this._acpRunner.applyMode(threadId);
+	}
+
+	setThreadAcpAgent(threadId: string, agent: { agentId: string; agentName: string } | undefined): boolean {
+		const thread = this.state.allThreads[threadId];
+		if (!thread) { return false; }
+		const same = thread.acpAgent?.agentId === agent?.agentId;
+		if (same) { return true; }
+		if (thread.messages.length > 0) { return false; }
+		const { acpAgent: _previous, ...rest } = thread;
+		const updated: ChatThreads = { ...this.state.allThreads, [threadId]: agent ? { ...rest, acpAgent: agent } : rest };
+		this._storeAllThreads(updated);
+		this._setState({ allThreads: updated }, true);
+		return true;
 	}
 
 	// If true for a thread, suppress plan generation once for the next user message
@@ -1669,113 +1733,14 @@ class ChatThreadService extends Disposable implements IChatThreadService {
 	/**
 	 * The task context «Авто» routes a message by
 	 * One builder serves the choice and the error fallback: a ranking from a thinner context picks other models
+	 * The reading of the message itself (English and Russian wording) is `buildAutoTaskContext`
 	 */
 	private _buildAutoTaskContext(
 		userMessage: string,
 		images?: ChatImageAttachment[],
 		pdfs?: ChatPDFAttachment[]
 	): { context: TaskContext; isCodebaseQuestion: boolean } {
-		// Detect task type from message and attachments
-		const taskType = this._detectTaskType(userMessage, images, pdfs);
-		const hasImages = images && images.length > 0;
-		const hasPDFs = pdfs && pdfs.length > 0;
-		const hasCode = this._detectCodeInMessage(userMessage);
-
-		// Detect complexity indicators
-		const lowerMessage = userMessage.toLowerCase().trim();
-		const reasoningKeywords = ['explain why', 'analyze', 'compare and contrast', 'evaluate', 'critique', 'reasoning', 'logical', 'deduce', 'infer', 'conclusion', 'argument', 'thesis', 'hypothesis', 'theoretical', 'conceptual'];
-		const complexAnalysisKeywords = ['complex', 'sophisticated', 'nuanced', 'detailed analysis', 'deep understanding', 'comprehensive', 'thorough'];
-
-		// Codebase questions require complex reasoning (understanding structure, relationships, etc.)
-		// Use the same detection logic as _detectTaskType for consistency
-		const codebaseQuestionPatterns = [
-			/\b(codebase|code base|repository|repo|project)\b/,
-			/\b(architecture|structure|organization|layout)\b.*\b(project|codebase|repo|code)\b/,
-			/^what\s+(is|does|are)\s+(my|this|the)\s+(codebase|repo|project|code|app|application)/,
-			/\bhow\s+many\s+(endpoint|endpoints|api|apis|route|routes|file|files|function|functions|class|classes|component|components|module|modules|service|services|controller|controllers)\b/i,
-			/^(summarize|explain|describe|overview|analyze)\s+(my|this|the)\s+(codebase|repo|project|code)/,
-		];
-		const codebaseIndicators = ['codebase', 'code base', 'repository', 'repo', 'project structure', 'architecture', 'endpoint', 'api', 'route'];
-		const questionStarters = ['what is', 'what does', 'how many', 'summarize', 'explain', 'describe', 'overview'];
-		const matchesPattern = codebaseQuestionPatterns.some(pattern => pattern.test(lowerMessage));
-		const hasCodebaseIndicator = codebaseIndicators.some(indicator => lowerMessage.includes(indicator));
-		const startsWithQuestion = questionStarters.some(starter => lowerMessage.startsWith(starter));
-		const isCodebaseQuestion = matchesPattern || (hasCodebaseIndicator && startsWithQuestion);
-
-		const requiresComplexReasoning = isCodebaseQuestion || // Codebase questions need reasoning
-			reasoningKeywords.some(keyword => lowerMessage.includes(keyword)) ||
-			complexAnalysisKeywords.some(keyword => lowerMessage.includes(keyword));
-		const isLongMessage = userMessage.length > 500;
-
-		// Privacy/offline mode: removed restriction for images/PDFs
-		// Images/PDFs now always use auto selection (remote models allowed)
-		const requiresPrivacy = false;
-
-		// Estimate context size needed for codebase questions
-		// Codebase questions often need to process many files, so estimate higher context needs
-		let estimatedContextSize: number | undefined = undefined;
-		if (isCodebaseQuestion) {
-			// Codebase questions typically need:
-			// - Base message: ~500 tokens
-			// - System message + repo context: ~2000 tokens (from repo indexer)
-			// - Multiple file contexts: ~5000-15000 tokens (depending on codebase size)
-			// - Response space: ~4000 tokens
-			// Total: ~12k-22k tokens minimum, but prefer models with 128k+ for better understanding
-			estimatedContextSize = 20000; // Conservative estimate - prefer models with large context
-		} else if (requiresComplexReasoning || isLongMessage) {
-			// Complex reasoning tasks may need more context
-			estimatedContextSize = Math.max(8000, Math.ceil(userMessage.length / 2)); // Rough estimate
-		}
-
-		// Detect additional task-specific flags
-		const isDebuggingTask = this._detectDebuggingTask(lowerMessage, hasCode);
-		const isCodeReviewTask = this._detectCodeReviewTask(lowerMessage);
-		const isTestingTask = this._detectTestingTask(lowerMessage);
-		const isDocumentationTask = this._detectDocumentationTask(lowerMessage);
-		const isPerformanceTask = this._detectPerformanceTask(lowerMessage);
-		const isSecurityTask = this._detectSecurityTask(lowerMessage);
-		const isSimpleQuestion = this._detectSimpleQuestion(userMessage, lowerMessage);
-		const isMathTask = this._detectMathTask(lowerMessage);
-		const isMultiLanguageTask = this._detectMultiLanguageTask(lowerMessage);
-		const isMultiStepTask = this._detectMultiStepTask(lowerMessage);
-
-		// Build task context
-		// Enable low-latency preference for simple questions to improve TTFS
-		// More aggressive: enable for simple questions OR when task doesn't require complex reasoning
-		const preferLowLatency = (isSimpleQuestion ||
-			(!requiresComplexReasoning &&
-				!hasImages &&
-				!hasPDFs &&
-				!isLongMessage &&
-				!isMultiStepTask &&
-				!isCodebaseQuestion &&
-				taskType === 'chat')); // Only for general chat, not code/vision tasks
-
-		const context: TaskContext = {
-			taskType,
-			hasImages,
-			hasPDFs,
-			hasCode,
-			contextSize: estimatedContextSize,
-			requiresPrivacy,
-			preferLowLatency, // Auto-enable for simple queries to improve TTFS
-			preferLowCost: false, // Could be a setting
-			userOverride: null, // No override when in auto mode
-			requiresComplexReasoning,
-			isLongMessage,
-			isDebuggingTask,
-			isCodeReviewTask,
-			isTestingTask,
-			isDocumentationTask,
-			isPerformanceTask,
-			isSecurityTask,
-			isSimpleQuestion,
-			isMathTask,
-			isMultiLanguageTask,
-			isMultiStepTask,
-		};
-
-		return { context, isCodebaseQuestion };
+		return buildAutoTaskContext(userMessage, { hasImages: !!images && images.length > 0, hasPDFs: !!pdfs && pdfs.length > 0 });
 	}
 
 	/**
@@ -1900,7 +1865,8 @@ class ChatThreadService extends Disposable implements IChatThreadService {
 			needsVision,
 			isAvailable: selection => this._settingsService.state._modelOptions.some(option =>
 				option.selection.providerName === selection.providerName && option.selection.modelName === selection.modelName),
-			isRetired: selection => retiredForAutoPick(getModelCapabilities(selection.providerName, selection.modelName, this._settingsService.state.overridesOfModel), Date.now()),
+			isExcluded: selection => retiredForAutoPick(getModelCapabilities(selection.providerName, selection.modelName, this._settingsService.state.overridesOfModel), Date.now())
+				|| this._modelRouter.isUnavailable(selection),
 		});
 		if (pinned) {
 			vibeLog.info('chatThread', `[Auto Model Select] source=pinned ${pinned.providerName}/${pinned.modelName} — разговор остаётся на выбранной ранее модели`);
@@ -1918,368 +1884,6 @@ class ChatThreadService extends Disposable implements IChatThreadService {
 		// vision-role fallback so the image-attach gate and the fallback can never disagree.
 		return isModelVisionCapable(modelSelection, capabilities);
 	}
-
-	/**
-	 * Detect task type from message content and attachments
-	 * More conservative detection - only mark as specific task type if very clear
-	 */
-	private _detectTaskType(
-		userMessage: string,
-		images?: ChatImageAttachment[],
-		pdfs?: ChatPDFAttachment[]
-	): TaskType {
-		const lowerMessage = userMessage.toLowerCase().trim();
-
-		// PDF-specific tasks (always detect if PDFs present)
-		if (pdfs && pdfs.length > 0) {
-			return 'pdf';
-		}
-
-		// Vision tasks (always detect if images present)
-		if (images && images.length > 0) {
-			return 'vision';
-		}
-
-		// Codebase/repository questions - comprehensive detection
-		// These questions require understanding the entire codebase structure
-		const codebaseQuestionPatterns = [
-			// Direct codebase/repo references
-			/\b(codebase|code base|repository|repo|project)\b/,
-			// Questions about structure/architecture
-			/\b(architecture|structure|organization|layout)\b.*\b(project|codebase|repo|code)\b/,
-			/\b(project|codebase|repo|code)\b.*\b(architecture|structure|organization|layout)\b/,
-			// "What is" questions about the project
-			/^what\s+(is|does|are)\s+(my|this|the)\s+(codebase|repo|project|code|app|application)/,
-			/^what\s+(is|does|are)\s+(my|this|the)\s+\w+\s+(codebase|repo|project)/,
-			// "How many" questions (endpoints, files, routes, etc.)
-			/\bhow\s+many\s+(endpoint|api|route|file|function|class|component|module|service|controller)\b/i,
-			// Summary/explanation requests
-			/^(summarize|explain|describe|overview|analyze|break down)\s+(my|this|the)\s+(codebase|repo|project|code)/,
-			// Questions about features/capabilities
-			/\b(what|which|how)\s+(feature|capability|functionality|endpoint|api|route)\s+(does|has|supports?)\s+(my|this|the)\s+(codebase|repo|project|app)/i,
-			// Questions about dependencies/tech stack
-			/\b(what|which)\s+(technology|framework|library|dependency|package|stack)\s+(does|uses?|has)\s+(my|this|the)\s+(codebase|repo|project|app)/i,
-		];
-
-		const codebaseIndicators = [
-			'codebase', 'code base', 'repository', 'repo', 'project structure', 'architecture',
-			'endpoint', 'endpoints', 'api', 'apis', 'route', 'routes',
-			'file structure', 'code organization', 'project layout',
-		];
-
-		const questionStarters = [
-			'what is', 'what does', 'what are', 'what do',
-			'how many', 'how does', 'how do',
-			'summarize', 'explain', 'describe', 'overview', 'analyze',
-			'which', 'where',
-		];
-
-		// Check if it matches codebase question patterns
-		const matchesPattern = codebaseQuestionPatterns.some(pattern => pattern.test(lowerMessage));
-		const hasCodebaseIndicator = codebaseIndicators.some(indicator => lowerMessage.includes(indicator));
-		const startsWithQuestion = questionStarters.some(starter => lowerMessage.startsWith(starter));
-
-		// Codebase question if:
-		// 1. Matches a pattern, OR
-		// 2. Has codebase indicator AND starts with a question word
-		const isCodebaseQuestion = matchesPattern || (hasCodebaseIndicator && startsWithQuestion);
-
-		if (isCodebaseQuestion) {
-			return 'code'; // Use 'code' task type but we'll enhance scoring for codebase questions
-		}
-
-		// Implementation/action tasks - tasks that require creating or modifying code
-		// These need good code generation models
-		const implementationPatterns = [
-			// Direct implementation requests
-			/^(implement|create|add|build|make|set up|configure)\s+(a|an|the|my|this)?\s*\w+/,
-			// Action verbs followed by code-related nouns
-			/\b(implement|create|add|build|make|set up|configure|write|generate|develop)\s+(function|class|method|component|feature|endpoint|api|route|service|module|system|feature|functionality)\b/i,
-			// "Implement X" or "Create X" patterns
-			/\b(implement|create|add|build|make)\s+[a-z]+\s+(that|which|to|for)/i,
-		];
-
-		const implementationKeywords = [
-			// Action verbs
-			'write code', 'generate code', 'create function', 'implement class', 'fix bug',
-			'refactor code', 'optimize code', 'debug', 'syntax error', 'compile error',
-			'add function', 'create method', 'implement function',
-			// Implementation-specific
-			'create a', 'implement a', 'add a', 'build a', 'make a',
-			'create new', 'implement new', 'add new', 'build new',
-			'set up', 'set up a', 'configure', 'configure a',
-			'develop', 'develop a', 'build out',
-		];
-
-		const hasImplementationPattern = implementationPatterns.some(pattern => pattern.test(lowerMessage));
-		const hasImplementationKeyword = implementationKeywords.some(keyword => lowerMessage.includes(keyword));
-
-		// Code tasks - check for actual code patterns or explicit code requests
-		const hasCodeBlock = /```[\s\S]+?```/.test(userMessage) || /`[^`\n]{10,}`/.test(userMessage);
-
-		// Implementation task if it matches patterns/keywords OR has code blocks
-		if (hasCodeBlock || hasImplementationPattern || hasImplementationKeyword) {
-			return 'code';
-		}
-
-		// Web search tasks - only if very explicit
-		const explicitWebSearchKeywords = ['search the web', 'search online', 'look up online', 'google', 'duckduckgo', 'web search', 'search internet'];
-		if (explicitWebSearchKeywords.some(keyword => lowerMessage.includes(keyword))) {
-			return 'web_search';
-		}
-
-		// Default to general chat (prefers quality models)
-		// Complexity detection (reasoning, long messages) is handled in _autoSelectModel
-		// and passed to the router via TaskContext
-		return 'chat';
-	}
-
-	/**
-	 * Detect if message contains code
-	 */
-	private _detectCodeInMessage(message: string): boolean {
-		// Simple heuristic: check for code-like patterns
-		const codePatterns = [
-			/```[\s\S]*?```/, // Code blocks
-			/`[^`]+`/, // Inline code
-			/function\s+\w+/, // Function declarations
-			/class\s+\w+/, // Class declarations
-			/import\s+.*from/, // Import statements
-			/const\s+\w+\s*=/, // Const declarations
-			/let\s+\w+\s*=/, // Let declarations
-		];
-
-		return codePatterns.some(pattern => pattern.test(message));
-	}
-
-	/**
-	 * Detect debugging/error fixing tasks
-	 */
-	private _detectDebuggingTask(lowerMessage: string, hasCode: boolean): boolean {
-		const debuggingKeywords = [
-			'fix error', 'debug', 'why is this failing', 'error message', 'exception', 'stack trace',
-			'why doesn\'t this work', 'not working', 'broken', 'crash', 'bug', 'fix bug',
-			'troubleshoot', 'issue', 'problem', 'failing', 'failed', 'error', 'errors'
-		];
-		const errorPatterns = [
-			/error\s+(message|occurred|happened|in|at)/i,
-			/exception\s+(thrown|occurred|in|at)/i,
-			/stack\s+trace/i,
-			/why\s+(is|does|isn\'t|doesn\'t).*work/i,
-			/why\s+(is|does).*fail/i,
-		];
-
-		return debuggingKeywords.some(keyword => lowerMessage.includes(keyword)) ||
-			errorPatterns.some(pattern => pattern.test(lowerMessage)) ||
-			(hasCode && (lowerMessage.includes('error') || lowerMessage.includes('exception')));
-	}
-
-	/**
-	 * Detect code review/refactoring tasks
-	 */
-	private _detectCodeReviewTask(lowerMessage: string): boolean {
-		const reviewKeywords = [
-			'review', 'refactor', 'improve code', 'code quality', 'best practices', 'clean up',
-			'is this good code', 'how can i improve', 'refactor this', 'code review',
-			'optimize', 'make it better', 'improve this', 'suggest improvements'
-		];
-		const reviewPatterns = [
-			/review\s+(this|my|the)\s+(code|function|class|method)/i,
-			/refactor\s+(this|my|the)/i,
-			/how\s+(can|to)\s+(improve|refactor|optimize)/i,
-			/is\s+(this|my|the)\s+(code|implementation)\s+(good|correct|proper)/i,
-		];
-
-		return reviewKeywords.some(keyword => lowerMessage.includes(keyword)) ||
-			reviewPatterns.some(pattern => pattern.test(lowerMessage));
-	}
-
-	/**
-	 * Detect testing tasks
-	 */
-	private _detectTestingTask(lowerMessage: string): boolean {
-		const testingKeywords = [
-			'write test', 'add test', 'test coverage', 'unit test', 'integration test',
-			'test for', 'how to test', 'create test', 'testing', 'test case', 'test suite',
-			'write tests', 'add tests', 'test this', 'test the'
-		];
-		const testingPatterns = [
-			/write\s+(a|an|the|unit|integration)\s+test/i,
-			/add\s+(a|an|unit|integration)\s+test/i,
-			/create\s+(a|an|unit|integration)\s+test/i,
-			/test\s+(for|this|the|coverage)/i,
-		];
-
-		return testingKeywords.some(keyword => lowerMessage.includes(keyword)) ||
-			testingPatterns.some(pattern => pattern.test(lowerMessage));
-	}
-
-	/**
-	 * Detect documentation tasks
-	 */
-	private _detectDocumentationTask(lowerMessage: string): boolean {
-		const docKeywords = [
-			'write doc', 'documentation', 'comment', 'explain code', 'readme', 'api doc',
-			'document this', 'add comments', 'write readme', 'document', 'docs',
-			'comment', 'comments', 'javadoc', 'jsdoc', 'docstring'
-		];
-		const docPatterns = [
-			/write\s+(documentation|doc|readme|comments)/i,
-			/add\s+(documentation|doc|comments|comment)/i,
-			/document\s+(this|my|the)/i,
-			/explain\s+(this|my|the)\s+(code|function|class)/i,
-		];
-
-		return docKeywords.some(keyword => lowerMessage.includes(keyword)) ||
-			docPatterns.some(pattern => pattern.test(lowerMessage));
-	}
-
-	/**
-	 * Detect performance optimization tasks
-	 */
-	private _detectPerformanceTask(lowerMessage: string): boolean {
-		const perfKeywords = [
-			'optimize', 'performance', 'speed up', 'make faster', 'bottleneck', 'profiling',
-			'how to optimize', 'performance issue', 'slow', 'faster', 'speed', 'efficiency',
-			'optimization', 'improve performance', 'performance problem'
-		];
-		const perfPatterns = [
-			/optimize\s+(this|my|the|for)/i,
-			/performance\s+(issue|problem|optimization|improvement)/i,
-			/how\s+to\s+(optimize|improve\s+performance|speed\s+up)/i,
-			/make\s+(this|it|the)\s+faster/i,
-		];
-
-		return perfKeywords.some(keyword => lowerMessage.includes(keyword)) ||
-			perfPatterns.some(pattern => pattern.test(lowerMessage));
-	}
-
-	/**
-	 * Detect security-related tasks
-	 */
-	private _detectSecurityTask(lowerMessage: string): boolean {
-		const securityKeywords = [
-			'security', 'vulnerability', 'secure', 'authentication', 'authorization', 'encryption',
-			'is this secure', 'security issue', 'vulnerable', 'vulnerabilities', 'secure this',
-			'security best practices', 'security review', 'security audit', 'xss', 'csrf', 'sql injection'
-		];
-		const securityPatterns = [
-			/security\s+(issue|problem|vulnerability|review|audit)/i,
-			/is\s+(this|my|the)\s+secure/i,
-			/how\s+to\s+secure/i,
-			/make\s+(this|it|the)\s+secure/i,
-		];
-
-		return securityKeywords.some(keyword => lowerMessage.includes(keyword)) ||
-			securityPatterns.some(pattern => pattern.test(lowerMessage));
-	}
-
-	/**
-	 * Detect simple/quick questions
-	 * More aggressive detection to enable low-latency routing for better UX
-	 */
-	private _detectSimpleQuestion(message: string, lowerMessage: string): boolean {
-		// Exclude complex tasks first
-		if (lowerMessage.includes('codebase') ||
-			lowerMessage.includes('repository') ||
-			lowerMessage.includes('architecture') ||
-			lowerMessage.includes('analyze') ||
-			lowerMessage.includes('refactor') ||
-			lowerMessage.includes('implement') ||
-			lowerMessage.includes('debug') ||
-			lowerMessage.includes('error') ||
-			lowerMessage.includes('fix') ||
-			lowerMessage.includes('review')) {
-			return false;
-		}
-
-		// Simple questions are typically:
-		// 1. Short to medium length (< 200 chars)
-		// 2. Start with question words
-		// 3. Don't require codebase analysis
-		if (message.length < 200) {
-			const simpleQuestionStarters = [
-				'what is', 'what does', 'what are', 'what do',
-				'how do i', 'how to', 'how does', 'how can',
-				'explain', 'tell me', 'describe',
-				'when', 'where', 'why', 'who',
-				'can you', 'could you', 'would you'
-			];
-			const isQuestion = simpleQuestionStarters.some(starter => lowerMessage.startsWith(starter));
-
-			// Also check for simple question patterns
-			const simplePatterns = [
-				/^what\s+(is|does|are|do)\s+/,
-				/^how\s+(do|does|can|to)\s+/,
-				/^explain\s+/,
-				/^tell\s+me\s+/,
-				/^describe\s+/
-			];
-			const matchesPattern = simplePatterns.some(pattern => pattern.test(lowerMessage));
-
-			return (isQuestion || matchesPattern) && message.length < 200;
-		}
-
-		return false;
-	}
-
-	/**
-	 * Detect mathematical/computational tasks
-	 */
-	private _detectMathTask(lowerMessage: string): boolean {
-		const mathKeywords = [
-			'calculate', 'math', 'algorithm', 'formula', 'compute', 'statistics',
-			'calculation', 'mathematical', 'equation', 'solve', 'numerical', 'arithmetic'
-		];
-		const mathPatterns = [
-			/calculate\s+(this|the|a|an)/i,
-			/solve\s+(this|the|a|an|for)/i,
-			/math\s+(problem|question|calculation)/i,
-			/formula\s+(for|to|of)/i,
-		];
-
-		return mathKeywords.some(keyword => lowerMessage.includes(keyword)) ||
-			mathPatterns.some(pattern => pattern.test(lowerMessage));
-	}
-
-	/**
-	 * Detect multi-language codebase tasks
-	 */
-	private _detectMultiLanguageTask(lowerMessage: string): boolean {
-		const multiLangKeywords = [
-			'translate code', 'convert to', 'port to', 'rewrite in', 'convert from',
-			'multiple languages', 'different language', 'language conversion'
-		];
-		const multiLangPatterns = [
-			/translate\s+(code|this|from|to)/i,
-			/convert\s+(code|this|from|to)/i,
-			/port\s+(to|from)/i,
-			/rewrite\s+in/i,
-		];
-
-		return multiLangKeywords.some(keyword => lowerMessage.includes(keyword)) ||
-			multiLangPatterns.some(pattern => pattern.test(lowerMessage));
-	}
-
-	/**
-	 * Detect complex multi-step tasks
-	 */
-	private _detectMultiStepTask(lowerMessage: string): boolean {
-		// Multiple action verbs or "and" in requests indicate multi-step tasks
-		const actionVerbs = ['implement', 'create', 'add', 'build', 'make', 'set up', 'configure', 'write', 'generate', 'develop', 'fix', 'update', 'modify'];
-		const verbCount = actionVerbs.filter(verb => lowerMessage.includes(verb)).length;
-
-		// Multiple "and" conjunctions suggest multiple steps
-		const andCount = (lowerMessage.match(/\sand\s/g) || []).length;
-
-		// Multi-step indicators
-		const multiStepKeywords = ['then', 'after that', 'next', 'also', 'additionally', 'furthermore', 'step', 'steps'];
-		const hasMultiStepKeywords = multiStepKeywords.some(keyword => lowerMessage.includes(keyword));
-
-		return verbCount >= 2 || andCount >= 2 || hasMultiStepKeywords;
-	}
-
-
 
 	private _swapOutLatestStreamingToolWithResult = (threadId: string, tool: ChatMessage & { role: 'tool' }) => {
 		const messages = this.state.allThreads[threadId]?.messages;
@@ -3751,7 +3355,7 @@ Output ONLY the JSON, no other text. Start with { and end with }.`;
 			chatMode: 'normal' // Use 'normal' mode to prevent tool execution during plan generation
 		});
 
-		this._setStreamState(threadId, { isRunning: 'LLM', llmInfo: { displayContentSoFar: 'Generating execution plan...', reasoningSoFar: '', toolCallSoFar: null }, interrupt: Promise.resolve(() => { }) });
+		this._setStreamState(threadId, { isRunning: 'LLM', llmInfo: { displayContentSoFar: 'Составляю план выполнения…', reasoningSoFar: '', toolCallSoFar: null }, interrupt: Promise.resolve(() => { }) });
 
 		// Create a promise that resolves when the plan is generated
 		return new Promise<void>((resolve, reject) => {
@@ -3768,8 +3372,8 @@ Output ONLY the JSON, no other text. Start with { and end with }.`;
 					logging: { loggingName: 'Plan Generation', loggingExtras: { threadId } },
 					separateSystemMessage: undefined,
 					onText: ({ fullText }) => {
-						// Don't show raw JSON to user - just show "Generating plan..."
-						this._setStreamState(threadId, { isRunning: 'LLM', llmInfo: { displayContentSoFar: 'Generating execution plan...', reasoningSoFar: '', toolCallSoFar: null }, interrupt: Promise.resolve(() => { if (llmCancelToken) { this._llmMessageService.abort(llmCancelToken); } }) });
+						// Don't show raw JSON to user - just show the plan-generation status
+						this._setStreamState(threadId, { isRunning: 'LLM', llmInfo: { displayContentSoFar: 'Составляю план выполнения…', reasoningSoFar: '', toolCallSoFar: null }, interrupt: Promise.resolve(() => { if (llmCancelToken) { this._llmMessageService.abort(llmCancelToken); } }) });
 					},
 					onFinalMessage: async ({ fullText }) => {
 						// Parse plan from LLM response
@@ -3855,6 +3459,14 @@ Output ONLY the JSON, no other text. Start with { and end with }.`;
 	async abortRunning(threadId: string) {
 		const thread = this.state.allThreads[threadId];
 		if (!thread) { return; } // should never happen
+		// The agent holds the turn: it is asked to stop, and what it wrote so far is already in the thread
+		if (thread.acpAgent) {
+			this._suppressStopSound(threadId);
+			this._abortedRuns.add(threadId);
+			await this._acpRunner.stop(threadId);
+			this._setStreamState(threadId, undefined);
+			return;
+		}
 		// Stopping is enforced, not requested — so it can be measured: from the press to the cleared state.
 		const stopRequestedAt = Date.now();
 		const stoppedWhile = this.streamState[threadId]?.isRunning ?? 'idle';
@@ -4031,6 +3643,8 @@ Output ONLY the JSON, no other text. Start with { and end with }.`;
 	async retryStalledStream(threadId: string): Promise<void> {
 		const thread = this.state.allThreads[threadId];
 		if (!thread) { return; }
+		// Same reason as for an edit: the agent's history keeps the message it already took
+		if (thread.acpAgent) { return; }
 
 		// find last user message
 		let lastUserIdx = -1;
@@ -6914,6 +6528,8 @@ Output ONLY the JSON, no other text. Start with { and end with }.`;
 							const wasDegraded = this._modelHealthTracker.isDegraded(modelSelection.providerName, modelSelection.modelName);
 							this._modelHealthTracker.recordSuccess(modelSelection.providerName, modelSelection.modelName);
 							if (wasDegraded) { this._onDidChangeProviderHealth.fire(); }
+							// An answer from the model lifts whatever an earlier error made «Авто» hold it back for
+							this._modelRouter.reportAvailable(modelSelection);
 						}
 
 						// Persist provider-reported token usage on the thread so the UI
@@ -7375,6 +6991,14 @@ Output ONLY the JSON, no other text. Start with { and end with }.`;
 							}
 						}
 
+						// An error that shows the model closed to this person (region, quota, key, plan) is remembered
+						// by «Авто»: its next ranking, in this turn and in later ones, is built without the model
+						// Marked in both modes: a pinned model that failed this way is not one «Авто» should reach for later either
+						const closedForPerson = unavailabilityOf(retryFacts);
+						if (closedForPerson && modelSelection && modelSelection.providerName !== 'auto') {
+							this._modelRouter.reportUnavailable(modelSelection, closedForPerson);
+						}
+
 						// Cross-thread health notification — fires once per (provider,model) every
 						// SUPPRESSION_WINDOW_MS when failures cross HEALTH_FAILURE_THRESHOLD within
 						// HEALTH_WINDOW_MS. Catches the case where user spread failures across multiple
@@ -7560,17 +7184,19 @@ Output ONLY the JSON, no other text. Start with { and end with }.`;
 						if (decision.skipFailedProvider && modelSelection) {
 							providersDown.add(modelSelection.providerName);
 						}
-						// A pinned or resumed turn was not routed: rank now, by the same task context the choice uses
-						if (!autoFallbackRanking && originalUserMessage) {
+						const fallbackSkips = { tried: triedModels, providersDown, isUnavailable: (candidate: ModelSelection) => this._modelRouter.isUnavailable(candidate) };
+						let nextModel = nextAutoFallback(autoFallbackRanking, fallbackSkips);
+						// A pinned or resumed turn was not routed, and a ranking whose models are all spent is out of date:
+						// rank again by the same task context the choice uses, now without the models an error has closed
+						if (!nextModel && originalUserMessage) {
 							try {
 								const { context } = this._buildAutoTaskContext(originalUserMessage.content, originalUserMessage.images, originalUserMessage.pdfs);
 								autoFallbackRanking = autoFallbackCandidates(await this._modelRouter.route(context));
+								nextModel = nextAutoFallback(autoFallbackRanking, fallbackSkips);
 							} catch (routerError) {
 								vibeLog.error('chatThread', '[ChatThreadService] Error getting routing decision for fallback:', routerError);
 							}
 						}
-
-						const nextModel = autoFallbackRanking?.find(candidate => !triedModels.has(`${candidate.providerName}/${candidate.modelName}`) && !providersDown.has(candidate.providerName));
 
 						// If we found a next model, switch to it and retry
 						if (nextModel) {
@@ -9782,6 +9408,21 @@ We only need to do it for files that were edited since `from`, ie files between 
 		const thread = this.state.allThreads[threadId];
 		if (!thread) { return; } // should never happen
 
+		// An external agent leads this thread: it runs the turn with its own model and its own tools, and none of the
+		// chat's own preparation — prompt, router, plan, guards — applies to it
+		if (thread.acpAgent) {
+			this._setThreadState(threadId, { currCheckpointIdx: null });
+			this._wrapRunAgentToNotify(this._acpRunner.send({
+				threadId,
+				text: userMessage,
+				displayContent: displayContent || userMessage,
+				selections: _chatSelections ?? thread.state.stagingSelections,
+				images,
+				pdfs,
+			}), threadId);
+			return;
+		}
+
 		// A fresh submit supersedes any scheduled automatic re-send — cancel it so it can't
 		// fire a duplicate turn on top of this one.
 		this._cancelScheduledRestart(threadId);
@@ -9941,7 +9582,7 @@ We only need to do it for files that were edited since `from`, ie files between 
 		this._setStreamState(threadId, {
 			isRunning: 'preparing',
 			llmInfo: {
-				displayContentSoFar: 'Preparing request...',
+				displayContentSoFar: 'Готовлю запрос…',
 				reasoningSoFar: '',
 				toolCallSoFar: null
 			},
@@ -9968,7 +9609,7 @@ We only need to do it for files that were edited since `from`, ie files between 
 				this._setStreamState(threadId, {
 					isRunning: 'preparing',
 					llmInfo: {
-						displayContentSoFar: 'Selecting best model for this task...',
+						displayContentSoFar: 'Выбираю лучшую модель для задачи…',
 						reasoningSoFar: '',
 						toolCallSoFar: null
 					},
@@ -10060,7 +9701,7 @@ We only need to do it for files that were edited since `from`, ie files between 
 		this._setStreamState(threadId, {
 			isRunning: 'preparing',
 			llmInfo: {
-				displayContentSoFar: 'Preparing request...',
+				displayContentSoFar: 'Готовлю запрос…',
 				reasoningSoFar: '',
 				toolCallSoFar: null
 			},
@@ -10134,6 +9775,8 @@ We only need to do it for files that were edited since `from`, ie files between 
 		if (thread.messages?.[messageIdx]?.role !== 'user') {
 			throw new Error(`Error: editing a message with role !=='user'`);
 		}
+		// The agent has already answered this message in its own history, and that history cannot be rewound from here
+		if (thread.acpAgent) { return; }
 
 		// get prev and curr selections before clearing the message
 		const currSelns = thread.messages[messageIdx].state.stagingSelections || []; // staging selections for the edited message
@@ -10496,6 +10139,8 @@ We only need to do it for files that were edited since `from`, ie files between 
 
 	closeTab(threadId: string): void {
 		this._threadDrafts.delete(threadId);
+		// A closed tab does not keep an agent process alive; the thread remembers the session to come back to
+		void this._acpRunner.release(threadId);
 		const idx = this.state.openTabIds.indexOf(threadId);
 		if (idx === -1) { return; }
 		const openTabIds = this.state.openTabIds.filter(id => id !== threadId);
@@ -10622,8 +10267,10 @@ We only need to do it for files that were edited since `from`, ie files between 
 				// switching: a persisted empty thread may carry another project's
 				// id, which would otherwise capture this project's first message.
 				const reused = currentThreads[threadId]!;
-				if (reused.workspaceId !== ws.id) {
-					const restamped: ChatThreads = { ...currentThreads, [threadId]: { ...reused, workspaceId: ws.id, workspaceLabel: ws.label } };
+				// A new chat starts with the chat's own models: an agent picked in a chat that was never used does not carry over
+				if (reused.workspaceId !== ws.id || reused.acpAgent) {
+					const { acpAgent: _agent, ...withoutAgent } = reused;
+					const restamped: ChatThreads = { ...currentThreads, [threadId]: { ...withoutAgent, workspaceId: ws.id, workspaceLabel: ws.label } };
 					this._storeAllThreads(restamped);
 					this._setState({ allThreads: restamped });
 				}
@@ -10697,6 +10344,7 @@ We only need to do it for files that were edited since `from`, ie files between 
 
 
 	deleteThread(threadId: string): void {
+		void this._acpRunner.release(threadId);
 		this._planBindingRegistry.clearThread(threadId);
 		this._taskDecompositionService.clearPersistedPlanTask(threadId);
 
@@ -10777,6 +10425,8 @@ We only need to do it for files that were edited since `from`, ie files between 
 		const newThread = {
 			...deepClone(source),
 			id: generateUuid(),
+			// The agent's session belongs to the original conversation: the copy starts its own
+			...(source.acpAgent ? { acpAgent: { agentId: source.acpAgent.agentId, agentName: source.acpAgent.agentName } } : {}),
 			messages: deepClone(source.messages.slice(0, cutoff + 1)),
 			state: {
 				...deepClone(source.state),
@@ -10802,6 +10452,8 @@ We only need to do it for files that were edited since `from`, ie files between 
 		const newThread = {
 			...deepClone(threadToDuplicate),
 			id: generateUuid(),
+			// The agent's session belongs to the original conversation: the copy starts its own
+			...(threadToDuplicate.acpAgent ? { acpAgent: { agentId: threadToDuplicate.acpAgent.agentId, agentName: threadToDuplicate.acpAgent.agentName } } : {}),
 		};
 		const newThreads = {
 			...currentThreads,

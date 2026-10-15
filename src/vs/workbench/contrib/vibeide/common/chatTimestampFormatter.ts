@@ -15,17 +15,22 @@
 const PAD2 = (n: number): string => (n < 10 ? `0${n}` : String(n));
 
 /**
+ * Compact date and time shown next to each chat message and on journal entries from another day
+ */
+export const CHAT_TIMESTAMP_DEFAULT_PATTERN = 'DD.MM.YYYY HH:mm';
+
+/**
  * Format an absolute unix-ms timestamp as a fixed-width string. Locale-independent so
  * snapshot tests are stable across CI runners.
  *
- * Default pattern is `DD.MM.YYYY HH:mm` — matches the compact prefix shown next to
+ * Default pattern is `CHAT_TIMESTAMP_DEFAULT_PATTERN` — matches the compact prefix shown next to
  * each chat message. Pass a custom pattern for tooltip / aria use.
  *
  * Returns the empty string for non-finite or non-numeric input. Negative timestamps
  * are formatted with the local-time interpretation that `Date` gives (callers should
  * filter pre-epoch values upstream if needed).
  */
-export function formatChatTimestamp(ts: unknown, pattern: string = 'DD.MM.YYYY HH:mm'): string {
+export function formatChatTimestamp(ts: unknown, pattern: string = CHAT_TIMESTAMP_DEFAULT_PATTERN): string {
 	if (typeof ts !== 'number' || !Number.isFinite(ts)) {
 		return '';
 	}
@@ -48,10 +53,25 @@ export function formatChatTimestamp(ts: unknown, pattern: string = 'DD.MM.YYYY H
 export const CHAT_TIMESTAMP_TOOLTIP_PATTERN = 'DD.MM.YYYY HH:mm:ss';
 
 /**
- * Pattern of the time inside a user message bubble.
- * The bubble has no room for the date: the full date and seconds stay in the `title` of the `<time>` element
+ * Time-only pattern of the service journal entries
  */
-export const CHAT_USER_MESSAGE_TIME_PATTERN = 'HH:mm';
+export const CHAT_JOURNAL_TIME_PATTERN = 'HH:mm';
+
+/**
+ * Time label of a journal entry: `HH:mm` when the entry is from the same local day as `now`,
+ * the chat date and time otherwise, so yesterday's entry is not read as today's.
+ *
+ * `now` is a parameter instead of `Date.now()`, so the day boundary is testable.
+ * Returns the empty string for non-finite input, as `formatChatTimestamp` does.
+ */
+export function formatChatJournalTime(at: number, now: number): string {
+	const entry = new Date(at);
+	const today = new Date(now);
+	const isToday = entry.getFullYear() === today.getFullYear()
+		&& entry.getMonth() === today.getMonth()
+		&& entry.getDate() === today.getDate();
+	return formatChatTimestamp(at, isToday ? CHAT_JOURNAL_TIME_PATTERN : CHAT_TIMESTAMP_DEFAULT_PATTERN);
+}
 
 /**
  * Streaming placeholder string used before the first chunk arrives (assistant

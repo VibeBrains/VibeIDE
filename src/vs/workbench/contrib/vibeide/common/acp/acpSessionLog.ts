@@ -14,13 +14,13 @@
  * Слой чистый: ни React, ни IPC, ни агента — поэтому проверяется из `test/common/`.
  */
 
-import { AcpToolStatus, IAcpDiff } from './acpProtocol.js';
+import { AcpToolStatus, IAcpDiff, isToolOpen } from './acpProtocol.js';
 
 export type AcpLogEntry =
 	/** Реплика агента: склеенные куски текста. Размышление отделено от ответа признаком. */
 	| { readonly kind: 'message'; readonly id: string; readonly text: string; readonly thought: boolean }
 	/** Карточка вызова инструмента: одна на вызов, обновляется по мере кадров. */
-	| { readonly kind: 'tool'; readonly id: string; readonly title: string; readonly name: string; readonly toolKind: string; readonly status: AcpToolStatus; readonly paths: readonly string[]; readonly diffs: readonly IAcpDiff[] }
+	| { readonly kind: 'tool'; readonly id: string; readonly title: string; readonly name: string; readonly toolKind: string; readonly status: AcpToolStatus; readonly paths: readonly string[]; readonly diffs: readonly IAcpDiff[]; readonly output: string; readonly exitCode?: number }
 	/**
 	 * A note from the editor, not from the agent: what happened to the session itself, e.g. that the
 	 * connection came back and whether the agent still remembers the conversation above.
@@ -42,6 +42,10 @@ export interface AcpToolFrame {
 	readonly status: AcpToolStatus;
 	readonly paths: readonly string[];
 	readonly diffs: readonly IAcpDiff[];
+	/** What the call printed or returned, cut to `ACP_TOOL_OUTPUT_MAX_CHARS`; empty — nothing yet */
+	readonly output: string;
+	/** Exit code of a command; absent until it ends and for calls that are not commands */
+	readonly exitCode?: number;
 }
 
 /** Расход хода: контекст и деньги. */
@@ -62,9 +66,29 @@ export class AcpSessionLog {
 	private _spend: IAcpSessionSpend | undefined;
 	/** Порядковый номер реплики: идентификатор нужен списку, чтобы не перерисовывать всё подряд. */
 	private _nextMessageId = 1;
+	/** Set by `beginTurn`: the next text starts a new message even if the last entry is a message of the same kind */
+	private _turnSealed = false;
 
 	get snapshot(): IAcpSessionSnapshot {
 		return { entries: this._entries, spend: this._spend };
+	}
+
+	/**
+	 * A new turn begins: its first text does not join the last message of the previous turn
+	 * Returns where the turn starts in `entries`; whoever mirrors the log follows it from there
+	 */
+	beginTurn(): number {
+		this._turnSealed = true;
+		return this._entries.length;
+	}
+
+	/**
+	 * The turn is over: a call that never reported its end is not running any more
+	 * Stopping in the middle of a question leaves such cards, and «in progress» on them would never go away
+	 */
+	settleTurn(): void {
+		if (!this._entries.some(entry => entry.kind === 'tool' && isToolOpen(entry.status))) { return; }
+		this._entries = this._entries.map(entry => entry.kind === 'tool' && isToolOpen(entry.status) ? { ...entry, status: 'cancelled' } : entry);
 	}
 
 	/** A note about the session itself; like a tool call, it breaks the gluing of the agent's text. */
@@ -82,10 +106,11 @@ export class AcpSessionLog {
 	appendText(text: string, thought: boolean): void {
 		if (!text) { return; }
 		const last = this._entries[this._entries.length - 1];
-		if (last?.kind === 'message' && last.thought === thought) {
+		if (!this._turnSealed && last?.kind === 'message' && last.thought === thought) {
 			this._entries = [...this._entries.slice(0, -1), { ...last, text: last.text + text }];
 			return;
 		}
+		this._turnSealed = false;
 		this._entries = [...this._entries, { kind: 'message', id: `m${this._nextMessageId++}`, text, thought }];
 	}
 
@@ -97,13 +122,14 @@ export class AcpSessionLog {
 	 * им накопленное, поверхность показала бы правку без содержимого.
 	 */
 	applyTool(frame: AcpToolFrame): void {
-		const { toolCallId, title, name, toolKind, status, paths, diffs } = frame;
+		const { toolCallId, title, name, toolKind, status, paths, diffs, output, exitCode } = frame;
 		const index = this._entries.findIndex(entry => entry.kind === 'tool' && entry.id === toolCallId);
 		if (index === -1) {
-			this._entries = [...this._entries, { kind: 'tool', id: toolCallId, title, name, toolKind, status, paths, diffs }];
+			this._entries = [...this._entries, { kind: 'tool', id: toolCallId, title, name, toolKind, status, paths, diffs, output, ...(exitCode === undefined ? {} : { exitCode }) }];
 			return;
 		}
 		const known = this._entries[index] as Extract<AcpLogEntry, { kind: 'tool' }>;
+		const mergedExitCode = exitCode ?? known.exitCode;
 		const merged: AcpLogEntry = {
 			kind: 'tool',
 			id: toolCallId,
@@ -114,6 +140,9 @@ export class AcpSessionLog {
 			status,
 			paths: paths.length > 0 ? paths : known.paths,
 			diffs: diffs.length > 0 ? diffs : known.diffs,
+			// Like the diff, the output and the exit code arrive in their own frame: a later frame without them does not erase them
+			output: output || known.output,
+			...(mergedExitCode === undefined ? {} : { exitCode: mergedExitCode }),
 		};
 		this._entries = [...this._entries.slice(0, index), merged, ...this._entries.slice(index + 1)];
 	}

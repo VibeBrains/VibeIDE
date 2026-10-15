@@ -58,6 +58,12 @@ export function chatDiffCountLabel(n: number): string {
 
 /** Russian UI strings for VibeIDE sidebar chat (React). */
 export const chatS = {
+	// A thread led by an external agent: what the pill's agent changes about the chat's own checks.
+	agentCommandsGroup: (agentName: string) => `Команды агента «${agentName}»`,
+	ideCommandsGroup: 'Команды IDE',
+	agentCommandsPending: (agentName: string) => `Команды «${agentName}» появятся после первого сообщения: агент объявляет их при старте сессии.`,
+	agentLeads: 'Ход ведёт внешний агент',
+	agentLeadsTitle: 'Внешний агент работает по своему циклу, со своей моделью и своими инструментами. Лимиты, проверки хода и предохранители IDE к нему не применяются: ограничивают его только вопросы разрешения, которые он задаёт сам.',
 	// Plan-step controls. The card is the only place a user can steer a running plan, so its
 	// buttons follow the project rule like the rest of the UI.
 	stepEnable: 'Включить',
@@ -214,12 +220,16 @@ export const chatS = {
 	voiceStopTitle: 'Остановить диктовку (Esc — отменить без вставки)',
 	voiceDownloadTitle: 'Скачать модели распознавания речи (один раз, ~{0} МБ)',
 	voiceDownloadingTitle: 'Загрузка моделей… {0}%',
+	voiceTranscribingTitle: 'Расшифровываю… (Esc — отменить без вставки)',
 	runRouteAria: 'Выполнить маршрут ролей',
 	runRouteTitle: 'Выполнить маршрут ролей: команда субагентов (планировщик → разработчики → ревьюер → QA → security) по вашей задаче',
 	thinkingLabel: 'Рассуждение',
 	thinkingDisabled: 'off',
 	tokensSuffix: 'токенов',
 	loadingThinkingAria: 'Думает',
+	preparingRequest: 'Готовлю запрос…',
+	generatingResponse: 'Генерирую ответ…',
+	escapeToCancel: 'Esc — отменить',
 	loadingTypingAria: 'Печатает',
 	loadingProcessingAria: 'Обрабатывает',
 	loadingDefaultAria: 'Загрузка',
@@ -589,17 +599,19 @@ export function workspaceRootJsonDocMarkdown(basename: string): string {
 				'3. **Хоткей** — если назначен (см. `Ctrl+K Ctrl+S`, фильтр «vibeide.commands»). `allocateDefaultChords` раздаёт default-chord по порядку команд.',
 				'4. **Из чата агента** — агент может вызвать команду через `run_project_command` tool (если включён в текущем профиле).',
 				'',
-				'#### Trust-механика и `commands.trust.json`',
+				'#### Разрешение на запуск',
 				'',
-				'- При первом запуске команды VibeIDE **запрашивает approval** (если команда выглядит подозрительно или впервые видится).',
-				'- Approval сохраняется как **FNV-1a хеш формы команды** (`command + args + cwd + env + shell`) в `commands.trust.json`.',
-				'- **Любое изменение** одного из этих полей → хеш меняется → потребуется повторное approval.',
-				'- `commands.trust.json` редактировать руками **не нужно** — это локальный runtime-файл.',
+				'- При первом запуске команды VibeIDE **спрашивает разрешение**.',
+				'- Разрешение хранится **в хранилище IDE (профиль)**, по папке проекта, а **не в репозитории**: файл внутри репозитория приехал бы с тем же пулл-реквестом, что и команда, и одобрил бы её сам.',
+				'- Привязано к **отпечатку команды** — SHA-256 от `id + command + args + cwd + env + shell`.',
+				'- **Любое изменение** одного из этих полей → отпечаток меняется → потребуется повторное разрешение.',
+				'- В папке, которой не доверяет **Workspace Trust**, IDE спрашивает при каждом запуске и ничего не запоминает.',
+				'- Прежний файл `.vibe/commands.trust.json` больше не читается: его можно удалить.',
 				'',
 				'#### Git-стратегия',
 				'',
 				'- **`commands.json`** — **коммитится** (команда команды).',
-				'- **`commands.trust.json`** — **локальный**, попадает в `.gitignore` через wizard `vibe init` (у каждого разработчика свой trust state).',
+				'- Разрешения на запуск **в git не попадают вообще**: они в хранилище IDE у каждого разработчика свои.',
 				'',
 				'#### Безопасность',
 				'',
@@ -642,13 +654,13 @@ export function workspaceRootJsonDocMarkdown(basename: string): string {
 
 		case 'commands.trust.json':
 			return [
-				'### Trust-state проектных команд — runtime (**commands.trust**)',
+				'### Прежний файл разрешений на запуск (**commands.trust**)',
 				'',
-				'- **Что это.** Локальный runtime-файл с хешами уже одобренных команд. Привязка: `id → FNV-1a хеш формы команды` (`command + args + cwd + env + shell`).',
-				'- **Редактировать руками не нужно.** Файл пишется при approval диалога; любое изменение формы команды в `commands.json` сбрасывает trust для этого id.',
-				'- **В git не коммитится** — по дефолту в `.gitignore` (у каждого разработчика свой trust state).',
-				'- **Сброс trust:** палитра → «VibeIDE: Revoke Project Command Trust» (`vibeide.commands.revokeTrust`) — удалит запись и потребует повторное approval.',
-				'- **Подробности:** см. справку для `commands.json` выше (раздел «Trust-механика»).',
+				'- **Что это.** Остаток прежних версий. Разрешения на запуск проектных команд теперь хранятся в хранилище IDE (профиль), а не в репозитории.',
+				'- **Не читается.** Любое содержимое этого файла ничего не разрешает: файл внутри репозитория мог бы одобрить команду теми же руками, что её написали.',
+				'- **Можно удалить.** Прежние разрешения не переносились — первый запуск каждой команды спросит заново.',
+				'- **Сброс разрешения:** палитра → «VibeIDE: Revoke Project Command Trust» (`vibeide.commands.revokeTrust`) — удалит запись и потребует повторное разрешение.',
+				'- **Подробности:** см. справку для `commands.json` выше (раздел «Разрешение на запуск»).',
 			].join('\n');
 
 		case 'onboarding.json':
@@ -815,7 +827,38 @@ export const nav = {
 	notifications: 'Уведомления',
 	safety: 'Безопасность',
 	mcp: 'MCP',
+	agents: 'Агенты',
 	all: 'Все настройки',
+} as const;
+
+/** Settings → «Агенты»: реестр внешних агентов по протоколу ACP */
+export const agentsS = {
+	intro: 'Внешние агенты работают по протоколу ACP: у каждого свои модель, цикл и инструменты, а IDE даёт им контекст редактора и спрашивает у вас разрешения. Звать агента нужно в чате: он стоит в списке моделей, в группе «Внешние агенты». Здесь он описывается и ставится.',
+	addFromRegistry: 'Добавить из реестра ACP',
+	addFromRegistryHint: 'Пакет ставится ровно той версии, что в реестре; бинарь — только со сверкой sha256.',
+	problems: 'Есть замечания:',
+	empty: 'Агентов нет ни в .vibe/agents.json проекта, ни в ~/.vibe/agents.json этой машины, ни в ~/.jetbrains/acp.json — звать некого. Добавьте агента из реестра ACP кнопкой выше или опишите его сами: формат — в docs/manuals/agentsSpec.md, его можно отдать модели.',
+	layerTitle: {
+		project: 'Проект',
+		machine: 'Эта машина',
+		jetbrains: 'JetBrains',
+	} as const,
+	layerHint: {
+		project: '.vibe/agents.json едет в репозитории: набор агентов у команды общий. Самый сильный слой.',
+		machine: '~/.vibe/agents.json: агенты этой машины, туда ложатся скачанные из реестра бинарники. Слабее проекта.',
+		jetbrains: '~/.jetbrains/acp.json: агенты, которых поставили VibeIDEA и IDE JetBrains. Файл только читается, самый слабый слой.',
+	} as const,
+	layerEmpty: 'Пусто',
+	openFile: (file: string) => `Открыть ${file}`,
+	fromRegistry: (version: string) => `из реестра ACP, версия ${version}`,
+	update: (name: string, from: string, to: string) => `Обновить ${name}: ${from} → ${to}`,
+	updateTitle: 'Новая версия в реестре ACP: подтвердите, что именно будет запускаться или скачиваться',
+	mcpTitle: 'MCP-серверы проекта для этого агента',
+	mcpNone: 'В mcp.json серверов нет. Агент получит только MCP-сервер редактора (открытый файл, выделение, ошибки).',
+	mcpReadOnly: 'Этот файл IDE не правит: список серверов задаётся там, где агент описан.',
+	mcpSkipped: (name: string, reason: string) => `Сервер «${name}» агенту не передан: ${reason}.`,
+	moreSettings: 'Передача файлов агенту, доступ к редактору и реестр ACP настраиваются в параметрах',
+	openAcpSettings: 'vibeide.acp',
 } as const;
 
 export const safetyS = {
@@ -1273,6 +1316,10 @@ export const modelDdS = {
 	autoDetail: 'Автовыбор модели',
 	searchModels: 'Быстрый поиск…',
 	noModelSearchMatches: 'Нет совпадений',
+	agentsGroup: 'Внешние агенты',
+	modelsGroup: 'Модели',
+	agentDetail: 'внешний агент (ACP)',
+	leaderLocked: 'Исполнителя нельзя сменить посреди разговора: у внешнего агента своя память, у модели её нет. Начните новый чат и выберите другого.',
 	noModels: 'Нет доступных моделей',
 	enableModel: 'Включите модель в списке',
 	addModel: 'Добавьте модель',

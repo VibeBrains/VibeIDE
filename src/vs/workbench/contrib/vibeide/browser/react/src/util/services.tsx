@@ -43,6 +43,8 @@ import { IMetricsService } from '../../../../../../../workbench/contrib/vibeide/
 import { URI } from '../../../../../../../base/common/uri.js';
 import { IChatThreadService, ThreadsState, ThreadStreamState } from '../../../chatThreadService.js';
 import { IChatJournalService } from '../../../chatJournalService.js';
+import { IChatPromptHistoryService } from '../../../chatPromptHistoryService.js';
+import { IVibeSettingsNavigationService } from '../../../vibeSettingsNavigationService.js';
 import type { ChatJournalEntry } from '../../../../common/chatJournal.js';
 import { ITerminalToolService } from '../../../terminalToolService.js';
 import { ILanguageService } from '../../../../../../../editor/common/languages/language.js';
@@ -299,6 +301,8 @@ const getReactAccessor = (accessor: ServicesAccessor) => {
 			IEditCodeService: accessor.get(IEditCodeService),
 			IChatThreadService: accessor.get(IChatThreadService),
 			IChatJournalService: accessor.get(IChatJournalService),
+			IChatPromptHistoryService: accessor.get(IChatPromptHistoryService),
+			IVibeSettingsNavigationService: accessor.get(IVibeSettingsNavigationService),
 
 			IInstantiationService: accessor.get(IInstantiationService),
 			ICodeEditorService: accessor.get(ICodeEditorService),
@@ -363,11 +367,11 @@ const getReactAccessor = (accessor: ServicesAccessor) => {
 			IVibeVideoChatService: accessor.get(IVibeVideoChatService),
 			IVibeNotifySoundsModalService: accessor.get(IVibeNotifySoundsModalService),
 			IEditorService: accessor.get(IEditorService),
-			// External ACP agents behind the «Внешние агенты» panel: registry of who can be invited,
+			// External ACP agents: registry of who can be invited (Settings → «Агенты», the model list of the chat),
 			// sessions service for the live log and the permission queue.
 			IVibeAcpRegistryService: accessor.get(IVibeAcpRegistryService),
 			IVibeAcpSessionsService: accessor.get(IVibeAcpSessionsService),
-			// Adding and updating agents from the ACP Registry: the pane shows which ones have a newer version.
+			// Adding and updating agents from the ACP Registry: the settings panel shows which ones have a newer version.
 			IVibeAcpRegistryImportService: accessor.get(IVibeAcpRegistryImportService),
 			// Durable record of agent runs behind the «Диспетчерская агентов» panel.
 			IVibeAgentRunLedgerService: accessor.get(IVibeAgentRunLedgerService),
