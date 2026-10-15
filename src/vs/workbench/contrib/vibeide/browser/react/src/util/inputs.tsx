@@ -6,7 +6,7 @@
 
 import { vibeLog } from '../../../../common/vibeLog.js';
 import { findChatCommandSpans } from '../../../../common/chatSlashCommands.js';
-import React, { forwardRef, ForwardRefExoticComponent, MutableRefObject, RefAttributes, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import React, { forwardRef, ForwardRefExoticComponent, Fragment, MutableRefObject, RefAttributes, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 
 import { useAccessor } from './services.js';
 import { tokenizeToString } from '../../../../../../../editor/common/languages/textToHtmlTokenizer.js';
@@ -1462,6 +1462,7 @@ export const VibeCustomDropdownBox = <T extends NonNullable<any>>({
 	dropdownSearchEmptyMessage = '',
 	getOptionSearchText,
 	getOptionBadges,
+	getOptionGroup,
 }: {
 	options: T[];
 	selectedOption: T | undefined;
@@ -1487,6 +1488,11 @@ export const VibeCustomDropdownBox = <T extends NonNullable<any>>({
 	 *  native tooltip (`title`) — used to flag provenance or state without cluttering the row text.
 	 *  A badge marked `onTrigger` is shown on the closed button too, for the selected option. */
 	getOptionBadges?: (option: T) => readonly DropdownBadge[];
+	/**
+	 * The group an option belongs to; a heading is drawn where the group changes
+	 * Options of one group go together, and an option without a group needs no heading
+	 */
+	getOptionGroup?: (option: T) => string | undefined;
 }) => {
 	const [isOpen, setIsOpen] = useState(false);
 	const [filterQuery, setFilterQuery] = useState('');
@@ -1720,17 +1726,19 @@ export const VibeCustomDropdownBox = <T extends NonNullable<any>>({
 					) : null}
 					<div className="min-h-0 flex-1 overflow-y-auto @@vibe-scroll max-h-80">
 
-						{visibleOptions.map((option) => {
+						{visibleOptions.map((option, optionIndex) => {
 							const thisOptionIsSelected = getOptionsEqual(option, selectedOption);
+							const optionGroup = getOptionGroup?.(option);
+							const showGroupHeading = !!optionGroup && optionGroup !== (optionIndex > 0 ? getOptionGroup?.(visibleOptions[optionIndex - 1]) : undefined);
 							const optionName = getOptionDropdownName(option);
 							const optionDetail = getOptionDropdownDetail?.(option) || '';
 							const optionBadges = getOptionBadges?.(option) ?? [];
 							const showHint = detailPresentation === 'tooltip' && !!optionDetail;
 							const rowKey = `${optionName}\0${optionDetail}`;
 
-							return (
+							return (<Fragment key={rowKey}>
+								{showGroupHeading && <div className="px-2 pt-2 pb-0.5 text-[11px] text-vibe-fg-4 select-none">{optionGroup}</div>}
 								<div
-									key={rowKey}
 									className={`flex items-center min-w-0 px-2 py-1 pr-4 cursor-pointer whitespace-nowrap
 									transition-all duration-100
 									@@vibe-dropdown-row
@@ -1776,7 +1784,7 @@ export const VibeCustomDropdownBox = <T extends NonNullable<any>>({
 										)}
 									</span>
 								</div>
-							);
+							</Fragment>);
 						})}
 						{dropdownQuickSearch && filterQuery.trim() && visibleOptions.length === 0 ? (
 							<div className="px-3 py-2 text-xs text-vibe-fg-4 whitespace-normal">

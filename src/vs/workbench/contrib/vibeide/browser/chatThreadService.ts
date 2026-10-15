@@ -8,7 +8,7 @@ import { vibeLog } from '../common/vibeLog.js';
 import { Disposable, DisposableMap, IDisposable, MutableDisposable, toDisposable } from '../../../../base/common/lifecycle.js';
 import { RunOnceScheduler, timeout } from '../../../../base/common/async.js';
 import { registerSingleton, InstantiationType } from '../../../../platform/instantiation/common/extensions.js';
-import { createDecorator } from '../../../../platform/instantiation/common/instantiation.js';
+import { createDecorator, IInstantiationService } from '../../../../platform/instantiation/common/instantiation.js';
 import { IStorageService, StorageScope, StorageTarget } from '../../../../platform/storage/common/storage.js';
 
 import { URI, UriComponents } from '../../../../base/common/uri.js';
@@ -25,6 +25,7 @@ import { renderSlopReport } from '../common/textSlop/slopRender.js';
 import { SlopReport } from '../common/textSlop/textSlop.js';
 import { nextChatTraceTurn, recordChatTrace } from './vibeChatRunTrace.js';
 import { IChatJournalService } from './chatJournalService.js';
+import { AcpChatRunner, AcpThreadBinding } from './acp/acpChatRunner.js';
 import type { ChatJournalAction } from '../common/chatJournal.js';
 import { availableTools, builtinTools, builtinToolNames, chat_userMessageContent, isABuiltinToolName } from '../common/prompt/prompts.js';
 import { TOOL_NAME_ALIASES, applyParamAliases, detectToolByParamShape } from '../common/prompt/toolAliases.js';
@@ -438,6 +439,12 @@ export type ThreadType = {
 	workspaceLabel?: string; // Human-readable project name (first folder basename) captured at stamp time, for the "all projects" badge.
 	/** Per-tab chat config (model/mode/autopilot/iterations). Undefined until the tab first snapshots the globals. */
 	chatConfig?: ThreadChatConfig;
+	/**
+	 * The external agent that leads this thread, chosen before the first message and kept for the whole conversation:
+	 * the agent has its own history, so the conversation cannot move to another model or agent halfway
+	 * `sessionId` is the agent's session, which the thread comes back to after a restart
+	 */
+	acpAgent?: { agentId: string; agentName: string; sessionId?: string };
 
 	messages: ChatMessage[];
 	filesWithUserChanges: Set<string>;
@@ -725,6 +732,12 @@ export interface IChatThreadService {
 	readonly onDidOfferThreadDraft: Event<{ threadId: string; text: string }>;
 	/** Per-tab chat config snapshot (model/mode/autopilot/iterations), persisted with the thread. */
 	setThreadChatConfig(threadId: string, cfg: ThreadChatConfig): void;
+	/**
+	 * Hand the thread to an external agent, or take it back to the chat's own models (`undefined`)
+	 * Only an empty thread can change its leader: the agent keeps its own history, so a conversation does not move
+	 * mid-way. Returns false when the thread already has messages and the leader would change
+	 */
+	setThreadAcpAgent(threadId: string, agent: { agentId: string; agentName: string } | undefined): boolean;
 
 	// thread selector
 	deleteThread(threadId: string): void;
@@ -1205,8 +1218,10 @@ class ChatThreadService extends Disposable implements IChatThreadService {
 		@IVibeDynamicProvidersService private readonly _dynamicProvidersService: IVibeDynamicProvidersService,
 		@IChatJournalService private readonly _chatJournal: IChatJournalService,
 		@IVibePromptGuardService private readonly _promptGuard: IVibePromptGuardService,
+		@IInstantiationService instantiationService: IInstantiationService,
 	) {
 		super();
+		this._acpRunner = this._register(instantiationService.createInstance(AcpChatRunner, this._acpPort()));
 		this.state = { allThreads: {}, currentThreadId: null as unknown as string, openTabIds: [] }; // default state
 		// When set for a thread, the next call to _shouldGeneratePlan will return false and clear the flag
 		this._suppressPlanOnceByThread = {};
@@ -1261,6 +1276,43 @@ class ChatThreadService extends Disposable implements IChatThreadService {
 
 		// keep track of user-modified files
 
+	}
+
+	/** Takes a message of a thread whose person chose an external agent; the agent runs the turn, not the chat's own loop */
+	private readonly _acpRunner: AcpChatRunner;
+
+	/** What the runner may do with the chat: write messages and the stream state of its thread */
+	private _acpPort() {
+		return {
+			getThread: (threadId: string) => this.state.allThreads[threadId],
+			addUserMessage: (threadId: string, message: { content: string; displayContent: string; selections: StagingSelectionItem[]; images?: ChatImageAttachment[]; pdfs?: ChatPDFAttachment[] }) =>
+				this._addMessageToThread(threadId, { role: 'user', ...message, state: defaultMessageState }),
+			addMessage: (threadId: string, message: ChatMessage) => this._addMessageToThread(threadId, message),
+			editMessage: (threadId: string, messageIdx: number, message: ChatMessage) => this._editMessageInThread(threadId, messageIdx, message),
+			setStreamState: (threadId: string, state: ThreadStreamState[string]) => this._setStreamState(threadId, state),
+			setBinding: (threadId: string, binding: AcpThreadBinding) => this._setAcpBinding(threadId, binding),
+		};
+	}
+
+	private _setAcpBinding(threadId: string, binding: AcpThreadBinding): void {
+		const thread = this.state.allThreads[threadId];
+		if (!thread) { return; }
+		const updated: ChatThreads = { ...this.state.allThreads, [threadId]: { ...thread, acpAgent: binding } };
+		this._storeAllThreads(updated);
+		this._setState({ allThreads: updated }, true);
+	}
+
+	setThreadAcpAgent(threadId: string, agent: { agentId: string; agentName: string } | undefined): boolean {
+		const thread = this.state.allThreads[threadId];
+		if (!thread) { return false; }
+		const same = thread.acpAgent?.agentId === agent?.agentId;
+		if (same) { return true; }
+		if (thread.messages.length > 0) { return false; }
+		const { acpAgent: _previous, ...rest } = thread;
+		const updated: ChatThreads = { ...this.state.allThreads, [threadId]: agent ? { ...rest, acpAgent: agent } : rest };
+		this._storeAllThreads(updated);
+		this._setState({ allThreads: updated }, true);
+		return true;
 	}
 
 	// If true for a thread, suppress plan generation once for the next user message
@@ -3396,6 +3448,14 @@ Output ONLY the JSON, no other text. Start with { and end with }.`;
 	async abortRunning(threadId: string) {
 		const thread = this.state.allThreads[threadId];
 		if (!thread) { return; } // should never happen
+		// The agent holds the turn: it is asked to stop, and what it wrote so far is already in the thread
+		if (thread.acpAgent) {
+			this._suppressStopSound(threadId);
+			this._abortedRuns.add(threadId);
+			await this._acpRunner.stop(threadId);
+			this._setStreamState(threadId, undefined);
+			return;
+		}
 		// Stopping is enforced, not requested — so it can be measured: from the press to the cleared state.
 		const stopRequestedAt = Date.now();
 		const stoppedWhile = this.streamState[threadId]?.isRunning ?? 'idle';
@@ -3572,6 +3632,8 @@ Output ONLY the JSON, no other text. Start with { and end with }.`;
 	async retryStalledStream(threadId: string): Promise<void> {
 		const thread = this.state.allThreads[threadId];
 		if (!thread) { return; }
+		// Same reason as for an edit: the agent's history keeps the message it already took
+		if (thread.acpAgent) { return; }
 
 		// find last user message
 		let lastUserIdx = -1;
@@ -9335,6 +9397,21 @@ We only need to do it for files that were edited since `from`, ie files between 
 		const thread = this.state.allThreads[threadId];
 		if (!thread) { return; } // should never happen
 
+		// An external agent leads this thread: it runs the turn with its own model and its own tools, and none of the
+		// chat's own preparation — prompt, router, plan, guards — applies to it
+		if (thread.acpAgent) {
+			this._setThreadState(threadId, { currCheckpointIdx: null });
+			this._wrapRunAgentToNotify(this._acpRunner.send({
+				threadId,
+				text: userMessage,
+				displayContent: displayContent || userMessage,
+				selections: _chatSelections ?? thread.state.stagingSelections,
+				images,
+				pdfs,
+			}), threadId);
+			return;
+		}
+
 		// A fresh submit supersedes any scheduled automatic re-send — cancel it so it can't
 		// fire a duplicate turn on top of this one.
 		this._cancelScheduledRestart(threadId);
@@ -9687,6 +9764,8 @@ We only need to do it for files that were edited since `from`, ie files between 
 		if (thread.messages?.[messageIdx]?.role !== 'user') {
 			throw new Error(`Error: editing a message with role !=='user'`);
 		}
+		// The agent has already answered this message in its own history, and that history cannot be rewound from here
+		if (thread.acpAgent) { return; }
 
 		// get prev and curr selections before clearing the message
 		const currSelns = thread.messages[messageIdx].state.stagingSelections || []; // staging selections for the edited message
@@ -10049,6 +10128,8 @@ We only need to do it for files that were edited since `from`, ie files between 
 
 	closeTab(threadId: string): void {
 		this._threadDrafts.delete(threadId);
+		// A closed tab does not keep an agent process alive; the thread remembers the session to come back to
+		void this._acpRunner.release(threadId);
 		const idx = this.state.openTabIds.indexOf(threadId);
 		if (idx === -1) { return; }
 		const openTabIds = this.state.openTabIds.filter(id => id !== threadId);
@@ -10175,8 +10256,10 @@ We only need to do it for files that were edited since `from`, ie files between 
 				// switching: a persisted empty thread may carry another project's
 				// id, which would otherwise capture this project's first message.
 				const reused = currentThreads[threadId]!;
-				if (reused.workspaceId !== ws.id) {
-					const restamped: ChatThreads = { ...currentThreads, [threadId]: { ...reused, workspaceId: ws.id, workspaceLabel: ws.label } };
+				// A new chat starts with the chat's own models: an agent picked in a chat that was never used does not carry over
+				if (reused.workspaceId !== ws.id || reused.acpAgent) {
+					const { acpAgent: _agent, ...withoutAgent } = reused;
+					const restamped: ChatThreads = { ...currentThreads, [threadId]: { ...withoutAgent, workspaceId: ws.id, workspaceLabel: ws.label } };
 					this._storeAllThreads(restamped);
 					this._setState({ allThreads: restamped });
 				}
@@ -10250,6 +10333,7 @@ We only need to do it for files that were edited since `from`, ie files between 
 
 
 	deleteThread(threadId: string): void {
+		void this._acpRunner.release(threadId);
 		this._planBindingRegistry.clearThread(threadId);
 		this._taskDecompositionService.clearPersistedPlanTask(threadId);
 
@@ -10330,6 +10414,8 @@ We only need to do it for files that were edited since `from`, ie files between 
 		const newThread = {
 			...deepClone(source),
 			id: generateUuid(),
+			// The agent's session belongs to the original conversation: the copy starts its own
+			...(source.acpAgent ? { acpAgent: { agentId: source.acpAgent.agentId, agentName: source.acpAgent.agentName } } : {}),
 			messages: deepClone(source.messages.slice(0, cutoff + 1)),
 			state: {
 				...deepClone(source.state),
@@ -10355,6 +10441,8 @@ We only need to do it for files that were edited since `from`, ie files between 
 		const newThread = {
 			...deepClone(threadToDuplicate),
 			id: generateUuid(),
+			// The agent's session belongs to the original conversation: the copy starts its own
+			...(threadToDuplicate.acpAgent ? { acpAgent: { agentId: threadToDuplicate.acpAgent.agentId, agentName: threadToDuplicate.acpAgent.agentName } } : {}),
 		};
 		const newThreads = {
 			...currentThreads,

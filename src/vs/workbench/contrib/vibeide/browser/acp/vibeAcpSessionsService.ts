@@ -22,7 +22,7 @@ import { InstantiationType, registerSingleton } from '../../../../../platform/in
 import { ICommandService } from '../../../../../platform/commands/common/commands.js';
 import { IConfigurationService } from '../../../../../platform/configuration/common/configuration.js';
 import { INotificationService, Severity } from '../../../../../platform/notification/common/notification.js';
-import { AcpEvent, IAcpAgentLaunch, IAcpPermissionRequest, IAcpSession } from '../../common/acp/acpTypes.js';
+import { AcpEvent, IAcpAgentLaunch, IAcpPermissionRequest, IAcpReconnection, IAcpSession } from '../../common/acp/acpTypes.js';
 import { AcpReconnectMode, AcpStopReason, agentCommandOf, IAcpCommand, IAcpConfigOption, IAcpDiff, IAcpPromptCapabilities } from '../../common/acp/acpProtocol.js';
 import { ACP_EMBED_MAX_CHARS_DEFAULT, ACP_EMBED_MAX_CHARS_KEY, AcpContextItem, IAcpEditorState, buildAcpPromptBlocks } from '../../common/acp/acpPromptContext.js';
 import { AcpLogEntry, AcpSessionLog, IAcpSessionSnapshot } from '../../common/acp/acpSessionLog.js';
@@ -64,11 +64,17 @@ export interface IVibeAcpSessionView {
 	readonly configuring: boolean;
 	/** The agent's own slash commands; one runs by being the task's text, `/name arguments` */
 	readonly commands: readonly IAcpCommand[];
+	/** Where the current (or the last) turn begins in `log.entries`: whoever mirrors the log follows it from there */
+	readonly turnStart: number;
+	/** What the agent accepts in a prompt, as it declared in the greeting */
+	readonly promptCapabilities: IAcpPromptCapabilities;
 }
 
 /** A task for the agent: the person's words, and what of the editor goes along with them */
 export interface IVibeAcpPromptRequest {
 	readonly text: string;
+	/** Pictures the person attached, base64 */
+	readonly images?: readonly { readonly data: string; readonly mimeType: string }[];
 	/** Absent for a task that comes from a messenger: the person is not at the editor, and its open file means nothing */
 	readonly context?: {
 		readonly items: readonly AcpContextItem[];
@@ -90,6 +96,12 @@ export interface IVibeAcpSessionsService {
 	setSurfaceVisible(visible: boolean): void;
 
 	startSession(agent: VibeAgentEntry): Promise<IAcpSession>;
+	/**
+	 * A session for a chat thread that already had one: the agent is started again and asked to come back to
+	 * `previousSessionId` (the strongest way it declared), or to begin a new one when it cannot
+	 * `mode` says which, because it says whether the agent still remembers the conversation
+	 */
+	resumeSession(agent: VibeAgentEntry, previousSessionId: string): Promise<{ readonly session: IAcpSession; readonly mode: AcpReconnectMode }>;
 	prompt(sessionId: string, request: IVibeAcpPromptRequest): Promise<void>;
 	answerPermission(sessionId: string, optionId: string | undefined): Promise<void>;
 	cancel(sessionId: string): Promise<void>;
@@ -101,7 +113,7 @@ export interface IVibeAcpSessionsService {
 	 * a note in it says whether the agent still remembers the conversation. With a new session the id
 	 * changes — the card stays in its place under the new id.
 	 */
-	reconnect(sessionId: string): Promise<void>;
+	reconnect(sessionId: string): Promise<string | undefined>;
 }
 
 interface ISessionState {
@@ -120,6 +132,7 @@ interface ISessionState {
 	commands: readonly IAcpCommand[];
 	/** What the agent accepts in a prompt, as it declared in the greeting */
 	promptCapabilities: IAcpPromptCapabilities;
+	turnStart: number;
 	/** The entry of the editor's MCP server handed to this session; kept across a reconnection, withdrawn when the session ends */
 	ideMcp?: IIdeMcpIssued;
 	/** The «Краткие ответы» level the agent was last given; undefined — it has not been told anything */
@@ -168,6 +181,8 @@ class VibeAcpSessionsService extends Disposable implements IVibeAcpSessionsServi
 			configOptions: state.configOptions,
 			configuring: state.configuring,
 			commands: state.commands,
+			turnStart: state.turnStart,
+			promptCapabilities: state.promptCapabilities,
 		}));
 	}
 
@@ -188,6 +203,29 @@ class VibeAcpSessionsService extends Disposable implements IVibeAcpSessionsServi
 			if (ideMcp) { void this._ideMcp.revoke(ideMcp.token); }
 			throw err;
 		}
+		this._adopt(agent, session, ideMcp);
+		return session;
+	}
+
+	async resumeSession(agent: VibeAgentEntry, previousSessionId: string): Promise<{ readonly session: IAcpSession; readonly mode: AcpReconnectMode }> {
+		const launch = this._registry.launchOf(agent);
+		if (!launch) {
+			throw new Error(localize('vibeide.acp.noWorkspace', "Открытой рабочей папки нет — агенту негде работать."));
+		}
+		const ideMcp = await this._ideMcp.issue();
+		let back: IAcpReconnection;
+		try {
+			back = await this._acpService.reconnectSession(previousSessionId, withIdeMcp(launch, ideMcp));
+		} catch (err) {
+			if (ideMcp) { void this._ideMcp.revoke(ideMcp.token); }
+			throw err;
+		}
+		this._adopt(agent, back, ideMcp);
+		return { session: back, mode: back.mode };
+	}
+
+	/** A session the agent opened, taken into the list: the state the surfaces read, and the first lines of the journals */
+	private _adopt(agent: VibeAgentEntry, session: IAcpSession, ideMcp: IIdeMcpIssued | undefined): void {
 		this._sessions.set(session.sessionId, {
 			sessionId: session.sessionId,
 			agentId: agent.id,
@@ -200,12 +238,12 @@ class VibeAcpSessionsService extends Disposable implements IVibeAcpSessionsServi
 			configuring: false,
 			commands: session.commands ?? [],
 			promptCapabilities: session.promptCapabilities,
+			turnStart: 0,
 			ideMcp,
 		});
 		this._activityLog.logStarted(localize('vibeide.acp.log.session', "Внешний агент «{0}» открыл сессию", session.agentName));
 		this._audit(buildAcpSessionAudit({ agentId: agent.id, sessionId: session.sessionId, phase: 'started' }, Date.now()));
 		this._onDidChange.fire();
-		return session;
 	}
 
 	async prompt(sessionId: string, request: IVibeAcpPromptRequest): Promise<void> {
@@ -217,6 +255,7 @@ class VibeAcpSessionsService extends Disposable implements IVibeAcpSessionsServi
 			this._onDidChange.fire();
 			return;
 		}
+		state.turnStart = state.log.beginTurn();
 		state.busy = true;
 		state.error = undefined;
 		state.lastStopReason = undefined;
@@ -234,6 +273,7 @@ class VibeAcpSessionsService extends Disposable implements IVibeAcpSessionsServi
 				capabilities: state.promptCapabilities,
 				embedMaxChars: this._configurationService.getValue<number>(ACP_EMBED_MAX_CHARS_KEY) ?? ACP_EMBED_MAX_CHARS_DEFAULT,
 				items: request.context?.items ?? [],
+				images: request.images,
 				editor: request.context?.editor,
 				isHidden: request.context?.isHidden,
 				redact: text => this._secretDetection.detectSecrets(text).redactedText,
@@ -300,9 +340,9 @@ class VibeAcpSessionsService extends Disposable implements IVibeAcpSessionsServi
 		}
 	}
 
-	async reconnect(sessionId: string): Promise<void> {
+	async reconnect(sessionId: string): Promise<string | undefined> {
 		const state = this._sessions.get(sessionId);
-		if (!state || !state.disconnected || state.reconnecting) { return; }
+		if (!state || !state.disconnected || state.reconnecting) { return undefined; }
 		// The launch is read again, not remembered: the entry in agents.json may have changed since.
 		const agent = this._registry.agents.find(entry => entry.id === state.agentId);
 		const launch = agent ? this._registry.launchOf(agent) : undefined;
@@ -311,7 +351,7 @@ class VibeAcpSessionsService extends Disposable implements IVibeAcpSessionsServi
 				? localize('vibeide.acp.noWorkspace', "Открытой рабочей папки нет — агенту негде работать.")
 				: localize('vibeide.acp.reconnect.gone', "Агента «{0}» больше нет в .vibe/agents.json — переподключать некого.", state.agentName);
 			this._onDidChange.fire();
-			return;
+			return undefined;
 		}
 		state.reconnecting = true;
 		state.error = undefined;
@@ -342,6 +382,7 @@ class VibeAcpSessionsService extends Disposable implements IVibeAcpSessionsServi
 			current.reconnecting = false;
 			this._onDidChange.fire();
 		}
+		return current.disconnected ? undefined : current.sessionId;
 	}
 
 	/** A new id for the same card: the cards keep the order in which the sessions were opened. */

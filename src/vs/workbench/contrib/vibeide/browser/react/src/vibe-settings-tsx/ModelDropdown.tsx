@@ -6,7 +6,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { displayInfoOfProviderName, FeatureName, featureNames, isFeatureNameDisabled, ModelSelection, modelSelectionsEqual, OverridesOfModel, ProviderName, providerNames, SettingsOfProvider } from '../../../../../../../workbench/contrib/vibeide/common/vibeideSettingsTypes.js';
-import { useSettingsState, useRefreshModelState, useAccessor } from '../util/services.js';
+import { useSettingsState, useRefreshModelState, useAccessor, useChatThreadsState } from '../util/services.js';
 import { DropdownBadge, VibeCustomDropdownBox } from '../util/inputs.js';
 import { SelectBox } from '../../../../../../../base/browser/ui/selectBox/selectBox.js';
 import { IconWarning } from '../sidebar-tsx/SidebarChat.js';
@@ -43,48 +43,96 @@ const optionsEqual = (m1: ModelOption[], m2: ModelOption[]) => {
 	return true;
 };
 
+/**
+ * What the chat's pill can point at: one of the models, or — for the chat only — an external agent
+ * An agent is chosen for a thread, not for the whole window: it has its own history, so it cannot be swapped under a conversation
+ */
+type ChatTarget =
+	| { readonly kind: 'model'; readonly option: ModelOption }
+	| { readonly kind: 'agent'; readonly agentId: string; readonly agentName: string };
+
+const targetsEqual = (a: ChatTarget, b: ChatTarget): boolean =>
+	a.kind === 'model' && b.kind === 'model' ? optionsEqual([a.option], [b.option])
+		: a.kind === 'agent' && b.kind === 'agent' ? a.agentId === b.agentId
+			: false;
+
+const isAutoOption = (option: ModelOption) => option.selection.providerName === 'auto' && option.selection.modelName === 'auto';
+
 const ModelSelectBox = ({ options, featureName, className }: { options: ModelOption[]; featureName: FeatureName; className: string }) => {
 	const accessor = useAccessor();
 	const vibeideSettingsService = accessor.get('IVibeideSettingsService');
+	const chatThreadService = accessor.get('IChatThreadService');
+	const registry = accessor.get('IVibeAcpRegistryService');
+	const notificationService = accessor.get('INotificationService');
+	const threadsState = useChatThreadsState();
+
+	const [agents, setAgents] = useState(registry.agents);
+	useEffect(() => {
+		const listener = registry.onDidChange(() => setAgents(registry.agents));
+		return () => listener.dispose();
+	}, [registry]);
+
+	const isChat = featureName === 'Chat';
+	const thread = isChat ? threadsState.allThreads[threadsState.currentThreadId] : undefined;
+	const leader = thread?.acpAgent;
+
+	const targets = useMemo<ChatTarget[]>(() => [
+		...options.map((option): ChatTarget => ({ kind: 'model', option })),
+		...(isChat ? agents.map((agent): ChatTarget => ({ kind: 'agent', agentId: agent.id, agentName: agent.name ?? agent.id })) : []),
+	], [options, agents, isChat]);
 
 	const selection = vibeideSettingsService.state.modelSelectionOfFeature[featureName];
 	// Fall back to options[0] when the saved selection isn't found in _modelOptions (stale/removed
 	// model). `.find(...)!` previously lied — it could return undefined, which fed VibeCustomDropdownBox
 	// an undefined selectedOption and tripped its auto-select loop. `options` is guaranteed non-empty
 	// here (MemoizedModelDropdown renders a WarningBox when there are no options).
-	const selectedOption = (selection && vibeideSettingsService.state._modelOptions.find(v => modelSelectionsEqual(v.selection, selection))) || options[0];
+	const selectedModel = (selection && vibeideSettingsService.state._modelOptions.find(v => modelSelectionsEqual(v.selection, selection))) || options[0];
+	// An agent that left the registry still leads its thread; the pill keeps showing it rather than a model it never used
+	const selectedTarget: ChatTarget = leader
+		? targets.find(target => target.kind === 'agent' && target.agentId === leader.agentId) ?? { kind: 'agent', agentId: leader.agentId, agentName: leader.agentName }
+		: { kind: 'model', option: selectedModel };
 
-	const onChangeOption = useCallback((newOption: ModelOption) => {
-		vibeideSettingsService.setModelSelectionOfFeature(featureName, newOption.selection);
-	}, [vibeideSettingsService, featureName]);
+	const onChangeTarget = useCallback((target: ChatTarget) => {
+		// A thread with messages keeps its leader: the agent's history is its own, and a model has none of it
+		const locked = !!thread && thread.messages.length > 0;
+		if (target.kind === 'agent') {
+			if (leader?.agentId === target.agentId) { return; }
+			if (!thread || locked || !chatThreadService.setThreadAcpAgent(thread.id, { agentId: target.agentId, agentName: target.agentName })) {
+				notificationService.info(modelDdS.leaderLocked);
+			}
+			return;
+		}
+		if (leader && (!thread || !chatThreadService.setThreadAcpAgent(thread.id, undefined))) {
+			notificationService.info(modelDdS.leaderLocked);
+			return;
+		}
+		vibeideSettingsService.setModelSelectionOfFeature(featureName, target.option.selection);
+	}, [vibeideSettingsService, chatThreadService, notificationService, featureName, thread, leader]);
 
-	return <VibeCustomDropdownBox
-		options={options}
-		selectedOption={selectedOption}
-		onChangeOption={onChangeOption}
+	return <VibeCustomDropdownBox<ChatTarget>
+		options={targets}
+		selectedOption={selectedTarget}
+		onChangeOption={onChangeTarget}
 		dropdownQuickSearch={true}
 		dropdownSearchPlaceholder={modelDdS.searchModels}
 		dropdownSearchEmptyMessage={modelDdS.noModelSearchMatches}
-		getOptionDisplayName={(option) => {
+		getOptionDisplayName={(target) => {
+			if (target.kind === 'agent') { return target.agentName; }
 			// Special display for "Auto" option
-			if (option.selection.providerName === 'auto' && option.selection.modelName === 'auto') {
-				return modelDdS.auto;
-			}
-			return option.selection.modelName;
+			return isAutoOption(target.option) ? modelDdS.auto : target.option.selection.modelName;
 		}}
-		getOptionDropdownName={(option) => {
-			if (option.selection.providerName === 'auto' && option.selection.modelName === 'auto') {
-				return modelDdS.auto;
-			}
-			return option.selection.modelName;
+		getOptionDropdownName={(target) => {
+			if (target.kind === 'agent') { return target.agentName; }
+			return isAutoOption(target.option) ? modelDdS.auto : target.option.selection.modelName;
 		}}
-		getOptionDropdownDetail={(option) => {
-			if (option.selection.providerName === 'auto' && option.selection.modelName === 'auto') {
-				return modelDdS.autoDetail;
-			}
-			return displayInfoOfProviderName(option.selection.providerName).title;
+		getOptionDropdownDetail={(target) => {
+			if (target.kind === 'agent') { return modelDdS.agentDetail; }
+			return isAutoOption(target.option) ? modelDdS.autoDetail : displayInfoOfProviderName(target.option.selection.providerName).title;
 		}}
-		getOptionBadges={(option) => {
+		getOptionGroup={(target) => target.kind === 'agent' ? modelDdS.agentsGroup : undefined}
+		getOptionBadges={(target) => {
+			if (target.kind === 'agent') { return []; }
+			const option = target.option;
 			// Dynamic-provider models flag their provenance with a trailing "✎" — the pencil's tooltip
 			// tells the user the model / its caps come from .vibe/providers.json, not the live catalog.
 			const fileNote = option.fileNote === 'override' ? modelDdS.fileNoteOverride
@@ -100,7 +148,7 @@ const ModelSelectBox = ({ options, featureName, className }: { options: ModelOpt
 			}
 			return badges;
 		}}
-		getOptionsEqual={(a, b) => optionsEqual([a], [b])}
+		getOptionsEqual={targetsEqual}
 		className={className}
 		matchInputWidth={false}
 	/>;

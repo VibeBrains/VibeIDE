@@ -66,9 +66,20 @@ export class AcpSessionLog {
 	private _spend: IAcpSessionSpend | undefined;
 	/** Порядковый номер реплики: идентификатор нужен списку, чтобы не перерисовывать всё подряд. */
 	private _nextMessageId = 1;
+	/** Set by `beginTurn`: the next text starts a new message even if the last entry is a message of the same kind */
+	private _turnSealed = false;
 
 	get snapshot(): IAcpSessionSnapshot {
 		return { entries: this._entries, spend: this._spend };
+	}
+
+	/**
+	 * A new turn begins: its first text does not join the last message of the previous turn
+	 * Returns where the turn starts in `entries`; whoever mirrors the log follows it from there
+	 */
+	beginTurn(): number {
+		this._turnSealed = true;
+		return this._entries.length;
 	}
 
 	/** A note about the session itself; like a tool call, it breaks the gluing of the agent's text. */
@@ -86,10 +97,11 @@ export class AcpSessionLog {
 	appendText(text: string, thought: boolean): void {
 		if (!text) { return; }
 		const last = this._entries[this._entries.length - 1];
-		if (last?.kind === 'message' && last.thought === thought) {
+		if (!this._turnSealed && last?.kind === 'message' && last.thought === thought) {
 			this._entries = [...this._entries.slice(0, -1), { ...last, text: last.text + text }];
 			return;
 		}
+		this._turnSealed = false;
 		this._entries = [...this._entries, { kind: 'message', id: `m${this._nextMessageId++}`, text, thought }];
 	}
 

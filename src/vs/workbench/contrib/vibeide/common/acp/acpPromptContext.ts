@@ -50,6 +50,8 @@ export interface IAcpPromptInput {
 	/** The largest file or selection that goes inside the prompt; a longer one goes as a link */
 	readonly embedMaxChars: number;
 	readonly items: readonly AcpContextItem[];
+	/** Pictures the person attached, base64; they go only to an agent that declared `image`, the caller says the rest */
+	readonly images?: readonly { readonly data: string; readonly mimeType: string }[];
 	readonly editor?: IAcpEditorState;
 	/** Masks the secrets in the text that leaves the machine */
 	readonly redact: (text: string) => string;
@@ -77,6 +79,11 @@ export function buildAcpPromptBlocks(input: IAcpPromptInput): AcpContentBlock[] 
 	for (const item of input.items) {
 		if (isHidden(item.path)) { continue; }
 		blocks.push(...blocksOfItem(item, input));
+	}
+	if (input.capabilities.image) {
+		for (const image of input.images ?? []) {
+			blocks.push({ type: 'image', data: image.data, mimeType: image.mimeType });
+		}
 	}
 	return blocks;
 }

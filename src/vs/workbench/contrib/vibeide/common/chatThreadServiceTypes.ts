@@ -8,6 +8,7 @@ import { URI } from '../../../../base/common/uri.js';
 import { VibeideFileSnapshot } from './editCodeServiceTypes.js';
 import { AnthropicReasoning, RawToolParamsObj } from './sendLLMMessageTypes.js';
 import { ToolCallParams, ToolName, ToolResult } from './toolsServiceTypes.js';
+import { AcpToolStatus, IAcpDiff } from './acp/acpProtocol.js';
 
 export type ToolMessage<T extends ToolName> = {
 	role: 'tool';
@@ -159,6 +160,29 @@ export type ScoutMessage = {
 	hypothesis: string;
 	contextForTurn: string; // scout findings blob prepended to the main turn on 'proceed'/auto-proceed
 	state: 'pending' | 'proceeded' | 'refining' | 'cancelled';
+	createdAt?: number;
+};
+
+/**
+ * A call of an external agent's own tool, shown in the chat the way the agent reported it
+ * The agent runs the call itself, so none of this goes to a model: it is a record for the reader, and a card that is
+ * rewritten in place while the call goes from pending to done
+ */
+export type AcpToolMessage = {
+	role: 'acp_tool';
+	toolCallId: string;
+	/** What the agent called it; for a command, the command itself */
+	title: string;
+	/** The tool's programmatic name, when the agent sent one */
+	name: string;
+	/** ACP kind of the call: `read`, `edit`, `execute`… */
+	toolKind: string;
+	status: AcpToolStatus;
+	paths: string[];
+	diffs: IAcpDiff[];
+	/** What the call printed or returned, cut by the protocol layer */
+	output: string;
+	exitCode?: number;
 	createdAt?: number;
 };
 
@@ -330,7 +354,8 @@ export type ChatMessage =
 	| CheckpointEntry
 	| PlanMessage
 	| ReviewMessage
-	| ScoutMessage;
+	| ScoutMessage
+	| AcpToolMessage;
 
 
 // one of the square items that indicates a selection in a chat bubble

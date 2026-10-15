@@ -58,6 +58,9 @@ export function chatDiffCountLabel(n: number): string {
 
 /** Russian UI strings for VibeIDE sidebar chat (React). */
 export const chatS = {
+	// A thread led by an external agent: what the pill's agent changes about the chat's own checks.
+	agentLeads: 'Ход ведёт внешний агент',
+	agentLeadsTitle: 'Внешний агент работает по своему циклу, со своей моделью и своими инструментами. Лимиты, проверки хода и предохранители IDE к нему не применяются: ограничивают его только вопросы разрешения, которые он задаёт сам.',
 	// Plan-step controls. The card is the only place a user can steer a running plan, so its
 	// buttons follow the project rule like the rest of the UI.
 	stepEnable: 'Включить',
@@ -1274,6 +1277,9 @@ export const modelDdS = {
 	autoDetail: 'Автовыбор модели',
 	searchModels: 'Быстрый поиск…',
 	noModelSearchMatches: 'Нет совпадений',
+	agentsGroup: 'Внешние агенты',
+	agentDetail: 'внешний агент (ACP)',
+	leaderLocked: 'Исполнителя нельзя сменить посреди разговора: у внешнего агента своя память, у модели её нет. Начните новый чат и выберите другого.',
 	noModels: 'Нет доступных моделей',
 	enableModel: 'Включите модель в списке',
 	addModel: 'Добавьте модель',

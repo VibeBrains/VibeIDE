@@ -25,6 +25,7 @@ import { IDisposable } from '../../../../../../../base/common/lifecycle.js';
 import { ErrorDisplay } from './ErrorDisplay.js';
 import { BlockCode, TextAreaFns, VibeCustomDropdownBox, VibeInputBox2, VibeSlider, VibeSwitch, VibeDiffEditor } from '../util/inputs.js';
 import { ModelDropdown, } from '../vibe-settings-tsx/ModelDropdown.js';
+import { AcpToolCard } from './AcpChat.js';
 import { PastThreadsList, ChatHistoryToolbarDropdown } from './SidebarThreadSelector.js';
 import { ChatContextMeterButton } from './ChatContextMeter.js';
 import { ChatQuickSettingsButton } from './ChatQuickSettings.js';
@@ -1567,6 +1568,9 @@ export const VibeChatArea: React.FC<VibeideChatAreaProps> = ({
 	const [isDragOver, setIsDragOver] = React.useState(false);
 	const attachInputRef = React.useRef<HTMLInputElement>(null);
 	const containerRef = React.useRef<HTMLDivElement>(null);
+	// An external agent leads this thread: the chat's own knobs — route, scout, context meter, reasoning — steer nothing there
+	const composerThreads = useChatThreadsState();
+	const ledByAgent = featureName === 'Chat' && !!composerThreads.allThreads[composerThreads.currentThreadId]?.acpAgent;
 
 	// Paste of files (images / PDFs) is handled directly on the textarea via onPaste prop in VibeInputBox2 —
 	// container-level paste listener was removed because it duplicated processing in bubble phase.
@@ -1741,15 +1745,17 @@ export const VibeChatArea: React.FC<VibeideChatAreaProps> = ({
 			<div className='@@chat-composer-toolbar-rule flex flex-row items-start gap-2 mt-1 pt-2.5 min-w-0'>
 				{showModelDropdown && (
 					<div className='flex items-center flex-wrap gap-x-2 gap-y-1 text-nowrap flex-1 min-w-0'>
-						{featureName === 'Chat' && <ChatModeDropdown className='text-xs text-vibe-fg-3 @@vibe-toolbar-pill rounded-xl overflow-hidden py-0.5 px-1.5' />}
+						{featureName === 'Chat' && !ledByAgent && <ChatModeDropdown className='text-xs text-vibe-fg-3 @@vibe-toolbar-pill rounded-xl overflow-hidden py-0.5 px-1.5' />}
 						<ChatModelHealthDropdown featureName={featureName} className='text-xs text-vibe-fg-3 @@vibe-toolbar-pill rounded-xl overflow-hidden py-0.5 px-1.5' />
+						{/* The pill names the agent; this says what that changes: the chat's own checks do not reach a foreign loop */}
+						{ledByAgent && <span className='text-[11px] text-vibe-fg-4' title={chatS.agentLeadsTitle}>{chatS.agentLeads}</span>}
 						{/* Behaviour/paths — role-route (subagent) + scout, right after the model: interaction, not a chat knob */}
-						{featureName === 'Chat' && <ChatRunRouteButton />}
-						{featureName === 'Chat' && <ChatScoutToggleButton />}
+						{featureName === 'Chat' && !ledByAgent && <ChatRunRouteButton />}
+						{featureName === 'Chat' && !ledByAgent && <ChatScoutToggleButton />}
 						{/* Context fill — running out of context is something the user must always see */}
-						{featureName === 'Chat' && <ChatContextMeterButton />}
+						{featureName === 'Chat' && !ledByAgent && <ChatContextMeterButton />}
 						{/* The knobs sit one click away, each with its real value (ChatQuickSettings.tsx) */}
-						{featureName === 'Chat' ? <ChatQuickSettingsButton agentControls={<>
+						{ledByAgent ? null : featureName === 'Chat' ? <ChatQuickSettingsButton agentControls={<>
 							<ChatAgentAutopilotToggle />
 							<ChatRuleLinksRecursiveToggle />
 							<ChatSessionResetButton />
@@ -2131,7 +2137,7 @@ type ToolHeaderParams = {
 	className?: string;
 };
 
-const ToolHeaderWrapper = ({
+export const ToolHeaderWrapper = ({
 	icon,
 	title,
 	desc1,
@@ -2413,6 +2419,8 @@ const UserMessageComponent = ({ chatMessage, messageIdx, isCheckpointGhost, curr
 	// Subscribe to thread state changes properly
 	const chatThreadsState = useChatThreadsState();
 	const currentThreadId = chatThreadsState.currentThreadId;
+	// An external agent has already taken this message into its own history: it can be neither rewritten nor pinned nor branched from here
+	const ledByAgent = !!chatThreadsState.allThreads[currentThreadId]?.acpAgent;
 
 	// global state
 	let isBeingEdited = false;
@@ -2614,11 +2622,11 @@ const UserMessageComponent = ({ chatMessage, messageIdx, isCheckpointGhost, curr
 			className={`
             text-left
             ${mode === 'edit' ? 'rounded-lg max-w-full'
-					: mode === 'display' ? '@@vibe-chat-user-bubble text-vibe-fg-1 @@vibe-scroll cursor-pointer select-text' : ''
+					: mode === 'display' ? `@@vibe-chat-user-bubble text-vibe-fg-1 @@vibe-scroll select-text ${ledByAgent ? '' : 'cursor-pointer'}` : ''
 				}
         `}
 			onClick={() => {
-				if (mode !== 'display') {return;}
+				if (mode !== 'display' || ledByAgent) {return;}
 				// Don't open edit mode if the user is selecting text inside the bubble.
 				const sel = typeof window !== 'undefined' ? window.getSelection() : null;
 				if (sel && !sel.isCollapsed && sel.toString().length > 0) {return;}
@@ -2633,7 +2641,7 @@ const UserMessageComponent = ({ chatMessage, messageIdx, isCheckpointGhost, curr
 			{mode === 'display' && userTimeEl && <div className='@@vibe-chat-user-time'>{userTimeEl}</div>}
 		</div>
 
-		<div
+		{!ledByAgent && <div
 			className="absolute -top-1 -right-1 translate-x-0 -translate-y-0 z-1 flex items-center gap-1"
 		>
 			{/* Pin-context: keep this message verbatim through context truncation. Shown on
@@ -2703,7 +2711,7 @@ const UserMessageComponent = ({ chatMessage, messageIdx, isCheckpointGhost, curr
 					}
 				}}
 			/>
-		</div>
+		</div>}
 
 
 	</div>;
@@ -5180,6 +5188,10 @@ const _ChatBubble = React.memo(({ threadId, chatMessage, currCheckpointIdx, isCo
 			threadId={threadId}
 			messageIdx={messageIdx}
 		/>;
+	}
+
+	else if (role === 'acp_tool') {
+		return <AcpToolCard message={chatMessage} isCheckpointGhost={isCheckpointGhost} />;
 	}
 
 	// Unknown role: render nothing rather than `undefined`, which React treats as an error.

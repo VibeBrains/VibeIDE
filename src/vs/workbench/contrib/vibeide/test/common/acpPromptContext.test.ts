@@ -148,6 +148,12 @@ suite('acpPromptContext', () => {
 		});
 	});
 
+	test('картинки уходят блоками image только агенту, который их принимает', () => {
+		const images = [{ data: 'QUJD', mimeType: 'image/png' }];
+		assert.deepStrictEqual(buildAcpPromptBlocks(input({ images })).slice(1), [{ type: 'image', data: 'QUJD', mimeType: 'image/png' }]);
+		assert.deepStrictEqual(buildAcpPromptBlocks(input({ images, capabilities: linksOnly })).slice(1), []);
+	});
+
 	test('заметка про стиль ответов идёт перед словами человека в одном блоке', () => {
 		assert.deepStrictEqual(buildAcpPromptBlocks(input({ note: 'Коротко', text: 'сделай' })), [{ type: 'text', text: 'Коротко\n\nсделай' }]);
 	});
