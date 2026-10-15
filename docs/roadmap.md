@@ -7598,6 +7598,15 @@ docs.z.ai, mimo.mi.com, agentclientprotocol.com, GHSA python-sdk, ncsc.gov.uk, a
       `src/ui/theme/a.less`, `Button.tsx`, `index.html`, молчит на `a.ts`) и проверка, что скобки в пунктах `globs` и `triggers` каждого правила набора парные.
       Соседу VibeIDEA, у которого тот же дефект, передан хендофф. Правило деления — `docs/knowledge/vibeDotfolder/ruleHeaderLists.md`
 
+- [x] **Модели из файла видны и выключаются в «Моделях» у встроенного провайдера** — ✅ (15.10.2026, `next`) в выборе модели у MiniMax были
+      `MiniMax-M3.1-Flash-Preview` и `MiniMax-Text-01` (`models.static` сида), а в карточке «MiniMax (8)» — только восемь моделей каталога:
+      `Settings.tsx` читает `settingsOfProvider[p].models`, а `static` встроенного доходил лишь до `builtinProviderModelOptions` отдельным циклом.
+      Теперь `_validatedModelState` дописывает такие модели в список встроенного (`withBuiltinFileModels`, `common/builtinFileModels.ts`),
+      и настройки с выбором читают один набор: без дублей по id, с пометкой ✎, в счётчике карточки. Тумблер пишет в `dynamicModelHidden`
+      (уже хранимая карта скрытых), в блоб настроек модели файла не попадают (`withoutFileModels`), убранная из файла модель исчезает сама.
+      Клон `minimax-anthropic` — карточка конфиг-провайдера со своим `static` (`fetch: false`), правки не потребовал.
+      Тесты: `builtinFileModels.test.ts`, `providersMergeAndFallback.test.ts`. Разбор — `docs/knowledge/architecture/dynamicProviders.md`
+
 ## REL-126. Релиз v1.26.0 (2026-10-15, macOS arm64 + Windows x64)
 
 - [x] **v1.26.0 для macOS опубликован** — ✅ (15.10.2026, main) `next` влита в `main` (`ce1f253ae`, 25 коммитов с базлайна v1.25.0),

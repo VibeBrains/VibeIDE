@@ -166,17 +166,23 @@ suite('Config providers — merged rights (global+workspace, auto-fallback)', ()
 		});
 	});
 	/**
-	 * Файл, правящий встроенного провайдера, добавляет в выбор модели, которых каталог вендора не отдаёт: так выбирается
-	 * MiniMax M3.1 Flash Preview, доступная только по подписке. Выключенное в файле не показывается, повтор не дублируется
+	 * Список встроенного провайдера уже несёт модели файла (withBuiltinFileModels), и выбор читает тот же список,
+	 * что и настройки: выключенное в файле и скрытое пользователем в выбор не попадает
 	 */
-	suite('builtinProviderModelOptions — static-модели файла у встроенного провайдера', () => {
-		test('каталог, затем модели файла, которых в каталоге нет; active:false прячет из обоих', () => {
+	suite('builtinProviderModelOptions — выбор модели из общего списка', () => {
+		test('скрытые и выключенные файлом уходят, модель файла несёт имя и пометку', () => {
 			const options = builtinProviderModelOptions(
 				'minimax',
 				'minimax',
-				[{ modelName: 'MiniMax-M3', isHidden: false }, { modelName: 'MiniMax-M2', isHidden: true }, { modelName: 'MiniMax-M2.7', isHidden: false }],
-				new Set(['MiniMax-M2.7', 'old-preview']),
-				[{ id: 'MiniMax-M3.1-Flash-Preview', name: 'MiniMax M3.1 Flash Preview (M Plan)' }, { id: 'MiniMax-M3' }, { id: 'old-preview' }],
+				[
+					{ modelName: 'MiniMax-M3', isHidden: false },
+					{ modelName: 'MiniMax-M2', isHidden: true },
+					{ modelName: 'MiniMax-M2.7', isHidden: false },
+					{ modelName: 'MiniMax-M3.1-Flash-Preview', isHidden: false, fileNote: 'manual' },
+					{ modelName: 'MiniMax-Text-01', isHidden: true, fileNote: 'manual' },
+				],
+				new Set(['MiniMax-M2.7']),
+				[{ id: 'MiniMax-M3.1-Flash-Preview', name: 'MiniMax M3.1 Flash Preview (M Plan)' }, { id: 'MiniMax-Text-01' }],
 			);
 			assert.deepStrictEqual(options.map(o => `${o.selection.modelName} | ${o.name} | ${o.fileNote ?? '—'}`), [
 				'MiniMax-M3 | MiniMax-M3 (minimax) | —',
