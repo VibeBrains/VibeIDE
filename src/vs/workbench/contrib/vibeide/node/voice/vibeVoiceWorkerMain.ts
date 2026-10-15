@@ -10,14 +10,16 @@
  *
  * Runs sherpa-onnx (native N-API addon) OUTSIDE electron-main on purpose: decoding is a
  * synchronous native call and a crash here must not take the IDE down. The hybrid pipeline:
- * the streaming model emits interim text and detects phrase ends (built-in endpointing);
- * each finished phrase is re-decoded from a ring buffer by the offline model (RU: GigaAM,
+ * the streaming model emits interim text; `PhraseSplitter` decides where a phrase ends (the model's
+ * own endpoint, or the text standing still for `endpointSilenceMs` — T-one does not close a phrase at a pause);
+ * each finished phrase is re-decoded from a buffer by the offline model (RU: GigaAM,
  * noticeably better WER) for the `final` event. Profiles without an offline model promote
  * the last interim to `final`.
  */
 
 import { isUtilityProcess, ParentPort } from '../../../../../base/parts/sandbox/node/electronTypes.js';
 import { VoiceSessionModelPaths, VoiceStreamingModelPaths, VoiceOfflineModelPaths, VoiceWorkerRequest, VoiceWorkerResponse, VOICE_SAMPLE_RATE } from '../../common/voice/vibeVoiceTypes.js';
+import { PhraseSplitter, StreamingDecoder } from '../../common/voice/vibePhraseSplitter.js';
 
 // ── Minimal typings for the sherpa-onnx-node CJS module (no upstream .d.ts) ──
 
@@ -57,10 +59,8 @@ function loadSherpa(): Promise<SherpaApi> {
 
 // ── Engine (recognizers are expensive — cache per model/threads/endpoint config) ──
 
-/** Hard phrase cap: force-finalize so the segment ring buffer cannot grow unbounded. */
-const MAX_SEGMENT_SECONDS = 28;
-/** Silence appended on graceful stop so the streaming decoder settles before the flush. */
-const STOP_TAIL_SILENCE_SECONDS = 0.6;
+/** Value that switches a built-in endpoint rule off: no recording has a silence or an utterance this long. */
+const BUILTIN_RULE_OFF_SECONDS = 1e9;
 
 function onlineModelConfig(streaming: VoiceStreamingModelPaths, numThreads: number): object {
 	if (streaming.kind === 'tone-ctc') {
@@ -85,11 +85,13 @@ class VoiceEngine {
 		this.online = new sherpa.OnlineRecognizer({
 			modelConfig: onlineModelConfig(models.streaming, numThreads),
 			enableEndpoint: true,
-			// rule1: long silence with nothing decoded; rule2: trailing silence after speech
-			// (the user-facing "phrase ended" knob); rule3: utterance-length hard stop.
-			rule1MinTrailingSilence: 5.0,
+			// Only rule2 (trailing silence after speech, the user-facing "phrase ended" knob) is left to the model.
+			// Rules 1 (silence with nothing decoded) and 3 (utterance length) count from the last reset, not from
+			// speech: they fired in the first second of a word, before the model had shown it, and cut it.
+			// `PhraseSplitter` has the cap, and silence before speech needs no phrase at all.
+			rule1MinTrailingSilence: BUILTIN_RULE_OFF_SECONDS,
 			rule2MinTrailingSilence: endpointSilenceMs / 1000,
-			rule3MinUtteranceLength: MAX_SEGMENT_SECONDS,
+			rule3MinUtteranceLength: BUILTIN_RULE_OFF_SECONDS,
 		});
 		this.offline = models.offline ? VoiceEngine.createOffline(sherpa, models.offline, numThreads) : undefined;
 	}
@@ -159,85 +161,63 @@ async function decodeBatchChunk(offline: VoiceOfflineModelPaths, numThreads: num
 
 // ── Session ──────────────────────────────────────────────────────────────────
 
+/** The native streaming recognizer behind the seam `PhraseSplitter` works against. */
+class OnlineDecoder implements StreamingDecoder {
+	constructor(private readonly recognizer: SherpaOnlineRecognizer, private readonly stream: SherpaOnlineStream) { }
+
+	accept(samples: Float32Array): void {
+		this.stream.acceptWaveform({ sampleRate: VOICE_SAMPLE_RATE, samples });
+		while (this.recognizer.isReady(this.stream)) {
+			this.recognizer.decode(this.stream);
+		}
+	}
+
+	text(): string {
+		return this.recognizer.getResult(this.stream).text;
+	}
+
+	endpoint(): boolean {
+		return this.recognizer.isEndpoint(this.stream);
+	}
+
+	reset(): void {
+		this.recognizer.reset(this.stream);
+	}
+}
+
+/** Re-decode a finished phrase with the offline model (higher accuracy). */
+function decodePhraseOffline(offline: SherpaOfflineRecognizer, samples: Float32Array): string {
+	const stream = offline.createStream();
+	stream.acceptWaveform({ sampleRate: VOICE_SAMPLE_RATE, samples });
+	offline.decode(stream);
+	return offline.getResult(stream).text;
+}
+
 class VoiceSession {
-	private readonly stream: SherpaOnlineStream;
-	/** Audio of the current (unfinished) phrase — offline re-decode input. */
-	private segmentChunks: Float32Array[] = [];
-	private segmentSamples = 0;
-	private lastInterim = '';
+	private readonly splitter: PhraseSplitter;
 
 	constructor(
 		private readonly sessionId: string,
-		private readonly engine: VoiceEngine,
+		engine: VoiceEngine,
+		endpointSilenceMs: number,
 		private readonly post: (msg: VoiceWorkerResponse) => void,
 	) {
-		this.stream = engine.online.createStream();
+		const offline = engine.offline;
+		this.splitter = new PhraseSplitter(
+			new OnlineDecoder(engine.online, engine.online.createStream()),
+			offline ? samples => decodePhraseOffline(offline, samples) : undefined,
+			{ sampleRate: VOICE_SAMPLE_RATE, endpointSilenceSeconds: endpointSilenceMs / 1000 },
+			event => post({ sessionId, type: event.type, text: event.text }),
+		);
 	}
 
 	pushPcm16(pcm: Uint8Array): void {
-		this.acceptSamples(pcm16ToFloat32(pcm), true);
-	}
-
-	private acceptSamples(samples: Float32Array, buffer: boolean): void {
-		if (buffer) {
-			this.segmentChunks.push(samples);
-			this.segmentSamples += samples.length;
-		}
-		this.stream.acceptWaveform({ sampleRate: VOICE_SAMPLE_RATE, samples });
-		this.drain();
-		if (this.segmentSamples >= MAX_SEGMENT_SECONDS * VOICE_SAMPLE_RATE) {
-			this.finalizeSegment();
-		}
-	}
-
-	private drain(): void {
-		const online = this.engine.online;
-		while (online.isReady(this.stream)) {
-			online.decode(this.stream);
-		}
-		const text = online.getResult(this.stream).text.trim();
-		if (text && text !== this.lastInterim) {
-			this.lastInterim = text;
-			this.post({ sessionId: this.sessionId, type: 'partial', text });
-		}
-		if (online.isEndpoint(this.stream)) {
-			this.finalizeSegment();
-		}
-	}
-
-	private finalizeSegment(): void {
-		const text = this.decodeFinal() || this.lastInterim;
-		if (text) {
-			this.post({ sessionId: this.sessionId, type: 'final', text });
-		}
-		this.engine.online.reset(this.stream);
-		this.segmentChunks = [];
-		this.segmentSamples = 0;
-		this.lastInterim = '';
-	}
-
-	/** Re-decode the buffered phrase with the offline model (higher accuracy). */
-	private decodeFinal(): string {
-		const offline = this.engine.offline;
-		if (!offline || this.segmentSamples === 0) {
-			return '';
-		}
-		const samples = new Float32Array(this.segmentSamples);
-		let offset = 0;
-		for (const chunk of this.segmentChunks) {
-			samples.set(chunk, offset);
-			offset += chunk.length;
-		}
-		const stream = offline.createStream();
-		stream.acceptWaveform({ sampleRate: VOICE_SAMPLE_RATE, samples });
-		offline.decode(stream);
-		return offline.getResult(stream).text.trim();
+		this.splitter.accept(pcm16ToFloat32(pcm));
 	}
 
 	/** Graceful stop: settle the decoder with a silence tail, flush the last phrase. */
 	stop(): void {
-		this.acceptSamples(new Float32Array(STOP_TAIL_SILENCE_SECONDS * VOICE_SAMPLE_RATE), false);
-		this.finalizeSegment();
+		this.splitter.flush();
 		this.post({ sessionId: this.sessionId, type: 'stopped' });
 	}
 
@@ -268,7 +248,7 @@ function main(parentPort: ParentPort): void {
 			switch (msg.t) {
 				case 'start': {
 					const eng = await ensureEngine(msg.models, msg.numThreads, msg.endpointSilenceMs);
-					sessions.set(msg.sessionId, new VoiceSession(msg.sessionId, eng, post));
+					sessions.set(msg.sessionId, new VoiceSession(msg.sessionId, eng, msg.endpointSilenceMs, post));
 					post({ sessionId: msg.sessionId, type: 'ready' });
 					break;
 				}
