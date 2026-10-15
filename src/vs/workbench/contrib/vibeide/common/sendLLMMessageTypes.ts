@@ -102,6 +102,13 @@ export const isContextOverflow = (text: string | null | undefined): boolean => {
 };
 
 /**
+ * Region lock: the provider serves this model only from its Global region, and the fix is a setting
+ * in the provider's account. A repeat gets the same refusal, so the retry policy treats it as permanent
+ * and the translator names the fix. Matched by the stable part of the wording, case-insensitive.
+ */
+export const REGION_RESTRICTION_PATTERN: RegExp = /requires Global regions|Global in your workspace.{0,10}Privacy settings/i;
+
+/**
  * Specialized error message for context-window overflow. Distinct from
  * `buildEmptyResponseError` so the UI can show a "compact history" CTA
  * instead of a generic "try again" hint.

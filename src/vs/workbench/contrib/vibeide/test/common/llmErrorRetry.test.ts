@@ -48,6 +48,8 @@ suite('LLM error retry', () => {
 			'контекст не влез, шаблон': { message: buildContextOverflowError('someProvider', 'some-model', 'prompt is too long') },
 			'контекст не влез, сырой текст': { message: 'prompt is too long: 215000 tokens > 200000 maximum' },
 			'квота исчерпана': { message: 'Quota exhausted', refusalKind: 'quota' },
+			// The observed text names no status: without the region check it falls to the transient class and repeats
+			'регион модели закрыт у провайдера': { message: "Upstream request failed: This Go model requires Global regions. Select Global in your workspace's Privacy settings to use it." },
 			'отказ по безопасности': { message: 'The request was declined', safetyRefusal: true },
 			'предохранитель пустых ответов сработал': { message: buildEmptyResponseError('openCode', 'minimax-m2.7', 'unknown'), emptyBreakerTripped: true },
 			'отказ 400': { message: 'Rejected', httpStatus: 400 },
@@ -76,6 +78,7 @@ suite('LLM error retry', () => {
 			'контекст не влез, шаблон': stop,
 			'контекст не влез, сырой текст': stop,
 			'квота исчерпана': stop,
+			'регион модели закрыт у провайдера': stop,
 			'отказ по безопасности': stop,
 			'предохранитель пустых ответов сработал': stop,
 			'отказ 400': nextModelOnly,

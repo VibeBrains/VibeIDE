@@ -17,7 +17,7 @@
  * Pure and dependency-free → unit-testable from test/common/.
  */
 
-import { isContextOverflow } from './sendLLMMessageTypes.js';
+import { isContextOverflow, REGION_RESTRICTION_PATTERN } from './sendLLMMessageTypes.js';
 
 /** Max characters of the original error text echoed after the translation. */
 const ORIGINAL_ECHO_MAX_CHARS = 180;
@@ -40,6 +40,12 @@ const TRANSLATION_RULES: readonly { pattern: RegExp; ru: string | ((message: str
 	{
 		pattern: /free (?:promotion|tier|trial|period) has ended|continue using the model by subscribing|subscription required/i,
 		ru: 'Бесплатный доступ к этой модели у провайдера закончился — требуется подписка. Переключите модель или оформите подписку у провайдера.',
+	},
+	// Region lock — the OpenCode Go wording. Permanent for the retry policy (llmErrorRetry: fatal),
+	// so the card names the setting that unlocks it. The provider is not known here, hence «у провайдера».
+	{
+		pattern: REGION_RESTRICTION_PATTERN,
+		ru: 'Эта модель доступна у провайдера только в регионе Global. Выберите Global в настройках приватности рабочего пространства у провайдера — или выберите другую модель или провайдера, например DeepSeek напрямую своим ключом.',
 	},
 	// Billing / credits — before rate-limit ("quota" alone is ambiguous, billing wording is specific).
 	{

@@ -3,7 +3,7 @@
  *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
 
-import { isContextOverflow, parseContextOverflowError } from './sendLLMMessageTypes.js';
+import { isContextOverflow, parseContextOverflowError, REGION_RESTRICTION_PATTERN } from './sendLLMMessageTypes.js';
 
 /** What the chat knows about a failed model call when it decides whether to ask again */
 export interface LlmErrorFacts {
@@ -88,7 +88,8 @@ function statusOf(facts: LlmErrorFacts): number | undefined {
 
 /**
  * `fatal`: only the person can change the outcome
- * That is a context that does not fit, a spent quota, a safety refusal and a tripped breaker
+ * That is a context that does not fit, a spent quota, a model the provider locks to another region,
+ * a safety refusal and a tripped breaker
  * Those errors also carry a recovery action in the chat, and a retry behind the person's back would hide it
  *
  * `rejected`: a 4xx answer is about the request itself, so the same model answers the same way
@@ -100,6 +101,9 @@ function classifyLlmError(facts: LlmErrorFacts): LlmErrorClass {
 		return 'fatal';
 	}
 	if (parseContextOverflowError(facts.message) || isContextOverflow(facts.message)) {
+		return 'fatal';
+	}
+	if (REGION_RESTRICTION_PATTERN.test(facts.message)) {
 		return 'fatal';
 	}
 	const status = statusOf(facts);

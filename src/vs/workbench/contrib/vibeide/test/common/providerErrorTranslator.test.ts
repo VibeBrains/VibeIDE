@@ -19,6 +19,7 @@ suite('providerErrorTranslator', () => {
 			{ name: 'monthly usage quota (openCodeGo Go)', input: 'Rate limit exceeded: Monthly usage limit reached. Resets in 5 days. To continue using this model now, enable usage from your available balance: https://opencode.ai/workspace/wrk_x/go', expectRu: 'квота за период' },
 			{ name: 'GoUsageLimitError raw body', input: '{"type":"error","error":{"type":"GoUsageLimitError","message":"Monthly usage limit reached."}}', expectRu: 'квота за период' },
 			{ name: 'ended free promotion (openCodeGo 401)', input: 'Free promotion has ended for Qwen3.6 Plus Free. You can continue using the model by subscribing to OpenCode Go - https://opencode.ai/go', expectRu: 'подписка' },
+			{ name: 'region lock (OpenCode Go wording)', input: "Upstream request failed: This Go model requires Global regions. Select Global in your workspace's Privacy settings to use it.", expectRu: 'только в регионе Global' },
 			{ name: 'rate limit (429)', input: 'Request failed with status code 429', expectRu: 'частоту запросов' },
 			{ name: 'overloaded (Anthropic)', input: 'Overloaded', expectRu: 'перегружен' },
 			{ name: 'billing (OpenAI quota)', input: 'You exceeded your current quota, please check your plan and billing details.', expectRu: 'квота' },
@@ -65,6 +66,11 @@ suite('providerErrorTranslator', () => {
 
 		test('unknown English error is left alone', () => {
 			assert.strictEqual(translateProviderError('Something completely unexpected happened in flux capacitor.'), null);
+		});
+
+		// The region lock is matched by its full wording: a bare «privacy settings» from another provider is not it
+		test('privacy wording of another provider is not the region lock', () => {
+			assert.strictEqual(translateProviderError('No endpoints available matching your data policy. Configure privacy settings at https://openrouter.ai/settings/privacy'), null);
 		});
 
 		test('long original is truncated in the echo', () => {
