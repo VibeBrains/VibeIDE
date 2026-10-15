@@ -15,7 +15,7 @@ optional set of global paths configured by the user.
   pinned in the top title bar — one click away.
 - **Per-project keybindings.** `.vibe/commands.json` registers each command in the
   command registry as `vibeide.commands.run.<id>` so VS Code keybindings target them.
-- **Trust boundary.** `.vibe/commands.trust.json` records consent on first run.
+- **Trust boundary.** Consent on first run is kept in the IDE profile storage, per project folder, outside the repository.
 - **Multi-root.** Each workspace folder has its own command set; conflicts on `id` favor
   the workspace folder over global.
 
@@ -75,7 +75,8 @@ as `terminal: "background"`.
 ## Security policy
 
 - **First-run confirm.** Any new command id triggers a consent dialog before execution.
-  Consent persists in `.vibe/commands.trust.json` (gitignored by default).
+  Consent persists in the IDE profile storage (SHA-256 fingerprint of the command). A legacy
+  `.vibe/commands.trust.json` is not read. An untrusted workspace (Workspace Trust) is asked every time.
 - **Sanitization on import.** Community packs go through
   `IVibePromptGuardService.sanitizeFileContent` before write — zero-width chars, Bidi
   controls, and known injection patterns are stripped.

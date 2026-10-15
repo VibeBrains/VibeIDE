@@ -80,7 +80,7 @@ vendor/
 `;
 
 // Runtime/machine-local artifacts VibeIDE writes into .vibe/ during work — NOT project config.
-// Seeded as .vibe/.gitignore so они не попадают в git у пользователя (window-lock, локи, trust-хэши, снапшоты).
+// Seeded as .vibe/.gitignore so они не попадают в git у пользователя (window-lock, локи, снапшоты).
 const DEFAULT_VIBE_GITIGNORE = `# VibeIDE — рантайм-артефакты (машинно-локальные, не конфиг проекта). Не коммитить.
 # Всё, что IDE пишет про себя, живёт в local/ — одна строка вместо списка имён, который
 # приходится дополнять при каждом новом файле, а забытым окажется именно тот, что утечёт в коммит.
@@ -90,6 +90,8 @@ local/
 .window-lock.json
 agent-locks.json
 agent-runs.jsonl
+# Файл разрешений прежних версий: теперь разрешения в хранилище IDE, а этот файл не читается.
+# Строка нужна, чтобы остаток от старой версии не попал в коммит.
 commands.trust.json
 snapshots/
 # Планы агента и лизы выполнения внутри них: план пишет IDE, а .leases/ — это замки

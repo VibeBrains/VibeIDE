@@ -79,7 +79,6 @@ export function getDefaultVibeReadmeMarkdown(): string {
 | Файл | Назначение |
 |------|------------|
 | **.window-lock.json** | Координатор окон при многооконной работе на одном workspace (heartbeat + PID, TTL 60с). В **.gitignore**. |
-| **commands.trust.json** | Локальный trust-state для \`commands.json\` (FNV-1a хеши одобренных команд). В **.gitignore**. |
 | **onboarding.json** | Состояние пройденных onboarding-шагов и toasts. Обычно в **.gitignore**. |
 | **agent-runs.jsonl** | Журнал прогонов агентов для панели «Диспетчерская агентов»: роль, цель, статус, расход, итог. Только метаданные — переписка с моделью не пишется. В **.gitignore**. |
 
