@@ -9,7 +9,7 @@ import { DisposableStore } from '../../../../../base/common/lifecycle.js';
 import { ensureNoDisposablesAreLeakedInTestSuite } from '../../../../../base/test/common/utils.js';
 import { InMemoryStorageService } from '../../../../../platform/storage/common/storage.js';
 import { getModelCapabilities } from '../../common/modelCapabilities.js';
-import { retiredForAutoPick, unfitForAutoPick } from '../../common/modelDeprecation.js';
+import { retiredForAutoPick } from '../../common/modelDeprecation.js';
 import { TaskAwareModelRouter } from '../../common/modelRouter.js';
 import { IVibeideSettingsService, VibeideSettingsState } from '../../common/vibeideSettingsService.js';
 import { defaultGlobalSettings, defaultSettingsOfProvider } from '../../common/vibeideSettingsTypes.js';
@@ -66,56 +66,6 @@ suite('автовыбор не отдаёт модель, которую вен�
 		], [
 			[successor],
 			[successor],
-		]);
-	});
-
-	/**
-	 * MiniMax-Text-01 — модель для массового рерайта: не думает, вендор её не подтверждает. M3.1 Flash Preview — только по подписке.
-	 * В выборе модели они есть (файл их объявляет), а «Авто» руками не выбирает: ни та ни другая ему не достаются
-	 */
-	test('профили MiniMax: Text-01 и M3.1 Flash Preview исключены из «Авто», остальная линейка — нет', () => {
-		const now = Date.UTC(2026, 9, 15);
-		const names = ['MiniMax-Text-01', 'MiniMax-M3.1-Flash-Preview', 'MiniMax-M3', 'MiniMax-M2.7'];
-		assert.deepStrictEqual(
-			names.map(modelName => unfitForAutoPick(getModelCapabilities('minimax', modelName, undefined), now)),
-			[true, true, false, false],
-		);
-		// Снятая вендором модель по-прежнему исключается, как и раньше
-		assert.strictEqual(unfitForAutoPick(getModelCapabilities('groq', retired, undefined), now), true);
-	});
-
-	test('роутер «Авто»: модели файла MiniMax стоят первыми и подходят под задачу, но не выбираются', async () => {
-		const state = {
-			settingsOfProvider: {
-				minimax: {
-					...defaultSettingsOfProvider.minimax,
-					apiKey: 'k',
-					_didFillInProviderSettings: true,
-					models: [
-						{ modelName: 'MiniMax-Text-01', type: 'autodetected', isHidden: false, fileNote: 'manual' },
-						{ modelName: 'MiniMax-M3.1-Flash-Preview', type: 'autodetected', isHidden: false, fileNote: 'manual' },
-						{ modelName: 'MiniMax-M3', type: 'autodetected', isHidden: false },
-					],
-				},
-			},
-			overridesOfModel: {},
-			globalSettings: defaultGlobalSettings,
-		} as unknown as VibeideSettingsState;
-		const settings = { state, onDidChangeState: Event.None } as unknown as IVibeideSettingsService;
-		const disposables = store.add(new DisposableStore());
-		const router = disposables.add(new TaskAwareModelRouter(settings, disposables.add(new InMemoryStorageService())));
-		const picked = async (context: Parameters<TaskAwareModelRouter['route']>[0]) => {
-			const decision = await router.route(context);
-			return [decision.modelSelection.modelName, ...(decision.fallbackChain ?? []).map(model => model.modelName)];
-		};
-		assert.deepStrictEqual([
-			await picked({ taskType: 'chat', isSimpleQuestion: true }),
-			await picked({ taskType: 'code', hasCode: true, requiresComplexReasoning: true }),
-			await picked({ taskType: 'chat', preferLowLatency: true }),
-		], [
-			['MiniMax-M3'],
-			['MiniMax-M3'],
-			['MiniMax-M3'],
 		]);
 	});
 });

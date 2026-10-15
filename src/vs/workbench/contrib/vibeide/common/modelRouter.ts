@@ -8,7 +8,7 @@ import { vibeLog } from './vibeLog.js';
 import { ModelSelection } from './vibeideSettingsTypes.js';
 import { isLocalProvider } from './isLocalProvider.js';
 import { getModelCapabilities, VibeideStaticModelInfo } from './modelCapabilities.js';
-import { unfitForAutoPick } from './modelDeprecation.js';
+import { retiredForAutoPick } from './modelDeprecation.js';
 import { IVibeideSettingsService, VibeideSettingsState } from './vibeideSettingsService.js';
 import { Disposable } from '../../../../base/common/lifecycle.js';
 import { createDecorator } from '../../../../platform/instantiation/common/instantiation.js';
@@ -817,7 +817,7 @@ export class TaskAwareModelRouter extends Disposable implements ITaskAwareModelR
 	 * Filtered at the source, so the later stages that fall back to «all models» fall back without it too
 	 */
 	private isAutoPickable(model: ModelSelection, settingsState: VibeideSettingsState): boolean {
-		return !unfitForAutoPick(getModelCapabilities(model.providerName, model.modelName, settingsState.overridesOfModel), Date.now());
+		return !retiredForAutoPick(getModelCapabilities(model.providerName, model.modelName, settingsState.overridesOfModel), Date.now());
 	}
 
 	/**

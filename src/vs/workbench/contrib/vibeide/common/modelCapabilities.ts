@@ -236,12 +236,6 @@ export type VibeideStaticModelInfo = { // not stateful
 	 * display time by `modelDeprecation.ts` — storing a verdict here would go stale the next day.
 	 */
 	deprecation?: { date?: string; replacedBy?: string; note?: string };
-	/**
-	 * «Auto» never hands this model over: only a deliberate choice reaches it
-	 * For a model that works only on some plans or tasks (a subscription-only preview, a bulk-rewrite model)
-	 * Picking it by hand and the model lists are not affected
-	 */
-	notForAuto?: boolean;
 
 	// reasoning options
 	reasoningCapabilities: false | {
@@ -2370,7 +2364,6 @@ const minimaxModelOptions = {
 		specialToolFormat: 'openai-style',
 		supportsSystemMessage: 'system-role',
 		reasoningCapabilities: { supportsReasoning: true, canTurnOffReasoning: false, canIOReasoning: true, reasoningSlider: { type: 'effort_slider', values: ['low', 'medium', 'high', 'xhigh', 'max'], default: 'high' } },
-		notForAuto: true, // plan-only: with a pay-as-you-go key «Auto» would hand over a model that answers with an error
 	},
 	'MiniMax-M2': {
 		contextWindow: 204_800,
@@ -2407,7 +2400,6 @@ const minimaxModelOptions = {
 		specialToolFormat: 'openai-style',
 		supportsSystemMessage: 'system-role',
 		reasoningCapabilities: false,
-		notForAuto: true, // bulk rewriting and long texts, not agent work: no reasoning, and the vendor does not confirm the model
 	},
 } as const satisfies { [s: string]: VibeideStaticModelInfo };
 

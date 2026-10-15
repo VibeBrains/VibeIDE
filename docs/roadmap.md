@@ -7607,10 +7607,6 @@ docs.z.ai, mimo.mi.com, agentclientprotocol.com, GHSA python-sdk, ncsc.gov.uk, a
       Клон `minimax-anthropic` — карточка конфиг-провайдера со своим `static` (`fetch: false`), правки не потребовал.
       Тесты: `builtinFileModels.test.ts`, `providersMergeAndFallback.test.ts`. Разбор — `docs/knowledge/architecture/dynamicProviders.md`
 
-- [x] **«Авто» не берёт `MiniMax-Text-01` и `M3.1 Flash Preview`** — ✅ (15.10.2026, `next`) после того как модели файла встали в список встроенного,
-      роутер увидел их и на простом вопросе ставил первыми (красный тест до правки). Поле профиля `notForAuto`, функция `unfitForAutoPick`
-      вместо `retiredForAutoPick` во всех местах автовыбора; ручной выбор и списки не затронуты. Тесты: `autoPickRetiredModel.test.ts`
-
 ## REL-126. Релиз v1.26.0 (2026-10-15, macOS arm64 + Windows x64)
 
 - [x] **v1.26.0 для macOS опубликован** — ✅ (15.10.2026, main) `next` влита в `main` (`ce1f253ae`, 25 коммитов с базлайна v1.25.0),

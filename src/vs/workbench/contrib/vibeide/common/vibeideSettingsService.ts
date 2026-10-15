@@ -15,7 +15,7 @@ import { IConfigurationService } from '../../../../platform/configuration/common
 import { IMetricsService } from './metricsService.js';
 import { vibeLog } from './vibeLog.js';
 import { defaultProviderSettings, getModelCapabilities, isFloatingModel, ModelOverrides, VibeideStaticModelInfo } from './modelCapabilities.js';
-import { unfitForAutoPick } from './modelDeprecation.js';
+import { retiredForAutoPick } from './modelDeprecation.js';
 import type { VibeProviderEntry, VibeReasoningDialect } from './vibeProvidersFile.js';
 import { VOID_SETTINGS_STORAGE_KEY } from './storageKeys.js';
 import type { BuiltinWireHints } from './builtinWireHints.js';
@@ -598,7 +598,7 @@ const _validatedModelState = (state: Omit<VibeideSettingsState, '_modelOptions'>
 		// The replacement is picked on the user's behalf, so a model the vendor already turned off is skipped
 		// The user can still choose it by hand: an enterprise contract may keep a model the vendor retired for everyone else
 		const replacement = modelOptionsForThisFeature.find(o => o.selection.providerName === 'auto'
-			|| !unfitForAutoPick(getModelCapabilities(o.selection.providerName, o.selection.modelName, state.overridesOfModel), now));
+			|| !retiredForAutoPick(getModelCapabilities(o.selection.providerName, o.selection.modelName, state.overridesOfModel), now));
 		newModelSelectionOfFeature = {
 			...newModelSelectionOfFeature,
 			[featureName]: replacement?.selection ?? null
@@ -1322,7 +1322,7 @@ class VoidSettingsService extends Disposable implements IVibeideSettingsService 
 			if (providerSettings && providerSettings._didFillInProviderSettings) {
 				for (const model of (providerSettings.models || []).filter(m => !m.isHidden)) {
 					const capabilities = getModelCapabilities(providerName, model.modelName, this.state.overridesOfModel);
-					if (unfitForAutoPick(capabilities, now)) {
+					if (retiredForAutoPick(capabilities, now)) {
 						continue;
 					}
 					if (!isFloatingModel(capabilities)) {

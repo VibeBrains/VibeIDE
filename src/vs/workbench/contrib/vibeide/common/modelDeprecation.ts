@@ -78,14 +78,6 @@ export function retiredForAutoPick(capabilities: { readonly deprecation?: VibeMo
 	return excludedFromAutoPick(deprecationStatus(capabilities.deprecation, now));
 }
 
-/**
- * May «Auto» not hand this model over? Retired by the vendor, or declared `notForAuto` by its profile
- * Every place that picks a model on the user's behalf asks this; a model chosen by hand is not subject to it
- */
-export function unfitForAutoPick(capabilities: { readonly deprecation?: VibeModelDeprecation; readonly notForAuto?: boolean }, now: number): boolean {
-	return capabilities.notForAuto === true || retiredForAutoPick(capabilities, now);
-}
-
 /** `2026-08-16` → `16.08.2026` for the reader; a date the vendor wrote some other way is shown as written */
 export function displayDeprecationDate(date: string | undefined): string | undefined {
 	const match = date?.match(/^(?<year>\d{4})-(?<month>\d{2})-(?<day>\d{2})$/);
