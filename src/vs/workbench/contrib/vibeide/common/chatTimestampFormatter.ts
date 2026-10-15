@@ -48,8 +48,8 @@ export function formatChatTimestamp(ts: unknown, pattern: string = 'DD.MM.YYYY H
 export const CHAT_TIMESTAMP_TOOLTIP_PATTERN = 'DD.MM.YYYY HH:mm:ss';
 
 /**
- * Pattern of the time inside a user message bubble.
- * The bubble has no room for the date: the full date and seconds stay in the `title` of the `<time>` element
+ * Time-only pattern of the service journal entries. The user message bubble no longer uses it:
+ * it shows the default date-and-time pattern, the same as the assistant message
  */
 export const CHAT_USER_MESSAGE_TIME_PATTERN = 'HH:mm';
 

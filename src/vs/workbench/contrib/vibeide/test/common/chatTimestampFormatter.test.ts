@@ -57,7 +57,12 @@ suite('Chat timestamp formatter — pure helpers', () => {
 			assert.strictEqual(out, '[2026.05.08 14:32]');
 		});
 
-		test('user message pattern is the zero-padded time without the date', () => {
+		test('user bubble uses the default date-and-time pattern of the assistant message', () => {
+			const d = new Date(2026, 4, 8, 9, 3, 7);
+			assert.strictEqual(formatChatTimestamp(d.getTime()), '08.05.2026 09:03');
+		});
+
+		test('journal time pattern is the zero-padded time without the date', () => {
 			const d = new Date(2026, 4, 8, 9, 3, 7);
 			assert.strictEqual(formatChatTimestamp(d.getTime(), CHAT_USER_MESSAGE_TIME_PATTERN), '09:03');
 		});

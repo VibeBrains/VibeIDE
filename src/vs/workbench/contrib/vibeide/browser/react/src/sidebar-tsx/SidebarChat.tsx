@@ -35,7 +35,7 @@ import { WarningBox } from '../vibe-settings-tsx/WarningBox.js';
 import { getModelCapabilities, getIsReasoningEnabledState, getReservedOutputTokenSpace } from '../../../../common/modelCapabilities.js';
 import { AlertTriangle, File, Ban, Check, ChevronRight, ChevronDown, Dot, FileIcon, Pencil, Undo, Undo2, X, Flag, Copy as CopyIcon, Info, CirclePlus, Ellipsis, CircleEllipsis, Folder, ALargeSmall, TypeOutline, Text, Paperclip, Waypoints, LoaderCircle, Maximize2, Maximize, Pin, FileDown, RotateCcw, StepForward, Footprints, Mic, GitBranch } from 'lucide-react';
 import { ChatMessage, CheckpointEntry, StagingSelectionItem, ToolMessage, PlanMessage, ReviewMessage, ScoutMessage, PlanStep, StepStatus, PlanApprovalState, ChatImageAttachment, ChatPDFAttachment, normalizePendingInjections, ReviewChecklist, EditBatch } from '../../../../common/chatThreadServiceTypes.js';
-import { formatChatTimestamp, chatTimestampToISO, CHAT_TIMESTAMP_STREAMING_PLACEHOLDER, CHAT_TIMESTAMP_TOOLTIP_PATTERN, CHAT_USER_MESSAGE_TIME_PATTERN } from '../../../../common/chatTimestampFormatter.js';
+import { formatChatTimestamp, chatTimestampToISO, CHAT_TIMESTAMP_STREAMING_PLACEHOLDER, CHAT_TIMESTAMP_TOOLTIP_PATTERN } from '../../../../common/chatTimestampFormatter.js';
 import { parseChatSlashCommand, splitWatchArgs, CHAT_SLASH_COMMANDS, SLASH_COMMAND_FILE_NAME_CHARS, findChatCommandSpans } from '../../../../common/chatSlashCommands.js';
 import { BuiltinToolCallParams, BuiltinToolName, ToolName, LintErrorItem, ToolApprovalType, toolApprovalTypes } from '../../../../common/toolsServiceTypes.js';
 import { approvalTypeOfBuiltinToolName } from '../../../../common/prompt/tools/index.js';
@@ -141,13 +141,13 @@ const ChatTimestamp = ({ ts, align, streaming }: { ts: number | undefined; align
 };
 
 /**
- * Time of a user message for its bubble: the `HH:mm` text, the `<time>` attribute and the full-date tooltip
- * Null when timestamps are switched off or the message has no time
+ * Time of a user message for its bubble: the same `DD.MM.YYYY HH:mm` text as the assistant message,
+ * the `<time>` attribute and the seconds in the tooltip. Null when timestamps are switched off or there is no time
  */
 const useUserMessageTime = (ts: number | undefined) => {
 	const settingsState = useSettingsState();
 	if (settingsState.globalSettings.showChatTimestamps === false) {return null;}
-	const text = formatChatTimestamp(ts, CHAT_USER_MESSAGE_TIME_PATTERN);
+	const text = formatChatTimestamp(ts);
 	if (!text) {return null;}
 	return { text, iso: chatTimestampToISO(ts), title: formatChatTimestamp(ts, CHAT_TIMESTAMP_TOOLTIP_PATTERN) };
 };
