@@ -23,12 +23,14 @@ import { ICommandService } from '../../../../../platform/commands/common/command
 import { IConfigurationService } from '../../../../../platform/configuration/common/configuration.js';
 import { INotificationService, Severity } from '../../../../../platform/notification/common/notification.js';
 import { AcpEvent, IAcpPermissionRequest, IAcpSession } from '../../common/acp/acpTypes.js';
-import { AcpReconnectMode, AcpStopReason, agentCommandOf, IAcpCommand, IAcpConfigOption, IAcpDiff } from '../../common/acp/acpProtocol.js';
+import { AcpReconnectMode, AcpStopReason, agentCommandOf, IAcpCommand, IAcpConfigOption, IAcpDiff, IAcpPromptCapabilities } from '../../common/acp/acpProtocol.js';
+import { ACP_EMBED_MAX_CHARS_DEFAULT, ACP_EMBED_MAX_CHARS_KEY, AcpContextItem, IAcpEditorState, buildAcpPromptBlocks } from '../../common/acp/acpPromptContext.js';
 import { AcpLogEntry, AcpSessionLog, IAcpSessionSnapshot } from '../../common/acp/acpSessionLog.js';
 import { buildAcpPermissionAudit, buildAcpSessionAudit, buildAcpToolCallAudit } from '../../common/acp/acpAudit.js';
 import { AuditEvent, IAuditLogService } from '../../common/auditLogService.js';
 import { IVibeAcpService } from '../../common/acp/vibeAcpService.js';
 import { IRollbackSnapshotService } from '../../common/rollbackSnapshotService.js';
+import { ISecretDetectionService } from '../../common/secretDetectionService.js';
 import { IVibeAgentActivityLogService } from '../vibeAgentActivityLogService.js';
 import { IVibeAcpRegistryService } from './vibeAcpRegistryService.js';
 import { VibeAgentEntry } from '../../common/acp/vibeAgentsFile.js';
@@ -62,6 +64,18 @@ export interface IVibeAcpSessionView {
 	readonly commands: readonly IAcpCommand[];
 }
 
+/** A task for the agent: the person's words, and what of the editor goes along with them */
+export interface IVibeAcpPromptRequest {
+	readonly text: string;
+	/** Absent for a task that comes from a messenger: the person is not at the editor, and its open file means nothing */
+	readonly context?: {
+		readonly items: readonly AcpContextItem[];
+		readonly editor: IAcpEditorState;
+		/** A path closed to the agent (`.vibe/ignore`) */
+		readonly isHidden?: (path: string) => boolean;
+	};
+}
+
 export interface IVibeAcpSessionsService {
 	readonly _serviceBrand: undefined;
 
@@ -74,7 +88,7 @@ export interface IVibeAcpSessionsService {
 	setSurfaceVisible(visible: boolean): void;
 
 	startSession(agent: VibeAgentEntry): Promise<IAcpSession>;
-	prompt(sessionId: string, text: string): Promise<void>;
+	prompt(sessionId: string, request: IVibeAcpPromptRequest): Promise<void>;
 	answerPermission(sessionId: string, optionId: string | undefined): Promise<void>;
 	cancel(sessionId: string): Promise<void>;
 	endSession(sessionId: string): Promise<void>;
@@ -102,6 +116,8 @@ interface ISessionState {
 	configOptions: readonly IAcpConfigOption[];
 	configuring: boolean;
 	commands: readonly IAcpCommand[];
+	/** What the agent accepts in a prompt, as it declared in the greeting */
+	promptCapabilities: IAcpPromptCapabilities;
 	/** The «Краткие ответы» level the agent was last given; undefined — it has not been told anything */
 	brevitySent?: BrevityLevel;
 }
@@ -126,6 +142,7 @@ class VibeAcpSessionsService extends Disposable implements IVibeAcpSessionsServi
 		@ICommandService private readonly _commandService: ICommandService,
 		@IAuditLogService private readonly _auditLog: IAuditLogService,
 		@IConfigurationService private readonly _configurationService: IConfigurationService,
+		@ISecretDetectionService private readonly _secretDetection: ISecretDetectionService,
 	) {
 		super();
 		this._register(this._acpService.onEvent(event => this._observe(event)));
@@ -170,6 +187,7 @@ class VibeAcpSessionsService extends Disposable implements IVibeAcpSessionsServi
 			configOptions: session.configOptions ?? [],
 			configuring: false,
 			commands: session.commands ?? [],
+			promptCapabilities: session.promptCapabilities,
 		});
 		this._activityLog.logStarted(localize('vibeide.acp.log.session', "Внешний агент «{0}» открыл сессию", session.agentName));
 		this._audit(buildAcpSessionAudit({ agentId: agent.id, sessionId: session.sessionId, phase: 'started' }, Date.now()));
@@ -177,7 +195,7 @@ class VibeAcpSessionsService extends Disposable implements IVibeAcpSessionsServi
 		return session;
 	}
 
-	async prompt(sessionId: string, text: string): Promise<void> {
+	async prompt(sessionId: string, request: IVibeAcpPromptRequest): Promise<void> {
 		const state = this._sessions.get(sessionId);
 		if (!state || state.busy) { return; }
 		if (state.disconnected) {
@@ -193,10 +211,21 @@ class VibeAcpSessionsService extends Disposable implements IVibeAcpSessionsServi
 		// The agent keeps its own history, so the style goes once and again only on a change of level
 		// An agent command runs only as the first word of the task: the note waits for the next ordinary task
 		const brevity = brevityLevelOf(this._configurationService.getValue(BREVITY_SETTING));
-		const command = agentCommandOf(text, state.commands);
+		const command = agentCommandOf(request.text, state.commands);
 		const note = command ? undefined : brevityForAgent(state.brevitySent, brevity);
 		try {
-			state.lastStopReason = await this._acpService.prompt(sessionId, note ? `${note}\n\n${text}` : text);
+			const blocks = buildAcpPromptBlocks({
+				text: request.text,
+				note,
+				commands: state.commands,
+				capabilities: state.promptCapabilities,
+				embedMaxChars: this._configurationService.getValue<number>(ACP_EMBED_MAX_CHARS_KEY) ?? ACP_EMBED_MAX_CHARS_DEFAULT,
+				items: request.context?.items ?? [],
+				editor: request.context?.editor,
+				isHidden: request.context?.isHidden,
+				redact: text => this._secretDetection.detectSecrets(text).redactedText,
+			});
+			state.lastStopReason = await this._acpService.prompt(sessionId, blocks);
 			if (!command) {
 				state.brevitySent = brevity;
 			}
@@ -286,6 +315,7 @@ class VibeAcpSessionsService extends Disposable implements IVibeAcpSessionsServi
 			// A new process may expose other settings and commands; an agent that reported none keeps showing none
 			current.configOptions = back.configOptions ?? [];
 			current.commands = back.commands ?? [];
+			current.promptCapabilities = back.promptCapabilities;
 			// A fresh session has none of the old history, the style included
 			if (back.mode === 'new') {
 				current.brevitySent = undefined;
@@ -330,7 +360,7 @@ class VibeAcpSessionsService extends Disposable implements IVibeAcpSessionsServi
 				return;
 			case 'tool': {
 				const state = this._sessions.get(event.sessionId);
-				state?.log.applyTool({ toolCallId: event.toolCallId, title: event.title, name: event.name, toolKind: event.toolKind, status: event.status, paths: event.paths, diffs: event.diffs });
+				state?.log.applyTool({ toolCallId: event.toolCallId, title: event.title, name: event.name, toolKind: event.toolKind, status: event.status, paths: event.paths, diffs: event.diffs, output: event.output, exitCode: event.exitCode });
 				if (state) {
 					this._journalEdit(state, event.toolCallId, event.status);
 					this._auditToolCall(state, event.toolCallId, event.status);

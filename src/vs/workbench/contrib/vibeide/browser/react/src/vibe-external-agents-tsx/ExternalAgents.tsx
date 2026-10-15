@@ -248,7 +248,7 @@ const SessionCard = ({ session }: { session: IVibeAcpSessionView }) => {
 		const text = draft.trim();
 		if (!text) { return; }
 		setDraft('');
-		void sessions.prompt(session.sessionId, text);
+		void sessions.prompt(session.sessionId, { text });
 	}, [draft, sessions, session.sessionId]);
 
 	return <div className='flex flex-col gap-3 rounded-lg border border-vibe-border-3 bg-vibe-bg-1 px-4 py-3'>

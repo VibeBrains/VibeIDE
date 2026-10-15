@@ -20,7 +20,7 @@ export type AcpLogEntry =
 	/** Реплика агента: склеенные куски текста. Размышление отделено от ответа признаком. */
 	| { readonly kind: 'message'; readonly id: string; readonly text: string; readonly thought: boolean }
 	/** Карточка вызова инструмента: одна на вызов, обновляется по мере кадров. */
-	| { readonly kind: 'tool'; readonly id: string; readonly title: string; readonly name: string; readonly toolKind: string; readonly status: AcpToolStatus; readonly paths: readonly string[]; readonly diffs: readonly IAcpDiff[] }
+	| { readonly kind: 'tool'; readonly id: string; readonly title: string; readonly name: string; readonly toolKind: string; readonly status: AcpToolStatus; readonly paths: readonly string[]; readonly diffs: readonly IAcpDiff[]; readonly output: string; readonly exitCode?: number }
 	/**
 	 * A note from the editor, not from the agent: what happened to the session itself, e.g. that the
 	 * connection came back and whether the agent still remembers the conversation above.
@@ -42,6 +42,10 @@ export interface AcpToolFrame {
 	readonly status: AcpToolStatus;
 	readonly paths: readonly string[];
 	readonly diffs: readonly IAcpDiff[];
+	/** What the call printed or returned, cut to `ACP_TOOL_OUTPUT_MAX_CHARS`; empty — nothing yet */
+	readonly output: string;
+	/** Exit code of a command; absent until it ends and for calls that are not commands */
+	readonly exitCode?: number;
 }
 
 /** Расход хода: контекст и деньги. */
@@ -97,13 +101,14 @@ export class AcpSessionLog {
 	 * им накопленное, поверхность показала бы правку без содержимого.
 	 */
 	applyTool(frame: AcpToolFrame): void {
-		const { toolCallId, title, name, toolKind, status, paths, diffs } = frame;
+		const { toolCallId, title, name, toolKind, status, paths, diffs, output, exitCode } = frame;
 		const index = this._entries.findIndex(entry => entry.kind === 'tool' && entry.id === toolCallId);
 		if (index === -1) {
-			this._entries = [...this._entries, { kind: 'tool', id: toolCallId, title, name, toolKind, status, paths, diffs }];
+			this._entries = [...this._entries, { kind: 'tool', id: toolCallId, title, name, toolKind, status, paths, diffs, output, ...(exitCode === undefined ? {} : { exitCode }) }];
 			return;
 		}
 		const known = this._entries[index] as Extract<AcpLogEntry, { kind: 'tool' }>;
+		const mergedExitCode = exitCode ?? known.exitCode;
 		const merged: AcpLogEntry = {
 			kind: 'tool',
 			id: toolCallId,
@@ -114,6 +119,9 @@ export class AcpSessionLog {
 			status,
 			paths: paths.length > 0 ? paths : known.paths,
 			diffs: diffs.length > 0 ? diffs : known.diffs,
+			// Like the diff, the output and the exit code arrive in their own frame: a later frame without them does not erase them
+			output: output || known.output,
+			...(mergedExitCode === undefined ? {} : { exitCode: mergedExitCode }),
 		};
 		this._entries = [...this._entries.slice(0, index), merged, ...this._entries.slice(index + 1)];
 	}

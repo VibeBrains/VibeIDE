@@ -16,12 +16,14 @@ import { vibeLog } from '../../common/vibeLog.js';
 import {
 	ACP_AGENT_METHOD,
 	ACP_CLIENT_METHOD,
+	AcpContentBlock,
 	AcpReconnectMode,
 	AcpStreamDecoder,
 	AcpStopReason,
 	IAcpAuthMethod,
 	IAcpCommand,
 	IAcpConfigOption,
+	IAcpPromptCapabilities,
 	JSON_RPC_ERROR,
 	JsonValue,
 	agentSupportsClose,
@@ -37,6 +39,7 @@ import {
 	newSessionParams,
 	agentSupportsHttpMcp,
 	parseSessionUpdate,
+	promptCapabilitiesOf,
 	promptParams,
 	reconnectModesOf,
 	requestFrame,
@@ -101,6 +104,8 @@ interface IAgentProcess {
 	authMethods: readonly IAcpAuthMethod[];
 	/** The agent declared `session/close`: a session ends with it before the process is ended */
 	closeSupported?: boolean;
+	/** What the agent declared it accepts in a prompt; known from the greeting on, before any session */
+	promptCapabilities: IAcpPromptCapabilities;
 	/** The session's settings as the agent last reported them — a boolean's change has to say its type */
 	configOptions?: readonly IAcpConfigOption[];
 	/** The agent's own slash commands as it last announced them; they may come before the session is handed over */
@@ -121,8 +126,9 @@ interface IAgentProcess {
 }
 
 /** What the agent told about the session before it was handed over: its settings and its commands */
-function sessionStateOf(agent: IAgentProcess): Pick<IAcpSession, 'configOptions' | 'commands'> {
+function sessionStateOf(agent: IAgentProcess): Pick<IAcpSession, 'configOptions' | 'commands' | 'promptCapabilities'> {
 	return {
+		promptCapabilities: agent.promptCapabilities,
 		...(agent.configOptions ? { configOptions: agent.configOptions } : {}),
 		...(agent.commands ? { commands: agent.commands } : {}),
 	};
@@ -235,7 +241,7 @@ export class VibeAcpMainService extends Disposable implements IVibeAcpMain {
 			shell: false,
 		}) as ChildProcessWithoutNullStreams;
 
-		const agent: IAgentProcess = { launch, child, decoder: new AcpStreamDecoder(), pending: new Map(), nextId: 1, authMethods: [] };
+		const agent: IAgentProcess = { launch, child, decoder: new AcpStreamDecoder(), pending: new Map(), nextId: 1, authMethods: [], promptCapabilities: promptCapabilitiesOf(undefined) };
 		child.stdout.setEncoding('utf8');
 		child.stdout.on('data', chunk => this._onStdout(agent, String(chunk)));
 		// stderr агента — не протокол, а его собственные жалобы. В лог, но не в разбор: смешать
@@ -257,6 +263,7 @@ export class VibeAcpMainService extends Disposable implements IVibeAcpMain {
 		}
 		agent.authMethods = authMethodsOf(greeting);
 		agent.closeSupported = agentSupportsClose(greeting);
+		agent.promptCapabilities = promptCapabilitiesOf(greeting);
 		// HTTP-серверы отсеиваются здесь, а не в окне: поддержку такого транспорта агент объявляет
 		// в рукопожатии, и раньше этого момента узнать её неоткуда. Отсеянное называется в журнале —
 		// у гостя это выглядело бы как неработающий сервер без всякой причины.
@@ -312,11 +319,11 @@ export class VibeAcpMainService extends Disposable implements IVibeAcpMain {
 		agent.child.kill();
 	}
 
-	async prompt(sessionId: string, text: string): Promise<AcpStopReason> {
+	async prompt(sessionId: string, blocks: readonly AcpContentBlock[]): Promise<AcpStopReason> {
 		const agent = this._require(sessionId);
 		let result: JsonValue;
 		try {
-			result = await this._call(agent, ACP_AGENT_METHOD.prompt, promptParams(sessionId, text));
+			result = await this._call(agent, ACP_AGENT_METHOD.prompt, promptParams(sessionId, blocks));
 		} catch (err) {
 			// Отказ по авторизации выглядит как обычная ошибка вызова, и человек видит голый код.
 			// Между тем ответ на неё известен и лежит в способах входа, объявленных при знакомстве.
@@ -457,6 +464,8 @@ export class VibeAcpMainService extends Disposable implements IVibeAcpMain {
 					status: update.status,
 					paths: update.paths,
 					diffs: update.diffs,
+					output: update.output,
+					...(update.exitCode === undefined ? {} : { exitCode: update.exitCode }),
 				});
 				return;
 			case 'usage':

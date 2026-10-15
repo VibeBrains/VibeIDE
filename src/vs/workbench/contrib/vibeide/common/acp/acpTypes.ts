@@ -5,7 +5,7 @@
 
 import { AcpMcpServer } from './acpMcpExport.js';
 import { Event } from '../../../../../base/common/event.js';
-import { AcpReconnectMode, AcpStopReason, AcpToolStatus, IAcpAuthMethod, IAcpCommand, IAcpConfigOption, IAcpDiff } from './acpProtocol.js';
+import { AcpContentBlock, AcpReconnectMode, AcpStopReason, AcpToolStatus, IAcpAuthMethod, IAcpCommand, IAcpConfigOption, IAcpDiff, IAcpPromptCapabilities } from './acpProtocol.js';
 
 /**
  * Контракт хоста ACP: VibeIDE как клиент, внешний агент как процесс.
@@ -70,7 +70,7 @@ export type AcpEvent =
 	/** The question is no longer open: the agent withdrew it, or the turn was stopped and it was answered as cancelled */
 	| { readonly kind: 'permissionWithdrawn'; readonly sessionId: string; readonly requestId: string }
 	/** Агент взялся за инструмент: чем занят и что меняет. */
-	| { readonly kind: 'tool'; readonly sessionId: string; readonly toolCallId: string; readonly title: string; readonly name: string; readonly toolKind: string; readonly status: AcpToolStatus; readonly paths: readonly string[]; readonly diffs: readonly IAcpDiff[] }
+	| { readonly kind: 'tool'; readonly sessionId: string; readonly toolCallId: string; readonly title: string; readonly name: string; readonly toolKind: string; readonly status: AcpToolStatus; readonly paths: readonly string[]; readonly diffs: readonly IAcpDiff[]; readonly output: string; readonly exitCode?: number }
 	/** Расход контекста и денег за ход. */
 	| { readonly kind: 'usage'; readonly sessionId: string; readonly used: number; readonly size: number; readonly costUsd?: number }
 	/** Агент записал файл нашими руками — путь `fs/write_text_file`. */
@@ -93,6 +93,8 @@ export interface IAcpSession {
 	readonly configOptions?: readonly IAcpConfigOption[];
 	/** The agent's own slash commands, when it announced them before the session was handed over */
 	readonly commands?: readonly IAcpCommand[];
+	/** What the agent declared it accepts in a prompt: it decides whether a file goes as its text or as a link */
+	readonly promptCapabilities: IAcpPromptCapabilities;
 }
 
 /** A session brought back after its agent process died, and how — which says what the agent remembers. */
@@ -103,8 +105,8 @@ export interface IAcpReconnection extends IAcpSession {
 export interface IVibeAcpMain {
 	/** Запустить агента и открыть сессию. */
 	startSession(launch: IAcpAgentLaunch): Promise<IAcpSession>;
-	/** Отправить задачу. Ответ приходит событиями. */
-	prompt(sessionId: string, text: string): Promise<AcpStopReason>;
+	/** Отправить задачу блоками содержимого. Ответ приходит событиями. */
+	prompt(sessionId: string, blocks: readonly AcpContentBlock[]): Promise<AcpStopReason>;
 	/** Ответить на запрос разрешения выбранным вариантом агента. */
 	answerPermission(requestId: string, optionId: string | undefined): Promise<void>;
 	/** Прервать ход. */

@@ -397,7 +397,7 @@ export class VibeTelegramBridgeContribution extends Disposable implements IWorkb
 		const delivered = await this._main.send({ chatId, text: escapeTelegramHtml('🤝 Задача ушла внешнему агенту.') });
 		this._acpSessionOf.set(chatId, sessionId);
 		this._acpTurns.set(chatId, { messageId: delivered.messageId, lastEditMs: 0, lastText: '' });
-		void this._acp.prompt(sessionId, prompt);
+		void this._acp.prompt(sessionId, { text: prompt });
 	}
 
 	private async _stopAcp(chatId: number): Promise<void> {
