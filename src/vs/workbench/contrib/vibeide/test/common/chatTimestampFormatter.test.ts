@@ -10,6 +10,7 @@ import {
 	chatTimestampToISO,
 	CHAT_TIMESTAMP_STREAMING_PLACEHOLDER,
 	CHAT_JOURNAL_TIME_PATTERN,
+	formatChatJournalTime,
 } from '../../common/chatTimestampFormatter.js';
 import { ensureNoDisposablesAreLeakedInTestSuite } from '../../../../../base/test/common/utils.js';
 
@@ -90,6 +91,36 @@ suite('Chat timestamp formatter — pure helpers', () => {
 			const d = new Date(2026, 4, 8, 14, 32, 7, 999);
 			const out = formatChatTimestamp(d.getTime(), 'ss');
 			assert.strictEqual(out, '07');
+		});
+	});
+
+	suite('formatChatJournalTime', () => {
+		test('entry from the same local day shows only the time', () => {
+			const at = new Date(2026, 4, 8, 9, 3, 7).getTime();
+			const now = new Date(2026, 4, 8, 23, 59, 0).getTime();
+			assert.strictEqual(formatChatJournalTime(at, now), '09:03');
+		});
+
+		test('entry from yesterday shows the chat date and time', () => {
+			const at = new Date(2026, 4, 7, 23, 59, 0).getTime();
+			const now = new Date(2026, 4, 8, 9, 3, 7).getTime();
+			assert.strictEqual(formatChatJournalTime(at, now), '07.05.2026 23:59');
+		});
+
+		test('midnight boundary: 00:00 today is today, 23:59:59.999 yesterday is not', () => {
+			const now = new Date(2026, 4, 8, 0, 0, 0).getTime();
+			assert.strictEqual(formatChatJournalTime(new Date(2026, 4, 8, 0, 0, 0).getTime(), now), '00:00');
+			assert.strictEqual(formatChatJournalTime(new Date(2026, 4, 7, 23, 59, 59, 999).getTime(), now), '07.05.2026 23:59');
+		});
+
+		test('same month and day one year earlier is not today', () => {
+			const at = new Date(2025, 4, 8, 9, 3, 0).getTime();
+			const now = new Date(2026, 4, 8, 9, 3, 0).getTime();
+			assert.strictEqual(formatChatJournalTime(at, now), '08.05.2025 09:03');
+		});
+
+		test('non-finite entry time returns empty string', () => {
+			assert.strictEqual(formatChatJournalTime(NaN, Date.now()), '');
 		});
 	});
 

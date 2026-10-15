@@ -7482,6 +7482,12 @@ docs.z.ai, mimo.mi.com, agentclientprotocol.com, GHSA python-sdk, ncsc.gov.uk, a
       (`findFilePathsInText`, `labelFilePaths`, `chatJournalSpansOf(text, labelContext)`) в `common/chatJournal.ts`, 3 новых теста
       (всего 19 в наборе). Живьём: запись нейрослопа с двумя `note.md` из `jws/a` и `jws/b` показала `a/note.md` и `b/note.md`, подсказка
       дала полный путь, клик открыл `a › note.md`. Пути Windows и относительные пути проверены только тестами модели. ⚠ перепроверить
+- [x] **Журнал: дата у записей не за сегодня** — ✅ (15.10.2026, `next`) время записи — `ЧЧ:ММ` только за сегодняшний локальный день;
+      запись за другой день показана `ДД.ММ.ГГГГ ЧЧ:ММ`, тем же форматом, что у сообщений чата. Журнал переживает перезагрузку,
+      и вчерашние записи без даты не отличались от сегодняшних. Логика — чистая `formatChatJournalTime(at, now)` в
+      `common/chatTimestampFormatter.ts`; тесты — сегодня, вчера, граница полуночи, тот же день прошлого года. Константа
+      `CHAT_TIMESTAMP_DEFAULT_PATTERN` вынесена из сигнатуры `formatChatTimestamp`. Проверено: компиляция, React-typecheck,
+      тест форматтера. Живьём на стенде не смотрено. ⚠ перепроверить
 
 ## BUILD-ELECTRON-OFFLINE. Стенд без сети не опустошает `.build/electron` (2026-10-14)
 
