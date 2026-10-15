@@ -214,6 +214,7 @@ export const chatS = {
 	voiceStopTitle: 'Остановить диктовку (Esc — отменить без вставки)',
 	voiceDownloadTitle: 'Скачать модели распознавания речи (один раз, ~{0} МБ)',
 	voiceDownloadingTitle: 'Загрузка моделей… {0}%',
+	voiceTranscribingTitle: 'Расшифровываю… (Esc — отменить без вставки)',
 	runRouteAria: 'Выполнить маршрут ролей',
 	runRouteTitle: 'Выполнить маршрут ролей: команда субагентов (планировщик → разработчики → ревьюер → QA → security) по вашей задаче',
 	thinkingLabel: 'Рассуждение',

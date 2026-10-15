@@ -5,6 +5,7 @@
 
 
 import { vibeLog } from '../../../../common/vibeLog.js';
+import { resolveVoiceButtonPhase, voiceButtonCancelsOnEscape, voiceButtonClickAction, voiceButtonTooltip } from '../../../../common/voice/vibeVoiceButtonState.js';
 import React, { ButtonHTMLAttributes, FormEvent, FormHTMLAttributes, Fragment, KeyboardEvent, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Virtuoso, VirtuosoHandle } from 'react-virtuoso';
 
@@ -1413,10 +1414,11 @@ const ChatVoiceInputButton = ({ containerRef }: { containerRef: React.RefObject<
 	useEffect(() => {
 		const d1 = voice.onDidChangeState(s => {
 			setState(s);
-			if (!s.recording) {
+			if (!s.recording) { setLevel(0); }
+			// Слот живёт и в расшифровке: итоговая фраза приходит после остановки и должна заменить interim, а не лечь рядом
+			if (!s.recording && !s.transcribing) {
 				const ta = findTextArea();
 				if (ta) { voiceInsertSlots.delete(ta); }
-				setLevel(0);
 			}
 		});
 		const d2 = voice.onText(e => applyText(e.text, e.kind));
@@ -1424,9 +1426,12 @@ const ChatVoiceInputButton = ({ containerRef }: { containerRef: React.RefObject<
 		return () => { d1.dispose(); d2.dispose(); d3.dispose(); };
 	}, [voice, applyText, findTextArea]);
 
-	// Esc во время записи — отмена без вставки (capture-фаза, чтобы опередить другие Esc-обработчики)
+	const phase = resolveVoiceButtonPhase(state);
+
+	// Esc во время записи или расшифровки — отмена без вставки (capture-фаза, чтобы опередить другие Esc-обработчики)
+	const cancelsOnEscape = voiceButtonCancelsOnEscape(phase);
 	useEffect(() => {
-		if (!state.recording) { return; }
+		if (!cancelsOnEscape) { return; }
 		const onKeyDown = (e: globalThis.KeyboardEvent) => {
 			if (e.key === 'Escape') {
 				e.preventDefault();
@@ -1436,42 +1441,49 @@ const ChatVoiceInputButton = ({ containerRef }: { containerRef: React.RefObject<
 		};
 		window.addEventListener('keydown', onKeyDown, true);
 		return () => window.removeEventListener('keydown', onKeyDown, true);
-	}, [state.recording, voice]);
+	}, [cancelsOnEscape, voice]);
 
-	if (!state.available) { return null; }
+	if (phase === 'hidden') { return null; }
 
 	const onClick = () => {
-		if (state.recording) {
+		const action = voiceButtonClickAction(phase);
+		if (action === 'stop') {
 			voice.stop();
-		} else if (state.modelState !== 'downloading') {
+		} else if (action === 'start') {
 			const ta = findTextArea();
 			if (ta) {
 				voiceInsertSlots.set(ta, { start: ta.selectionStart ?? ta.value.length, interimLen: 0, lastApplied: '' });
 			}
 			void voice.start();
 		}
+		// 'ignore': расшифровка и загрузка моделей не отменяются случайным кликом
 	};
 
 	const downloadMb = Math.max(1, Math.round(state.downloadBytes / (1024 * 1024)));
-	const tooltip = state.recording ? chatS.voiceStopTitle
-		: state.modelState === 'downloading' ? chatS.voiceDownloadingTitle.replace('{0}', String(state.downloadPercent))
-			: state.modelState === 'missing' ? chatS.voiceDownloadTitle.replace('{0}', String(downloadMb))
-				: chatS.voiceStartTitle;
+	const tooltipKind = voiceButtonTooltip(phase);
+	const tooltip = tooltipKind === 'stop' ? chatS.voiceStopTitle
+		: tooltipKind === 'transcribing' ? chatS.voiceTranscribingTitle
+			: tooltipKind === 'downloading' ? chatS.voiceDownloadingTitle.replace('{0}', String(state.downloadPercent))
+				: tooltipKind === 'missing' ? chatS.voiceDownloadTitle.replace('{0}', String(downloadMb))
+					: chatS.voiceStartTitle;
+	const busy = phase === 'transcribing' || phase === 'downloading';
 
 	return (
 		<button
 			type="button"
 			onClick={onClick}
-			className={`flex-shrink-0 p-1.5 rounded-xl transition-colors ${state.recording ? 'bg-red-500/20 text-red-400' : 'hover:bg-vibe-bg-2-alt text-vibe-fg-4 hover:text-vibe-fg-2'}`}
+			className={`flex-shrink-0 p-1.5 rounded-xl transition-colors ${phase === 'recording' ? 'bg-[var(--vscode-vibeide-chat-voiceRecordingBackground)] text-[var(--vscode-vibeide-chat-voiceRecordingForeground)]' : busy ? 'text-vibe-fg-2 cursor-progress' : 'hover:bg-vibe-bg-2-alt text-vibe-fg-4 hover:text-vibe-fg-2'}`}
 			aria-label={chatS.voiceAria}
+			aria-busy={busy}
+			data-voice-phase={phase}
 			data-tooltip-id='vibe-tooltip'
 			data-tooltip-content={tooltip}
 			data-tooltip-place='top'
 			data-tooltip-delay-show={1000}
 		>
-			{state.modelState === 'downloading'
+			{busy
 				? <LoaderCircle size={16} className="animate-spin" />
-				: <Mic size={16} style={state.recording ? { transform: `scale(${1 + Math.min(0.4, level * 0.5)})` } : undefined} />}
+				: <Mic size={16} style={phase === 'recording' ? { transform: `scale(${1 + Math.min(0.4, level * 0.5)})` } : undefined} />}
 		</button>
 	);
 };

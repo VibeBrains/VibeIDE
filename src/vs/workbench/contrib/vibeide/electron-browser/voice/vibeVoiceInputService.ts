@@ -37,7 +37,7 @@ import { isMacintosh, isWindows } from '../../../../../base/common/platform.js';
 import { InstantiationType, registerSingleton } from '../../../../../platform/instantiation/common/extensions.js';
 import { IMainProcessService } from '../../../../../platform/ipc/common/mainProcessService.js';
 import { IConfigurationService } from '../../../../../platform/configuration/common/configuration.js';
-import { INotificationService, Severity } from '../../../../../platform/notification/common/notification.js';
+import { INotificationService, IPromptChoice, Severity } from '../../../../../platform/notification/common/notification.js';
 import { IProgressService, ProgressLocation } from '../../../../../platform/progress/common/progress.js';
 import { IOpenerService } from '../../../../../platform/opener/common/opener.js';
 import { ILogService } from '../../../../../platform/log/common/log.js';
@@ -45,9 +45,11 @@ import { ExtensionIdentifier } from '../../../../../platform/extensions/common/e
 import { registerWorkbenchContribution2, WorkbenchPhase } from '../../../../common/contributions.js';
 import { ISpeechProvider, ISpeechService, ISpeechToTextEvent, ISpeechToTextSession, ITextToSpeechEvent, IKeywordRecognitionEvent, KeywordRecognitionStatus, SpeechToTextStatus, TextToSpeechStatus, SPEECH_LANGUAGE_CONFIG } from '../../../speech/common/speechService.js';
 import { IVibeModalService } from '../../common/vibeModalService.js';
+import { IChatJournalService } from '../../browser/chatJournalService.js';
 import { IVibeVoiceInputService, IVibeVoiceInputState, IVibeVoiceTextEvent, VoiceInputModelState } from '../../common/voice/vibeVoiceInputService.js';
 import { VIBE_VOICE_CHANNEL, VOICE_SAMPLE_RATE, VoiceDownloadProgress, VoiceModelsState, VoiceProfileId, VoiceSessionEvent } from '../../common/voice/vibeVoiceTypes.js';
 import { resolveVoiceProfile, voiceDownloadBytesForProfile } from '../../common/voice/vibeVoiceModels.js';
+import { describeVoiceError, VoiceErrorInfo, VoiceFailure, VoicePlatform, voiceErrorJournalText, voiceMicSettingsUri } from '../../common/voice/vibeVoiceErrors.js';
 import { resolveVoiceCloudMode, resolveVoiceCloudVocabulary, resolveVoiceEngine, VOICE_CLOUD_MODE_KEY, VOICE_CLOUD_VOCABULARY_KEY, VOICE_ENABLED_KEY, VOICE_ENGINE_KEY } from '../../common/voice/vibeVoiceConfiguration.js';
 
 /** What the window resolved for a cloud dictation session: key, transcript style, project terms. */
@@ -65,6 +67,18 @@ const CAPTURE_FRAME_SAMPLES = 2048;
 const LEVEL_RMS_GAIN = 18;
 /** Chunks buffered while the engine warms up (~13 s) before we start dropping the oldest. */
 const MAX_QUEUED_CHUNKS = 100;
+
+/** The raw cause for the log: the wording for the person says what to do, not what happened */
+function describeFailureForLog(failure: VoiceFailure): string {
+	switch (failure.type) {
+		case 'noSpeech':
+			return 'nothing recognized';
+		case 'mic':
+			return `${failure.name} ${failure.message ?? ''}`.trim();
+		default:
+			return failure.message;
+	}
+}
 
 function bytesToMegabytes(bytes: number): number {
 	return Math.max(1, Math.round(bytes / (1024 * 1024)));
@@ -139,7 +153,11 @@ interface IVoiceSessionHost {
 	resolveProfileId(sessionLanguage: string | undefined): VoiceProfileId;
 	fetchModelsState(): Promise<VoiceModelsState>;
 	promptMissingModels(profileId: VoiceProfileId): void;
-	notifyMicrophoneError(error: unknown): void;
+	/**
+	 * One failure of one session: the person is told in Russian, the journal keeps a line
+	 * Reported at most once per session
+	 */
+	reportFailure(session: VoiceCaptureSession, failure: VoiceFailure): void;
 	/** Engine-specific preparation: consent and key for the cloud engine; always ok for the local one. */
 	prepareSession(): Promise<{ readonly ok: true; readonly cloud?: VoiceCloudPreparation } | { readonly ok: false; readonly reason: string }>;
 	reportLevel(level: number): void;
@@ -151,7 +169,7 @@ class VoiceCaptureSession extends Disposable implements ISpeechToTextSession {
 	readonly onDidChange = this._onDidChange.event;
 
 	private readonly sessionId = generateUuid();
-	private readonly profileId: VoiceProfileId;
+	readonly profileId: VoiceProfileId;
 
 	private ended = false;
 	private startedFired = false;
@@ -159,6 +177,11 @@ class VoiceCaptureSession extends Disposable implements ISpeechToTextSession {
 	private engineStarted = false;
 	private capturing = false;
 	private queueDropWarned = false;
+	/** Some text (interim or final) came back from the engine: an empty dictation is told apart from a failed one */
+	private recognizedText = false;
+	/** The person stopped the dictation and the engine is flushing; cleared by a cancel. */
+	private flushRequested = false;
+	private failureReported = false;
 	private readonly queuedChunks: VSBuffer[] = [];
 
 	private mediaStream: MediaStream | undefined;
@@ -173,7 +196,11 @@ class VoiceCaptureSession extends Disposable implements ISpeechToTextSession {
 		this.profileId = host.resolveProfileId(language);
 		this._register(this.host.channel.onSessionEvent(e => this.handleSessionEvent(e)));
 		this._register(token.onCancellationRequested(() => this.cancel()));
-		this.initialize().catch(error => this.fail(error instanceof Error ? error.message : String(error)));
+		this.initialize().catch(error => {
+			const message = error instanceof Error ? error.message : String(error);
+			this.reportFailure({ type: 'engine', message });
+			this.fail(message);
+		});
 	}
 
 	private async initialize(): Promise<void> {
@@ -197,11 +224,14 @@ class VoiceCaptureSession extends Disposable implements ISpeechToTextSession {
 		// Engine warm-up (model load) and mic acquisition run in parallel; audio is queued
 		// until the worker confirms the session, so the first phonemes are not lost.
 		this.engineStarted = true;
-		this.host.channel.startSession(this.sessionId, this.profileId, prepared.cloud).catch(error => this.fail(String(error)));
+		this.host.channel.startSession(this.sessionId, this.profileId, prepared.cloud).catch(error => {
+			this.reportFailure({ type: 'engine', message: error instanceof Error ? error.message : String(error) });
+			this.fail(String(error));
+		});
 		try {
 			await this.startCapture();
 		} catch (error) {
-			this.host.notifyMicrophoneError(error);
+			this.reportFailure({ type: 'mic', name: error instanceof DOMException ? error.name : '', message: error instanceof Error ? error.message : String(error) });
 			this.fail(localize('vibeVoice.micUnavailable', "Микрофон недоступен"));
 		}
 	}
@@ -266,12 +296,15 @@ class VoiceCaptureSession extends Disposable implements ISpeechToTextSession {
 				this.maybeFireStarted();
 				break;
 			case 'partial':
+				this.recognizedText ||= e.text.trim().length > 0;
 				this._onDidChange.fire({ status: SpeechToTextStatus.Recognizing, text: e.text });
 				break;
 			case 'final':
+				this.recognizedText ||= e.text.trim().length > 0;
 				this._onDidChange.fire({ status: SpeechToTextStatus.Recognized, text: e.text });
 				break;
 			case 'error':
+				this.reportFailure({ type: 'engine', message: e.message });
 				this._onDidChange.fire({ status: SpeechToTextStatus.Error, text: e.message });
 				break;
 			case 'stopped':
@@ -287,17 +320,22 @@ class VoiceCaptureSession extends Disposable implements ISpeechToTextSession {
 		}
 	}
 
-	/** Chat-facade stop: close the mic now, let the worker flush the tail into a last final. */
-	gracefulStop(): void {
+	/**
+	 * Chat-facade stop: close the mic now, let the worker flush the tail into a last final.
+	 * Returns true while the flush is pending (`Stopped` follows); false when the session ended on the spot.
+	 */
+	gracefulStop(): boolean {
 		if (this.ended) {
-			return;
+			return false;
 		}
 		this.teardownCapture();
 		if (this.engineStarted) {
+			this.flushRequested = true;
 			this.host.channel.stopSession(this.sessionId); // 'stopped' arrives after the flush
-		} else {
-			this.end();
+			return true;
 		}
+		this.end();
+		return false;
 	}
 
 	/** Hard cancel (token cancellation / Esc): discard pending audio, end fast. */
@@ -305,11 +343,20 @@ class VoiceCaptureSession extends Disposable implements ISpeechToTextSession {
 		if (this.ended) {
 			return;
 		}
+		this.flushRequested = false;
 		this.teardownCapture();
 		if (this.engineStarted) {
 			this.host.channel.cancelSession(this.sessionId);
 		}
 		this.end();
+	}
+
+	private reportFailure(failure: VoiceFailure): void {
+		if (this.failureReported) {
+			return;
+		}
+		this.failureReported = true;
+		this.host.reportFailure(this, failure);
 	}
 
 	private fail(message: string): void {
@@ -329,6 +376,9 @@ class VoiceCaptureSession extends Disposable implements ISpeechToTextSession {
 		}
 		this.ended = true;
 		this.teardownCapture();
+		if (this.flushRequested && !this.recognizedText) {
+			this.reportFailure({ type: 'noSpeech' });
+		}
 		this._onDidChange.fire({ status: SpeechToTextStatus.Stopped });
 		this.dispose();
 	}
@@ -366,6 +416,7 @@ class VibeVoiceInputService extends Disposable implements IVibeVoiceInputService
 	private downloadPercent = 0;
 	private confirmDialogOpen = false;
 	private recording = false;
+	private transcribing = false;
 	private chatSession: VoiceCaptureSession | undefined;
 	private chatCts: CancellationTokenSource | undefined;
 	private startingChat = false;
@@ -381,6 +432,7 @@ class VibeVoiceInputService extends Disposable implements IVibeVoiceInputService
 		@ILogService public readonly logService: ILogService,
 		@IStorageService private readonly storageService: IStorageService,
 		@IVibeideSettingsService private readonly vibeideSettingsService: IVibeideSettingsService,
+		@IChatJournalService private readonly chatJournalService: IChatJournalService,
 	) {
 		super();
 		this.channel = new VoiceChannelClient(mainProcessService);
@@ -478,21 +530,40 @@ class VibeVoiceInputService extends Disposable implements IVibeVoiceInputService
 		this.runModelDownload(profileId);
 	}
 
-	notifyMicrophoneError(error: unknown): void {
-		const name = error instanceof DOMException ? error.name : '';
-		if (name === 'NotAllowedError' || name === 'SecurityError') {
-			const settingsUri = isMacintosh
-				? 'x-apple.systempreferences:com.apple.preference.security?Privacy_Microphone'
-				: isWindows ? 'ms-settings:privacy-microphone' : undefined;
-			this.notificationService.prompt(
-				Severity.Warning,
-				localize('vibeVoice.micDenied', "Доступ к микрофону запрещён. Разрешите VibeIDE использовать микрофон в настройках системы и повторите."),
-				settingsUri ? [{ label: localize('vibeVoice.openSettings', "Открыть настройки"), run: () => this.openerService.open(URI.parse(settingsUri), { openExternal: true }) }] : [],
-			);
-		} else if (name === 'NotFoundError') {
-			this.notificationService.warn(localize('vibeVoice.micNotFound', "Микрофон не найден. Подключите устройство ввода звука и повторите."));
-		} else {
-			this.notificationService.error(localize('vibeVoice.micError', "Не удалось начать запись с микрофона: {0}", error instanceof Error ? error.message : String(error)));
+	reportFailure(session: VoiceCaptureSession, failure: VoiceFailure): void {
+		this.presentFailure(failure, session.profileId, session === this.chatSession);
+	}
+
+	/**
+	 * Notification with the one action that helps, plus a journal line for faults.
+	 * "Повторить" restarts the chat dictation, so only a chat session offers it
+	 * For editor and terminal dictation the retry would start the wrong thing
+	 */
+	private presentFailure(failure: VoiceFailure, profileId: VoiceProfileId, chat: boolean): void {
+		const platform: VoicePlatform = isMacintosh ? 'mac' : isWindows ? 'windows' : 'other';
+		const info = describeVoiceError(failure, platform);
+		this.logService.warn(`[vibeVoice] ${info.kind}: ${describeFailureForLog(failure)}`);
+		const severity = info.severity === 'error' ? Severity.Error : info.severity === 'warning' ? Severity.Warning : Severity.Info;
+		this.notificationService.prompt(severity, info.message, this.failureChoices(info, profileId, chat));
+		if (info.journal) {
+			this.chatJournalService.append({ category: 'other', level: 'warning', text: voiceErrorJournalText(info) });
+		}
+	}
+
+	private failureChoices(info: VoiceErrorInfo, profileId: VoiceProfileId, chat: boolean): IPromptChoice[] {
+		switch (info.action) {
+			case 'openMicSettings': {
+				const uri = voiceMicSettingsUri(isMacintosh ? 'mac' : isWindows ? 'windows' : 'other');
+				return uri ? [{ label: localize('vibeVoice.openSettings', "Открыть настройки"), run: () => this.openerService.open(URI.parse(uri), { openExternal: true }) }] : [];
+			}
+			case 'retry':
+				return chat ? [{ label: localize('vibeVoice.retry', "Повторить"), run: () => this.start() }] : [];
+			case 'downloadModels':
+				return [{ label: localize('vibeVoice.downloadModels', "Скачать модели"), run: () => this.runModelDownload(profileId) }];
+			case 'retryDownload':
+				return [{ label: localize('vibeVoice.retryDownload', "Повторить"), run: () => this.runModelDownload(profileId) }];
+			default:
+				return [];
 		}
 	}
 
@@ -583,11 +654,7 @@ class VibeVoiceInputService extends Disposable implements IVibeVoiceInputService
 			);
 			this.notificationService.info(localize('vibeVoice.downloadDone', "Модели голосового ввода готовы — запустите диктовку ещё раз."));
 		} catch (error) {
-			this.notificationService.prompt(
-				Severity.Error,
-				localize('vibeVoice.downloadFailed', "Не удалось скачать модели голосового ввода: {0}", error instanceof Error ? error.message : String(error)),
-				[{ label: localize('vibeVoice.retryDownload', "Повторить"), run: () => this.runModelDownload(profileId) }],
-			);
+			this.presentFailure({ type: 'download', message: error instanceof Error ? error.message : String(error) }, profileId, true);
 		} finally {
 			await this.fetchModelsState().catch(() => undefined);
 			this.fireStateChange();
@@ -612,6 +679,7 @@ class VibeVoiceInputService extends Disposable implements IVibeVoiceInputService
 		return {
 			available: this.isEnabled(),
 			recording: this.recording,
+			transcribing: this.transcribing,
 			modelState,
 			downloadBytes: profile?.downloadBytes ?? voiceDownloadBytesForProfile(profileId),
 			downloadPercent: this.downloadPercent,
@@ -707,7 +775,9 @@ class VibeVoiceInputService extends Disposable implements IVibeVoiceInputService
 	}
 
 	async start(): Promise<void> {
-		if (this.recording || this.startingChat || !this.isEnabled()) {
+		// A live session counts from its creation, not from `Started`
+		// A click during the engine warm-up must not open a second one
+		if (this.recording || this.transcribing || this.startingChat || this.chatSession || !this.isEnabled()) {
 			return;
 		}
 		this.startingChat = true;
@@ -750,6 +820,7 @@ class VibeVoiceInputService extends Disposable implements IVibeVoiceInputService
 						this.chatCts?.dispose();
 						this.chatCts = undefined;
 						this.recording = false;
+						this.transcribing = false;
 						this._onLevel.fire(0);
 						this.fireStateChange();
 						break;
@@ -761,7 +832,13 @@ class VibeVoiceInputService extends Disposable implements IVibeVoiceInputService
 	}
 
 	stop(): void {
-		this.chatSession?.gracefulStop();
+		if (this.chatSession?.gracefulStop()) {
+			// The mic is closed already; until `Stopped` the engine is only finishing the phrase
+			this.recording = false;
+			this.transcribing = true;
+			this._onLevel.fire(0);
+			this.fireStateChange();
+		}
 	}
 
 	cancel(): void {

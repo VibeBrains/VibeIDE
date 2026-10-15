@@ -4,7 +4,7 @@
  *--------------------------------------------------------------------------------------------*/
 
 import { localize } from '../../../../nls.js';
-import { badgeBackground, badgeForeground, contrastBorder, darken, descriptionForeground, editorBackground, editorWarningForeground, focusBorder, foreground, lighten, registerColor, transparent } from '../../../../platform/theme/common/colorRegistry.js';
+import { badgeBackground, badgeForeground, contrastBorder, darken, descriptionForeground, editorBackground, editorWarningForeground, errorForeground, focusBorder, foreground, lighten, registerColor, transparent } from '../../../../platform/theme/common/colorRegistry.js';
 
 // Colour tokens of the chat message layout
 // media/vibeChatMessages.css reads them as `--vscode-vibeide-chat-<name>`
@@ -70,4 +70,21 @@ export const VIBEIDE_CHAT_JOURNAL_WARNING_FOREGROUND = registerColor(
 	'vibeide.chat.journalWarningForeground',
 	{ dark: editorBackground, light: editorBackground, hcDark: editorBackground, hcLight: editorBackground },
 	localize('vibeide.chat.journalWarningForeground', 'Цвет цифры на счётчике цвета предупреждения (vibeide.chat.journalWarning) на значке «Журнал» в шапке чата VibeIDE.')
+);
+
+// The mic button of the composer while it records
+// SidebarChat.tsx reads them as `--vscode-vibeide-chat-voiceRecording*`
+// Both default to the stock error colour, so a theme that sets `errorForeground` recolours the button on its own
+// The fill is the same colour at low strength: the button reads as lit, not as a second red button
+
+export const VIBEIDE_CHAT_VOICE_RECORDING_FOREGROUND = registerColor(
+	'vibeide.chat.voiceRecordingForeground',
+	{ dark: errorForeground, light: errorForeground, hcDark: errorForeground, hcLight: errorForeground },
+	localize('vibeide.chat.voiceRecordingForeground', 'Цвет значка микрофона в поле ввода чата VibeIDE, пока идёт запись голоса.')
+);
+
+export const VIBEIDE_CHAT_VOICE_RECORDING_BACKGROUND = registerColor(
+	'vibeide.chat.voiceRecordingBackground',
+	{ dark: transparent(errorForeground, 0.2), light: transparent(errorForeground, 0.2), hcDark: transparent(errorForeground, 0.2), hcLight: transparent(errorForeground, 0.2) },
+	localize('vibeide.chat.voiceRecordingBackground', 'Цвет фона кнопки микрофона в поле ввода чата VibeIDE, пока идёт запись голоса.')
 );
