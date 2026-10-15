@@ -32,7 +32,7 @@ import { toolCallSignature, resolveAntiLoopThreshold, endsWithQuestion, looksLik
 import { IVibeImageCostService } from './vibeImageCostService.js';
 import { IVibeTokenBudgetService } from '../common/vibeTokenBudgetService.js';
 import { getModelCapabilities, isFloatingModel, type AutoDowngradeReason } from '../common/modelCapabilities.js';
-import { retiredForAutoPick } from '../common/modelDeprecation.js';
+import { unfitForAutoPick } from '../common/modelDeprecation.js';
 import { ProviderRefusalDiagnostics, AnthropicReasoning, getErrorMessage, LLMChatMessage, LLMFinishNotice, LLMTokenUsage, parseContextOverflowError, parseEmptyResponseError, RawToolCallObj, RawToolParamsObj } from '../common/sendLLMMessageTypes.js';
 import { isQuotaLow, pickRateLimitHeaders, ProviderQuotaSnapshot, tightestBucket } from '../common/providerQuota.js';
 import { IVibeSpendLedgerService } from './vibeSpendLedgerService.js';
@@ -1900,7 +1900,7 @@ class ChatThreadService extends Disposable implements IChatThreadService {
 			needsVision,
 			isAvailable: selection => this._settingsService.state._modelOptions.some(option =>
 				option.selection.providerName === selection.providerName && option.selection.modelName === selection.modelName),
-			isRetired: selection => retiredForAutoPick(getModelCapabilities(selection.providerName, selection.modelName, this._settingsService.state.overridesOfModel), Date.now()),
+			isRetired: selection => unfitForAutoPick(getModelCapabilities(selection.providerName, selection.modelName, this._settingsService.state.overridesOfModel), Date.now()),
 		});
 		if (pinned) {
 			vibeLog.info('chatThread', `[Auto Model Select] source=pinned ${pinned.providerName}/${pinned.modelName} — разговор остаётся на выбранной ранее модели`);
