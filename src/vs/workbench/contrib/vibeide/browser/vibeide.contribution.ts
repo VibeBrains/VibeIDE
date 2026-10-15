@@ -32,6 +32,7 @@ import './vibeAgentsDispatchPane.js';
 import './vibeExternalAgentsPane.js';
 import './acp/vibeAcpRegistryService.js';
 import './acp/vibeAcpSessionsService.js';
+import './chatPromptHistoryService.js';
 import '../common/vibeAgentRunLedgerService.js';
 import './vibeAgentPreflightService.js';
 import './vibeAgentPreflightCommand.js';

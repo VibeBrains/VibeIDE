@@ -34,6 +34,7 @@ import { IIdeMcpIssued } from '../../common/acp/acpIdeMcpTypes.js';
 import { IRollbackSnapshotService } from '../../common/rollbackSnapshotService.js';
 import { ISecretDetectionService } from '../../common/secretDetectionService.js';
 import { IWorkspaceContextService } from '../../../../../platform/workspace/common/workspace.js';
+import { IStorageService, StorageScope, StorageTarget } from '../../../../../platform/storage/common/storage.js';
 import {
 	AcpDecisionReason,
 	AcpGrant,
@@ -134,6 +135,11 @@ export interface IVibeAcpSessionsService {
 	setPermissionMode(sessionId: string, mode: AcpPermissionMode): Promise<void>;
 	/** Withdraw the permissions given for this session */
 	clearGrants(sessionId: string): void;
+	/**
+	 * The slash commands an agent announced: from its live session, else as they were the last time any session of it said them
+	 * An agent announces its commands only after the session starts, so a conversation that has not begun yet would show none
+	 */
+	commandsOf(agentId: string): readonly IAcpCommand[];
 	cancel(sessionId: string): Promise<void>;
 	endSession(sessionId: string): Promise<void>;
 	/** Change a setting the agent exposes; the card shows the state the agent answers with, not the value asked for */
@@ -178,6 +184,8 @@ export class VibeAcpSessionsService extends Disposable implements IVibeAcpSessio
 	readonly onDidChange: Event<void> = this._onDidChange.event;
 
 	private readonly _sessions = new Map<string, ISessionState>();
+	/** The commands each agent last announced, by agent id: they outlive the session and the window */
+	private _knownCommands: Readonly<Record<string, readonly IAcpCommand[]>>;
 	private _surfaceVisible = false;
 	/** Questions withdrawn while their checkpoint was still being taken: they must not open a card afterwards */
 	private readonly _withdrawnBeforeShown = new Set<string>();
@@ -194,9 +202,11 @@ export class VibeAcpSessionsService extends Disposable implements IVibeAcpSessio
 		@IConfigurationService private readonly _configurationService: IConfigurationService,
 		@ISecretDetectionService private readonly _secretDetection: ISecretDetectionService,
 		@IWorkspaceContextService private readonly _workspace: IWorkspaceContextService,
+		@IStorageService private readonly _storageService: IStorageService,
 	) {
 		super();
 		this._register(this._acpService.onEvent(event => this._observe(event)));
+		this._knownCommands = parseKnownCommands(this._storageService.get(KNOWN_COMMANDS_STORAGE_KEY, StorageScope.WORKSPACE));
 	}
 
 	get sessions(): readonly IVibeAcpSessionView[] {
@@ -280,6 +290,7 @@ export class VibeAcpSessionsService extends Disposable implements IVibeAcpSessio
 			grants: [],
 			ideMcp,
 		});
+		if (session.commands) { this._rememberCommands(agent.id, session.commands); }
 		this._activityLog.logStarted(localize('vibeide.acp.log.session', "Внешний агент «{0}» открыл сессию", session.agentName));
 		this._audit(buildAcpSessionAudit({ agentId: agent.id, sessionId: session.sessionId, phase: 'started' }, Date.now()));
 		this._onDidChange.fire();
@@ -375,6 +386,17 @@ export class VibeAcpSessionsService extends Disposable implements IVibeAcpSessio
 		if (wanted && wanted !== setting.currentValue) {
 			await this.setConfigOption(sessionId, setting.id, wanted);
 		}
+	}
+
+	commandsOf(agentId: string): readonly IAcpCommand[] {
+		const live = [...this._sessions.values()].find(state => state.agentId === agentId && state.commands.length > 0);
+		return live?.commands ?? this._knownCommands[agentId] ?? [];
+	}
+
+	private _rememberCommands(agentId: string, commands: readonly IAcpCommand[]): void {
+		if (commands.length === 0) { return; }
+		this._knownCommands = { ...this._knownCommands, [agentId]: commands };
+		this._storageService.store(KNOWN_COMMANDS_STORAGE_KEY, JSON.stringify(this._knownCommands), StorageScope.WORKSPACE, StorageTarget.MACHINE);
 	}
 
 	clearGrants(sessionId: string): void {
@@ -504,7 +526,10 @@ export class VibeAcpSessionsService extends Disposable implements IVibeAcpSessio
 				return;
 			case 'commands': {
 				const state = this._sessions.get(event.sessionId);
-				if (state) { state.commands = event.commands; }
+				if (state) {
+					state.commands = event.commands;
+					this._rememberCommands(state.agentId, event.commands);
+				}
 				this._onDidChange.fire();
 				return;
 			}
@@ -713,6 +738,25 @@ export class VibeAcpSessionsService extends Disposable implements IVibeAcpSessio
 			}],
 			{ sticky: true },
 		);
+	}
+}
+
+const KNOWN_COMMANDS_STORAGE_KEY = 'vibeide.acp.knownAgentCommands';
+
+/** The stored commands of every agent; a record of another shape is dropped, not trusted */
+function parseKnownCommands(raw: string | undefined): Record<string, readonly IAcpCommand[]> {
+	if (!raw) { return {}; }
+	try {
+		const value: unknown = JSON.parse(raw);
+		if (!value || typeof value !== 'object' || Array.isArray(value)) { return {}; }
+		const result: Record<string, readonly IAcpCommand[]> = {};
+		for (const [agentId, commands] of Object.entries(value)) {
+			if (!Array.isArray(commands)) { continue; }
+			result[agentId] = commands.filter((command): command is IAcpCommand => !!command && typeof command.name === 'string' && typeof command.description === 'string');
+		}
+		return result;
+	} catch {
+		return {};
 	}
 }
 

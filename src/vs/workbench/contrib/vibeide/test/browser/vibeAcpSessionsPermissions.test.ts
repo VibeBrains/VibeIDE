@@ -8,6 +8,7 @@ import { Emitter } from '../../../../../base/common/event.js';
 import { URI } from '../../../../../base/common/uri.js';
 import { ensureNoDisposablesAreLeakedInTestSuite } from '../../../../../base/test/common/utils.js';
 import { TestConfigurationService } from '../../../../../platform/configuration/test/common/testConfigurationService.js';
+import { InMemoryStorageService } from '../../../../../platform/storage/common/storage.js';
 import { VibeAcpSessionsService } from '../../browser/acp/vibeAcpSessionsService.js';
 import { AcpEvent, IAcpPermissionRequest, IAcpSession } from '../../common/acp/acpTypes.js';
 import { VibeAgentEntry } from '../../common/acp/vibeAgentsFile.js';
@@ -40,6 +41,7 @@ suite('VibeAcpSessionsService — кто отвечает на вопрос вн
 				startSession: async (): Promise<IAcpSession> => ({ sessionId: 's1', agentName: 'Claude Agent', promptCapabilities: { image: false, audio: false, embeddedContext: true } }),
 				answerPermission: async (requestId: string, optionId: string | undefined) => { answers.push({ requestId, optionId }); },
 				cancel: async () => { },
+				endSession: async () => { },
 			} as never,
 			{ issue: async () => undefined, revoke: async () => { } } as never,
 			{ launchOf: () => ({ name: 'Claude Agent', command: 'npx', args: [], cwd: '/ws/app' }), agents: [agent] } as never,
@@ -55,6 +57,7 @@ suite('VibeAcpSessionsService — кто отвечает на вопрос вн
 			new TestConfigurationService(),
 			{ detectSecrets: (text: string) => ({ redactedText: text }) } as never,
 			{ getWorkspace: () => ({ folders: [{ uri: URI.file('/ws/app') }] }) } as never,
+			disposables.add(new InMemoryStorageService()),
 		));
 		return { service, events, answers, snapshots, audit };
 	}
@@ -144,5 +147,14 @@ suite('VibeAcpSessionsService — кто отвечает на вопрос вн
 		await settle();
 		await service.answerPermission('s1', 'reject');
 		assert.deepStrictEqual(snapshots.discarded, ['snap1']);
+	});
+
+	test('команды, которые агент объявил, помнятся после конца сессии: меню «/» нового разговора не пустеет', async () => {
+		const { service, events } = setup();
+		assert.deepStrictEqual(service.commandsOf('claude'), []);
+		await service.startSession(agent);
+		events.fire({ kind: 'commands', sessionId: 's1', commands: [{ name: 'review', description: 'Проверить изменения' }] });
+		await service.endSession('s1');
+		assert.deepStrictEqual(service.commandsOf('claude'), [{ name: 'review', description: 'Проверить изменения' }]);
 	});
 });

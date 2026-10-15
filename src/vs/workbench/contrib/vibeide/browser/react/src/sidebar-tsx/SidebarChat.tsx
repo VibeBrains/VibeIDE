@@ -25,7 +25,8 @@ import { IDisposable } from '../../../../../../../base/common/lifecycle.js';
 import { ErrorDisplay } from './ErrorDisplay.js';
 import { BlockCode, TextAreaFns, VibeCustomDropdownBox, VibeInputBox2, VibeSlider, VibeSwitch, VibeDiffEditor } from '../util/inputs.js';
 import { ModelDropdown, } from '../vibe-settings-tsx/ModelDropdown.js';
-import { AcpModeControl, AcpPermissionCard, AcpToolCard } from './AcpChat.js';
+import { AcpModeControl, AcpPermissionCard, AcpToolCard, useAcpAgentCommands } from './AcpChat.js';
+import { agentCommandOf } from '../../../../common/acp/acpProtocol.js';
 import { PastThreadsList, ChatHistoryToolbarDropdown } from './SidebarThreadSelector.js';
 import { ChatContextMeterButton } from './ChatContextMeter.js';
 import { ChatQuickSettingsButton } from './ChatQuickSettings.js';
@@ -39,6 +40,7 @@ import { AlertTriangle, File, Ban, Check, ChevronRight, ChevronDown, Dot, FileIc
 import { ChatMessage, CheckpointEntry, StagingSelectionItem, ToolMessage, PlanMessage, ReviewMessage, ScoutMessage, PlanStep, StepStatus, PlanApprovalState, ChatImageAttachment, ChatPDFAttachment, normalizePendingInjections, ReviewChecklist, EditBatch } from '../../../../common/chatThreadServiceTypes.js';
 import { formatChatTimestamp, chatTimestampToISO, CHAT_TIMESTAMP_STREAMING_PLACEHOLDER, CHAT_TIMESTAMP_TOOLTIP_PATTERN } from '../../../../common/chatTimestampFormatter.js';
 import { parseChatSlashCommand, splitWatchArgs, CHAT_SLASH_COMMANDS, SLASH_COMMAND_FILE_NAME_CHARS, findChatCommandSpans } from '../../../../common/chatSlashCommands.js';
+import { historyKeyApplies, navigateHistory } from '../../../../common/promptHistory.js';
 import { BuiltinToolCallParams, BuiltinToolName, ToolName, LintErrorItem, ToolApprovalType, toolApprovalTypes } from '../../../../common/toolsServiceTypes.js';
 import { approvalTypeOfBuiltinToolName } from '../../../../common/prompt/tools/index.js';
 import { CopyButton, EditToolAcceptRejectButtonsHTML, IconShell1, JumpToFileButton, JumpToTerminalButton, StatusIndicator, StatusIndicatorForApplyButton, useApplyStreamState, useEditToolStreamState } from '../markdown/ApplyBlockHoverButtons.js';
@@ -5655,6 +5657,10 @@ export const SidebarChat = () => {
 	const commandService = accessor.get('ICommandService');
 	const chatThreadsService = accessor.get('IChatThreadService');
 	const notificationService = accessor.get('INotificationService');
+	// History of what was sent from this composer: the position in it, and the draft put aside while the person steps back
+	const promptHistoryService = accessor.get('IChatPromptHistoryService');
+	const historyIndexRef = useRef<number>(promptHistoryService.entries.length);
+	const draftBeforeHistoryRef = useRef<string>('');
 
 	const settingsState = useSettingsState();
 	// ----- HIGHER STATE -----
@@ -5932,11 +5938,19 @@ export const SidebarChat = () => {
 		// send message to LLM
 		const userMessage = _forceSubmit || textAreaRef.current?.value || '';
 
+		// ↑ replays what was sent, to whichever target it went: a model or an external agent
+		promptHistoryService.remember(userMessage);
+		historyIndexRef.current = promptHistoryService.entries.length;
+		draftBeforeHistoryRef.current = '';
+
 		// Built-in chat slash commands intercept BEFORE the LLM (common/chatSlashCommands.ts).
 		// `/watch` runs the video pipeline instead of a normal send; parsed-but-unhandled
 		// commands (currently `/commit`) fall through to the LLM as literal text, exactly
 		// as they did before the parser was wired.
-		const slash = parseChatSlashCommand(userMessage);
+		// A command the thread's agent announced is the agent's: it goes to it even if the IDE has one of the same name
+		const slash = currentThread.acpAgent && agentCommandOf(userMessage, agentCommands)
+			? { matched: false as const }
+			: parseChatSlashCommand(userMessage);
 		if (slash.matched && slash.parsed.command === 'watch') {
 			const videoChatService = accessor.get('IVibeVideoChatService');
 			const { target, hint } = splitWatchArgs(slash.parsed.args);
@@ -6652,6 +6666,7 @@ export const SidebarChat = () => {
 		chatThreadsService,
 		commandService,
 		currentThread.id,
+		currentThread.acpAgent,
 		showSubagentActivity,
 		reviewChecklist,
 		editBatch,
@@ -6704,7 +6719,7 @@ export const SidebarChat = () => {
 	// skills menu. Filter-as-you-type, arrow/Tab/Enter to insert, Escape to dismiss. The
 	// trigger is detected from text-before-cursor on every onChangeText; we re-derive open
 	// state rather than tracking it imperatively so it always reflects current cursor context.
-	type SkillCmd = { name: string; description: string; category: 'skill' | 'builtin' };
+	type SkillCmd = { name: string; description: string; category: 'skill' | 'builtin'; group?: string };
 	const [skillCmds, setSkillCmds] = useState<SkillCmd[]>([]);
 	const [skillMenuOpen, setSkillMenuOpen] = useState(false);
 	const [slashMenuKind, setSlashMenuKind] = useState<'skill' | 'builtin'>('skill');
@@ -6774,15 +6789,30 @@ export const SidebarChat = () => {
 
 	// Chat commands for the bare-`/` menu. The `/skill:` entry has no trailing
 	// space on insert, so picking it immediately re-triggers the skills menu.
-	const builtinSlashCmds = useMemo<SkillCmd[]>(() => [
-		...CHAT_SLASH_COMMANDS.map(c => ({
+	// In a thread led by an external agent the menu is the agent's own: its commands first, then the ones the IDE runs
+	// itself (/watch, /shot). Prompt commands and skills are expanded for the chat's own models, and the agent would get
+	// them as bare text. A command both have is shown once, as the agent's: that is the one that runs
+	const agentCommands = useAcpAgentCommands(currentThread.acpAgent?.agentId);
+	const builtinSlashCmds = useMemo<SkillCmd[]>(() => {
+		const own = CHAT_SLASH_COMMANDS.map(c => ({
 			name: c.name,
 			description: c.argsHint ? `${c.argsHint} — ${c.description}` : c.description,
 			category: 'builtin' as const,
-		})),
-		...promptCmds,
-		{ name: 'skill:', description: 'Вызвать навык из .vibe/skills', category: 'builtin' as const },
-	], [promptCmds]);
+		}));
+		if (!currentThread.acpAgent) {
+			return [...own, ...promptCmds, { name: 'skill:', description: 'Вызвать навык из .vibe/skills', category: 'builtin' as const }];
+		}
+		const ownNames = new Set<string>(own.map(c => c.name));
+		return [
+			...agentCommands.map(c => ({
+				name: c.name,
+				description: [c.hint ? `${c.hint} — ` : '', c.description, ownNames.has(c.name) ? ' (такая команда есть и в IDE, выполнит агент)' : ''].join(''),
+				category: 'builtin' as const,
+				group: chatS.agentCommandsGroup(currentThread.acpAgent!.agentName),
+			})),
+			...own.filter(c => !agentCommands.some(agentCommand => agentCommand.name === c.name)).map(c => ({ ...c, group: chatS.ideCommandsGroup })),
+		];
+	}, [promptCmds, agentCommands, currentThread.acpAgent]);
 
 	// Filtered list shown in dropdown (source depends on which trigger opened the menu).
 	const filteredSkillCmds = useMemo(() => {
@@ -6871,6 +6901,29 @@ export const SidebarChat = () => {
 				return;
 			}
 		}
+		// ↑/↓ walk through what was sent before — from the first line of the text for ↑, from the last for ↓
+		if ((e.key === 'ArrowUp' || e.key === 'ArrowDown') && !e.shiftKey && !e.altKey && !e.ctrlKey && !e.metaKey && !e.nativeEvent.isComposing) {
+			const ta = textAreaRef.current;
+			const direction: -1 | 1 = e.key === 'ArrowUp' ? -1 : 1;
+			const entries = promptHistoryService.entries;
+			if (ta && entries.length > 0 && historyKeyApplies(ta.value, ta.selectionStart, ta.selectionEnd, direction)) {
+				// The list can be shorter than when the box last stepped through it (another window trimmed it)
+				historyIndexRef.current = Math.min(historyIndexRef.current, entries.length);
+				// On the first ↑ from the present the draft is put aside, so ↓ past the newest entry brings it back
+				if (historyIndexRef.current === entries.length && direction === -1) {
+					draftBeforeHistoryRef.current = ta.value;
+				}
+				const step = navigateHistory(entries, historyIndexRef.current, direction);
+				if (step.value !== null) {
+					e.preventDefault();
+					historyIndexRef.current = step.newIndex;
+					const value = step.value === '' ? draftBeforeHistoryRef.current : step.value;
+					textAreaFnsRef.current?.setValue(value);
+					requestAnimationFrame(() => { ta.setSelectionRange(value.length, value.length); });
+					return;
+				}
+			}
+		}
 		if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) {
 			// Check isDisabled again at the time of key press (not closure value)
 			if (!isDisabled && !isRunning) {
@@ -6884,7 +6937,7 @@ export const SidebarChat = () => {
 		} else if (e.key === 'Escape' && isRunning) {
 			onAbort();
 		}
-	}, [onSubmit, onAbort, onInject, isRunning, isDisabled, skillMenuOpen, filteredSkillCmds, skillIdx, insertSelectedSkill]);
+	}, [onSubmit, onAbort, onInject, isRunning, isDisabled, skillMenuOpen, filteredSkillCmds, skillIdx, insertSelectedSkill, promptHistoryService]);
 
 	// Context usage calculation + warning (partially memoized - draft tokens calculated on each render)
 	const [ctxWarned, setCtxWarned] = useState(false);
@@ -7231,20 +7284,26 @@ export const SidebarChat = () => {
 										: `Нет скиллов по фильтру «${skillFilter}»`}
 							</div>
 						)}
+						{currentThread.acpAgent && slashMenuKind === 'builtin' && agentCommands.length === 0 && (
+							<div className='px-3 py-1 text-vibe-fg-3 text-[11px]'>{chatS.agentCommandsPending(currentThread.acpAgent.agentName)}</div>
+						)}
 						{filteredSkillCmds.map((cmd, i) => {
 							const desc = sanitizeDesc(cmd.description);
+							const startsGroup = !!cmd.group && cmd.group !== filteredSkillCmds[i - 1]?.group;
 							return (
-								<div
-									key={cmd.name}
-									ref={(el) => { skillItemRefs.current[i] = el; }}
-									className='@@skill-menu-item px-3 py-1.5 cursor-pointer'
-									data-active={i === skillIdx ? '' : undefined}
-									onMouseEnter={() => setSkillIdx(i)}
-									onClick={() => insertSelectedSkill(cmd)}
-								>
-									<div className='@@skill-menu-item-title text-vibe-fg-1 text-[13px] font-semibold truncate'>/{cmd.name}</div>
-									{desc && <div className='text-vibe-fg-3 text-[11px] truncate mt-0.5'>{desc}</div>}
-								</div>
+								<React.Fragment key={cmd.name}>
+									{startsGroup && <div className='px-3 pt-1.5 pb-0.5 text-[10px] text-vibe-fg-3 select-none'>{cmd.group}</div>}
+									<div
+										ref={(el) => { skillItemRefs.current[i] = el; }}
+										className='@@skill-menu-item px-3 py-1.5 cursor-pointer'
+										data-active={i === skillIdx ? '' : undefined}
+										onMouseEnter={() => setSkillIdx(i)}
+										onClick={() => insertSelectedSkill(cmd)}
+									>
+										<div className='@@skill-menu-item-title text-vibe-fg-1 text-[13px] font-semibold truncate'>/{cmd.name}</div>
+										{desc && <div className='text-vibe-fg-3 text-[11px] truncate mt-0.5'>{desc}</div>}
+									</div>
+								</React.Fragment>
 							);
 						})}
 					</div>

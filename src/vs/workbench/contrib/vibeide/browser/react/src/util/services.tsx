@@ -43,6 +43,7 @@ import { IMetricsService } from '../../../../../../../workbench/contrib/vibeide/
 import { URI } from '../../../../../../../base/common/uri.js';
 import { IChatThreadService, ThreadsState, ThreadStreamState } from '../../../chatThreadService.js';
 import { IChatJournalService } from '../../../chatJournalService.js';
+import { IChatPromptHistoryService } from '../../../chatPromptHistoryService.js';
 import type { ChatJournalEntry } from '../../../../common/chatJournal.js';
 import { ITerminalToolService } from '../../../terminalToolService.js';
 import { ILanguageService } from '../../../../../../../editor/common/languages/language.js';
@@ -299,6 +300,7 @@ const getReactAccessor = (accessor: ServicesAccessor) => {
 			IEditCodeService: accessor.get(IEditCodeService),
 			IChatThreadService: accessor.get(IChatThreadService),
 			IChatJournalService: accessor.get(IChatJournalService),
+			IChatPromptHistoryService: accessor.get(IChatPromptHistoryService),
 
 			IInstantiationService: accessor.get(IInstantiationService),
 			ICodeEditorService: accessor.get(ICodeEditorService),

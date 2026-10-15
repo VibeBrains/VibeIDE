@@ -14,7 +14,7 @@ import { useRefState } from '../util/helpers.js';
 import { isFeatureNameDisabled } from '../../../../../../../workbench/contrib/vibeide/common/vibeideSettingsTypes.js';
 import { quickEditS } from '../vibe-settings-tsx/vibeSettingsRu.js';
 import { expandQuickEditSlashCommand, quickEditSlashHintNames } from '../../../../common/quickEditTemplates.js';
-import { appendPromptToHistory, navigateHistory, QUICK_EDIT_HISTORY_DEFAULT_MAX } from '../../../../common/quickEditPromptHistory.js';
+import { appendPromptToHistory, navigateHistory, PROMPT_HISTORY_DEFAULT_MAX } from '../../../../common/promptHistory.js';
 
 // Module-level history singleton — persists across QuickEdit zone instances
 // within the same window session. (Wave-3: lift to IStorageService for
@@ -92,7 +92,7 @@ export const QuickEditChat = ({
 		}
 		// Save the raw (pre-expansion) prompt to history so ↑ replays what the
 		// user typed, not the expanded template.
-		quickEditHistory = appendPromptToHistory(quickEditHistory, currentValue, QUICK_EDIT_HISTORY_DEFAULT_MAX);
+		quickEditHistory = appendPromptToHistory(quickEditHistory, currentValue, PROMPT_HISTORY_DEFAULT_MAX);
 		historyIndexRef.current = quickEditHistory.length;
 		draftBeforeHistoryRef.current = '';
 		persistHistory();

@@ -5,7 +5,7 @@
 
 import { useCallback, useEffect, useState } from 'react';
 import { AcpToolMessage } from '../../../../common/chatThreadServiceTypes.js';
-import { IAcpDiff } from '../../../../common/acp/acpProtocol.js';
+import { IAcpCommand, IAcpConfigChoice, IAcpConfigOption, IAcpDiff } from '../../../../common/acp/acpProtocol.js';
 import { ACP_PERMISSION_MODES, AcpGrant, AcpPermissionMode, DEFAULT_ACP_PERMISSION_MODE, describeAsking, describeGrant, permissionOptionLabel } from '../../../../common/acp/acpPermissionPolicy.js';
 import { useAccessor, useChatThreadsState } from '../util/services.js';
 import { VibeCustomDropdownBox } from '../util/inputs.js';
@@ -111,8 +111,11 @@ const AcpButton = ({ children, onClick, title, quiet }: { children: React.ReactN
 	{children}
 </button>;
 
-/** Вопрос сессии, ждущий человека, или ничего; новый объект приходит только при смене вопроса, а не на каждый кусок текста агента */
-const usePendingPermission = (sessionId: string | undefined) => {
+/**
+ * Сессия треда как её видят карточка вопроса и ручки в строке композера
+ * Новый объект приходит только при смене вопроса, разрешений или настроек агента, а не на каждый кусок его текста
+ */
+const useAcpSessionView = (sessionId: string | undefined) => {
 	const accessor = useAccessor();
 	const sessions = accessor.get('IVibeAcpSessionsService');
 	const read = useCallback(() => sessions.sessions.find(view => view.sessionId === sessionId), [sessions, sessionId]);
@@ -120,7 +123,11 @@ const usePendingPermission = (sessionId: string | undefined) => {
 	useEffect(() => {
 		const sync = () => setPending(previous => {
 			const next = read();
-			return previous?.pendingPermission?.requestId === next?.pendingPermission?.requestId && previous?.grants === next?.grants ? previous : next;
+			return previous?.pendingPermission?.requestId === next?.pendingPermission?.requestId
+				&& previous?.grants === next?.grants
+				&& previous?.configOptions === next?.configOptions
+				&& previous?.configuring === next?.configuring
+				? previous : next;
 		});
 		sync();
 		const listener = sessions.onDidChange(sync);
@@ -138,7 +145,7 @@ export const AcpPermissionCard = ({ threadId }: { threadId: string }) => {
 	const sessions = accessor.get('IVibeAcpSessionsService');
 	const threadsState = useChatThreadsState();
 	const agent = threadsState.allThreads[threadId]?.acpAgent;
-	const view = usePendingPermission(agent?.sessionId);
+	const view = useAcpSessionView(agent?.sessionId);
 	const [offersOpen, setOffersOpen] = useState(false);
 	const request = view?.pendingPermission;
 	if (!view || !request) { return null; }
@@ -188,6 +195,54 @@ export const AcpPermissionCard = ({ threadId }: { threadId: string }) => {
 	</div>;
 };
 
+// ── Настройки сессии агента ───────────────────────────────────────────────────
+
+/**
+ * Что агент подписал сам (`Model`, `Thought level`), по-русски по его категории
+ * Режим агента среди них нет: его ведёт наш режим разговора, а ручной выбор режима без вопросов обошёл бы наши проверки
+ */
+const CONFIG_CATEGORY_NAMES: Record<string, { readonly label: string; readonly hint: string }> = {
+	model: { label: 'Модель', hint: 'Модель самого агента. Меняется сразу и действует со следующего хода' },
+	thought_level: { label: 'Мышление', hint: 'Сколько агент думает перед ответом. Меняется сразу и действует со следующего хода' },
+};
+
+const MODE_CATEGORY = 'mode';
+
+/** Ручки агента в строке композера: его модель и глубина мышления, как он их объявил; агент вправе объявить и другие */
+const AcpConfigPills = ({ sessionId, options, locked, className }: { sessionId: string; options: readonly IAcpConfigOption[]; locked: boolean; className: string }) => {
+	const accessor = useAccessor();
+	const sessions = accessor.get('IVibeAcpSessionsService');
+	const shown = options.filter(option => option.category !== MODE_CATEGORY && option.id !== MODE_CATEGORY);
+	return <>
+		{shown.map(option => {
+			const known = option.category ? CONFIG_CATEGORY_NAMES[option.category] : undefined;
+			const hint = [known?.label ?? option.name, known?.hint ?? option.description].filter(Boolean).join('. ');
+			if (option.type === 'boolean') {
+				return <label key={option.id} className={`${className} flex items-center gap-1 cursor-pointer`} title={hint}>
+					<input type='checkbox' className='h-3 w-3' checked={option.currentValue} disabled={locked} onChange={event => void sessions.setConfigOption(sessionId, option.id, event.target.checked)} />
+					<span>{known?.label ?? option.name}</span>
+				</label>;
+			}
+			const selected = option.choices.find(choice => choice.value === option.currentValue);
+			if (!selected) { return null; }
+			return <span key={option.id} className='inline-flex' title={hint}>
+				<VibeCustomDropdownBox<IAcpConfigChoice>
+					className={className}
+					options={[...option.choices]}
+					selectedOption={selected}
+					onChangeOption={choice => { if (!locked && choice.value !== option.currentValue) { void sessions.setConfigOption(sessionId, option.id, choice.value); } }}
+					getOptionDisplayName={choice => choice.name}
+					getOptionDropdownName={choice => choice.name}
+					getOptionDropdownDetail={choice => choice.description ?? ''}
+					getOptionGroup={choice => choice.group}
+					getOptionsEqual={(a, b) => a.value === b.value}
+					detailPresentation='tooltip'
+				/>
+			</span>;
+		})}
+	</>;
+};
+
 // ── Режим ─────────────────────────────────────────────────────────────────────
 
 const MODE_NAMES: Record<AcpPermissionMode, string> = {
@@ -214,7 +269,7 @@ export const AcpModeControl = ({ className }: { className: string }) => {
 	const sessions = accessor.get('IVibeAcpSessionsService');
 	const threadsState = useChatThreadsState();
 	const thread = threadsState.allThreads[threadsState.currentThreadId];
-	const view = usePendingPermission(thread?.acpAgent?.sessionId);
+	const view = useAcpSessionView(thread?.acpAgent?.sessionId);
 	if (!thread?.acpAgent) { return null; }
 	const mode = thread.acpAgent.mode ?? DEFAULT_ACP_PERMISSION_MODE;
 	const grants = view?.grants.length ?? 0;
@@ -230,6 +285,7 @@ export const AcpModeControl = ({ className }: { className: string }) => {
 			getOptionsEqual={(a, b) => a === b}
 			detailPresentation='tooltip'
 		/>
+		{view && <AcpConfigPills sessionId={view.sessionId} options={view.configOptions} locked={view.configuring || view.disconnected} className={className} />}
 		{grants > 0 && view && <button
 			className='text-[11px] text-vibe-fg-4 underline decoration-dotted hover:text-vibe-fg-2'
 			title='Разрешения, которые вы дали на эту сессию («На сессию» в вопросе агента). Сброс вернёт вопросы'
@@ -238,4 +294,26 @@ export const AcpModeControl = ({ className }: { className: string }) => {
 			{`Сбросить разрешения сессии (${grants})`}
 		</button>}
 	</>;
+};
+
+// ── Команды агента ────────────────────────────────────────────────────────────
+
+/**
+ * Слэш-команды агента: из живой сессии, а до неё — как агент объявил их в прошлый раз
+ * Список меняется редко, поэтому новый объект приходит только при смене состава
+ */
+export const useAcpAgentCommands = (agentId: string | undefined): readonly IAcpCommand[] => {
+	const accessor = useAccessor();
+	const sessions = accessor.get('IVibeAcpSessionsService');
+	const [commands, setCommands] = useState<readonly IAcpCommand[]>(() => agentId ? sessions.commandsOf(agentId) : []);
+	useEffect(() => {
+		const sync = () => setCommands(previous => {
+			const next = agentId ? sessions.commandsOf(agentId) : [];
+			return previous.length === next.length && previous.every((command, index) => command.name === next[index].name && command.description === next[index].description) ? previous : next;
+		});
+		sync();
+		const listener = sessions.onDidChange(sync);
+		return () => listener.dispose();
+	}, [sessions, agentId]);
+	return commands;
 };

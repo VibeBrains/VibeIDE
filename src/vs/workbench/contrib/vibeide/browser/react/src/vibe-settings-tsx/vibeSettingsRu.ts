@@ -59,6 +59,9 @@ export function chatDiffCountLabel(n: number): string {
 /** Russian UI strings for VibeIDE sidebar chat (React). */
 export const chatS = {
 	// A thread led by an external agent: what the pill's agent changes about the chat's own checks.
+	agentCommandsGroup: (agentName: string) => `Команды агента «${agentName}»`,
+	ideCommandsGroup: 'Команды IDE',
+	agentCommandsPending: (agentName: string) => `Команды «${agentName}» появятся после первого сообщения: агент объявляет их при старте сессии.`,
 	agentLeads: 'Ход ведёт внешний агент',
 	agentLeadsTitle: 'Внешний агент работает по своему циклу, со своей моделью и своими инструментами. Лимиты, проверки хода и предохранители IDE к нему не применяются: ограничивают его только вопросы разрешения, которые он задаёт сам.',
 	// Plan-step controls. The card is the only place a user can steer a running plan, so its
