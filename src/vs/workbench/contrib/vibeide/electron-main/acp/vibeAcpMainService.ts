@@ -545,6 +545,7 @@ export class VibeAcpMainService extends Disposable implements IVibeAcpMain {
 				title: facts.title || facts.name || facts.toolKind || 'действие',
 				name: facts.name,
 				toolKind: facts.toolKind,
+				command: facts.command,
 				detail: describeToolCall(toolCall),
 				paths: facts.paths,
 				diffs: facts.diffs,

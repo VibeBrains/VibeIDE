@@ -606,7 +606,7 @@ function toolStatusOf(raw: JsonValue | undefined): AcpToolStatus {
  * `session/request_permission`. Разбор общий: иначе вопрос человеку и журнал правок однажды
  * разойдутся в том, какой файл меняется.
  */
-export function toolCallFacts(toolCall: JsonValue | undefined): { readonly title: string; readonly name: string; readonly toolKind: string; readonly paths: readonly string[]; readonly diffs: readonly IAcpDiff[] } {
+export function toolCallFacts(toolCall: JsonValue | undefined): { readonly title: string; readonly name: string; readonly toolKind: string; readonly command: string; readonly paths: readonly string[]; readonly diffs: readonly IAcpDiff[] } {
 	const record = asObject(toolCall) ?? {};
 	return {
 		title: stringAt(record, 'title') ?? '',
@@ -615,6 +615,8 @@ export function toolCallFacts(toolCall: JsonValue | undefined): { readonly title
 		// склейка карточки ниже пустое имя игнорирует.
 		name: stringAt(record, 'name') ?? '',
 		toolKind: stringAt(record, 'kind') ?? '',
+		// The command line of a shell call as the agent passed it to its tool; the title is free text and may only describe it
+		command: stringAt(asObject(record['rawInput']), 'command') ?? '',
 		paths: pathsOf(record),
 		diffs: diffsOf(record['content']),
 	};

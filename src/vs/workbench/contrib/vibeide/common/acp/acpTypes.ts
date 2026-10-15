@@ -52,6 +52,8 @@ export interface IAcpPermissionRequest {
 	readonly name: string;
 	/** ACP tool kind (`edit`, `execute`, `read`…), empty when not sent. */
 	readonly toolKind: string;
+	/** The command line of a shell call, when the agent sent it; empty for any other call. A title only describes it, this is what runs */
+	readonly command: string;
 	/** Что именно он собирается сделать — готовая строка для показа. */
 	readonly detail: string;
 	/** Файлы, которых коснётся действие: по ним снимается чекпоинт ДО применения. */

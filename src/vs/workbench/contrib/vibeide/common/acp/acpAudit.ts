@@ -63,6 +63,13 @@ export interface IAcpPermissionAuditInput extends IAcpAuditScope {
 	readonly paths: readonly string[];
 	/** The kind of the option picked (`allow_once`, `reject_always`…); absent when refused by cancelling. */
 	readonly optionKind: string | undefined;
+	/**
+	 * Who answered. A person by default; `policy` when the conversation's mode or a permission the person gave for the
+	 * session answered by itself — the log must still say that no one looked at this one
+	 */
+	readonly decidedBy?: 'human' | 'policy';
+	/** Why the policy answered (`grant`, `modeAuto`, `modeEdits`); only with `decidedBy: 'policy'` */
+	readonly reason?: string;
 }
 
 export type AcpSessionPhase = 'started' | 'ended' | 'failed' | 'reconnected';
@@ -103,13 +110,14 @@ export function buildAcpToolCallAudit(input: IAcpToolAuditInput, ts: number): Au
 	};
 }
 
-/** The person's answer to a guest's request: a human act, so the guest travels in `meta`. */
+/** The answer to a guest's request: usually the person's, so the guest travels in `meta`; an automatic one is the system's. */
 export function buildAcpPermissionAudit(input: IAcpPermissionAuditInput, ts: number): AuditEvent {
 	const title = auditableTitle(input.title, input.toolKind);
 	const outcome = permissionOutcomeOf(input.optionKind);
+	const byPolicy = input.decidedBy === 'policy';
 	return {
 		ts,
-		actor: 'human',
+		actor: byPolicy ? 'system' : 'human',
 		action: 'acp_permission',
 		traceId: input.sessionId,
 		...(input.toolCallId ? { toolCallId: input.toolCallId } : {}),
@@ -118,6 +126,7 @@ export function buildAcpPermissionAudit(input: IAcpPermissionAuditInput, ts: num
 		meta: {
 			agentId: input.agentId,
 			outcome,
+			...(byPolicy ? { decidedBy: 'policy', ...(input.reason ? { reason: input.reason } : {}) } : {}),
 			...(input.optionKind ? { optionKind: input.optionKind } : {}),
 			...(input.name ? { name: input.name } : {}),
 			...(title ? { title } : {}),

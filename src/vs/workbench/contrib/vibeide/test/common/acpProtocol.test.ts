@@ -294,8 +294,13 @@ suite('acpProtocol', () => {
 			assert.deepStrictEqual(facts.diffs, [{ path: '/app/new.ts', oldText: '', newText: 'содержимое' }]);
 		});
 
+		test('команда оболочки берётся из аргументов вызова, а не из заголовка', () => {
+			const facts = toolCallFacts({ title: 'Run tests', kind: 'execute', rawInput: { command: 'npm test', description: 'Run tests' } });
+			assert.deepStrictEqual([facts.title, facts.command], ['Run tests', 'npm test']);
+		});
+
 		test('вызов без файлов не выдумывает путей', () => {
-			assert.deepStrictEqual(toolCallFacts({ kind: 'execute', title: 'Bash' }), { title: 'Bash', name: '', toolKind: 'execute', paths: [], diffs: [] });
+			assert.deepStrictEqual(toolCallFacts({ kind: 'execute', title: 'Bash' }), { title: 'Bash', name: '', toolKind: 'execute', command: '', paths: [], diffs: [] });
 		});
 	});
 

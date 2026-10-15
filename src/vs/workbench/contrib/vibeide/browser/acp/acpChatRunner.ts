@@ -27,6 +27,7 @@ import { IChatJournalService } from '../chatJournalService.js';
 import { IVibeIgnoreService } from '../vibeIgnoreService.js';
 import { ChatImageAttachment, ChatMessage, ChatPDFAttachment, StagingSelectionItem } from '../../common/chatThreadServiceTypes.js';
 import { AcpStopReason } from '../../common/acp/acpProtocol.js';
+import { DEFAULT_ACP_PERMISSION_MODE } from '../../common/acp/acpPermissionPolicy.js';
 import { ACP_EMBED_MAX_CHARS_DEFAULT, ACP_EMBED_MAX_CHARS_KEY } from '../../common/acp/acpPromptContext.js';
 import { mirrorAcpEntries } from '../../common/acp/acpThreadMirror.js';
 import { AcpLogEntry } from '../../common/acp/acpSessionLog.js';
@@ -128,6 +129,15 @@ export class AcpChatRunner extends Disposable {
 		}
 	}
 
+	/** The person changed the mode: the live session of the thread takes it at once, a later one takes it when it starts */
+	async applyMode(threadId: string): Promise<void> {
+		const binding = this._port.getThread(threadId)?.acpAgent;
+		const view = this._viewOf(binding?.sessionId);
+		if (binding && view) {
+			await this._sessions.setPermissionMode(view.sessionId, binding.mode ?? DEFAULT_ACP_PERMISSION_MODE);
+		}
+	}
+
 	/** The chat no longer needs the agent process (the tab is closed, the thread is deleted); the thread keeps the session id to come back to */
 	async release(threadId: string): Promise<void> {
 		await this.stop(threadId);
@@ -187,6 +197,7 @@ export class AcpChatRunner extends Disposable {
 		const listener = this._sessions.onDidChange(() => { if (!scheduler.isScheduled()) { scheduler.schedule(); } });
 
 		try {
+			await this._sessions.setPermissionMode(sessionId, binding.mode ?? DEFAULT_ACP_PERMISSION_MODE);
 			const view = this._viewOf(sessionId);
 			const canEmbed = view?.promptCapabilities.embeddedContext === true;
 			const context = await collectAcpEditorContext(

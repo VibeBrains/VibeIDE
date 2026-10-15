@@ -25,7 +25,7 @@ import { IDisposable } from '../../../../../../../base/common/lifecycle.js';
 import { ErrorDisplay } from './ErrorDisplay.js';
 import { BlockCode, TextAreaFns, VibeCustomDropdownBox, VibeInputBox2, VibeSlider, VibeSwitch, VibeDiffEditor } from '../util/inputs.js';
 import { ModelDropdown, } from '../vibe-settings-tsx/ModelDropdown.js';
-import { AcpToolCard } from './AcpChat.js';
+import { AcpModeControl, AcpPermissionCard, AcpToolCard } from './AcpChat.js';
 import { PastThreadsList, ChatHistoryToolbarDropdown } from './SidebarThreadSelector.js';
 import { ChatContextMeterButton } from './ChatContextMeter.js';
 import { ChatQuickSettingsButton } from './ChatQuickSettings.js';
@@ -1746,6 +1746,8 @@ export const VibeChatArea: React.FC<VibeideChatAreaProps> = ({
 				{showModelDropdown && (
 					<div className='flex items-center flex-wrap gap-x-2 gap-y-1 text-nowrap flex-1 min-w-0'>
 						{featureName === 'Chat' && !ledByAgent && <ChatModeDropdown className='text-xs text-vibe-fg-3 @@vibe-toolbar-pill rounded-xl overflow-hidden py-0.5 px-1.5' />}
+						{/* The agent's conversation has modes of its own: how much it may do without asking */}
+						{ledByAgent && <AcpModeControl className='text-xs text-vibe-fg-3 @@vibe-toolbar-pill rounded-xl overflow-hidden py-0.5 px-1.5' />}
 						<ChatModelHealthDropdown featureName={featureName} className='text-xs text-vibe-fg-3 @@vibe-toolbar-pill rounded-xl overflow-hidden py-0.5 px-1.5' />
 						{/* The pill names the agent; this says what that changes: the chat's own checks do not reach a foreign loop */}
 						{ledByAgent && <span className='text-[11px] text-vibe-fg-4' title={chatS.agentLeadsTitle}>{chatS.agentLeads}</span>}
@@ -6533,6 +6535,14 @@ export const SidebarChat = () => {
 			items.push({
 				key: 'escape-hint',
 				render: () => <p className="text-xs text-vibe-fg-3 opacity-60 mt-1" role="status">Press Escape to cancel</p>
+			});
+		}
+
+		// The question of an external agent that waits for the person
+		if (isRunning === 'awaiting_user' && currentThread.acpAgent) {
+			items.push({
+				key: 'acp-permission',
+				render: () => <ProseWrapper><AcpPermissionCard threadId={threadId} /></ProseWrapper>,
 			});
 		}
 

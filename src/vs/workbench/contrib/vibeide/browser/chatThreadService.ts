@@ -26,6 +26,7 @@ import { SlopReport } from '../common/textSlop/textSlop.js';
 import { nextChatTraceTurn, recordChatTrace } from './vibeChatRunTrace.js';
 import { IChatJournalService } from './chatJournalService.js';
 import { AcpChatRunner, AcpThreadBinding } from './acp/acpChatRunner.js';
+import { AcpPermissionMode, DEFAULT_ACP_PERMISSION_MODE } from '../common/acp/acpPermissionPolicy.js';
 import type { ChatJournalAction } from '../common/chatJournal.js';
 import { availableTools, builtinTools, builtinToolNames, chat_userMessageContent, isABuiltinToolName } from '../common/prompt/prompts.js';
 import { TOOL_NAME_ALIASES, applyParamAliases, detectToolByParamShape } from '../common/prompt/toolAliases.js';
@@ -443,8 +444,9 @@ export type ThreadType = {
 	 * The external agent that leads this thread, chosen before the first message and kept for the whole conversation:
 	 * the agent has its own history, so the conversation cannot move to another model or agent halfway
 	 * `sessionId` is the agent's session, which the thread comes back to after a restart
+	 * `mode` is the person's mode for the conversation (Вручную, Правки, План, Автопилот); absent means manual
 	 */
-	acpAgent?: { agentId: string; agentName: string; sessionId?: string };
+	acpAgent?: { agentId: string; agentName: string; sessionId?: string; mode?: AcpPermissionMode };
 
 	messages: ChatMessage[];
 	filesWithUserChanges: Set<string>;
@@ -738,6 +740,8 @@ export interface IChatThreadService {
 	 * mid-way. Returns false when the thread already has messages and the leader would change
 	 */
 	setThreadAcpAgent(threadId: string, agent: { agentId: string; agentName: string } | undefined): boolean;
+	/** The person's mode for a conversation led by an external agent; applied to the live session at once */
+	setThreadAcpMode(threadId: string, mode: AcpPermissionMode): void;
 
 	// thread selector
 	deleteThread(threadId: string): void;
@@ -1300,6 +1304,13 @@ class ChatThreadService extends Disposable implements IChatThreadService {
 		const updated: ChatThreads = { ...this.state.allThreads, [threadId]: { ...thread, acpAgent: binding } };
 		this._storeAllThreads(updated);
 		this._setState({ allThreads: updated }, true);
+	}
+
+	setThreadAcpMode(threadId: string, mode: AcpPermissionMode): void {
+		const thread = this.state.allThreads[threadId];
+		if (!thread?.acpAgent || (thread.acpAgent.mode ?? DEFAULT_ACP_PERMISSION_MODE) === mode) { return; }
+		this._setAcpBinding(threadId, { ...thread.acpAgent, mode });
+		void this._acpRunner.applyMode(threadId);
 	}
 
 	setThreadAcpAgent(threadId: string, agent: { agentId: string; agentName: string } | undefined): boolean {

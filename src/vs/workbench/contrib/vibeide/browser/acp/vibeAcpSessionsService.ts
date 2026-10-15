@@ -33,6 +33,18 @@ import { IVibeAcpIdeMcpService } from '../../common/acp/vibeAcpIdeMcpService.js'
 import { IIdeMcpIssued } from '../../common/acp/acpIdeMcpTypes.js';
 import { IRollbackSnapshotService } from '../../common/rollbackSnapshotService.js';
 import { ISecretDetectionService } from '../../common/secretDetectionService.js';
+import { IWorkspaceContextService } from '../../../../../platform/workspace/common/workspace.js';
+import {
+	AcpDecisionReason,
+	AcpGrant,
+	AcpPermissionMode,
+	DEFAULT_ACP_PERMISSION_MODE,
+	IAcpRequestFacts,
+	agentModeFor,
+	autoAnswerOptionOf,
+	decidePermission,
+	grantOffersFor,
+} from '../../common/acp/acpPermissionPolicy.js';
 import { IVibeAgentActivityLogService } from '../vibeAgentActivityLogService.js';
 import { IVibeAcpRegistryService } from './vibeAcpRegistryService.js';
 import { VibeAgentEntry } from '../../common/acp/vibeAgentsFile.js';
@@ -58,6 +70,13 @@ export interface IVibeAcpSessionView {
 	readonly log: IAcpSessionSnapshot;
 	/** Вопрос, ждущий человека. Пока он есть, ход стоит. */
 	readonly pendingPermission?: IAcpPermissionRequest;
+	/** Why this question was not answered by the mode or a grant, when that is worth telling the person */
+	readonly pendingReason?: AcpDecisionReason;
+	/** What the person may give for the rest of the session instead of answering this one time */
+	readonly pendingGrantOffers: readonly AcpGrant[];
+	readonly permissionMode: AcpPermissionMode;
+	/** The permissions the person gave for this session */
+	readonly grants: readonly AcpGrant[];
 	/** The settings the agent exposes — model, mode, thinking — as it last reported them */
 	readonly configOptions: readonly IAcpConfigOption[];
 	/** A setting change is on its way to the agent: the controls wait for its answer */
@@ -103,7 +122,18 @@ export interface IVibeAcpSessionsService {
 	 */
 	resumeSession(agent: VibeAgentEntry, previousSessionId: string): Promise<{ readonly session: IAcpSession; readonly mode: AcpReconnectMode }>;
 	prompt(sessionId: string, request: IVibeAcpPromptRequest): Promise<void>;
-	answerPermission(sessionId: string, optionId: string | undefined): Promise<void>;
+	/**
+	 * The person's answer; `grant` — a permission for the rest of the session that goes with an allowing answer
+	 * It has to be one the question offered: a surface cannot invent a wider permission than the one it was shown
+	 */
+	answerPermission(sessionId: string, optionId: string | undefined, grant?: AcpGrant): Promise<void>;
+	/**
+	 * The person's mode for this session: it answers by itself what it may, and keeps the agent asking about the rest
+	 * `plan` is also set on the agent, whose own planning mode changes what it does
+	 */
+	setPermissionMode(sessionId: string, mode: AcpPermissionMode): Promise<void>;
+	/** Withdraw the permissions given for this session */
+	clearGrants(sessionId: string): void;
 	cancel(sessionId: string): Promise<void>;
 	endSession(sessionId: string): Promise<void>;
 	/** Change a setting the agent exposes; the card shows the state the agent answers with, not the value asked for */
@@ -126,7 +156,9 @@ interface ISessionState {
 	error?: string;
 	disconnected: boolean;
 	reconnecting: boolean;
-	pending?: { readonly request: IAcpPermissionRequest; readonly snapshotId?: string };
+	pending?: { readonly request: IAcpPermissionRequest; readonly snapshotId?: string; readonly reason?: AcpDecisionReason; readonly offers: readonly AcpGrant[] };
+	permissionMode: AcpPermissionMode;
+	grants: AcpGrant[];
 	configOptions: readonly IAcpConfigOption[];
 	configuring: boolean;
 	commands: readonly IAcpCommand[];
@@ -139,7 +171,7 @@ interface ISessionState {
 	brevitySent?: BrevityLevel;
 }
 
-class VibeAcpSessionsService extends Disposable implements IVibeAcpSessionsService {
+export class VibeAcpSessionsService extends Disposable implements IVibeAcpSessionsService {
 	declare readonly _serviceBrand: undefined;
 
 	private readonly _onDidChange = this._register(new Emitter<void>());
@@ -161,6 +193,7 @@ class VibeAcpSessionsService extends Disposable implements IVibeAcpSessionsServi
 		@IAuditLogService private readonly _auditLog: IAuditLogService,
 		@IConfigurationService private readonly _configurationService: IConfigurationService,
 		@ISecretDetectionService private readonly _secretDetection: ISecretDetectionService,
+		@IWorkspaceContextService private readonly _workspace: IWorkspaceContextService,
 	) {
 		super();
 		this._register(this._acpService.onEvent(event => this._observe(event)));
@@ -178,6 +211,10 @@ class VibeAcpSessionsService extends Disposable implements IVibeAcpSessionsServi
 			reconnecting: state.reconnecting,
 			log: state.log.snapshot,
 			pendingPermission: state.pending?.request,
+			pendingReason: state.pending?.reason,
+			pendingGrantOffers: state.pending?.offers ?? [],
+			permissionMode: state.permissionMode,
+			grants: state.grants,
 			configOptions: state.configOptions,
 			configuring: state.configuring,
 			commands: state.commands,
@@ -239,6 +276,8 @@ class VibeAcpSessionsService extends Disposable implements IVibeAcpSessionsServi
 			commands: session.commands ?? [],
 			promptCapabilities: session.promptCapabilities,
 			turnStart: 0,
+			permissionMode: DEFAULT_ACP_PERMISSION_MODE,
+			grants: [],
 			ideMcp,
 		});
 		this._activityLog.logStarted(localize('vibeide.acp.log.session', "Внешний агент «{0}» открыл сессию", session.agentName));
@@ -295,15 +334,20 @@ class VibeAcpSessionsService extends Disposable implements IVibeAcpSessionsServi
 	 *
 	 * Отказ отбрасывает чекпоинт: правки, к которой он относился, не случилось.
 	 */
-	async answerPermission(sessionId: string, optionId: string | undefined): Promise<void> {
+	async answerPermission(sessionId: string, optionId: string | undefined, grant?: AcpGrant): Promise<void> {
 		const state = this._sessions.get(sessionId);
 		const pending = state?.pending;
 		if (!state || !pending) { return; }
 		state.pending = undefined;
+		const request = pending.request;
+		const optionKind = optionId ? request.options.find(option => option.optionId === optionId)?.kind : undefined;
+		// A permission for the session goes only with an allowing answer, and only if the question offered it
+		if (grant && optionKind?.startsWith('allow') && pending.offers.some(offer => JSON.stringify(offer) === JSON.stringify(grant))) {
+			state.grants = [...state.grants, grant];
+		}
 		this._onDidChange.fire();
 
-		await this._acpService.answerPermission(pending.request.requestId, optionId);
-		const request = pending.request;
+		await this._acpService.answerPermission(request.requestId, optionId);
 		this._audit(buildAcpPermissionAudit({
 			agentId: state.agentId,
 			sessionId,
@@ -312,11 +356,32 @@ class VibeAcpSessionsService extends Disposable implements IVibeAcpSessionsServi
 			name: request.name,
 			toolKind: request.toolKind,
 			paths: request.paths,
-			optionKind: optionId ? request.options.find(option => option.optionId === optionId)?.kind : undefined,
+			optionKind,
 		}, Date.now()));
-		if (!optionId && pending.snapshotId) {
+		// A refusal — the person's cancel or the agent's own «reject» option — means the edit did not happen
+		if ((!optionId || optionKind?.startsWith('reject')) && pending.snapshotId) {
 			await this._snapshotService.discardSnapshot(pending.snapshotId);
 		}
+	}
+
+	async setPermissionMode(sessionId: string, mode: AcpPermissionMode): Promise<void> {
+		const state = this._sessions.get(sessionId);
+		if (!state) { return; }
+		state.permissionMode = mode;
+		this._onDidChange.fire();
+		const setting = state.configOptions.find(option => option.type === 'select' && (option.id === 'mode' || option.category === 'mode'));
+		if (setting?.type !== 'select') { return; }
+		const wanted = agentModeFor(mode, setting.choices);
+		if (wanted && wanted !== setting.currentValue) {
+			await this.setConfigOption(sessionId, setting.id, wanted);
+		}
+	}
+
+	clearGrants(sessionId: string): void {
+		const state = this._sessions.get(sessionId);
+		if (!state || state.grants.length === 0) { return; }
+		state.grants = [];
+		this._onDidChange.fire();
 	}
 
 	cancel(sessionId: string): Promise<void> {
@@ -372,6 +437,8 @@ class VibeAcpSessionsService extends Disposable implements IVibeAcpSessionsServi
 			// A fresh session has none of the old history, the style included
 			if (back.mode === 'new') {
 				current.brevitySent = undefined;
+				// The permissions were given for a conversation the agent no longer has
+				current.grants = [];
 			}
 			current.log.appendNotice(reconnectNotice(back.mode));
 			this._activityLog.logStarted(localize('vibeide.acp.log.reconnected', "Внешний агент «{0}» переподключён", current.agentName));
@@ -538,12 +605,34 @@ class VibeAcpSessionsService extends Disposable implements IVibeAcpSessionsServi
 			await this._acpService.answerPermission(request.requestId, undefined);
 			return;
 		}
+		// The checkpoint is taken for an answer given by the mode as well: it is what the edit can be undone from
 		const snapshotId = await this._snapshotBefore(request);
 		if (this._withdrawnBeforeShown.delete(request.requestId)) {
 			if (snapshotId) { await this._snapshotService.discardSnapshot(snapshotId); }
 			return;
 		}
-		state.pending = { request, ...(snapshotId ? { snapshotId } : {}) };
+		const facts: IAcpRequestFacts = { toolKind: request.toolKind, name: request.name, title: request.title, command: request.command, paths: request.paths };
+		const roots = this._workspace.getWorkspace().folders.map(folder => folder.uri.fsPath);
+		const decision = decidePermission(facts, { mode: state.permissionMode, grants: state.grants, roots });
+		const autoOption = decision.action === 'allow' ? autoAnswerOptionOf(request.options) : undefined;
+		if (autoOption) {
+			await this._acpService.answerPermission(request.requestId, autoOption);
+			this._audit(buildAcpPermissionAudit({
+				agentId: state.agentId,
+				sessionId: state.sessionId,
+				toolCallId: request.toolCallId,
+				title: request.title,
+				name: request.name,
+				toolKind: request.toolKind,
+				paths: request.paths,
+				optionKind: request.options.find(option => option.optionId === autoOption)?.kind,
+				decidedBy: 'policy',
+				reason: decision.reason,
+			}, Date.now()));
+			this._activityLog.logFinished(localize('vibeide.acp.log.autoAllowed', "Внешнему агенту разрешено без вопроса: {0}", request.title));
+			return;
+		}
+		state.pending = { request, ...(snapshotId ? { snapshotId } : {}), ...(decision.action === 'ask' ? { reason: decision.reason } : {}), offers: grantOffersFor(facts, roots) };
 		this._activityLog.logStarted(localize('vibeide.acp.log.asks', "Внешний агент просит разрешения: {0}", request.title));
 		this._onDidChange.fire();
 

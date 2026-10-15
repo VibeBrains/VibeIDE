@@ -13,6 +13,7 @@ import { IVibeAcpRegistryService } from '../../browser/acp/vibeAcpRegistryServic
 import type { ThreadStreamState, ThreadType } from '../../browser/chatThreadService.js';
 import { ChatMessage } from '../../common/chatThreadServiceTypes.js';
 import { AcpReconnectMode, AcpStopReason } from '../../common/acp/acpProtocol.js';
+import { AcpPermissionMode } from '../../common/acp/acpPermissionPolicy.js';
 import { AcpSessionLog } from '../../common/acp/acpSessionLog.js';
 import { VibeAgentEntry } from '../../common/acp/vibeAgentsFile.js';
 import { IAcpSession } from '../../common/acp/acpTypes.js';
@@ -32,6 +33,8 @@ class FakeSessions {
 	error: string | undefined;
 	lastStopReason: AcpStopReason | undefined;
 	resumeMode: AcpReconnectMode = 'resume';
+	mode: AcpPermissionMode = 'manual';
+	readonly modes: AcpPermissionMode[] = [];
 	/** What the agent does during a turn */
 	script: () => Promise<void> = async () => { };
 	/** Released by a test to let a long turn end */
@@ -52,6 +55,9 @@ class FakeSessions {
 			reconnecting: false,
 			log: this.log.snapshot,
 			pendingPermission: undefined,
+			pendingGrantOffers: [],
+			permissionMode: this.mode,
+			grants: [],
 			configOptions: [],
 			configuring: false,
 			commands: [],
@@ -73,6 +79,11 @@ class FakeSessions {
 	}
 
 	async reconnect(): Promise<string | undefined> { return undefined; }
+
+	async setPermissionMode(_sessionId: string, mode: AcpPermissionMode): Promise<void> {
+		this.mode = mode;
+		this.modes.push(mode);
+	}
 
 	async prompt(_sessionId: string, request: IVibeAcpPromptRequest): Promise<void> {
 		this.prompts.push(request);
@@ -230,6 +241,14 @@ suite('AcpChatRunner — ход основного чата, который ве
 		await runner.send(request());
 		const last = streamStates[streamStates.length - 1];
 		assert.strictEqual(last?.error?.message, 'связь оборвалась');
+	});
+
+	test('режим треда выставляется сессии перед каждым ходом, а смена режима доходит до живой сессии сразу', async () => {
+		const { runner, sessions, thread } = setup({ binding: { agentId: 'claude', agentName: 'Claude Agent', mode: 'edits' } });
+		await runner.send(request());
+		thread.acpAgent = { ...thread.acpAgent!, mode: 'plan' };
+		await runner.applyMode('t1');
+		assert.deepStrictEqual(sessions.modes, ['edits', 'plan']);
 	});
 
 	test('закрытие вкладки гасит процесс агента, а сессию тред помнит', async () => {
