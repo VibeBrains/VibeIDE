@@ -6,7 +6,7 @@
 import assert from 'assert';
 import { ensureNoDisposablesAreLeakedInTestSuite } from '../../../../../base/test/common/utils.js';
 import { parseVibeAgentsFile } from '../../common/acp/vibeAgentsFile.js';
-import { EMPTY_AGENTS_FILE, rawAgentIndex, withAgentAppended, withAgentUpdated } from '../../common/acp/vibeAgentsFileEdit.js';
+import { EMPTY_AGENTS_FILE, rawAgentIndex, withAgentAppended, withAgentMcpServers, withAgentUpdated } from '../../common/acp/vibeAgentsFileEdit.js';
 
 suite('vibeAgentsFileEdit — правка agents.json без потери комментариев', () => {
 
@@ -54,6 +54,24 @@ suite('vibeAgentsFileEdit — правка agents.json без потери ко�
 			// The name, the MCP servers — the person's — stay as they were.
 			запись: { id: 'mm', name: 'Наш MiniMax', command: 'npx', args: ['@minimax-ai/code@0.2.7', 'acp'], mcpServers: ['vibememory'], registry: { id: 'minimax-code', version: '0.2.7' } },
 			комментарий: true,
+			нетТакого: undefined,
+		});
+	});
+
+	test('список MCP-серверов агента заменяется, пустой список убирает поле; остальное и комментарии не трогаются', () => {
+		const changed = withAgentMcpServers(FILE, 'mm', ['vibememory', 'github'])!;
+		const cleared = withAgentMcpServers(FILE, 'mm', [])!;
+		assert.deepStrictEqual({
+			список: parseVibeAgentsFile(changed).agents[0].mcpServers,
+			сброшено: parseVibeAgentsFile(cleared).agents[0].mcpServers,
+			имя: parseVibeAgentsFile(changed).agents[0].name,
+			комментарии: changed.includes('// added from the registry') && cleared.includes('// team agents — keep this note'),
+			нетТакого: withAgentMcpServers(FILE, 'nobody', ['x']),
+		}, {
+			список: ['vibememory', 'github'],
+			сброшено: undefined,
+			имя: 'Наш MiniMax',
+			комментарии: true,
 			нетТакого: undefined,
 		});
 	});

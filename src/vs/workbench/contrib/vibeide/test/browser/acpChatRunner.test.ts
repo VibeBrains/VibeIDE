@@ -176,6 +176,16 @@ suite('AcpChatRunner — ход основного чата, который ве
 		assert.deepStrictEqual(roles(messages), ['user', 'assistant:Смотрю']);
 	});
 
+	test('карточка вызова, оборванная закрытием IDE, при следующем сообщении перестаёт «идти»', async () => {
+		const { runner, messages } = setup();
+		messages.push(
+			{ role: 'acp_tool', toolCallId: 'a', title: 'curl', name: 'Bash', toolKind: 'execute', status: 'in_progress', paths: [], diffs: [], output: '' },
+			{ role: 'acp_tool', toolCallId: 'b', title: 'ls', name: 'Bash', toolKind: 'execute', status: 'completed', paths: [], diffs: [], output: '' },
+		);
+		await runner.send(request());
+		assert.deepStrictEqual(messages.filter(m => m.role === 'acp_tool').map(m => m.role === 'acp_tool' ? m.status : ''), ['cancelled', 'completed']);
+	});
+
 	test('ход следующего сообщения не склеивается с ответом прошлого', async () => {
 		const { runner, sessions, messages } = setup();
 		sessions.script = async () => { sessions.log.appendText('Первый', false); };

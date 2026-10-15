@@ -85,6 +85,16 @@ suite('acpSessionLog', () => {
 		assert.strictEqual((log.snapshot.entries[0] as { status: string }).status, 'failed');
 	});
 
+	test('конец хода снимает «идёт» с карточек без завершающего кадра и не трогает завершённые', () => {
+		const log = new AcpSessionLog();
+		log.applyTool({ toolCallId: 't1', title: 'curl', name: 'Bash', toolKind: 'execute', status: 'in_progress', paths: [], diffs: [], output: '' });
+		log.applyTool({ toolCallId: 't2', title: 'Read', name: 'Read', toolKind: 'read', status: 'pending', paths: [], diffs: [], output: '' });
+		log.applyTool({ toolCallId: 't3', title: 'Edit', name: 'Edit', toolKind: 'edit', status: 'failed', paths: [], diffs: [], output: '' });
+		log.applyTool({ toolCallId: 't4', title: 'ls', name: 'Bash', toolKind: 'execute', status: 'completed', paths: [], diffs: [], output: '' });
+		log.settleTurn();
+		assert.deepStrictEqual(log.snapshot.entries.map(entry => (entry as { status: string }).status), ['cancelled', 'cancelled', 'failed', 'completed']);
+	});
+
 	test('карточка обновляется на месте, а не уезжает в конец ленты', () => {
 		const log = new AcpSessionLog();
 		log.applyTool({ toolCallId: 't1', title: 'Read', name: '', toolKind: 'read', status: 'pending', paths: [], diffs: [], output: '' });

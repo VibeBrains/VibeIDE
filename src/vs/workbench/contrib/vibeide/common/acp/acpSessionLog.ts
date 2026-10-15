@@ -82,6 +82,16 @@ export class AcpSessionLog {
 		return this._entries.length;
 	}
 
+	/**
+	 * The turn is over: a call that never reported its end is not running any more
+	 * Stopping in the middle of a question leaves such cards, and «in progress» on them would never go away
+	 */
+	settleTurn(): void {
+		const isOpen = (status: AcpToolStatus) => status === 'pending' || status === 'in_progress';
+		if (!this._entries.some(entry => entry.kind === 'tool' && isOpen(entry.status))) { return; }
+		this._entries = this._entries.map(entry => entry.kind === 'tool' && isOpen(entry.status) ? { ...entry, status: 'cancelled' } : entry);
+	}
+
 	/** A note about the session itself; like a tool call, it breaks the gluing of the agent's text. */
 	appendNotice(text: string): void {
 		this._entries = [...this._entries, { kind: 'notice', id: `n${this._nextMessageId++}`, text }];

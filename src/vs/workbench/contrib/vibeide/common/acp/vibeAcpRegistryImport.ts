@@ -8,7 +8,7 @@
  *
  * It lives in `common/` and the implementation in `electron-browser/`: installing a binary goes to the
  * main process through `IMainProcessService`, which the common layer may not touch. Consumers — the
- * «Внешние агенты» pane among them — depend on this contract, not on the desktop module.
+ * «Агенты» section of the settings among them — depend on this contract, not on the desktop module.
  */
 
 import { Event } from '../../../../../base/common/event.js';

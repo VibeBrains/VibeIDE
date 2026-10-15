@@ -100,6 +100,7 @@ export class AcpChatRunner extends Disposable {
 	async send(request: IAcpChatRequest): Promise<void> {
 		const { threadId } = request;
 		await this.stop(threadId);
+		this._settleLeftovers(threadId);
 		const content = withPdfText(request.text, request.pdfs);
 		this._port.addUserMessage(threadId, {
 			content,
@@ -115,6 +116,19 @@ export class AcpChatRunner extends Disposable {
 		} finally {
 			if (this._turns.get(threadId) === turn) { this._turns.delete(threadId); }
 		}
+	}
+
+	/**
+	 * A call card still «in progress» when no turn runs was cut off by closing the IDE: nothing finishes it any more
+	 * The session log settles the cards of its own turns; this settles the ones a restart left in the stored thread
+	 */
+	private _settleLeftovers(threadId: string): void {
+		const messages = this._port.getThread(threadId)?.messages ?? [];
+		messages.forEach((message, idx) => {
+			if (message.role === 'acp_tool' && (message.status === 'pending' || message.status === 'in_progress')) {
+				this._port.editMessage(threadId, idx, { ...message, status: 'cancelled' });
+			}
+		});
 	}
 
 	/** Asks the agent to end its turn and waits for it a little; nothing running — nothing to do */
@@ -275,7 +289,9 @@ export class AcpChatRunner extends Disposable {
 			return;
 		}
 		if (view.error) {
-			this._port.setStreamState(threadId, { isRunning: undefined, error: { message: view.error, fullError: null } });
+			// A dead process comes back by itself with the next message: there is no separate button for it any more
+			const message = view.disconnected ? `${view.error}\n${localize('vibeide.acpChat.reconnectHint', "Отправьте сообщение ещё раз: агент переподключится и продолжит разговор.")}` : view.error;
+			this._port.setStreamState(threadId, { isRunning: undefined, error: { message, fullError: null } });
 		} else {
 			this._port.setStreamState(threadId, undefined);
 			const reason = view.lastStopReason ? stopReasonNotice(view.lastStopReason, binding.agentName) : undefined;

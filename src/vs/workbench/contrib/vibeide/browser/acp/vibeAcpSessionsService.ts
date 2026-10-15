@@ -7,7 +7,7 @@
  * Сессии внешних агентов: состояние для поверхности и ворота, через которые проходит их работа.
  *
  * Почему это одно место, а не два. На запрос разрешения есть ровно один ответ, и если бы его
- * могли дать и вкладка, и уведомление, второй ответ уехал бы агенту в пустоту. Поэтому очередь
+ * могли дать и чат, и телефон, второй ответ уехал бы агенту в пустоту. Поэтому очередь
  * вопросов, чекпоинт и журнал живут здесь, а поверхность лишь показывает и нажимает.
  *
  * Чекпоинт снимается ДО показа вопроса: между «да» и правкой агента вставить его негде. Отказ
@@ -19,9 +19,8 @@ import { Emitter, Event } from '../../../../../base/common/event.js';
 import { Disposable } from '../../../../../base/common/lifecycle.js';
 import { createDecorator } from '../../../../../platform/instantiation/common/instantiation.js';
 import { InstantiationType, registerSingleton } from '../../../../../platform/instantiation/common/extensions.js';
-import { ICommandService } from '../../../../../platform/commands/common/commands.js';
 import { IConfigurationService } from '../../../../../platform/configuration/common/configuration.js';
-import { INotificationService, Severity } from '../../../../../platform/notification/common/notification.js';
+import { INotificationService } from '../../../../../platform/notification/common/notification.js';
 import { AcpEvent, IAcpAgentLaunch, IAcpPermissionRequest, IAcpReconnection, IAcpSession } from '../../common/acp/acpTypes.js';
 import { AcpReconnectMode, AcpStopReason, agentCommandOf, IAcpCommand, IAcpConfigOption, IAcpDiff, IAcpPromptCapabilities } from '../../common/acp/acpProtocol.js';
 import { ACP_EMBED_MAX_CHARS_DEFAULT, ACP_EMBED_MAX_CHARS_KEY, AcpContextItem, IAcpEditorState, buildAcpPromptBlocks } from '../../common/acp/acpPromptContext.js';
@@ -112,9 +111,6 @@ export interface IVibeAcpSessionsService {
 	/** Живые сессии в порядке открытия. */
 	readonly sessions: readonly IVibeAcpSessionView[];
 
-	/** Открыта ли поверхность: от этого зависит, показывать ли вопрос уведомлением. */
-	setSurfaceVisible(visible: boolean): void;
-
 	startSession(agent: VibeAgentEntry): Promise<IAcpSession>;
 	/**
 	 * A session for a chat thread that already had one: the agent is started again and asked to come back to
@@ -186,7 +182,6 @@ export class VibeAcpSessionsService extends Disposable implements IVibeAcpSessio
 	private readonly _sessions = new Map<string, ISessionState>();
 	/** The commands each agent last announced, by agent id: they outlive the session and the window */
 	private _knownCommands: Readonly<Record<string, readonly IAcpCommand[]>>;
-	private _surfaceVisible = false;
 	/** Questions withdrawn while their checkpoint was still being taken: they must not open a card afterwards */
 	private readonly _withdrawnBeforeShown = new Set<string>();
 
@@ -197,7 +192,6 @@ export class VibeAcpSessionsService extends Disposable implements IVibeAcpSessio
 		@IRollbackSnapshotService private readonly _snapshotService: IRollbackSnapshotService,
 		@IVibeAgentActivityLogService private readonly _activityLog: IVibeAgentActivityLogService,
 		@INotificationService private readonly _notificationService: INotificationService,
-		@ICommandService private readonly _commandService: ICommandService,
 		@IAuditLogService private readonly _auditLog: IAuditLogService,
 		@IConfigurationService private readonly _configurationService: IConfigurationService,
 		@ISecretDetectionService private readonly _secretDetection: ISecretDetectionService,
@@ -231,10 +225,6 @@ export class VibeAcpSessionsService extends Disposable implements IVibeAcpSessio
 			turnStart: state.turnStart,
 			promptCapabilities: state.promptCapabilities,
 		}));
-	}
-
-	setSurfaceVisible(visible: boolean): void {
-		this._surfaceVisible = visible;
 	}
 
 	async startSession(agent: VibeAgentEntry): Promise<IAcpSession> {
@@ -336,6 +326,7 @@ export class VibeAcpSessionsService extends Disposable implements IVibeAcpSessio
 			state.error = err instanceof Error ? err.message : String(err);
 		} finally {
 			state.busy = false;
+			state.log.settleTurn();
 			this._onDidChange.fire();
 		}
 	}
@@ -552,9 +543,6 @@ export class VibeAcpSessionsService extends Disposable implements IVibeAcpSessio
 					state.pending = undefined;
 					state.disconnected = true;
 					this._audit(buildAcpSessionAudit({ agentId: state.agentId, sessionId: state.sessionId, phase: 'failed', error: event.error }, Date.now()));
-					if (!this._surfaceVisible) {
-						this._notifyDisconnected(state);
-					}
 				}
 				this._activityLog.logError(localize('vibeide.acp.log.failed', "Связь с внешним агентом оборвалась: {0}", event.error));
 				this._onDidChange.fire();
@@ -621,7 +609,7 @@ export class VibeAcpSessionsService extends Disposable implements IVibeAcpSessio
 		void this._auditLog.append(event).catch(() => { });
 	}
 
-	/** Чекпоинт по путям правки, затем вопрос человеку — уведомлением, если вкладка закрыта. */
+	/** Чекпоинт по путям правки, затем решение: ответ по режиму и разрешениям сессии или вопрос человеку. */
 	private async _guard(request: IAcpPermissionRequest): Promise<void> {
 		const state = this._sessions.get(request.sessionId);
 		if (!state) {
@@ -660,10 +648,6 @@ export class VibeAcpSessionsService extends Disposable implements IVibeAcpSessio
 		state.pending = { request, ...(snapshotId ? { snapshotId } : {}), ...(decision.action === 'ask' ? { reason: decision.reason } : {}), offers: grantOffersFor(facts, roots) };
 		this._activityLog.logStarted(localize('vibeide.acp.log.asks', "Внешний агент просит разрешения: {0}", request.title));
 		this._onDidChange.fire();
-
-		if (!this._surfaceVisible) {
-			this._notifyPending(request);
-		}
 	}
 
 	/**
@@ -699,46 +683,6 @@ export class VibeAcpSessionsService extends Disposable implements IVibeAcpSessio
 			return undefined;
 		}
 	}
-
-	/**
-	 * A broken session while the tab is closed. Reconnecting right from the notification is safe:
-	 * unlike a permission, nothing is decided on the person's behalf — the agent only comes back.
-	 */
-	private _notifyDisconnected(state: ISessionState): void {
-		const sessionId = state.sessionId;
-		this._notificationService.prompt(
-			Severity.Warning,
-			localize('vibeide.acp.disconnected.notify', "Связь с внешним агентом «{0}» оборвалась.", state.agentName),
-			[
-				{
-					label: localize('vibeide.acp.reconnect', "Переподключить"),
-					run: () => void this.reconnect(sessionId),
-				},
-				{
-					label: localize('vibeide.acp.permission.show', "Показать"),
-					run: () => void this._commandService.executeCommand(VIBE_ACP_SHOW_COMMAND_ID),
-				},
-			],
-		);
-	}
-
-	/**
-	 * Вопрос, когда вкладка закрыта.
-	 *
-	 * Кнопка ведёт на поверхность, а не отвечает за человека: в уведомление не помещается дифф,
-	 * ради которого решение и принимается. Отвечать вслепую по имени файла — не решение.
-	 */
-	private _notifyPending(request: IAcpPermissionRequest): void {
-		this._notificationService.prompt(
-			Severity.Info,
-			localize('vibeide.acp.permission.ask', "Внешний агент просит разрешения: {0}", request.title),
-			[{
-				label: localize('vibeide.acp.permission.show', "Показать"),
-				run: () => void this._commandService.executeCommand(VIBE_ACP_SHOW_COMMAND_ID),
-			}],
-			{ sticky: true },
-		);
-	}
 }
 
 const KNOWN_COMMANDS_STORAGE_KEY = 'vibeide.acp.knownAgentCommands';
@@ -764,9 +708,6 @@ function parseKnownCommands(raw: string | undefined): Record<string, readonly IA
 function withIdeMcp(launch: IAcpAgentLaunch, ideMcp: IIdeMcpIssued | undefined): IAcpAgentLaunch {
 	return ideMcp ? { ...launch, mcpServers: [...(launch.mcpServers ?? []), ideMcp.server] } : launch;
 }
-
-/** Команда открытия поверхности. Объявлена здесь, а исполнитель регистрируется вместе с панелью. */
-export const VIBE_ACP_SHOW_COMMAND_ID = 'vibeide.externalAgents.show';
 
 /** Строка журнала о правке: что за инструмент и сколько строк в каком файле изменилось. */
 export function describeEdits(title: string, diffs: readonly IAcpDiff[]): string {

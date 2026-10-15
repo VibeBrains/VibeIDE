@@ -52,7 +52,6 @@ suite('VibeAcpSessionsService — кто отвечает на вопрос вн
 			} as never,
 			{ logStarted: () => { }, logFinished: () => { }, logError: () => { } } as never,
 			{ info: () => { }, error: () => { }, prompt: () => { } } as never,
-			{ executeCommand: async () => { } } as never,
 			{ isEnabled: () => true, append: async (event: AuditEvent) => { audit.push(event); } } as never,
 			new TestConfigurationService(),
 			{ detectSecrets: (text: string) => ({ redactedText: text }) } as never,

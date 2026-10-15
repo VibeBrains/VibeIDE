@@ -65,7 +65,8 @@ export class VibeCommandsPaletteRootContribution extends Disposable implements I
 	}
 
 	private _tryMount(): void {
-		const workbench = this._layoutService.activeContainer;
+		// The portal lives in the main window whatever window is active: an auxiliary window refuses `createElement`
+		const workbench = this._layoutService.mainContainer;
 		if (!workbench) {
 			vibeLog.warn('vibeCommandsPaletteRoot', '[VibeCommandsPaletteRoot] no .monaco-workbench root; palette not mounted');
 			return;

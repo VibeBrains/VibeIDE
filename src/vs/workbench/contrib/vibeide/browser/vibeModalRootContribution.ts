@@ -64,7 +64,9 @@ export class VibeModalRootContribution extends Disposable implements IWorkbenchC
 	}
 
 	private _tryMount(): void {
-		const workbench = this._layoutService.activeContainer;
+		// The portal lives in the main window whatever window is active: an auxiliary window refuses `createElement`,
+		// and the modal tree finds its portal by id in the main document
+		const workbench = this._layoutService.mainContainer;
 		if (!workbench) {
 			vibeLog.warn('vibeModalRoot', '[VibeModalRoot] no .monaco-workbench root found; modal portal not mounted');
 			return;

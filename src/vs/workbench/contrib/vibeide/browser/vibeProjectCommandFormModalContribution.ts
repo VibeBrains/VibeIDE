@@ -40,7 +40,8 @@ export class VibeProjectCommandFormModalRootContribution extends Disposable impl
 	}
 
 	private _tryMount(): void {
-		const workbench = this._layoutService.activeContainer;
+		// The portal lives in the main window whatever window is active: an auxiliary window refuses `createElement`
+		const workbench = this._layoutService.mainContainer;
 		if (!workbench) {
 			vibeLog.warn('vibeProjectCommandFormModalRoot', '[VibeProjectCommandFormModalRoot] no .monaco-workbench root; modal not mounted');
 			return;

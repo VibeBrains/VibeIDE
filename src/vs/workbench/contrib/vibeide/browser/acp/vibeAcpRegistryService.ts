@@ -19,6 +19,8 @@
  * ОТСУТСТВИЕ ФАЙЛОВ — НЕ ОШИБКА, а сегодняшнее поведение: внешних агентов просто нет.
  */
 
+import { localize } from '../../../../../nls.js';
+import { VSBuffer } from '../../../../../base/common/buffer.js';
 import { IMCPService } from '../../common/mcpService.js';
 import { vibeLog } from '../../common/vibeLog.js';
 import { Emitter, Event } from '../../../../../base/common/event.js';
@@ -33,6 +35,7 @@ import { IConfigurationService } from '../../../../../platform/configuration/com
 import { IPathService } from '../../../../services/path/common/pathService.js';
 import { VibeAgentEntry, VibeAgentLayer, VibeAgentSource, activeAgents, mergeAgentLayers, parseJetBrainsAcpFile, parseVibeAgentsFileOrEmpty } from '../../common/acp/vibeAgentsFile.js';
 import { ACP_READ_JETBRAINS_AGENTS_KEY } from '../../common/acp/acpRegistryConfiguration.js';
+import { withAgentMcpServers } from '../../common/acp/vibeAgentsFileEdit.js';
 import { IAcpAgentLaunch } from '../../common/acp/acpTypes.js';
 import { ConfigGuardFinding, scanAgentsConfig } from '../../common/vibeConfigGuard.js';
 
@@ -61,6 +64,15 @@ export interface IVibeAcpRegistryService {
 
 	/** Which file the agent came from — adding and updating write back to that same file. */
 	layerOf(agentId: string): VibeAgentLayer | undefined;
+
+	/** Which of the three files the agent is listed from, JetBrains' read-only one included */
+	sourceOf(agentId: string): VibeAgentSource | undefined;
+
+	/**
+	 * The MCP servers of the project the agent receives, written into its own file
+	 * Only the names change: the entry keeps its comments and the rest of its fields. An agent of JetBrains' file cannot be edited
+	 */
+	setMcpServers(agentId: string, names: readonly string[]): Promise<void>;
 
 	/** The file of a layer; `undefined` for the project layer while no folder is open. */
 	fileOf(layer: VibeAgentLayer): Promise<URI | undefined>;
@@ -118,6 +130,25 @@ export class VibeAcpRegistryService extends Disposable implements IVibeAcpRegist
 		// JetBrains' file is read, never written: its agents have no layer to add to or update in
 		const source = this._layers.get(agentId);
 		return source === 'jetbrains' ? undefined : source;
+	}
+
+	sourceOf(agentId: string): VibeAgentSource | undefined {
+		return this._layers.get(agentId);
+	}
+
+	async setMcpServers(agentId: string, names: readonly string[]): Promise<void> {
+		const layer = this.layerOf(agentId);
+		const file = layer ? await this.fileOf(layer) : undefined;
+		if (!file) {
+			throw new Error(localize('vibeide.acp.registry.notEditable', "Запись агента «{0}» лежит в файле, который IDE не правит: измените список серверов там, где агент описан.", agentId));
+		}
+		const text = await this._readText(file);
+		const patched = text === undefined ? undefined : withAgentMcpServers(text, agentId, names);
+		if (patched === undefined) {
+			throw new Error(localize('vibeide.acp.registry.notInFile', "Агента «{0}» нет в {1}.", agentId, file.fsPath));
+		}
+		await this._fileService.writeFile(file, VSBuffer.fromString(patched));
+		await this._readAndApply();
 	}
 
 	async fileOf(layer: VibeAgentLayer): Promise<URI | undefined> {

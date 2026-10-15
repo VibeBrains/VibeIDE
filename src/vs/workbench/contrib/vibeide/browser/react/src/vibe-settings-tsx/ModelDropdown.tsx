@@ -68,6 +68,8 @@ const ModelSelectBox = ({ options, featureName, className }: { options: ModelOpt
 
 	const [agents, setAgents] = useState(registry.agents);
 	useEffect(() => {
+		// The registry reads its files after it is created, so what it holds now may be newer than what the state started with
+		setAgents(registry.agents);
 		const listener = registry.onDidChange(() => setAgents(registry.agents));
 		return () => listener.dispose();
 	}, [registry]);
@@ -76,10 +78,19 @@ const ModelSelectBox = ({ options, featureName, className }: { options: ModelOpt
 	const thread = isChat ? threadsState.allThreads[threadsState.currentThreadId] : undefined;
 	const leader = thread?.acpAgent;
 
-	const targets = useMemo<ChatTarget[]>(() => [
-		...options.map((option): ChatTarget => ({ kind: 'model', option })),
-		...(isChat ? agents.map((agent): ChatTarget => ({ kind: 'agent', agentId: agent.id, agentName: agent.name ?? agent.id })) : []),
-	], [options, agents, isChat]);
+	// With agents on offer the list reads: Auto, the agents, then the models under a heading of their own
+	// The agents go ahead of the models: a list of dozens of models would push them below the fold, where nobody looks
+	const hasAgents = isChat && agents.length > 0;
+	const targets = useMemo<ChatTarget[]>(() => {
+		const models = options.map((option): ChatTarget => ({ kind: 'model', option }));
+		if (!hasAgents) { return models; }
+		const agentTargets = agents.map((agent): ChatTarget => ({ kind: 'agent', agentId: agent.id, agentName: agent.name ?? agent.id }));
+		return [
+			...models.filter(target => target.kind === 'model' && isAutoOption(target.option)),
+			...agentTargets,
+			...models.filter(target => target.kind === 'model' && !isAutoOption(target.option)),
+		];
+	}, [options, agents, hasAgents]);
 
 	const selection = vibeideSettingsService.state.modelSelectionOfFeature[featureName];
 	// Fall back to options[0] when the saved selection isn't found in _modelOptions (stale/removed
@@ -129,7 +140,7 @@ const ModelSelectBox = ({ options, featureName, className }: { options: ModelOpt
 			if (target.kind === 'agent') { return modelDdS.agentDetail; }
 			return isAutoOption(target.option) ? modelDdS.autoDetail : displayInfoOfProviderName(target.option.selection.providerName).title;
 		}}
-		getOptionGroup={(target) => target.kind === 'agent' ? modelDdS.agentsGroup : undefined}
+		getOptionGroup={(target) => target.kind === 'agent' ? modelDdS.agentsGroup : hasAgents && !isAutoOption(target.option) ? modelDdS.modelsGroup : undefined}
 		getOptionBadges={(target) => {
 			if (target.kind === 'agent') { return []; }
 			const option = target.option;

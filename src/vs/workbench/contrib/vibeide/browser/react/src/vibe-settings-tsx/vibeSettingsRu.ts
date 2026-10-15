@@ -822,7 +822,38 @@ export const nav = {
 	notifications: 'Уведомления',
 	safety: 'Безопасность',
 	mcp: 'MCP',
+	agents: 'Агенты',
 	all: 'Все настройки',
+} as const;
+
+/** Settings → «Агенты»: реестр внешних агентов по протоколу ACP */
+export const agentsS = {
+	intro: 'Внешние агенты работают по протоколу ACP: у каждого свои модель, цикл и инструменты, а IDE даёт им контекст редактора и спрашивает у вас разрешения. Звать агента нужно в чате: он стоит в списке моделей, в группе «Внешние агенты». Здесь он описывается и ставится.',
+	addFromRegistry: 'Добавить из реестра ACP',
+	addFromRegistryHint: 'Пакет ставится ровно той версии, что в реестре; бинарь — только со сверкой sha256.',
+	problems: 'Есть замечания:',
+	empty: 'Агентов нет ни в .vibe/agents.json проекта, ни в ~/.vibe/agents.json этой машины, ни в ~/.jetbrains/acp.json — звать некого. Добавьте агента из реестра ACP кнопкой выше или опишите его сами: формат — в docs/manuals/agentsSpec.md, его можно отдать модели.',
+	layerTitle: {
+		project: 'Проект',
+		machine: 'Эта машина',
+		jetbrains: 'JetBrains',
+	} as const,
+	layerHint: {
+		project: '.vibe/agents.json едет в репозитории: набор агентов у команды общий. Самый сильный слой.',
+		machine: '~/.vibe/agents.json: агенты этой машины, туда ложатся скачанные из реестра бинарники. Слабее проекта.',
+		jetbrains: '~/.jetbrains/acp.json: агенты, которых поставили VibeIDEA и IDE JetBrains. Файл только читается, самый слабый слой.',
+	} as const,
+	layerEmpty: 'Пусто',
+	openFile: (file: string) => `Открыть ${file}`,
+	fromRegistry: (version: string) => `из реестра ACP, версия ${version}`,
+	update: (name: string, from: string, to: string) => `Обновить ${name}: ${from} → ${to}`,
+	updateTitle: 'Новая версия в реестре ACP: подтвердите, что именно будет запускаться или скачиваться',
+	mcpTitle: 'MCP-серверы проекта для этого агента',
+	mcpNone: 'В mcp.json серверов нет. Агент получит только MCP-сервер редактора (открытый файл, выделение, ошибки).',
+	mcpReadOnly: 'Этот файл IDE не правит: список серверов задаётся там, где агент описан.',
+	mcpSkipped: (name: string, reason: string) => `Сервер «${name}» агенту не передан: ${reason}.`,
+	moreSettings: 'Передача файлов агенту, доступ к редактору и реестр ACP настраиваются в параметрах',
+	openAcpSettings: 'vibeide.acp',
 } as const;
 
 export const safetyS = {
@@ -1281,6 +1312,7 @@ export const modelDdS = {
 	searchModels: 'Быстрый поиск…',
 	noModelSearchMatches: 'Нет совпадений',
 	agentsGroup: 'Внешние агенты',
+	modelsGroup: 'Модели',
 	agentDetail: 'внешний агент (ACP)',
 	leaderLocked: 'Исполнителя нельзя сменить посреди разговора: у внешнего агента своя память, у модели её нет. Начните новый чат и выберите другого.',
 	noModels: 'Нет доступных моделей',
