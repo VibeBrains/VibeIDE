@@ -27,7 +27,8 @@
  *     - **\/*.{css,scss}
  *     - docs/**\/*.md
  *
- * Brackets around the whole value are list syntax, brackets inside an item are not
+ * A comma separates items only outside quotes, `{}` and `[]`
+ * `{css,scss}` is a glob alternation, not two globs
  */
 
 import { match as globMatch } from '../../../../../base/common/glob.js';
@@ -113,19 +114,78 @@ export function parseAlwaysApply(frontmatter: Readonly<Record<string, string>>):
 	return frontmatter['alwaysapply'].trim().toLowerCase() === 'true';
 }
 
+interface ListScan {
+	readonly items: string[];
+	/** False when a `]` closed nothing, so the text is not the inside of a bracketed list */
+	readonly balanced: boolean;
+}
+
+/**
+ * One pass over a list value
+ * Items are cut at a comma outside quotes, `{}` and `[]`, and at every newline
+ * A block list keeps one item per line, so a stray bracket cannot swallow the lines below it
+ * A quote opens a quoted span only at the start of an item: `don't stop` keeps its apostrophe
+ */
+function scanList(text: string): ListScan {
+	const items: string[] = [];
+	let depth = 0;
+	let balanced = true;
+	let itemStart = 0;
+	let atItemStart = true;
+	const endItem = (at: number) => {
+		items.push(text.slice(itemStart, at));
+		itemStart = at + 1;
+		atItemStart = true;
+		depth = 0;
+	};
+	for (let i = 0; i < text.length; i++) {
+		const ch = text[i];
+		if (ch === '\n') {
+			endItem(i);
+			continue;
+		}
+		if (atItemStart && (ch === '"' || ch === '\'')) {
+			const close = text.indexOf(ch, i + 1);
+			const lineEnd = text.indexOf('\n', i);
+			if (close > i && (lineEnd < 0 || close < lineEnd)) {
+				i = close;
+				atItemStart = false;
+				continue;
+			}
+		}
+		if (ch === '{' || ch === '[') {
+			depth++;
+		} else if (ch === '}' || ch === ']') {
+			if (depth > 0) {
+				depth--;
+			} else if (ch === ']') {
+				balanced = false;
+			}
+		} else if (ch === ',' && depth === 0) {
+			endItem(i);
+			continue;
+		}
+		if (ch !== ' ' && ch !== '\t') {
+			atItemStart = false;
+		}
+	}
+	items.push(text.slice(itemStart));
+	return { items, balanced };
+}
+
 /**
  * Split a frontmatter list value (comma-separated, `[a, b]` or block list), stripping surrounding quotes/whitespace and empties
- * Brackets around the whole value are list syntax only when nothing inside them is a bracket
+ * Brackets around the whole value are list syntax only when the opening one closes at the very end
  * `[a, b]` is a list, while the glob `[ab]*.ts` or `src/[a-c].ts` is left alone
  */
 function splitList(value: string | undefined): string[] {
 	if (!value) { return []; }
-	let text = value.trim();
-	if (text.length >= 2 && text.startsWith('[') && text.endsWith(']') && !/[[\]]/.test(text.slice(1, -1))) {
-		text = text.slice(1, -1);
-	}
-	return text
-		.split(/[,\n]/)
+	const text = value.trim();
+	const inner = text.length >= 2 && !text.includes('\n') && text.startsWith('[') && text.endsWith(']')
+		? scanList(text.slice(1, -1))
+		: undefined;
+	const { items } = inner?.balanced ? inner : scanList(text);
+	return items
 		.map(s => s.trim().replace(/^["']|["']$/g, '').trim())
 		.filter(s => s.length > 0);
 }

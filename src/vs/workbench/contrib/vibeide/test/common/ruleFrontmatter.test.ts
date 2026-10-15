@@ -142,7 +142,7 @@ suite('ruleFrontmatter — activation engine (R.7 / R.3)', () => {
 	});
 });
 
-suite('ruleFrontmatter — формы списка в шапке: скобки и YAML-список', () => {
+suite('ruleFrontmatter — формы списка в шапке: triggers и globs', () => {
 
 	ensureNoDisposablesAreLeakedInTestSuite();
 
@@ -183,6 +183,41 @@ suite('ruleFrontmatter — формы списка в шапке: скобки �
 	test('пустой ключ без пунктов остаётся пустым и не съедает соседний ключ', () => {
 		const { frontmatter } = parseRuleFrontmatter('---\nglobs:\nalwaysApply: false\n---\nbody');
 		assert.deepStrictEqual({ globs: parseGlobs(frontmatter), alwaysApply: parseAlwaysApply(frontmatter) }, { globs: [], alwaysApply: false });
+	});
+
+	test('запятая внутри фигурных скобок glob не делит список', () => {
+		assert.deepStrictEqual(metaOf('globs: **/*.{css,scss,less}').globs, ['**/*.{css,scss,less}']);
+		assert.deepStrictEqual(metaOf('globs: **/*.{css,scss}, docs/**/*.md').globs, ['**/*.{css,scss}', 'docs/**/*.md']);
+		assert.deepStrictEqual(metaOf('globs: src/{a,b}/*.{ts,tsx},*.md').globs, ['src/{a,b}/*.{ts,tsx}', '*.md']);
+		// Nested braces
+		assert.deepStrictEqual(metaOf('globs: src/{a,{b,c}}/*.ts, x.md').globs, ['src/{a,{b,c}}/*.ts', 'x.md']);
+	});
+
+	test('запятая внутри квадратных скобок glob не делит список, а скобки класса символов не снимаются', () => {
+		assert.deepStrictEqual(metaOf('globs: src/[a,b].ts, *.md').globs, ['src/[a,b].ts', '*.md']);
+		assert.deepStrictEqual(metaOf('globs: [ab]*.ts').globs, ['[ab]*.ts']);
+		assert.deepStrictEqual(metaOf('globs: [ab]*.ts, src/*.md').globs, ['[ab]*.ts', 'src/*.md']);
+	});
+
+	test('globs в скобках-списке и YAML-списком, фигурные скобки внутри пункта целы', () => {
+		assert.deepStrictEqual(metaOf('globs: ["**/*.{css,scss}", "*.md"]').globs, ['**/*.{css,scss}', '*.md']);
+		assert.deepStrictEqual(metaOf('globs:\n  - **/*.{css,scss,less}\n  - "docs/**/*.md"').globs, ['**/*.{css,scss,less}', 'docs/**/*.md']);
+	});
+
+	test('запятая в кавычках не делит: фраза с запятой остаётся одной', () => {
+		assert.deepStrictEqual(metaOf('triggers: "fix, then deploy", ci').triggers, ['fix, then deploy', 'ci']);
+		assert.deepStrictEqual(metaOf('triggers:\n  - "fix, then deploy"\n  - ci').triggers, ['fix, then deploy', 'ci']);
+		// An apostrophe inside a word is not a quote
+		assert.deepStrictEqual(metaOf("triggers: don't stop, go on").triggers, ["don't stop", 'go on']);
+	});
+
+	test('glob с фигурными скобками срабатывает на подходящем файле и молчит на чужом', () => {
+		const { globs } = metaOf('globs: **/*.{css,scss,less}');
+		const activationOn = (file: string) => decideRuleActivation({ alwaysApply: false, triggers: [], globs }, { files: [file] });
+		assert.deepStrictEqual(
+			{ scss: activationOn('a.scss'), nested: activationOn('src/ui/a.less'), css: activationOn('a.css'), ts: activationOn('a.ts'), tsx: activationOn('src/a.tsx') },
+			{ scss: 'inject', nested: 'inject', css: 'inject', ts: 'index', tsx: 'index' },
+		);
 	});
 });
 

@@ -98,6 +98,47 @@ suite('засеянное окружение .vibe: что включено, а 
 		assert.ok(parsed.frontmatter['description'], 'у правила нет description — в списке доступных оно будет безымянным');
 	});
 
+	/**
+	 * `ui-kit.mdc` держит в globs фигурные скобки: `**\/*.{css,scss,...}`.
+	 * Разбор по запятым разрезал такой glob на куски, и правило не срабатывало ни на одном файле.
+	 */
+	test('правило «ui-kit» срабатывает на стилях и разметке и молчит на коде без интерфейса', () => {
+		const parsed = parseRuleFrontmatter(seed('rules/ui-kit.mdc'));
+		const meta = { alwaysApply: parseAlwaysApply(parsed.frontmatter), triggers: parseTriggers(parsed.frontmatter), globs: parseGlobs(parsed.frontmatter) };
+		const activationOn = (file: string) => decideRuleActivation(meta, { userText: 'поправь метод', files: [file] });
+		assert.deepStrictEqual({
+			meta,
+			scss: activationOn('a.scss'),
+			nestedLess: activationOn('src/ui/theme/a.less'),
+			component: activationOn('src/ui/Button.tsx'),
+			html: activationOn('index.html'),
+			script: activationOn('a.ts'),
+			nestedScript: activationOn('src/server/a.ts'),
+		}, {
+			meta: { alwaysApply: false, triggers: [], globs: ['**/*.{css,scss,sass,less,tsx,jsx,vue,svelte,html}'] },
+			scss: 'inject',
+			nestedLess: 'inject',
+			component: 'inject',
+			html: 'inject',
+			script: 'index',
+			nestedScript: 'index',
+		});
+	});
+
+	/** Фигурная или квадратная скобка без пары в glob значит, что список разрезан не там: правило молча перестанет срабатывать. */
+	test('globs и triggers каждого правила набора разобраны целиком: скобки в пунктах парные', () => {
+		const unbalanced: string[] = [];
+		for (const file of VIBE_DEFAULTS_MANIFEST) {
+			if (!file.path.startsWith('rules/') || !file.path.endsWith('.mdc')) { continue; }
+			const { frontmatter } = parseRuleFrontmatter(file.contents);
+			for (const item of [...parseGlobs(frontmatter), ...parseTriggers(frontmatter)]) {
+				const count = (chars: string) => [...item].filter(c => chars.includes(c)).length;
+				if (count('{') !== count('}') || count('[') !== count(']')) { unbalanced.push(`${file.path}: ${item}`); }
+			}
+		}
+		assert.deepStrictEqual(unbalanced, []);
+	});
+
 	test('servers.json разбирается и не поднимает серверов', () => {
 		const parsed = parseServersFile(seed('servers.json'));
 		assert.strictEqual(parsed.ok, true, `не разобрался: ${parsed.ok ? '' : parsed.error}`);
