@@ -6466,10 +6466,10 @@ export const SidebarChat = () => {
 								{isRunning === 'preparing' && currThreadStreamState?.llmInfo?.displayContentSoFar
 									? currThreadStreamState.llmInfo.displayContentSoFar
 									: isRunning === 'preparing'
-										? 'Preparing request…'
-										: 'Generating response…'}
+										? chatS.preparingRequest
+										: chatS.generatingResponse}
 							</span>
-							<span className="text-[11px] text-vibe-fg-3 opacity-50">Press Escape to cancel</span>
+							<span className="text-[11px] text-vibe-fg-3 opacity-50">{chatS.escapeToCancel}</span>
 						</div>
 					</div>
 				</ProseWrapper>
@@ -6548,7 +6548,7 @@ export const SidebarChat = () => {
 		if ((isRunning === 'LLM' || isRunning === 'preparing') && (displayContentSoFar || reasoningSoFar)) {
 			items.push({
 				key: 'escape-hint',
-				render: () => <p className="text-xs text-vibe-fg-3 opacity-60 mt-1" role="status">Press Escape to cancel</p>
+				render: () => <p className="text-xs text-vibe-fg-3 opacity-60 mt-1" role="status">{chatS.escapeToCancel}</p>
 			});
 		}
 

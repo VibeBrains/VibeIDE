@@ -7511,6 +7511,11 @@ docs.z.ai, mimo.mi.com, agentclientprotocol.com, GHSA python-sdk, ncsc.gov.uk, a
       `common/chatTimestampFormatter.ts`; тесты — сегодня, вчера, граница полуночи, тот же день прошлого года. Константа
       `CHAT_TIMESTAMP_DEFAULT_PATTERN` вынесена из сигнатуры `formatChatTimestamp`. Проверено: компиляция, React-typecheck,
       тест форматтера. Живьём на стенде не смотрено. ⚠ перепроверить
+- [x] **Статусы ожидания ответа в чате — по-русски** — ✅ (15.10.2026, `next`) смоук 1.27.0 на стенде: пока агент запускался, лента писала
+      «Generating response…» и «Press Escape to cancel» — строки из первого импорта, правило «все тексты на русском» их не доставало.
+      Теперь `chatS.preparingRequest` / `generatingResponse` / `escapeToCancel` («Готовлю запрос…», «Генерирую ответ…», «Esc — отменить»)
+      в `vibeSettingsRu.ts` и те же статусы в `chatThreadService.ts` («Готовлю запрос…», «Выбираю лучшую модель для задачи…»,
+      «Составляю план выполнения…»). Проверено: компиляция, React-typecheck. Живьём не смотрено. ⚠ перепроверить
 
 ## BUILD-ELECTRON-OFFLINE. Стенд без сети не опустошает `.build/electron` (2026-10-14)
 

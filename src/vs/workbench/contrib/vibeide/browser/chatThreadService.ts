@@ -596,7 +596,7 @@ export type ThreadStreamState = {
 		isRunning: 'preparing';
 		error?: undefined;
 		llmInfo: {
-			displayContentSoFar: string; // status message like "Selecting best model..." or "Preparing request..."
+			displayContentSoFar: string; // status message such as the model-selection or request-preparation step
 			reasoningSoFar: string;
 			toolCallSoFar: RawToolCallObj | null;
 		};
@@ -3355,7 +3355,7 @@ Output ONLY the JSON, no other text. Start with { and end with }.`;
 			chatMode: 'normal' // Use 'normal' mode to prevent tool execution during plan generation
 		});
 
-		this._setStreamState(threadId, { isRunning: 'LLM', llmInfo: { displayContentSoFar: 'Generating execution plan...', reasoningSoFar: '', toolCallSoFar: null }, interrupt: Promise.resolve(() => { }) });
+		this._setStreamState(threadId, { isRunning: 'LLM', llmInfo: { displayContentSoFar: 'Составляю план выполнения…', reasoningSoFar: '', toolCallSoFar: null }, interrupt: Promise.resolve(() => { }) });
 
 		// Create a promise that resolves when the plan is generated
 		return new Promise<void>((resolve, reject) => {
@@ -3372,8 +3372,8 @@ Output ONLY the JSON, no other text. Start with { and end with }.`;
 					logging: { loggingName: 'Plan Generation', loggingExtras: { threadId } },
 					separateSystemMessage: undefined,
 					onText: ({ fullText }) => {
-						// Don't show raw JSON to user - just show "Generating plan..."
-						this._setStreamState(threadId, { isRunning: 'LLM', llmInfo: { displayContentSoFar: 'Generating execution plan...', reasoningSoFar: '', toolCallSoFar: null }, interrupt: Promise.resolve(() => { if (llmCancelToken) { this._llmMessageService.abort(llmCancelToken); } }) });
+						// Don't show raw JSON to user - just show the plan-generation status
+						this._setStreamState(threadId, { isRunning: 'LLM', llmInfo: { displayContentSoFar: 'Составляю план выполнения…', reasoningSoFar: '', toolCallSoFar: null }, interrupt: Promise.resolve(() => { if (llmCancelToken) { this._llmMessageService.abort(llmCancelToken); } }) });
 					},
 					onFinalMessage: async ({ fullText }) => {
 						// Parse plan from LLM response
@@ -9582,7 +9582,7 @@ We only need to do it for files that were edited since `from`, ie files between 
 		this._setStreamState(threadId, {
 			isRunning: 'preparing',
 			llmInfo: {
-				displayContentSoFar: 'Preparing request...',
+				displayContentSoFar: 'Готовлю запрос…',
 				reasoningSoFar: '',
 				toolCallSoFar: null
 			},
@@ -9609,7 +9609,7 @@ We only need to do it for files that were edited since `from`, ie files between 
 				this._setStreamState(threadId, {
 					isRunning: 'preparing',
 					llmInfo: {
-						displayContentSoFar: 'Selecting best model for this task...',
+						displayContentSoFar: 'Выбираю лучшую модель для задачи…',
 						reasoningSoFar: '',
 						toolCallSoFar: null
 					},
@@ -9701,7 +9701,7 @@ We only need to do it for files that were edited since `from`, ie files between 
 		this._setStreamState(threadId, {
 			isRunning: 'preparing',
 			llmInfo: {
-				displayContentSoFar: 'Preparing request...',
+				displayContentSoFar: 'Готовлю запрос…',
 				reasoningSoFar: '',
 				toolCallSoFar: null
 			},
