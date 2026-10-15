@@ -181,9 +181,10 @@ suite('AcpChatRunner — ход основного чата, который ве
 		messages.push(
 			{ role: 'acp_tool', toolCallId: 'a', title: 'curl', name: 'Bash', toolKind: 'execute', status: 'in_progress', paths: [], diffs: [], output: '' },
 			{ role: 'acp_tool', toolCallId: 'b', title: 'ls', name: 'Bash', toolKind: 'execute', status: 'completed', paths: [], diffs: [], output: '' },
+			{ role: 'acp_tool', toolCallId: 'c', title: 'rm', name: 'Bash', toolKind: 'execute', status: 'unknown', paths: [], diffs: [], output: '' },
 		);
 		await runner.send(request());
-		assert.deepStrictEqual(messages.filter(m => m.role === 'acp_tool').map(m => m.role === 'acp_tool' ? m.status : ''), ['cancelled', 'completed']);
+		assert.deepStrictEqual(messages.filter(m => m.role === 'acp_tool').map(m => m.role === 'acp_tool' ? m.status : ''), ['cancelled', 'completed', 'cancelled']);
 	});
 
 	test('ход следующего сообщения не склеивается с ответом прошлого', async () => {

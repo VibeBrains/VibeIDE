@@ -14,7 +14,7 @@
  * Слой чистый: ни React, ни IPC, ни агента — поэтому проверяется из `test/common/`.
  */
 
-import { AcpToolStatus, IAcpDiff } from './acpProtocol.js';
+import { AcpToolStatus, IAcpDiff, isToolOpen } from './acpProtocol.js';
 
 export type AcpLogEntry =
 	/** Реплика агента: склеенные куски текста. Размышление отделено от ответа признаком. */
@@ -87,9 +87,8 @@ export class AcpSessionLog {
 	 * Stopping in the middle of a question leaves such cards, and «in progress» on them would never go away
 	 */
 	settleTurn(): void {
-		const isOpen = (status: AcpToolStatus) => status === 'pending' || status === 'in_progress';
-		if (!this._entries.some(entry => entry.kind === 'tool' && isOpen(entry.status))) { return; }
-		this._entries = this._entries.map(entry => entry.kind === 'tool' && isOpen(entry.status) ? { ...entry, status: 'cancelled' } : entry);
+		if (!this._entries.some(entry => entry.kind === 'tool' && isToolOpen(entry.status))) { return; }
+		this._entries = this._entries.map(entry => entry.kind === 'tool' && isToolOpen(entry.status) ? { ...entry, status: 'cancelled' } : entry);
 	}
 
 	/** A note about the session itself; like a tool call, it breaks the gluing of the agent's text. */

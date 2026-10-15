@@ -445,6 +445,11 @@ export interface IAcpDiff {
  */
 export type AcpToolStatus = 'pending' | 'in_progress' | 'completed' | 'failed' | 'cancelled' | 'unknown';
 
+/** A call that has not ended: `unknown` counts, because an agent that sent no recognizable stage has not said it ended either */
+export function isToolOpen(status: AcpToolStatus): boolean {
+	return status !== 'completed' && status !== 'failed' && status !== 'cancelled';
+}
+
 /**
  * Что приехало в `session/update`.
  *

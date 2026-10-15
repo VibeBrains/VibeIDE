@@ -26,7 +26,7 @@ import type { ThreadStreamState, ThreadType } from '../chatThreadService.js';
 import { IChatJournalService } from '../chatJournalService.js';
 import { IVibeIgnoreService } from '../vibeIgnoreService.js';
 import { ChatImageAttachment, ChatMessage, ChatPDFAttachment, StagingSelectionItem } from '../../common/chatThreadServiceTypes.js';
-import { AcpStopReason } from '../../common/acp/acpProtocol.js';
+import { AcpStopReason, isToolOpen } from '../../common/acp/acpProtocol.js';
 import { DEFAULT_ACP_PERMISSION_MODE } from '../../common/acp/acpPermissionPolicy.js';
 import { ACP_EMBED_MAX_CHARS_DEFAULT, ACP_EMBED_MAX_CHARS_KEY } from '../../common/acp/acpPromptContext.js';
 import { mirrorAcpEntries } from '../../common/acp/acpThreadMirror.js';
@@ -125,7 +125,7 @@ export class AcpChatRunner extends Disposable {
 	private _settleLeftovers(threadId: string): void {
 		const messages = this._port.getThread(threadId)?.messages ?? [];
 		messages.forEach((message, idx) => {
-			if (message.role === 'acp_tool' && (message.status === 'pending' || message.status === 'in_progress')) {
+			if (message.role === 'acp_tool' && isToolOpen(message.status)) {
 				this._port.editMessage(threadId, idx, { ...message, status: 'cancelled' });
 			}
 		});

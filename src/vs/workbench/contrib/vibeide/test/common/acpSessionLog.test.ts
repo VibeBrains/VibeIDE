@@ -91,8 +91,9 @@ suite('acpSessionLog', () => {
 		log.applyTool({ toolCallId: 't2', title: 'Read', name: 'Read', toolKind: 'read', status: 'pending', paths: [], diffs: [], output: '' });
 		log.applyTool({ toolCallId: 't3', title: 'Edit', name: 'Edit', toolKind: 'edit', status: 'failed', paths: [], diffs: [], output: '' });
 		log.applyTool({ toolCallId: 't4', title: 'ls', name: 'Bash', toolKind: 'execute', status: 'completed', paths: [], diffs: [], output: '' });
+		log.applyTool({ toolCallId: 't5', title: 'rm', name: 'Bash', toolKind: 'execute', status: 'unknown', paths: [], diffs: [], output: '' });
 		log.settleTurn();
-		assert.deepStrictEqual(log.snapshot.entries.map(entry => (entry as { status: string }).status), ['cancelled', 'cancelled', 'failed', 'completed']);
+		assert.deepStrictEqual(log.snapshot.entries.map(entry => (entry as { status: string }).status), ['cancelled', 'cancelled', 'failed', 'completed', 'cancelled']);
 	});
 
 	test('карточка обновляется на месте, а не уезжает в конец ленты', () => {
