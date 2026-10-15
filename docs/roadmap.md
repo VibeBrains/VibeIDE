@@ -7766,11 +7766,15 @@ docs.z.ai, mimo.mi.com, agentclientprotocol.com, GHSA python-sdk, ncsc.gov.uk, a
       open-vsx.org не отвечал. Лечение — перенос `.build/builtInExtensions` с мака, подробности в `docs/knowledge/build/windowsVmOnMac.md`.
       В Windows-сборке из-за этого `vscode-js-profile-table` с `LICENSE.txt` вместо `ThirdPartyNotices.txt` и `telemetry.json`
 - [ ] **Не проверено живьём:** окно приложения и установщик на Windows 1.25.0 никто не запускал
-- [ ] **`agentHostMain.js` при старте собранного приложения** — главный процесс пишет `ERR_MODULE_NOT_FOUND` для
-      `out/vs/platform/agentHost/node/agentHostMain.js`: исходник удалён коммитом `e0f422096` вместе с вендорными харнессами,
-      а `build/buildfile.ts` на него ссылается. `buildfile.ts`, `agentHost` и `src/vs/code` с v1.24.0 не менялись (собранный 1.24.0
-      не запускался); окно при этом открывается.
-      Решить: убрать запись из `buildfile.ts` и запуск `AgentHostProcessManager`, либо вернуть заглушку
+- [x] **`agentHostMain.js` при старте собранного приложения** — ✅ (15.10.2026, next) главный процесс запускал агент-хост апстрима
+      (процесс агентских сессий чата с харнессами Copilot/Claude/Codex), точку входа которого удалил `e0f422096`: форк падал
+      `ERR_MODULE_NOT_FOUND`, окно открывалось. Функций на нём нет: чат апстрима отключён, свой агентский стек не задет.
+      Убраны запуск (`app.ts`, файлы `electronAgentHostStarter.ts` и `node/agentHostService.ts`), запрос соединения из окна
+      (рантайм агент-хоста объявлен недоступным) и три мёртвые строки в `build/buildfile.ts` (`agentHostMain`, `diffWorkerMain`,
+      `localTranscriptionMain`). Защита — `npm run entrypoints-check` (точка входа без исходника), в lint-staged.
+      Проверено: dev-запуск стенда из изолированного профиля, в логах главного процесса и окна ни строки про агент-хост.
+      Собранное приложение этим исправлением не пересобиралось. Подробности — `docs/knowledge/build/danglingEntryPoint.md`
+      ⚠ перепроверить на следующей сборке: в `main.log` не должно быть `AgentHostProcessManager`
 - [ ] **CI `generated-artifacts` красный на каждом пуше** — в раннере не подтянут подмодуль `.vibe-defaults`
       (`gen-slop-catalog` не находит `slop/catalog.jsonc`)
 

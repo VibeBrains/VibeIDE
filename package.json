@@ -102,6 +102,7 @@
     "generated-fresh-check": "node scripts/vibe-generated-fresh.ts",
     "raw-nul-check": "node scripts/vibe-no-raw-nul.ts --all",
     "scroll-check": "node scripts/vibe-scroll-gate.ts --all",
+    "entrypoints-check": "node scripts/vibe-entrypoints-check.ts",
     "seed-fields-check": "node scripts/vibe-seed-fields.ts",
     "deprecated-coverage-check": "node scripts/vibe-deprecated-coverage.ts",
     "seeds-pointer-check": "node scripts/vibe-seeds-pointer.ts",
@@ -462,6 +463,9 @@
     ],
     "src/vs/workbench/contrib/vibeide/**/*.{ts,tsx,css}": [
       "node scripts/vibe-scroll-gate.ts"
+    ],
+    "build/{buildfile,next/index}.ts": [
+      "node scripts/vibe-entrypoints-check.ts"
     ],
     "{src,scripts,docs,build}/**/*.{ts,tsx,md,json,mjs,cjs,js}": [
       "node scripts/vibe-no-raw-nul.ts"
