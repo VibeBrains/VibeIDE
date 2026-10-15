@@ -3,8 +3,9 @@
  *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
 
-// Registers vibeide.acp.registryUrl — where external agents are imported from —, vibeide.acp.readJetBrainsAgents
-// and vibeide.acp.embedMaxChars — how large a file may be to ride inside a prompt to an external agent.
+// Registers vibeide.acp.registryUrl — where external agents are imported from —, vibeide.acp.readJetBrainsAgents,
+// vibeide.acp.ideTools — whether an external agent may ask the editor what is open — and vibeide.acp.embedMaxChars —
+// how large a file may be to ride inside a prompt to an external agent.
 // Consumers: the registry import service in electron-browser/acp and the agents listing and the prompt in browser/acp.
 
 import { Registry } from '../../../../../platform/registry/common/platform.js';
@@ -15,6 +16,7 @@ import { ACP_EMBED_MAX_CHARS_DEFAULT, ACP_EMBED_MAX_CHARS_KEY } from './acpPromp
 
 export const ACP_REGISTRY_URL_KEY = 'vibeide.acp.registryUrl';
 export const ACP_READ_JETBRAINS_AGENTS_KEY = 'vibeide.acp.readJetBrainsAgents';
+export const ACP_IDE_TOOLS_KEY = 'vibeide.acp.ideTools';
 
 Registry.as<IConfigurationRegistry>(ConfigurationExtensions.Configuration).registerConfiguration({
 	id: 'vibeide.acp',
@@ -34,6 +36,13 @@ Registry.as<IConfigurationRegistry>(ConfigurationExtensions.Configuration).regis
 			// APPLICATION: the file lies in the home folder and starts commands, so a repository must not switch it on
 			scope: ConfigurationScope.APPLICATION,
 			description: localize('vibeide.acp.readJetBrainsAgents', 'Показывать внешних агентов из ~/.jetbrains/acp.json — туда их ставят VibeIDEA и IDE JetBrains. Файл только читается; команды проходят ту же проверку Config Guard, что и .vibe/agents.json. Агент с тем же id из .vibe/agents.json сильнее.'),
+		},
+		[ACP_IDE_TOOLS_KEY]: {
+			type: 'boolean',
+			default: true,
+			// APPLICATION: the tools hand the open file to a third-party process, so a repository must not switch them on
+			scope: ConfigurationScope.APPLICATION,
+			description: localize('vibeide.acp.ideTools', 'Давать внешнему агенту доступ к редактору: что открыто сейчас (файл, выделение, вкладки) и какие ошибки подчёркнуты. Сервер слушает только этот компьютер, у каждой сессии свой токен; файлы из .vibe/ignore не отдаются, ключи в тексте маскируются. Выключено — агент видит лишь то, что IDE положила в сообщение.'),
 		},
 		[ACP_EMBED_MAX_CHARS_KEY]: {
 			type: 'number',

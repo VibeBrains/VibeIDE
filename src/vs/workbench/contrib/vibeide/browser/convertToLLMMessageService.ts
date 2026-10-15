@@ -1749,7 +1749,9 @@ class ConvertToLLMMessageService extends Disposable implements IConvertToLLMMess
 	 * the rules this request switched on, and the file tree when it changed since an earlier message carried one
 	 */
 	private async _turnContextFor(chatMode: ChatMode, local: boolean, activatedRules: string, history: readonly ChatMessage[], providerName: string, modelName: string): Promise<string> {
-		const { activeFile: activeURI, openFiles: openedURIs } = editorWorkingSet(this.editorService, this.modelService, local ? 'tabs' : 'liveEditors');
+		const workingSet = editorWorkingSet(this.editorService, this.modelService, local ? 'tabs' : 'liveEditors');
+		const activeURI = workingSet.activeFile?.fsPath;
+		const openedURIs = workingSet.openFiles.map(uri => uri.fsPath);
 		const directoryStr = local ? undefined : await this.directoryStrService.getAllDirectoriesStr({
 			cutOffMessage: chatMode === 'agent' || chatMode === 'gather' || chatMode === 'plan' ?
 				`...Directories string cut off, use tools to read more...`
@@ -2265,7 +2267,9 @@ class ConvertToLLMMessageService extends Disposable implements IConvertToLLMMess
 		// R.2 — file context for glob-scoped rules ("Auto Attached"): open editors + active editor
 		// + files the agent touched (read/edited) this thread, normalised to workspace-relative paths.
 		const ruleWsFolders = this.workspaceContextService.getWorkspace().folders.map(f => f.uri.fsPath);
-		const { activeFile: ruleActiveFile, openFiles: ruleOpenFiles } = editorWorkingSet(this.editorService, this.modelService, 'tabs');
+		const ruleWorkingSet = editorWorkingSet(this.editorService, this.modelService, 'tabs');
+		const ruleActiveFile = ruleWorkingSet.activeFile?.fsPath;
+		const ruleOpenFiles = ruleWorkingSet.openFiles.map(uri => uri.fsPath);
 		const ruleContextFiles = [
 			...ruleOpenFiles,
 			...(ruleActiveFile ? [ruleActiveFile] : []),

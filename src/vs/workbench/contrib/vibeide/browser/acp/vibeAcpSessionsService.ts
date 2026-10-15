@@ -22,13 +22,15 @@ import { InstantiationType, registerSingleton } from '../../../../../platform/in
 import { ICommandService } from '../../../../../platform/commands/common/commands.js';
 import { IConfigurationService } from '../../../../../platform/configuration/common/configuration.js';
 import { INotificationService, Severity } from '../../../../../platform/notification/common/notification.js';
-import { AcpEvent, IAcpPermissionRequest, IAcpSession } from '../../common/acp/acpTypes.js';
+import { AcpEvent, IAcpAgentLaunch, IAcpPermissionRequest, IAcpSession } from '../../common/acp/acpTypes.js';
 import { AcpReconnectMode, AcpStopReason, agentCommandOf, IAcpCommand, IAcpConfigOption, IAcpDiff, IAcpPromptCapabilities } from '../../common/acp/acpProtocol.js';
 import { ACP_EMBED_MAX_CHARS_DEFAULT, ACP_EMBED_MAX_CHARS_KEY, AcpContextItem, IAcpEditorState, buildAcpPromptBlocks } from '../../common/acp/acpPromptContext.js';
 import { AcpLogEntry, AcpSessionLog, IAcpSessionSnapshot } from '../../common/acp/acpSessionLog.js';
 import { buildAcpPermissionAudit, buildAcpSessionAudit, buildAcpToolCallAudit } from '../../common/acp/acpAudit.js';
 import { AuditEvent, IAuditLogService } from '../../common/auditLogService.js';
 import { IVibeAcpService } from '../../common/acp/vibeAcpService.js';
+import { IVibeAcpIdeMcpService } from '../../common/acp/vibeAcpIdeMcpService.js';
+import { IIdeMcpIssued } from '../../common/acp/acpIdeMcpTypes.js';
 import { IRollbackSnapshotService } from '../../common/rollbackSnapshotService.js';
 import { ISecretDetectionService } from '../../common/secretDetectionService.js';
 import { IVibeAgentActivityLogService } from '../vibeAgentActivityLogService.js';
@@ -118,6 +120,8 @@ interface ISessionState {
 	commands: readonly IAcpCommand[];
 	/** What the agent accepts in a prompt, as it declared in the greeting */
 	promptCapabilities: IAcpPromptCapabilities;
+	/** The entry of the editor's MCP server handed to this session; kept across a reconnection, withdrawn when the session ends */
+	ideMcp?: IIdeMcpIssued;
 	/** The «Краткие ответы» level the agent was last given; undefined — it has not been told anything */
 	brevitySent?: BrevityLevel;
 }
@@ -135,6 +139,7 @@ class VibeAcpSessionsService extends Disposable implements IVibeAcpSessionsServi
 
 	constructor(
 		@IVibeAcpService private readonly _acpService: IVibeAcpService,
+		@IVibeAcpIdeMcpService private readonly _ideMcp: IVibeAcpIdeMcpService,
 		@IVibeAcpRegistryService private readonly _registry: IVibeAcpRegistryService,
 		@IRollbackSnapshotService private readonly _snapshotService: IRollbackSnapshotService,
 		@IVibeAgentActivityLogService private readonly _activityLog: IVibeAgentActivityLogService,
@@ -175,7 +180,14 @@ class VibeAcpSessionsService extends Disposable implements IVibeAcpSessionsServi
 		if (!launch) {
 			throw new Error(localize('vibeide.acp.noWorkspace', "Открытой рабочей папки нет — агенту негде работать."));
 		}
-		const session = await this._acpService.startSession(launch);
+		const ideMcp = await this._ideMcp.issue();
+		let session: IAcpSession;
+		try {
+			session = await this._acpService.startSession(withIdeMcp(launch, ideMcp));
+		} catch (err) {
+			if (ideMcp) { void this._ideMcp.revoke(ideMcp.token); }
+			throw err;
+		}
 		this._sessions.set(session.sessionId, {
 			sessionId: session.sessionId,
 			agentId: agent.id,
@@ -188,6 +200,7 @@ class VibeAcpSessionsService extends Disposable implements IVibeAcpSessionsServi
 			configuring: false,
 			commands: session.commands ?? [],
 			promptCapabilities: session.promptCapabilities,
+			ideMcp,
 		});
 		this._activityLog.logStarted(localize('vibeide.acp.log.session', "Внешний агент «{0}» открыл сессию", session.agentName));
 		this._audit(buildAcpSessionAudit({ agentId: agent.id, sessionId: session.sessionId, phase: 'started' }, Date.now()));
@@ -305,7 +318,7 @@ class VibeAcpSessionsService extends Disposable implements IVibeAcpSessionsServi
 		this._onDidChange.fire();
 		let current = state;
 		try {
-			const back = await this._acpService.reconnectSession(sessionId, launch);
+			const back = await this._acpService.reconnectSession(sessionId, withIdeMcp(launch, state.ideMcp));
 			if (back.sessionId !== sessionId) {
 				current = { ...state, sessionId: back.sessionId };
 				this._rekey(sessionId, current);
@@ -343,6 +356,9 @@ class VibeAcpSessionsService extends Disposable implements IVibeAcpSessionsServi
 	async endSession(sessionId: string): Promise<void> {
 		await this._acpService.endSession(sessionId);
 		const state = this._sessions.get(sessionId);
+		if (state?.ideMcp) {
+			void this._ideMcp.revoke(state.ideMcp.token);
+		}
 		if (state) {
 			this._audit(buildAcpSessionAudit({ agentId: state.agentId, sessionId, phase: 'ended' }, Date.now()));
 		}
@@ -568,6 +584,11 @@ class VibeAcpSessionsService extends Disposable implements IVibeAcpSessionsServi
 			{ sticky: true },
 		);
 	}
+}
+
+/** The launch with the editor's MCP server among the agent's servers, when the person allows the tools */
+function withIdeMcp(launch: IAcpAgentLaunch, ideMcp: IIdeMcpIssued | undefined): IAcpAgentLaunch {
+	return ideMcp ? { ...launch, mcpServers: [...(launch.mcpServers ?? []), ideMcp.server] } : launch;
 }
 
 /** Команда открытия поверхности. Объявлена здесь, а исполнитель регистрируется вместе с панелью. */

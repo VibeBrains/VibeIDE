@@ -3,13 +3,15 @@
  *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
 
+import { URI } from '../../../../base/common/uri.js';
 import { IModelService } from '../../../../editor/common/services/model.js';
 import { IEditorService } from '../../../services/editor/common/editorService.js';
 
 /** The files the person is working with at the moment: the one in focus and the ones open next to it */
 export interface IEditorWorkingSet {
-	readonly activeFile: string | undefined;
-	readonly openFiles: string[];
+	readonly activeFile: URI | undefined;
+	/** Not only files: a tab may hold settings or a graph, and what to do with those is for the reader to say */
+	readonly openFiles: URI[];
 }
 
 /**
@@ -19,9 +21,9 @@ export interface IEditorWorkingSet {
  */
 export function editorWorkingSet(editorService: IEditorService, modelService: IModelService, source: 'tabs' | 'liveEditors'): IEditorWorkingSet {
 	return {
-		activeFile: editorService.activeEditor?.resource?.fsPath,
+		activeFile: editorService.activeEditor?.resource,
 		openFiles: source === 'tabs'
-			? editorService.editors.map(editor => editor.resource?.fsPath || '').filter(Boolean)
-			: modelService.getModels().filter(model => model.isAttachedToEditor()).map(model => model.uri.fsPath),
+			? editorService.editors.flatMap(editor => editor.resource ? [editor.resource] : [])
+			: modelService.getModels().filter(model => model.isAttachedToEditor()).map(model => model.uri),
 	};
 }
