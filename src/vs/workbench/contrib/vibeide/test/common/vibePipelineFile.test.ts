@@ -7,6 +7,7 @@ import assert from 'assert';
 import { ensureNoDisposablesAreLeakedInTestSuite } from '../../../../../base/test/common/utils.js';
 import {
 	buildStepInput,
+	composePipelineBrief,
 	composeReviewGoal,
 	composeReworkRequest,
 	EARLIER_STEP_NOTE_CHARS,
@@ -485,11 +486,21 @@ suite('vibePipelineFile — escalation, roles и логические имена
 	});
 
 	test('любой флаг шага строкой роняет пайплайн, а не становится false', () => {
-		assert.deepStrictEqual(['continueOnFailure', 'ignorePreviousArtifacts', 'offPeak'].map(flag => pipeline({}, [{ role: 'critic', task: 'а', model: 'zai/glm-5.3', [flag]: 'true' }]).warnings), [
+		assert.deepStrictEqual(['continueOnFailure', 'ignorePreviousArtifacts', 'offPeak', 'againstBrief'].map(flag => pipeline({}, [{ role: 'critic', task: 'а', model: 'zai/glm-5.3', [flag]: 'true' }]).warnings), [
 			['pipelines[0] «p», шаг 1: поле continueOnFailure — true или false — пайплайн пропущен'],
 			['pipelines[0] «p», шаг 1: поле ignorePreviousArtifacts — true или false — пайплайн пропущен'],
 			['pipelines[0] «p», шаг 1: поле offPeak — true или false — пайплайн пропущен'],
+			['pipelines[0] «p», шаг 1: поле againstBrief — true или false — пайплайн пропущен'],
 		]);
+	});
+
+	test('все пять флагов: строка, число и null не читаются как флаг — пайплайн пропущен, поле названо (как в VibeIDEA)', () => {
+		const flags = ['escalation', 'continueOnFailure', 'ignorePreviousArtifacts', 'offPeak', 'againstBrief'];
+		const refused = flags.flatMap(flag => ['true', 1, null].map(value => {
+			const { steps, warnings } = pipeline({}, [{ role: 'explore', task: 'изучи' }, { role: 'critic', task: 'оцени', [flag]: value }]);
+			return { flag, value, loaded: steps !== undefined, warningNamesField: warnings.length === 1 && warnings[0].includes(`поле ${flag} `) };
+		}));
+		assert.deepStrictEqual(refused.filter(r => r.loaded || !r.warningNamesField), []);
 	});
 
 	test('roles: шаг без своей модели берёт модель роли, своя сильнее, пара provider + model — синоним', () => {
@@ -556,5 +567,92 @@ suite('vibePipelineFile — escalation, roles и логические имена
 			references: [true, true, false, false, false],
 			bare: undefined,
 		});
+	});
+});
+
+suite('vibePipelineFile — againstBrief и бриф прогона', () => {
+
+	ensureNoDisposablesAreLeakedInTestSuite();
+
+	/** The line VibeIDEA puts before the brief: one pipeline has to ask a judge the same in both products */
+	const BRIEF_INTRO = 'Задача прогона, слово в слово, как её поставил человек. Суди по ней, а не по тому, что рассказали предыдущие шаги; каждое расхождение назови отдельно:';
+
+	const pipelineOf = (steps: Record<string, unknown>[]) => {
+		const parsed = parse({ version: 1, pipelines: [{ id: 'p', name: 'Фича', steps }] });
+		return { steps: parsed.file.pipelines[0]?.steps, warnings: parsed.warnings };
+	};
+
+	test('againstBrief читается у роли, которая ничего не пишет, и ставит поле только при true', () => {
+		assert.deepStrictEqual(['code-reviewer', 'critic', 'security', 'explore', 'planner'].map(role => pipelineOf([{ role, task: 'сверь', againstBrief: true }]).steps?.[0]?.againstBrief), [true, true, true, true, true]);
+		assert.deepStrictEqual([pipelineOf([{ role: 'critic', task: 'сверь', againstBrief: false }]).steps, pipelineOf([{ role: 'critic', task: 'сверь' }]).steps], [
+			[{ role: 'critic', task: 'сверь' }],
+			[{ role: 'critic', task: 'сверь' }],
+		]);
+	});
+
+	test('пишущая роль с againstBrief — отказ шага, а с ним и пайплайна: qa пишет тесты, значит тоже', () => {
+		const refusals = ['backend-dev', 'frontend-dev', 'qa', 'implement-step'].map(role => pipelineOf([{ role, task: 'сверь', againstBrief: true }]));
+		assert.deepStrictEqual(refusals.map(r => r.steps), [undefined, undefined, undefined, undefined]);
+		assert.deepStrictEqual(refusals.map(r => r.warnings.length === 1 && r.warnings[0].startsWith('pipelines[0] «p», шаг 1: поле againstBrief бывает только у роли, которая ничего не пишет')), [true, true, true, true]);
+	});
+
+	test('бриф — имя, описание и задачи шагов слово в слово, критерий приёмки под своей задачей', () => {
+		assert.strictEqual(composePipelineBrief({
+			id: 'feature', name: 'Фича под ключ', description: 'Спроектировать, реализовать, проверить', steps: [
+				{ role: 'planner', task: 'Разбей задачу на шаги' },
+				{ role: 'backend-dev', task: 'Реализуй по плану', acceptance: 'тесты зелёные' },
+				{ role: 'critic', task: 'Сверь результат с задачей', againstBrief: true },
+			],
+		}), [
+			'# Фича под ключ',
+			'',
+			'Спроектировать, реализовать, проверить',
+			'',
+			'1. [planner] Разбей задачу на шаги',
+			'2. [backend-dev] Реализуй по плану',
+			'   тесты зелёные',
+			'3. [critic] Сверь результат с задачей',
+			'',
+		].join('\n'));
+	});
+
+	test('бриф без описания и без имени: пустой строки лишней нет, вместо имени — id', () => {
+		assert.strictEqual(composePipelineBrief({ id: 'solo', steps: [{ role: 'explore', task: 'изучи' }] }), '# solo\n\n1. [explore] изучи\n');
+	});
+
+	test('шаг с againstBrief получает задачу и бриф и ничего от предыдущих: ни путей, ни резюме, ни хода работы', () => {
+		const step: VibePipelineStep = { role: 'critic', task: 'Сверь результат с задачей', againstBrief: true };
+		const brief = '# Фича\n\n1. [planner] План\n2. [critic] Сверь результат с задачей\n';
+		const before = [ok({ role: 'planner', summary: 'всё готово, ошибок нет', artifacts: ['src/secret-plan.ts'] }), ok({ role: 'backend-dev', step: 2, summary: 'сделал как просили' })];
+		const input = buildStepInput(step, before, 3, brief);
+		assert.deepStrictEqual({
+			input,
+			noSummary: !input.goal.includes('всё готово') && !input.goal.includes('сделал как просили'),
+			noPaths: !input.goal.includes('secret-plan') && input.contextItems.length === 0,
+			noHistory: !input.goal.includes('Ход работы') && !input.goal.includes('Предыдущий шаг'),
+		}, {
+			input: {
+				goal: `Сверь результат с задачей\n\n${BRIEF_INTRO}\n${brief}`,
+				contextItems: [],
+			},
+			noSummary: true,
+			noPaths: true,
+			noHistory: true,
+		});
+	});
+
+	test('критерий приёмки шага с againstBrief идёт вместе с задачей, а бриф — после них', () => {
+		assert.strictEqual(
+			buildStepInput({ role: 'critic', task: 'Сверь', acceptance: 'каждое требование названо', againstBrief: true }, [], 1, 'БРИФ').goal,
+			`Сверь\n\nКритерий готовности: каждое требование названо\n\n${BRIEF_INTRO}\nБРИФ`,
+		);
+	});
+
+	test('шаг с againstBrief без записанного брифа — ошибка, а не слепой судья', () => {
+		assert.throws(() => buildStepInput({ role: 'critic', task: 'Сверь', againstBrief: true }, [ok()], 2), /againstBrief: бриф прогона не записан/);
+	});
+
+	test('шаг без againstBrief бриф не получает, даже если он передан', () => {
+		assert.deepStrictEqual(buildStepInput({ role: 'critic', task: 'Сверь' }, [], 1, 'БРИФ'), { goal: 'Сверь', contextItems: [] });
 	});
 });

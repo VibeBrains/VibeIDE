@@ -41,14 +41,15 @@ export function runDiffBudgetChars(maxTokens: number | undefined): number {
 /**
  * Whether the step takes the run's diff once something has run before it: a judging role that did not
  * ask for fresh eyes. `ignorePreviousArtifacts` turns the diff off with the rest of the inheritance —
- * the field means the same in both products.
+ * the field means the same in both products. `againstBrief` turns it off too: a judge of the brief reads the
+ * task, and the diff is the account of the work the brief is to be compared with.
  */
-export function wantsRunDiff(step: Pick<VibePipelineStep, 'role' | 'ignorePreviousArtifacts'>): boolean {
-	return JUDGING_ROLES.has(step.role) && !step.ignorePreviousArtifacts;
+export function wantsRunDiff(step: Pick<VibePipelineStep, 'role' | 'ignorePreviousArtifacts' | 'againstBrief'>): boolean {
+	return JUDGING_ROLES.has(step.role) && !step.ignorePreviousArtifacts && !step.againstBrief;
 }
 
 /** Whether the step is handed the run's diff now: it wants one, and something has run before it. */
-export function receivesRunDiff(step: Pick<VibePipelineStep, 'role' | 'ignorePreviousArtifacts'>, previous: readonly PipelineStepOutcome[]): boolean {
+export function receivesRunDiff(step: Pick<VibePipelineStep, 'role' | 'ignorePreviousArtifacts' | 'againstBrief'>, previous: readonly PipelineStepOutcome[]): boolean {
 	return wantsRunDiff(step) && previous.length > 0;
 }
 

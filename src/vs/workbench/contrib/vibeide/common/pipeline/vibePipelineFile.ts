@@ -55,6 +55,16 @@ export interface VibePipelineStep {
 	/** Do not hand this step the previous artifacts (a deliberately fresh pair of eyes). */
 	readonly ignorePreviousArtifacts?: boolean;
 	/**
+	 * Judge by the BRIEF of the run, not by the work of the steps before.
+	 *
+	 * The step gets the words of the pipeline as the person wrote them (`composePipelineBrief`) and none of
+	 * the paths, summaries or diff of the earlier steps: the account of what was done is already agreed
+	 * with the one who did it, so checking against it checks nothing. Only a role that writes nothing may
+	 * ask for it — acceptance that can edit what it accepts is not acceptance. VibeIDEA's field, agreed
+	 * between the products (`pipelinesSpec.md`, «Бриф прогона и приёмка против него»).
+	 */
+	readonly againstBrief?: boolean;
+	/**
 	 * Куда шагу можно писать, синтаксисом `.gitignore`.
 	 *
 	 * Absent (or empty) means no restriction at all — a step writes wherever the role lets it, as
@@ -305,7 +315,7 @@ export function effectiveWriteScope(role: string, stated: WriteScope | undefined
 
 
 /** The step's yes/no fields; each must be a real boolean */
-const STEP_FLAGS = ['continueOnFailure', 'ignorePreviousArtifacts', 'escalation', 'offPeak'] as const;
+const STEP_FLAGS = ['continueOnFailure', 'ignorePreviousArtifacts', 'escalation', 'offPeak', 'againstBrief'] as const;
 
 /**
  * Parse `.vibe/pipelines.json`.
@@ -364,7 +374,7 @@ export function parsePipelineFile(raw: unknown, roleRules: PipelineRoleRules): P
 		const steps: VibePipelineStep[] = [];
 		let stepsOk = true;
 		for (let j = 0; j < rawSteps.length; j++) {
-			const parsedStep = parseStep(rawSteps[j], roles.models);
+			const parsedStep = parseStep(rawSteps[j], roles.models, roleRules);
 			if (!parsedStep.ok) {
 				warnings.push(`pipelines[${i}] «${id}», шаг ${j + 1}: ${parsedStep.reason} — пайплайн пропущен`);
 				stepsOk = false;
@@ -437,7 +447,7 @@ function roleModelOf(entry: unknown): string | undefined {
 	return isModelReference(reference) ? reference : undefined;
 }
 
-function parseStep(raw: unknown, roleModels: ReadonlyMap<string, string>): { ok: true; value: VibePipelineStep } | { ok: false; reason: string } {
+function parseStep(raw: unknown, roleModels: ReadonlyMap<string, string>, roleRules: PipelineRoleRules): { ok: true; value: VibePipelineStep } | { ok: false; reason: string } {
 	if (!raw || typeof raw !== 'object' || Array.isArray(raw)) { return { ok: false, reason: 'не объект' }; }
 	const s = raw as Record<string, unknown>;
 	const role = typeof s['role'] === 'string' ? s['role'].trim() : '';
@@ -465,6 +475,10 @@ function parseStep(raw: unknown, roleModels: ReadonlyMap<string, string>): { ok:
 			return { ok: false, reason: `поле ${key} — true или false` };
 		}
 	}
+	// A writing role judging by the brief would finish the work to fit the verdict, and that is not acceptance
+	if (s['againstBrief'] === true && roleRules.roleMayWrite(role)) {
+		return { ok: false, reason: `поле againstBrief бывает только у роли, которая ничего не пишет, а «${role}» пишет — иначе приёмка правит принимаемое` };
+	}
 	// The step's OWN model, not one taken from `roles`: VibeIDEA checks it so, and the shared file must load the same.
 	if (s['offPeak'] === true && !isModelReference(s['model'])) {
 		return { ok: false, reason: 'поле offPeak требует model «провайдер/модель» — расписание цены есть только у модели' };
@@ -481,6 +495,7 @@ function parseStep(raw: unknown, roleModels: ReadonlyMap<string, string>): { ok:
 			...(maxSteps !== undefined ? { maxSteps } : {}),
 			...(s['continueOnFailure'] === true ? { continueOnFailure: true } : {}),
 			...(s['ignorePreviousArtifacts'] === true ? { ignorePreviousArtifacts: true } : {}),
+			...(s['againstBrief'] === true ? { againstBrief: true } : {}),
 			...(patternList(s['paths']) ? { paths: patternList(s['paths']) } : {}),
 			...(patternList(s['denyPaths']) ? { denyPaths: patternList(s['denyPaths']) } : {}),
 			...(model !== undefined ? { model } : {}),
@@ -552,12 +567,23 @@ export const EARLIER_STEP_NOTE_CHARS = 300;
  *
  * Every step of a wave is built from the same `before` — what was known before the wave: a
  * neighbour's work does not exist yet when the wave starts.
+ *
+ * A step with `againstBrief` is built from `brief` alone — the task of the run — and from nothing that
+ * the steps before it reported. Without a brief such a step is a programming error, not an empty input:
+ * a judge left with neither would judge blind and say so nowhere.
  */
 export function buildStepInput(
 	step: VibePipelineStep,
 	before: readonly PipelineStepOutcome[],
 	totalSteps: number,
+	brief?: string,
 ): PipelineStepInput {
+	if (step.againstBrief) {
+		if (!brief) {
+			throw new Error('againstBrief: бриф прогона не записан — судить нечем');
+		}
+		return { goal: `${composeGoal(step)}\n\n${BRIEF_INTRO}\n${brief}`, contextItems: [] };
+	}
 	// A step the gate skipped did nothing: the result it would have replaced is what the next step builds on.
 	const previous = before.filter(outcome => !outcome.skippedByGate);
 	if (step.ignorePreviousArtifacts || previous.length === 0) {
@@ -654,6 +680,29 @@ function describeReview(outcome: PipelineStepOutcome): string {
 		: outcome.review.verdict === 'rework' ? 'требовал доработки — шаг переделан один раз, повторно не проверялся'
 			: 'вердикт не распознан';
 	return ` [ревью ${outcome.review.by}: ${verdict}]`;
+}
+
+/** What introduces the brief to the judge; VibeIDEA's wording, so one pipeline asks the same in both products. */
+const BRIEF_INTRO = 'Задача прогона, слово в слово, как её поставил человек. Суди по ней, а не по тому, что рассказали предыдущие шаги; каждое расхождение назови отдельно:';
+
+/**
+ * The brief of a run: the name of the pipeline, its description and the task of every step word for word, as the
+ * person wrote them. Taken before the first step and never changed after: it is what was asked, not what happened.
+ * The same text as VibeIDEA's `PipelineBrief`, so a run folder reads alike in both products.
+ */
+export function composePipelineBrief(pipeline: Pick<VibePipeline, 'id' | 'name' | 'description' | 'steps'>): string {
+	const lines = [`# ${pipeline.name ?? pipeline.id}`];
+	if (pipeline.description) {
+		lines.push('', pipeline.description);
+	}
+	lines.push('');
+	pipeline.steps.forEach((step, index) => {
+		lines.push(`${index + 1}. [${step.role}] ${step.task}`);
+		if (step.acceptance) {
+			lines.push(`   ${step.acceptance}`);
+		}
+	});
+	return `${lines.join('\n')}\n`;
 }
 
 function composeGoal(step: VibePipelineStep): string {
