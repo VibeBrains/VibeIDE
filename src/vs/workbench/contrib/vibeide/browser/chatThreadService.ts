@@ -38,7 +38,7 @@ import { isQuotaLow, pickRateLimitHeaders, ProviderQuotaSnapshot, tightestBucket
 import { IVibeSpendLedgerService } from './vibeSpendLedgerService.js';
 import { ModelHealthTracker, HEALTH_FAILURE_THRESHOLD, HEALTH_WINDOW_MS, classifyProviderError } from '../common/modelHealthTracker.js';
 import { translateProviderError } from '../common/providerErrorTranslator.js';
-import { decideLlmRetry, firstRetryAfterSeconds, formatWaitDuration, LlmErrorFacts, LlmRetryContext, MAX_RETRY_AFTER_WAIT_SECONDS } from '../common/llmErrorRetry.js';
+import { decideLlmRetry, firstRetryAfterSeconds, formatWaitDuration, LlmErrorFacts, LlmRetryContext, MAX_RETRY_AFTER_WAIT_SECONDS, unavailabilityOf } from '../common/llmErrorRetry.js';
 import { generateUuid } from '../../../../base/common/uuid.js';
 import { autoFallbackProviderIds, ChatMode, FeatureName, ModelSelection, ModelSelectionOptions, ProviderName } from '../common/vibeideSettingsTypes.js';
 import { isModelVisionCapable } from '../common/modelVisionHeuristics.js';
@@ -89,7 +89,7 @@ import { IVibePromptGuardService } from '../common/vibePromptGuardService.js';
 import { guardToolOutput } from '../common/untrustedToolOutputGuard.js';
 import { RawMCPToolCall } from '../common/mcpServiceTypes.js';
 import { preprocessImagesForQA } from './imageQAIntegration.js';
-import { autoFallbackCandidates, ITaskAwareModelRouter, TaskContext, TaskType } from '../common/modelRouter.js';
+import { autoFallbackCandidates, ITaskAwareModelRouter, nextAutoFallback, TaskContext, TaskType } from '../common/modelRouter.js';
 import { chatLatencyAudit } from '../common/chatLatencyAudit.js';
 import { suggestAlternateTool as suggestAlternateToolPure } from '../common/toolSchemaSuggest.js';
 import { IEditRiskScoringService, EditContext, EditRiskScore } from '../common/editRiskScoringService.js';
@@ -1900,7 +1900,8 @@ class ChatThreadService extends Disposable implements IChatThreadService {
 			needsVision,
 			isAvailable: selection => this._settingsService.state._modelOptions.some(option =>
 				option.selection.providerName === selection.providerName && option.selection.modelName === selection.modelName),
-			isRetired: selection => retiredForAutoPick(getModelCapabilities(selection.providerName, selection.modelName, this._settingsService.state.overridesOfModel), Date.now()),
+			isExcluded: selection => retiredForAutoPick(getModelCapabilities(selection.providerName, selection.modelName, this._settingsService.state.overridesOfModel), Date.now())
+				|| this._modelRouter.isUnavailable(selection),
 		});
 		if (pinned) {
 			vibeLog.info('chatThread', `[Auto Model Select] source=pinned ${pinned.providerName}/${pinned.modelName} — разговор остаётся на выбранной ранее модели`);
@@ -6914,6 +6915,8 @@ Output ONLY the JSON, no other text. Start with { and end with }.`;
 							const wasDegraded = this._modelHealthTracker.isDegraded(modelSelection.providerName, modelSelection.modelName);
 							this._modelHealthTracker.recordSuccess(modelSelection.providerName, modelSelection.modelName);
 							if (wasDegraded) { this._onDidChangeProviderHealth.fire(); }
+							// An answer from the model lifts whatever an earlier error made «Авто» hold it back for
+							this._modelRouter.reportAvailable(modelSelection);
 						}
 
 						// Persist provider-reported token usage on the thread so the UI
@@ -7375,6 +7378,14 @@ Output ONLY the JSON, no other text. Start with { and end with }.`;
 							}
 						}
 
+						// An error that shows the model closed to this person (region, quota, key, plan) is remembered
+						// by «Авто»: its next ranking, in this turn and in later ones, is built without the model
+						// Marked in both modes: a pinned model that failed this way is not one «Авто» should reach for later either
+						const closedForPerson = unavailabilityOf(retryFacts);
+						if (closedForPerson && modelSelection && modelSelection.providerName !== 'auto') {
+							this._modelRouter.reportUnavailable(modelSelection, closedForPerson);
+						}
+
 						// Cross-thread health notification — fires once per (provider,model) every
 						// SUPPRESSION_WINDOW_MS when failures cross HEALTH_FAILURE_THRESHOLD within
 						// HEALTH_WINDOW_MS. Catches the case where user spread failures across multiple
@@ -7560,17 +7571,19 @@ Output ONLY the JSON, no other text. Start with { and end with }.`;
 						if (decision.skipFailedProvider && modelSelection) {
 							providersDown.add(modelSelection.providerName);
 						}
-						// A pinned or resumed turn was not routed: rank now, by the same task context the choice uses
-						if (!autoFallbackRanking && originalUserMessage) {
+						const fallbackSkips = { tried: triedModels, providersDown, isUnavailable: (candidate: ModelSelection) => this._modelRouter.isUnavailable(candidate) };
+						let nextModel = nextAutoFallback(autoFallbackRanking, fallbackSkips);
+						// A pinned or resumed turn was not routed, and a ranking whose models are all spent is out of date:
+						// rank again by the same task context the choice uses, now without the models an error has closed
+						if (!nextModel && originalUserMessage) {
 							try {
 								const { context } = this._buildAutoTaskContext(originalUserMessage.content, originalUserMessage.images, originalUserMessage.pdfs);
 								autoFallbackRanking = autoFallbackCandidates(await this._modelRouter.route(context));
+								nextModel = nextAutoFallback(autoFallbackRanking, fallbackSkips);
 							} catch (routerError) {
 								vibeLog.error('chatThread', '[ChatThreadService] Error getting routing decision for fallback:', routerError);
 							}
 						}
-
-						const nextModel = autoFallbackRanking?.find(candidate => !triedModels.has(`${candidate.providerName}/${candidate.modelName}`) && !providersDown.has(candidate.providerName));
 
 						// If we found a next model, switch to it and retry
 						if (nextModel) {

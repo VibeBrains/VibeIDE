@@ -17,15 +17,15 @@ suite('autoModelStickiness — «Авто» выбирает модель на �
 
 	ensureNoDisposablesAreLeakedInTestSuite();
 
-	test('выбор держится, пока условия те же; меняется режим, приходит картинка, модель пропала или вендор её выключил — решаем заново', () => {
+	test('выбор держится, пока условия те же; меняется режим, приходит картинка, модель пропала, вендор её выключил или ошибка закрыла её для человека — решаем заново', () => {
 		assert.deepStrictEqual([
-			pinnedAutoModel(pin, { chatMode: 'agent', needsVision: false, isAvailable: always, isRetired: never }),
-			pinnedAutoModel(undefined, { chatMode: 'agent', needsVision: false, isAvailable: always, isRetired: never }),
-			pinnedAutoModel(pin, { chatMode: 'normal', needsVision: false, isAvailable: always, isRetired: never }),
-			pinnedAutoModel(pin, { chatMode: 'agent', needsVision: true, isAvailable: always, isRetired: never }),
-			pinnedAutoModel({ ...pin, vision: true }, { chatMode: 'agent', needsVision: true, isAvailable: always, isRetired: never }),
-			pinnedAutoModel(pin, { chatMode: 'agent', needsVision: false, isAvailable: () => false, isRetired: never }),
-			pinnedAutoModel(pin, { chatMode: 'agent', needsVision: false, isAvailable: always, isRetired: always }),
+			pinnedAutoModel(pin, { chatMode: 'agent', needsVision: false, isAvailable: always, isExcluded: never }),
+			pinnedAutoModel(undefined, { chatMode: 'agent', needsVision: false, isAvailable: always, isExcluded: never }),
+			pinnedAutoModel(pin, { chatMode: 'normal', needsVision: false, isAvailable: always, isExcluded: never }),
+			pinnedAutoModel(pin, { chatMode: 'agent', needsVision: true, isAvailable: always, isExcluded: never }),
+			pinnedAutoModel({ ...pin, vision: true }, { chatMode: 'agent', needsVision: true, isAvailable: always, isExcluded: never }),
+			pinnedAutoModel(pin, { chatMode: 'agent', needsVision: false, isAvailable: () => false, isExcluded: never }),
+			pinnedAutoModel(pin, { chatMode: 'agent', needsVision: false, isAvailable: always, isExcluded: always }),
 		], [sonnet, undefined, undefined, undefined, sonnet, undefined, undefined]);
 	});
 

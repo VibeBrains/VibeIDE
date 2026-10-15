@@ -5,7 +5,7 @@
 
 import * as assert from 'assert';
 import { ensureNoDisposablesAreLeakedInTestSuite } from '../../../../../base/test/common/utils.js';
-import { decideLlmRetry, firstRetryAfterSeconds, formatWaitDuration, LlmErrorFacts, LlmRetryContext, LlmRetryDecision, parseRetryAfterSeconds } from '../../common/llmErrorRetry.js';
+import { decideLlmRetry, firstRetryAfterSeconds, formatWaitDuration, LlmErrorFacts, LlmRetryContext, LlmRetryDecision, parseRetryAfterSeconds, unavailabilityOf } from '../../common/llmErrorRetry.js';
 import { buildContextOverflowError, buildEmptyResponseError } from '../../common/sendLLMMessageTypes.js';
 
 suite('LLM error retry', () => {
@@ -22,6 +22,8 @@ suite('LLM error retry', () => {
 		retryInitialDelayMs: 1000,
 		retryMaxDelayMs: 5000,
 	};
+
+	const regionLock = { message: "Upstream request failed: This Go model requires Global regions. Select Global in your workspace's Privacy settings to use it." };
 
 	const words = (decision: LlmRetryDecision): string => {
 		switch (decision.kind) {
@@ -49,11 +51,14 @@ suite('LLM error retry', () => {
 			'контекст не влез, сырой текст': { message: 'prompt is too long: 215000 tokens > 200000 maximum' },
 			'квота исчерпана': { message: 'Quota exhausted', refusalKind: 'quota' },
 			// The observed text names no status: without the region check it falls to the transient class and repeats
-			'регион модели закрыт у провайдера': { message: "Upstream request failed: This Go model requires Global regions. Select Global in your workspace's Privacy settings to use it." },
+			'регион модели закрыт у провайдера': regionLock,
 			'отказ по безопасности': { message: 'The request was declined', safetyRefusal: true },
 			'предохранитель пустых ответов сработал': { message: buildEmptyResponseError('openCode', 'minimax-m2.7', 'unknown'), emptyBreakerTripped: true },
 			'отказ 400': { message: 'Rejected', httpStatus: 400 },
 			'ключ не принят 401': { message: 'Unauthorized', httpStatus: 401 },
+			'доступ запрещён 403': { message: 'Forbidden', httpStatus: 403 },
+			// MiniMax answers HTTP 200 and puts the refusal into the body; the code «model not on your plan» arrives as `auth`
+			'модель вне тарифа, отказ в теле ответа 200': { message: 'Empty response', httpStatus: 200, refusalKind: 'auth' },
 			'нужна оплата 402': { message: 'Payment Required', httpStatus: 402 },
 			'модель не найдена 404': { message: 'Not Found', httpStatus: 404 },
 		};
@@ -64,7 +69,8 @@ suite('LLM error retry', () => {
 		}]));
 		const retry = { закреплённая: 'повтор', авто: 'повтор' };
 		const stop = { закреплённая: 'стоп', авто: 'стоп' };
-		// A 4xx is about the request, so only another model can answer it differently
+		// A 4xx is about the request, and a closed model is closed for the person
+		// Only another model can answer it differently
 		const nextModelOnly = { закреплённая: 'стоп', авто: 'повтор' };
 		assert.deepStrictEqual(verdicts, {
 			'успешный ответ не разобран': retry,
@@ -77,14 +83,63 @@ suite('LLM error retry', () => {
 			'лимит запросов 429': retry,
 			'контекст не влез, шаблон': stop,
 			'контекст не влез, сырой текст': stop,
-			'квота исчерпана': stop,
-			'регион модели закрыт у провайдера': stop,
+			'квота исчерпана': nextModelOnly,
+			'регион модели закрыт у провайдера': nextModelOnly,
 			'отказ по безопасности': stop,
 			'предохранитель пустых ответов сработал': stop,
 			'отказ 400': nextModelOnly,
 			'ключ не принят 401': nextModelOnly,
+			'доступ запрещён 403': nextModelOnly,
+			'модель вне тарифа, отказ в теле ответа 200': nextModelOnly,
 			'нужна оплата 402': nextModelOnly,
 			'модель не найдена 404': nextModelOnly,
+		});
+	});
+
+	/**
+	 * Что ошибка доказывает о модели: «Авто» запоминает именно это и пропускает модель при следующем выборе
+	 * Квота — дело аккаунта, поэтому закрывает всего провайдера; остальное — только ответившую модель
+	 */
+	test('какая ошибка закрывает модель для человека и на какую часть провайдера', () => {
+		const errors: Record<string, Partial<LlmErrorFacts>> = {
+			'регион закрыт': regionLock,
+			'квота исчерпана, вердикт из тела': { message: 'Quota exhausted', refusalKind: 'quota' },
+			'нужна оплата 402': { message: 'Payment Required', httpStatus: 402 },
+			'ключ не принят 401': { message: 'Unauthorized', httpStatus: 401 },
+			'доступ запрещён 403': { message: 'Forbidden', httpStatus: 403 },
+			'модель вне тарифа, вердикт из тела': { message: 'Empty response', httpStatus: 200, refusalKind: 'auth' },
+			'отказ 400': { message: 'Rejected', httpStatus: 400 },
+			'модель не найдена 404': { message: 'Not Found', httpStatus: 404 },
+			'лимит запросов 429': { message: 'Too Many Requests', httpStatus: 429, rateLimit: true },
+			'вердикт тела «лимит частоты»': { message: 'Empty response', httpStatus: 200, refusalKind: 'rate-limit' },
+			'сервер 503': { message: 'Service Unavailable', httpStatus: 503 },
+			'сеть': { message: 'fetch failed: read ECONNRESET' },
+			'контекст не влез': { message: 'prompt is too long: 215000 tokens > 200000 maximum' },
+			// The status of a safety refusal or an overflow says nothing about access to the model
+			'отказ по безопасности со статусом 403': { message: 'The request was declined', httpStatus: 403, safetyRefusal: true },
+			'контекст не влез со статусом 400': { message: 'prompt is too long: 215000 tokens > 200000 maximum', httpStatus: 400 },
+			'предохранитель пустых ответов и вердикт auth': { message: buildEmptyResponseError('openCode', 'minimax-m2.7', 'unknown'), emptyBreakerTripped: true, refusalKind: 'auth' },
+		};
+		assert.deepStrictEqual(Object.fromEntries(Object.entries(errors).map(([name, facts]) => {
+			const unavailability = unavailabilityOf({ ...base, ...facts });
+			return [name, unavailability ? `${unavailability.reason}, ${unavailability.scope}` : 'не закрывает'];
+		})), {
+			'регион закрыт': 'region, model',
+			'квота исчерпана, вердикт из тела': 'quota, provider',
+			'нужна оплата 402': 'quota, provider',
+			'ключ не принят 401': 'access, model',
+			'доступ запрещён 403': 'access, model',
+			'модель вне тарифа, вердикт из тела': 'access, model',
+			'отказ 400': 'не закрывает',
+			'модель не найдена 404': 'не закрывает',
+			'лимит запросов 429': 'не закрывает',
+			'вердикт тела «лимит частоты»': 'не закрывает',
+			'сервер 503': 'не закрывает',
+			'сеть': 'не закрывает',
+			'контекст не влез': 'не закрывает',
+			'отказ по безопасности со статусом 403': 'не закрывает',
+			'контекст не влез со статусом 400': 'не закрывает',
+			'предохранитель пустых ответов и вердикт auth': 'не закрывает',
 		});
 	});
 
@@ -157,6 +212,11 @@ suite('LLM error retry', () => {
 			'сеть: соединение отклонено': attempts({ ...auto, message: 'Failed to connect to Fake. (ECONNREFUSED)' }, {}, 1),
 			'ответ 200 не разобран': attempts({ ...auto, message: 'Failed to process successful response', httpStatus: 200 }, {}, 1),
 			'отказ 400': attempts({ ...auto, message: 'Rejected', httpStatus: 400 }, {}, 1),
+			'регион модели закрыт у провайдера': attempts({ ...auto, ...regionLock }, {}, 1),
+			'квота исчерпана': attempts({ ...auto, message: 'Quota exhausted', refusalKind: 'quota' }, {}, 1),
+			'нужна оплата 402': attempts({ ...auto, message: 'Payment Required', httpStatus: 402 }, {}, 1),
+			'ключ не принят 401': attempts({ ...auto, message: 'Unauthorized', httpStatus: 401 }, {}, 1),
+			'модель вне тарифа, отказ в теле ответа 200': attempts({ ...auto, message: 'Empty response', httpStatus: 200, refusalKind: 'auth' }, {}, 1),
 			'контекст не влез': attempts({ ...auto, message: 'prompt is too long: 215000 tokens > 200000 maximum' }, {}, 1),
 			'429 без Retry-After, пауза доступна': attempts({ ...auto, ...throttled }, { rateLimitWaitAvailable: true }),
 			'429 без Retry-After, пауза недоступна': attempts({ ...auto, ...throttled }, {}, 3),
@@ -166,6 +226,12 @@ suite('LLM error retry', () => {
 			'сеть: соединение отклонено': ['nextModel, not this provider'],
 			'ответ 200 не разобран': ['nextModel'],
 			'отказ 400': ['nextModel'],
+			// The region lock is the model's, the spent quota is the account's: its other models are no way out
+			'регион модели закрыт у провайдера': ['nextModel'],
+			'квота исчерпана': ['nextModel, not this provider'],
+			'нужна оплата 402': ['nextModel, not this provider'],
+			'ключ не принят 401': ['nextModel'],
+			'модель вне тарифа, отказ в теле ответа 200': ['nextModel'],
 			'контекст не влез': ['stop:notRetryable'],
 			'429 без Retry-After, пауза доступна': ['retry 2000ms (rateLimit 1/2)', 'retry 4000ms (rateLimit 2/2)', 'autoWait', 'autoWait'],
 			'429 без Retry-After, пауза недоступна': ['retry 2000ms (rateLimit 1/2)', 'retry 4000ms (rateLimit 2/2)', 'nextModel'],
