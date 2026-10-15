@@ -26,7 +26,9 @@ import { vibeTraceTs } from '../common/helpers/vibeTraceTs.js';
 import { ChatTraceEvent, renderChatTraceMarkdown } from '../common/chatTraceRender.js';
 import { VIBE_COMMAND_CATEGORY } from '../common/vibeCommandCategory.js';
 
-export { ChatTraceEvent, renderChatTraceMarkdown };
+// A type re-exported by name breaks single-file transpile: the interface is gone, the import is not
+export type { ChatTraceEvent };
+export { renderChatTraceMarkdown };
 
 const MAX_EVENTS = 1000;
 const BUFFER: ChatTraceEvent[] = [];
