@@ -70,6 +70,34 @@ suite('засеянное окружение .vibe: что включено, а 
 		assert.ok(parsed.frontmatter['description'], 'у правила нет description — в списке доступных оно будет безымянным');
 	});
 
+	/**
+	 * Автопилот roadmap живёт по фразам: правило само пишет, что вне фраз не действует, а ехало бы в каждом ходе.
+	 * Проверяются отгружаемые байты: все одиннадцать фраз шапки включают правило, обычный текст и однокоренное слово — нет.
+	 */
+	test('правило «автопилот roadmap» включается своими фразами и молчит на обычном тексте', () => {
+		const parsed = parseRuleFrontmatter(seed('rules/roadmap-autopilot.mdc'));
+		const meta = { alwaysApply: parseAlwaysApply(parsed.frontmatter), triggers: parseTriggers(parsed.frontmatter), globs: parseGlobs(parsed.frontmatter) };
+		const activationOn = (userText: string) => decideRuleActivation(meta, { userText });
+		assert.deepStrictEqual({
+			meta,
+			everyPhraseInjects: meta.triggers.map(phrase => activationOn(`давай, ${phrase.toUpperCase()}, я ушёл`)),
+			skillCommand: activationOn('запусти /skill:roadmap-autopilot'),
+			ordinaryText: activationOn('поправь кнопку в шапке'),
+			nearMiss: activationOn('автопилотируемый режим не нужен'),
+		}, {
+			meta: {
+				alwaysApply: false,
+				triggers: ['ночной прогон', 'автопилот', 'roadmap night', 'автономный роадмап', 'закрывай роадмап', 'пока сплю', 'пока я сплю', 'прогон afk', 'не получилось — иди дальше', 'skip on failure', '/skill:roadmap-autopilot'],
+				globs: [],
+			},
+			everyPhraseInjects: Array(11).fill('inject'),
+			skillCommand: 'inject',
+			ordinaryText: 'index',
+			nearMiss: 'index',
+		});
+		assert.ok(parsed.frontmatter['description'], 'у правила нет description — в списке доступных оно будет безымянным');
+	});
+
 	test('servers.json разбирается и не поднимает серверов', () => {
 		const parsed = parseServersFile(seed('servers.json'));
 		assert.strictEqual(parsed.ok, true, `не разобрался: ${parsed.ok ? '' : parsed.error}`);
