@@ -7742,6 +7742,11 @@ docs.z.ai, mimo.mi.com, agentclientprotocol.com, GHSA python-sdk, ncsc.gov.uk, a
 - [x] **Mistral Large 4 во встроенном Mistral** — ✅ (15.10.2026, `next`) профиль `mistral-large-4` и `mistral-large-4-0` в `common/modelCapabilities.ts`: окно 1M, $1.36 / кэш $0.14 / $4.18, vision, вызовы `openai-style`,
       без рассуждения и FIM; цены перепроверены по странице вендора docs.mistral.ai/models/mistral-large-4-0 (curl 15.10). Тест профиля в `builtinModelProfiles.test.ts`: оба имени, `mistral-large-latest` не изменился.
       Устаревшие записи roadmap «id для API нет» (две) исправлены. Живьём с ключом Mistral не проверено ⚠ перепроверить
+- [x] **Тесты на общие векторы набора: переход по правкам и деление графа проекта** — ✅ (15.10.2026, `next`) `test/node/diffNavigationVectors.test.ts` читает `testVectors/diffNavigation.json`
+      (7 случаев) и сверяет `diffIdxAfterResolve`; `test/node/codeGraphCommunitiesVectors.test.ts` читает `testVectors/codeGraphCommunities.json` (8 случаев) и сверяет `analyzeCodeGraph`:
+      разбиение как множество множеств путей, подпись каждой подсистемы, одиночки — в пяти перестановках `files` и `links` (как в файле, обратный порядок, вразнобой ×3).
+      Образец — `modelEchoVectors.test.ts`: версия и состав полей файла записаны в тесте, незнакомое поле роняет его. Проверено на силу: `GUESS_WEIGHT` 0.25 → 4 и сдвиг на единицу
+      в `diffIdxAfterResolve` (правка собранного `out/`) роняют по одному тесту. Расхождения с VibeIDEA нет: все 8 случаев в 5 перестановках совпали с первого прогона
 
 ## REL-126. Релиз v1.26.0 (2026-10-15, macOS arm64 + Windows x64)
 
