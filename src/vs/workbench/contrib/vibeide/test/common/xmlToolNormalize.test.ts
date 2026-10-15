@@ -213,6 +213,18 @@ suite('XML tool normalization (v0.13.10)', () => {
 			assert.strictEqual(normalizeAlternativeToolSyntax(input), input);
 		});
 
+		test('a comparison that has the same words and a later `>` is not a tag', () => {
+			// The old pattern asked only for a `>` on the same line, so `< calls && m >` was glued into `<calls && m >`
+			// A canonical call after the prose makes the text enter the full path: prose alone leaves by the fast path
+			const call = '<read_file><uri>a.ts</uri></read_file>';
+			const comparisons = [
+				`if (n < calls && m > 3) { retry(); }\n${call}`,
+				`Сравнение a < tools, b > c остаётся как написано\n${call}`,
+				`x < parameter and y > z\n${call}`,
+			];
+			assert.deepStrictEqual(comparisons.map(text => normalizeAlternativeToolSyntax(text)), comparisons);
+		});
+
 		test('hasToolCallMarkup: any spacing and DSML markers count, bare words do not', () => {
 			assert.deepStrictEqual(
 				['< invoke name="x">', '<｜DSML｜parameter name=\'y\'>', 'про invoke и parameter словами', 'name="x"'].map(hasToolCallMarkup),
@@ -605,6 +617,49 @@ suite('XML tool normalization (v0.13.10)', () => {
 			// No vendor OPEN tag present → vendor scrub must not fire.
 			const input = 'Compare a < b and c > d; this is fine.';
 			assert.strictEqual(stripUnclaimedToolTags(input), input);
+		});
+	});
+
+	suite('stripUnclaimedToolTags — call markup with a space after `<` (2026-10-15)', () => {
+
+		/** A hidden call is named by one placeholder line of the shape `*[text]*` */
+		const placeholders = (text: string): number => (text.match(/\*\[[^\]\n]+\]\*/g) ?? []).length;
+
+		// Verbatim from the thread of 28.09.2026 (MiniMax-M3.1-Flash-Preview): the form the render net let through
+		const SCREENSHOT = '< calls>\n< invoke name="ls_dir">\n< parameter name="uri" string="true">/Users/borodatych/Projects/VibeCode/Promed</ parameter>\n</ invoke>\n</ calls>';
+
+		test('the call from the screenshot is hidden behind one placeholder', () => {
+			const out = stripUnclaimedToolTags(SCREENSHOT);
+			assert.deepStrictEqual({ markup: /invoke|calls|parameter|ls_dir/.test(out), placeholders: placeholders(out) }, { markup: false, placeholders: 1 });
+		});
+
+		test('a call with several parameters is one placeholder, not one per parameter', () => {
+			const input = 'Смотрю ветку.\n< calls>\n< invoke name="run_command">\n< parameter name="command" string="true">git log</ parameter>\n< parameter name="cwd" string="true">/p</ parameter>\n</ invoke>\n</ calls>\nГотово.';
+			const out = stripUnclaimedToolTags(input);
+			assert.deepStrictEqual({ markup: /invoke|calls|parameter/.test(out), placeholders: placeholders(out), kept: out.startsWith('Смотрю ветку.') && out.endsWith('Готово.') }, { markup: false, placeholders: 1, kept: true });
+		});
+
+		test('a call mixed from two forms (invoke opened, canonical children, foreign closes) leaves no spaced tag', () => {
+			// Message 14 of the same thread: opened with `< invoke`, closed with `</run_command>` and `</parameter>`
+			const input = '< calls>\n< invoke name="run_command">\n<command>git diff --stat | cat</command>\n<cwd>/p</cwd>\n</run_command>\n\n</parameter>';
+			const out = stripUnclaimedToolTags(input);
+			assert.deepStrictEqual({ spaced: /<\s+\/?\s*(?:calls|invoke|parameter)/.test(out), hidden: placeholders(out) >= 1 }, { spaced: false, hidden: true });
+		});
+
+		test('the same words in prose, in a code block and in a code span stay as written', () => {
+			const code = ['Пример модели:', '```', '< calls>', '< invoke name="ls_dir">', '</ invoke>', '</ calls>', '```', 'конец'].join('\n');
+			const untouched = [
+				'Compare a < b and c > d; count < calls, a < parameter.',
+				'Если n < calls && m > 3, повторяем',
+				code,
+				'Модель пишет `< invoke name="x">` вместо вызова, и `</ invoke>` тоже',
+			];
+			assert.deepStrictEqual(untouched.map(text => stripUnclaimedToolTags(text)), untouched);
+		});
+
+		test('hiding is stable: a second pass changes nothing', () => {
+			const once = stripUnclaimedToolTags(SCREENSHOT);
+			assert.strictEqual(stripUnclaimedToolTags(once), once);
 		});
 	});
 
