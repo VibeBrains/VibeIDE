@@ -144,7 +144,7 @@ const FALLBACK_CHAIN_LENGTH = 3;
  */
 const NO_REASONING_PENALTY_ON_DEMANDING_TASK = 20;
 
-/** Points a model that reasons earns on a task that leans on reasoning, and the extra for one that outputs its reasoning */
+/** Points a model that reasons earns on a task that leans on reasoning, and the extra for one that shows it */
 const REASONING_BONUS = 12;
 const OUTPUT_REASONING_BONUS = 5;
 
@@ -162,8 +162,9 @@ export function taskDemandsReasoning(context: TaskContext): boolean {
 /**
  * What the model's reasoning adds to its score for this task
  * It counts only where the task leans on reasoning:
- * a model that reasons gets its bonus there, one that outputs its reasoning a little more, one that does not loses points
- * On a light task (a plain chat, a rewrite of a text) nobody gets a bonus for thinking, so the cheaper and faster model can win
+ * A model that reasons gets its bonus there, one that shows its reasoning a little more, one that does not loses points
+ * On a light task (a plain chat, a rewrite of a text) nobody gets a bonus for thinking
+ * So the cheaper and faster model can win there
  */
 export function reasoningScoreOf(capabilities: Pick<VibeideStaticModelInfo, 'reasoningCapabilities'>, context: TaskContext): number {
 	if (!taskDemandsReasoning(context)) {
@@ -282,7 +283,7 @@ export class TaskAwareModelRouter extends Disposable implements ITaskAwareModelR
 		return capabilities;
 	}
 
-	/** Models an error showed closed to this person: not candidates until an answer, a new setup or the TTL lifts the hold */
+	/** Models an error showed closed to this person: not candidates until an answer, a new setup or the TTL */
 	private readonly availability = new ModelAvailabilityRegistry();
 
 	// Cache for common routing decisions (fast path optimization)
