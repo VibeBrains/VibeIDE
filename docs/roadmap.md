@@ -6812,11 +6812,12 @@ VibeIDEA разобрала те же сводки раньше (`docs/vibe/refe
       пользователя, верхний `output_config.effort` не меняется. Fable 5.1, Mythos 5.1, Opus 5.5, Opus 5, Sonnet 5.5,
       Haiku 5.5 на API Anthropic и Google Cloud. Нельзя: Sonnet 5.5 с `between_tools`, Haiku 5.5 с `disabled` — 400.
       Планировщик уже есть (`common/effortUpdates.ts`, GPT-6); VibeIDEA сделала это 08.10 (`f82e8098c5`, №132)
-- [ ] **Mistral Large 4 (06.10)** — карточка вендора есть: Public Preview, версия v26.10, окно 1M, vision и вызов
-      функций, $1.36 / $4.18 (на распродаже $0.68 / $2.09), кэш $0.14. Явного id для API на странице нет — только путь
-      `mistral-large-4-0`. У встроенного Mistral `mistral-large-latest` записан окном 131K и ценой $2 / $6: куда алиас
-      указывает теперь, без ключа (`/v1/models`) не узнать. Заводить по догадке не стоит; VibeIDEA 08.10 считала, что
-      цены нет — поправку передать
+- [x] **Mistral Large 4 (06.10)** — ✅ (15.10.2026, `next`) карточка вендора: Public Preview, версия v26.10, окно 1M, vision и вызов
+      функций, $1.36 / $4.18 (на распродаже $0.68 / $2.09), кэш $0.14. Прежняя запись «явного id для API нет» была неверной: в шапке карточки
+      значок с копированием `mistral-large-4`, в данных страницы имена `mistral-large-4` и `mistral-large-4-0`, во всех примерах кода (Python, TypeScript, curl)
+      `model="mistral-large-4"`. Сверено с самой страницей 15.10, не со сводкой. Заведён профиль для обоих имён во встроенном Mistral (`common/modelCapabilities.ts`),
+      цены списочные — распродажа без даты конца не записывается. `mistral-large-latest` не тронут (окно 131K, $2 / $6): куда алиас указывает теперь, без ключа
+      (`/v1/models`) не узнать
 - [x] **Настоящие эмбеддинги для поиска по смыслу** — ✅ (09.10.2026, `next`) источник векторов `IVibeEmbeddingsService`
       (`electron-browser/vibeEmbeddingsService.ts`, HTTP в главном процессе — канал `vibe-channel-embeddings`):
       по умолчанию локальная Ollama с `embeddinggemma`, по выбору — OpenAI-совместимый `/embeddings` любого провайдера,
@@ -7136,9 +7137,8 @@ VibeIDEA разобрала те же сводки раньше (`docs/vibe/refe
   отвлёкся). Агенты вроде Claude Code о чтении сами не спрашивают, выигрыш мал, цена — молчаливое разрешение
 - Таблицы SWE-bench Pro, MiniMax-трекер и сравнение подписок, Claude Startups, Junie Lite как тариф — к коду IDE
   отношения не имеют. Следующая M-серия MiniMax — даты нет (обещана «вторая половина 2026»)
-- [ ] **Mistral Large 4** остаётся открытым из `DIGEST-1008`: страница вендора 14.10 по-прежнему не называет id для API
-  (`mistral-large-4-0` и `mistral-large-4+1` стоят только в ссылке сравнения), про `mistral-large-latest` не сказано;
-  цена на распродаже $0.68 / $2.09, окно 1M, веса обещаны к концу октября
+- [x] **Mistral Large 4** из `DIGEST-1008` — ✅ закрыто 15.10.2026: id для API на странице вендора есть (`mistral-large-4`, версионное имя `mistral-large-4-0`),
+  профиль заведён; про `mistral-large-latest` страница по-прежнему не говорит. Цена на распродаже $0.68 / $2.09, окно 1M, веса обещаны к концу октября
 
 **Не сошлось между источниками (не разрешено — не проверено):**
 - Haiku 5.5 и сэмплинг: сводка 11.10 — «temperature только 1, top_p только 0.99», наше правило (platform.claude.com,
@@ -7739,6 +7739,9 @@ docs.z.ai, mimo.mi.com, agentclientprotocol.com, GHSA python-sdk, ncsc.gov.uk, a
       Слова задания судье те же, что у VibeIDEA. Тесты: разбор, бриф, вход шага, тест уровня службы (`vibePipelineService.test.ts` — что реально уходит субагенту, с контролем без поля),
       тест, что каждый пайплайн сида загружается (`pipelinesSeed.test.ts`). Расхождение для общего файла: `orchestrator` здесь роль без записи, у VibeIDEA пишущая — записано в спеке.
       Попутно: `export { ChatTraceEvent }` в `vibeChatRunTrace.ts` ломал загрузку любого теста с цепочкой через `chatThreadService` при `transpile-client` — выправлено на `export type`
+- [x] **Mistral Large 4 во встроенном Mistral** — ✅ (15.10.2026, `next`) профиль `mistral-large-4` и `mistral-large-4-0` в `common/modelCapabilities.ts`: окно 1M, $1.36 / кэш $0.14 / $4.18, vision, вызовы `openai-style`,
+      без рассуждения и FIM; цены перепроверены по странице вендора docs.mistral.ai/models/mistral-large-4-0 (curl 15.10). Тест профиля в `builtinModelProfiles.test.ts`: оба имени, `mistral-large-latest` не изменился.
+      Устаревшие записи roadmap «id для API нет» (две) исправлены. Живьём с ключом Mistral не проверено ⚠ перепроверить
 
 ## REL-126. Релиз v1.26.0 (2026-10-15, macOS arm64 + Windows x64)
 

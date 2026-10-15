@@ -1744,7 +1744,28 @@ const deepseekSettings: VoidStaticProviderInfo = {
 
 // ---------------- MISTRAL ----------------
 
+/**
+ * Mistral Large 4 (docs.mistral.ai/models/mistral-large-4-0, checked 15.10.2026): open-weight multimodal MoE, 1M context.
+ * The page lists two names for it, the alias `mistral-large-4` (the API examples use it) and the versioned `mistral-large-4-0`.
+ * Prices are the list ones, $1.36 / $0.14 cached / $4.18 per 1M; the page also shows a sale at half of each with no end date,
+ * so it is not recorded: `costSchedule` is for a promotion with a published deadline.
+ * The page names no output limit: the reserve is the one of the other 1M-context models here.
+ */
+const mistralLarge4: VibeideStaticModelInfo = {
+	contextWindow: 1_000_000,
+	reservedOutputTokenSpace: 32_768,
+	cost: { input: 1.36, cache_read: 0.14, output: 4.18 },
+	supportsFIM: false,
+	supportsVision: true,
+	specialToolFormat: 'openai-style',
+	downloadable: { sizeGb: 'not-known' },
+	supportsSystemMessage: 'system-role',
+	reasoningCapabilities: false,
+};
+
 const mistralModelOptions = { // https://mistral.ai/products/la-plateforme#pricing https://docs.mistral.ai/getting-started/models/models_overview/#premier-models
+	'mistral-large-4': mistralLarge4,
+	'mistral-large-4-0': mistralLarge4,
 	'mistral-large-latest': {
 		contextWindow: 131_000,
 		reservedOutputTokenSpace: 8_192,

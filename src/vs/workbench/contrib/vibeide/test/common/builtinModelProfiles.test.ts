@@ -332,4 +332,17 @@ suite('builtin model profiles — имя на проводе, профиль, п
 			payload: null,
 		});
 	});
+
+	test('Mistral Large 4: профиль со страницы вендора для обоих имён, mistral-large-latest не тронут', () => {
+		const card = (modelName: string) => {
+			const caps = getModelCapabilities('mistral', modelName, undefined);
+			return { modelName: caps.modelName, recognized: caps.recognizedModelName, window: caps.contextWindow, cost: caps.cost, vision: caps.supportsVision, tools: caps.specialToolFormat, reasoning: caps.reasoningCapabilities };
+		};
+		const large4 = { window: 1_000_000, cost: { input: 1.36, cache_read: 0.14, output: 4.18 }, vision: true, tools: 'openai-style', reasoning: false };
+		assert.deepStrictEqual([card('mistral-large-4'), card('mistral-large-4-0'), card('mistral-large-latest')], [
+			{ modelName: 'mistral-large-4', recognized: 'mistral-large-4', ...large4 },
+			{ modelName: 'mistral-large-4-0', recognized: 'mistral-large-4-0', ...large4 },
+			{ modelName: 'mistral-large-latest', recognized: 'mistral-large-latest', window: 131_000, cost: { input: 2, output: 6 }, vision: undefined, tools: 'openai-style', reasoning: false },
+		]);
+	});
 });
