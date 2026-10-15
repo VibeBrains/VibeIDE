@@ -142,6 +142,50 @@ suite('ruleFrontmatter — activation engine (R.7 / R.3)', () => {
 	});
 });
 
+suite('ruleFrontmatter — формы списка в шапке: скобки и YAML-список', () => {
+
+	ensureNoDisposablesAreLeakedInTestSuite();
+
+	/** Header of a rule file with one list key, parsed the way the rules service parses it. */
+	const metaOf = (header: string) => {
+		const { frontmatter } = parseRuleFrontmatter(`---\n${header}\n---\nbody`);
+		return { triggers: parseTriggers(frontmatter), globs: parseGlobs(frontmatter) };
+	};
+
+	test('triggers в скобках: первая и последняя фраза не теряют скобку', () => {
+		assert.deepStrictEqual(metaOf('triggers: [deploy, release]').triggers, ['deploy', 'release']);
+		assert.deepStrictEqual(metaOf('triggers: ["Deploy", \'CI\', "ночной прогон"]').triggers, ['deploy', 'ci', 'ночной прогон']);
+		assert.deepStrictEqual(metaOf('triggers: [ one ]').triggers, ['one']);
+		assert.deepStrictEqual(metaOf('triggers: []').triggers, []);
+	});
+
+	test('triggers в скобках включают правило по первой и по последней фразе', () => {
+		const { triggers } = metaOf('triggers: [deploy, release]');
+		const activationOn = (userText: string) => decideRuleActivation({ alwaysApply: false, triggers, globs: [] }, { userText });
+		assert.deepStrictEqual(
+			{ first: activationOn('please deploy now'), last: activationOn('time for a release'), none: activationOn('hello') },
+			{ first: 'inject', last: 'inject', none: 'index' },
+		);
+	});
+
+	test('triggers YAML-списком с дефисами, с кавычками и без', () => {
+		assert.deepStrictEqual(
+			metaOf('description: x\ntriggers:\n  - "Ночной прогон"\n  - автопилот\n  - \'skip on failure\'\nalwaysApply: false').triggers,
+			['ночной прогон', 'автопилот', 'skip on failure'],
+		);
+		// A list written at the key's own indentation is valid YAML too
+		assert.deepStrictEqual(metaOf('triggers:\n- one\n- two').triggers, ['one', 'two']);
+		// CRLF checkout of the same file
+		const { frontmatter } = parseRuleFrontmatter('---\r\ntriggers:\r\n  - one\r\n  - two\r\n---\r\nbody');
+		assert.deepStrictEqual(parseTriggers(frontmatter), ['one', 'two']);
+	});
+
+	test('пустой ключ без пунктов остаётся пустым и не съедает соседний ключ', () => {
+		const { frontmatter } = parseRuleFrontmatter('---\nglobs:\nalwaysApply: false\n---\nbody');
+		assert.deepStrictEqual({ globs: parseGlobs(frontmatter), alwaysApply: parseAlwaysApply(frontmatter) }, { globs: [], alwaysApply: false });
+	});
+});
+
 suite('ruleFrontmatter — @rule invocation + naming (R.5)', () => {
 
 	ensureNoDisposablesAreLeakedInTestSuite();
