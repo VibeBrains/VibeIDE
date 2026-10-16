@@ -11,8 +11,16 @@ import { createDecorator } from '../../../../platform/instantiation/common/insta
 
 /** What a working-tree restore would touch, shown to the user before anything is overwritten. */
 export interface IWorkspaceSnapshotRestorePlan {
+	/** Every file of the snapshot: the restore writes all of them, not only the ones that differ. */
 	readonly restore: readonly string[];
+	/** Files created after the snapshot and not ignored by git: the restore deletes them. */
 	readonly delete: readonly string[];
+	/**
+	 * Paths where the folder differs from the snapshot now — modified, created and deleted since.
+	 * Empty means the restore would change nothing; `delete` alone cannot say that, because a file
+	 * edited in the terminal is in neither list of deletions.
+	 */
+	readonly changed: readonly string[];
 }
 
 /** One changed file between two points of a repository; paths are relative to the repository root. */

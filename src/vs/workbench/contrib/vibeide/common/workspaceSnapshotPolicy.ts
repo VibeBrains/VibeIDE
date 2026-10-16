@@ -18,6 +18,10 @@
  *
  * This module is pure — it builds argument vectors and decides what a restore would do. The process
  * spawning lives in the main-process service; the decisions live here so they are testable.
+ *
+ * The format is shared with VibeIDEA: a snapshot taken by one product must be readable by the other.
+ * The contract is `checkpointSpec.md` of the shared `.vibe-defaults` set and its test vectors are
+ * `testVectors/checkpoint.json`; this module is pinned to them by `test/node/checkpointVectors.test.ts`.
  */
 
 /** Files git reports, split by how the restore must treat them. */
@@ -26,6 +30,26 @@ export interface SnapshotRestorePlan {
 	readonly restore: readonly string[];
 	/** Paths absent from the snapshot but present now: deleted by the restore. */
 	readonly delete: readonly string[];
+}
+
+/** Product name in the snapshot subject and in the commit identity. */
+export const SNAPSHOT_PRODUCT = 'VibeIDE';
+
+/** The `agent` field of a snapshot taken during a turn of the built-in agent; an ACP agent writes its registry id. */
+export const SNAPSHOT_AGENT_BUILTIN = 'builtin';
+
+/**
+ * Author and committer of a snapshot commit, set through the environment of `commit-tree`.
+ * The address is the product name in lower case, as the contract defines it.
+ */
+export function snapshotIdentity(product: string = SNAPSHOT_PRODUCT): Readonly<Record<string, string>> {
+	const email = `snapshot@${product.toLowerCase()}.local`;
+	return {
+		GIT_AUTHOR_NAME: product,
+		GIT_AUTHOR_EMAIL: email,
+		GIT_COMMITTER_NAME: product,
+		GIT_COMMITTER_EMAIL: email,
+	};
 }
 
 /**
@@ -53,11 +77,19 @@ export const SNAPSHOT_ARGV = {
 	/** Give the commit a ref so it stays reachable for good, out of the way of user branches. */
 	updateRef: (id: string, commit: string) => [`update-ref`, snapshotRefName(id), commit],
 	readTree: (tree: string) => ['read-tree', tree],
+	/**
+	 * Paths where the temporary index (after `add -A`) differs from the snapshot: changed, created
+	 * and deleted since. `-z` because git quotes names with non-ASCII characters otherwise, and
+	 * `--no-renames` so both sides of a move are listed.
+	 */
+	changedSinceSnapshot: (commit: string) => ['diff', '--cached', '--name-only', '-z', '--no-renames', commit, '--'],
 	/** Write the temporary index out over the working tree. */
 	checkoutIndex: ['checkout-index', '-a', '-f'],
-	listTree: (tree: string) => ['ls-tree', '-r', '--name-only', tree],
+	// `-z` on both listings: without it git wraps a name with non-ASCII characters in quotes, such a
+	// path is not found on disk, and the `rm` of the restore silently does nothing
+	listTree: (tree: string) => ['ls-tree', '-r', '-z', '--name-only', tree],
 	/** Everything git currently considers part of the working set, ignored files excluded. */
-	listWorking: ['ls-files', '--cached', '--others', '--exclude-standard'],
+	listWorking: ['ls-files', '-z', '--cached', '--others', '--exclude-standard'],
 	/** Pinned snapshots with the age of each, so a young one can be spared. */
 	listSnapshotRefs: ['for-each-ref', '--format=%(refname) %(committerdate:unix)', SNAPSHOT_REF_PREFIX],
 	deleteRef: (id: string) => ['update-ref', '-d', snapshotRefName(id)],
@@ -65,36 +97,109 @@ export const SNAPSHOT_ARGV = {
 	treeOfCommit: (commit: string) => ['rev-parse', `${commit}^{tree}`],
 } as const;
 
-/** Что известно о ходе в момент снимка. Всё необязательно: снимок ценен и без подписи. */
+/** What is known about the turn at the moment of the snapshot. Everything is optional: a snapshot is worth having unsigned. */
 export interface SnapshotCommitMeta {
-	/** Порядковый номер хода в треде. */
+	/** Ordinal number of the turn in the thread, from 0. */
 	readonly turnIndex?: number;
-	/** Инструмент, после которого сделан снимок, если снимок привязан к нему. */
+	/** Tool after which the snapshot was taken, when it is tied to one. */
 	readonly toolName?: string;
 	readonly threadId?: string;
+	/** `builtin` for the built-in agent, the registry id for an ACP agent. */
+	readonly agent?: string;
+	/** A one-line caption for a timeline. */
+	readonly label?: string;
+}
+
+/** The fields a reader gets back from a snapshot message; only those that were found are present. */
+export interface SnapshotMessageFields {
+	readonly tree?: string;
+	readonly turnIndex?: number;
+	readonly toolName?: string;
+	readonly threadId?: string;
+	readonly agent?: string;
+	readonly label?: string;
+}
+
+/** Any run of whitespace, line breaks included, becomes one space: a value cannot smuggle in a line of its own. */
+function toOneLine(value: string): string {
+	return value.replace(/\s+/g, ' ').trim();
+}
+
+/** A non-negative integer turn number, or `undefined` for anything else. */
+function validTurnIndex(value: number | undefined): number | undefined {
+	return value !== undefined && Number.isSafeInteger(value) && value >= 0 ? value : undefined;
 }
 
 /**
- * Сообщение коммита-снимка.
+ * Message of a snapshot commit, in the form the contract defines (`checkpointSpec.md`, section 7).
  *
- * Раньше это была одна и та же строка на все снимки, и `git log` по нашим ссылкам показывал
- * столбец одинаковых фраз — то есть не отвечал ни на один вопрос, ради которого в него смотрят.
- * Номер хода, инструмент и дерево делают снимок читаемым без нашего интерфейса: `git log
- * refs/vibe/checkpoints/*` становится историей работы агента, а не списком «snapshot».
- *
- * Первая строка короткая (её показывает `--oneline`), подробности — телом.
+ * The first line is short — `git log --oneline` shows it — and names the turn and the tool, so that
+ * `git log refs/vibe/checkpoints/*` reads as a history of the agent's work rather than a column of
+ * identical phrases. The body is `key: value` lines, one per field; a field without a value is not
+ * written. The time is not in the message: it is the committer date.
  */
-export function snapshotCommitMessage(treeSha: string, meta: SnapshotCommitMeta = {}): string {
-	const head = meta.turnIndex !== undefined
-		? `VibeIDE checkpoint: ход ${meta.turnIndex}${meta.toolName ? ` (${meta.toolName})` : ''}`
-		: 'VibeIDE checkpoint snapshot';
-	const body = [
-		`tree ${treeSha}`,
-		meta.turnIndex !== undefined ? `turnIndex ${meta.turnIndex}` : undefined,
-		meta.toolName ? `toolName ${meta.toolName}` : undefined,
-		meta.threadId ? `threadId ${meta.threadId}` : undefined,
-	].filter(Boolean).join('\n');
+export function snapshotCommitMessage(treeSha: string, meta: SnapshotCommitMeta = {}, product: string = SNAPSHOT_PRODUCT): string {
+	const turnIndex = validTurnIndex(meta.turnIndex);
+	const toolName = meta.toolName === undefined ? '' : toOneLine(meta.toolName);
+	const head = turnIndex !== undefined
+		? `${product} checkpoint: ход ${turnIndex} (${toolName || 'agent'})`
+		: `${product} checkpoint snapshot`;
+	const fields: ReadonlyArray<readonly [string, string | undefined]> = [
+		['tree', treeSha],
+		['turnIndex', turnIndex?.toString()],
+		['toolName', toolName],
+		['threadId', meta.threadId],
+		['agent', meta.agent],
+		['label', meta.label],
+	];
+	const body = fields
+		.map(([key, value]) => [key, toOneLine(value ?? '')] as const)
+		.filter(([, value]) => value.length > 0)
+		.map(([key, value]) => `${key}: ${value}`)
+		.join('\n');
 	return `${head}\n\n${body}`;
+}
+
+/** `key: value` — the key is Latin letters and digits starting with a letter, the separator is the first colon followed by a space. */
+const MESSAGE_FIELD = /^([A-Za-z][A-Za-z0-9]*): (.*)$/;
+
+/** The legacy form `key value`, written before the contract. */
+const MESSAGE_FIELD_LEGACY = /^([A-Za-z][A-Za-z0-9]*)\s+(.*)$/;
+
+const MESSAGE_FIELD_KEYS: ReadonlySet<string> = new Set(['tree', 'turnIndex', 'toolName', 'threadId', 'agent', 'label']);
+
+/**
+ * Fields of a snapshot message — the reader of the contract (section 7.4).
+ *
+ * Never throws on a message it does not understand: what is not there is simply absent. Unknown keys
+ * are skipped silently because the contract may grow; a repeated key keeps its first occurrence.
+ * The legacy `key value` lines (no colon) are read for known keys only, so snapshots taken before
+ * the contract stay readable.
+ */
+export function parseSnapshotCommitMessage(message: string): SnapshotMessageFields {
+	const raw = new Map<string, string>();
+	// The first line is the subject; it is not parsed
+	for (const line of message.split(/\r?\n/).slice(1)) {
+		const text = line.trim();
+		if (text.length === 0) { continue; }
+		const current = MESSAGE_FIELD.exec(text);
+		const legacy = current ? undefined : MESSAGE_FIELD_LEGACY.exec(text);
+		const match = current ?? legacy;
+		if (!match) { continue; }
+		const key = match[1];
+		const value = match[2].trim();
+		if (!MESSAGE_FIELD_KEYS.has(key) || value.length === 0 || raw.has(key)) { continue; }
+		raw.set(key, value);
+	}
+	const turnIndex = raw.has('turnIndex') && /^\d+$/.test(raw.get('turnIndex')!) ? validTurnIndex(Number(raw.get('turnIndex'))) : undefined;
+	return {
+		...(raw.has('tree') ? { tree: raw.get('tree') } : {}),
+		...(turnIndex === undefined ? {} : { turnIndex }),
+		...(raw.has('toolName') ? { toolName: raw.get('toolName') } : {}),
+		...(raw.has('threadId') ? { threadId: raw.get('threadId') } : {}),
+		...(raw.has('agent') ? { agent: raw.get('agent') } : {}),
+		...(raw.has('label') ? { label: raw.get('label') } : {}),
+	};
 }
 
 /**
@@ -105,8 +210,8 @@ export function snapshotCommitMessage(treeSha: string, meta: SnapshotCommitMeta 
  * только экономия — одинаковые снимки подряд превращают историю ходов в шум, где не видно, какой
  * ход что-то сделал.
  */
-export function shouldReuseSnapshot(newTree: string, previousTree: string | undefined): boolean {
-	return previousTree !== undefined && previousTree.trim() === newTree.trim() && newTree.trim().length > 0;
+export function shouldReuseSnapshot(newTree: string, previousTree: string | null | undefined): boolean {
+	return typeof previousTree === 'string' && previousTree.trim() === newTree.trim() && newTree.trim().length > 0;
 }
 
 /**
@@ -170,7 +275,10 @@ export function isSnapshotTreeId(value: string | undefined): value is string {
 	return typeof value === 'string' && TREE_ID_PATTERN.test(value.trim());
 }
 
-/** Split `git` output into non-empty lines. NUL-separated output is handled by the caller. */
+/**
+ * Split line-based `git` output into non-empty lines. Only for names that cannot contain a line break
+ * or non-ASCII characters (branches, refs): file paths come from `-z` output through `parseNulList` (worktreeIncludePolicy).
+ */
 export function parsePathList(stdout: string): string[] {
 	return stdout.split(/\r?\n/).map(l => l.trim()).filter(l => l.length > 0);
 }
@@ -179,6 +287,9 @@ export function parsePathList(stdout: string): string[] {
  * What restoring `snapshotPaths` over `currentPaths` would touch. Deletions are listed separately
  * because they are the destructive half: a file created after the checkpoint disappears, and no
  * git object holds it afterwards.
+ *
+ * `currentPaths` is what git counts as part of the folder (ignored files are not in it), so the
+ * ignored ones can never land in `delete`. Both lists are sorted by UTF-16 code units, without repeats.
  */
 export function planSnapshotRestore(
 	snapshotPaths: readonly string[],
@@ -187,6 +298,6 @@ export function planSnapshotRestore(
 	const inSnapshot = new Set(snapshotPaths);
 	return {
 		restore: [...inSnapshot].sort(),
-		delete: currentPaths.filter(p => !inSnapshot.has(p)).sort(),
+		delete: [...new Set(currentPaths.filter(p => !inSnapshot.has(p)))].sort(),
 	};
 }

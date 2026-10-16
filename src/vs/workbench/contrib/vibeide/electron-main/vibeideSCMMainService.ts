@@ -14,7 +14,7 @@ import { Disposable } from '../../../../base/common/lifecycle.js';
 import { isWindows } from '../../../../base/common/platform.js';
 import { generateUuid } from '../../../../base/common/uuid.js';
 import { ChangeRange, IAddedWorktree, IAddWorktreeOptions, IChangedFile, IChangeSet, IVibeideSCMService, IWorkspaceSnapshotRestorePlan, WorktreeFinishResult } from '../common/vibeideSCMTypes.js';
-import { isSnapshotTreeId, parsePathList, parsePinnedSnapshots, planSnapshotRestore, selectStaleSnapshotRefs, shouldReuseSnapshot, snapshotCommitMessage, SnapshotCommitMeta, SNAPSHOT_ARGV } from '../common/workspaceSnapshotPolicy.js';
+import { isSnapshotTreeId, parsePathList, parsePinnedSnapshots, planSnapshotRestore, selectStaleSnapshotRefs, shouldReuseSnapshot, snapshotCommitMessage, snapshotIdentity, SnapshotCommitMeta, SNAPSHOT_ARGV } from '../common/workspaceSnapshotPolicy.js';
 import { CHANGES_ARGV, chunkChangedFiles, isSafeBranchName, parseNameStatusZ, parsePipelineRunRefs, pathspecOf, pipelineSnapshotMessage, pipelineSnapshotRef, selectStaleRunRefs, splitPatchSections } from '../common/workspaceChangesPolicy.js';
 import { folderExcludeLine, IWorktreeIncludeOptions, linkExcludeLine, LINKED_PATHS_FILE, parseNulList, selectIncludeFiles, selectLinkFolders, WORKTREE_INCLUDE_ARGV } from '../common/worktreeIncludePolicy.js';
 import { decideWorktreeBase, decideWorktreeFinish, parseMergeTreeZ, selectOrphanBasePins, WORKTREE_BASE_ARGV } from '../common/worktreeBasePolicy.js';
@@ -72,7 +72,7 @@ const execFile = promisify(_execFile);
  * work, a private index file. Unlike `git()` above, stderr alone is not treated as failure: git
  * writes progress and advice there on perfectly successful commands.
  */
-const gitArgv = async (
+const gitArgvRaw = async (
 	args: readonly string[],
 	cwd: string,
 	indexFile?: string,
@@ -80,8 +80,16 @@ const gitArgv = async (
 ): Promise<string> => {
 	const env = { ...process.env, ...(indexFile ? { GIT_INDEX_FILE: indexFile } : {}), ...extraEnv };
 	const { stdout } = await execFile('git', [...args], { cwd, env, maxBuffer: 64 * 1024 * 1024 });
-	return stdout.trim();
+	return stdout;
 };
+
+/** `gitArgvRaw` with the surrounding whitespace cut off — for ids and one-line answers. */
+const gitArgv = async (
+	args: readonly string[],
+	cwd: string,
+	indexFile?: string,
+	extraEnv?: Readonly<Record<string, string>>,
+): Promise<string> => (await gitArgvRaw(args, cwd, indexFile, extraEnv)).trim();
 
 /**
  * Спрятать пути от `git status` — в `info/exclude`, а не в `.gitignore`.
@@ -267,12 +275,7 @@ const FINISH_ATTEMPTS = 3;
  * (or an identity the user would not want on their history). Snapshots are ours, so they are signed
  * as ours and never touch `user.name` / `user.email`.
  */
-const SNAPSHOT_IDENTITY = {
-	GIT_AUTHOR_NAME: 'VibeIDE',
-	GIT_AUTHOR_EMAIL: 'snapshot@vibeide.local',
-	GIT_COMMITTER_NAME: 'VibeIDE',
-	GIT_COMMITTER_EMAIL: 'snapshot@vibeide.local',
-} as const;
+const SNAPSHOT_IDENTITY = snapshotIdentity();
 
 
 /**
@@ -688,11 +691,20 @@ export class VibeideSCMService extends Disposable implements IVibeideSCMService 
 	async planWorkspaceSnapshotRestore(path: string, tree: string): Promise<IWorkspaceSnapshotRestorePlan> {
 		if (!isSnapshotTreeId(tree)) { throw new Error(`Не похоже на снимок рабочего дерева: ${tree}`); }
 		const root = await gitArgv(SNAPSHOT_ARGV.repoRoot, path);
-		const [snapshotPaths, currentPaths] = await Promise.all([
-			gitArgv(SNAPSHOT_ARGV.listTree(tree), root).then(parsePathList),
-			gitArgv(SNAPSHOT_ARGV.listWorking, root).then(parsePathList),
+		// Paths come NUL-separated and untrimmed: a name may start with a space or hold non-ASCII
+		// characters, which git would otherwise print quoted
+		const [snapshotPaths, currentPaths, changed] = await Promise.all([
+			gitArgvRaw(SNAPSHOT_ARGV.listTree(tree), root).then(parseNulList),
+			gitArgvRaw(SNAPSHOT_ARGV.listWorking, root).then(parseNulList),
+			// What differs between the snapshot and the folder as it is now. `delete` alone cannot
+			// tell: a file edited in the terminal is in neither list of deletions, yet the restore
+			// would overwrite it
+			withTemporaryIndex(root, async indexFile => {
+				await gitArgv(SNAPSHOT_ARGV.stageAll, root, indexFile);
+				return parseNulList(await gitArgvRaw(SNAPSHOT_ARGV.changedSinceSnapshot(tree), root, indexFile));
+			}),
 		]);
-		return planSnapshotRestore(snapshotPaths, currentPaths);
+		return { ...planSnapshotRestore(snapshotPaths, currentPaths), changed: [...new Set(changed)].sort() };
 	}
 
 	async restoreWorkspaceSnapshot(path: string, tree: string): Promise<IWorkspaceSnapshotRestorePlan> {

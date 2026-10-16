@@ -5,7 +5,7 @@
 
 import assert from 'assert';
 import { ensureNoDisposablesAreLeakedInTestSuite } from '../../../../../base/test/common/utils.js';
-import { isSnapshotTreeId, parsePathList, parsePinnedSnapshots, planSnapshotRestore, selectStaleSnapshotRefs, shouldReuseSnapshot, snapshotCommitMessage } from '../../common/workspaceSnapshotPolicy.js';
+import { isSnapshotTreeId, parsePathList, parsePinnedSnapshots, parseSnapshotCommitMessage, planSnapshotRestore, selectStaleSnapshotRefs, shouldReuseSnapshot, SNAPSHOT_ARGV, snapshotCommitMessage, snapshotIdentity } from '../../common/workspaceSnapshotPolicy.js';
 
 suite('Workspace snapshot policy', () => {
 	ensureNoDisposablesAreLeakedInTestSuite();
@@ -89,12 +89,12 @@ suite('workspaceSnapshotPolicy — подпись снимка и пропуск
 		const [head, blank, ...body] = msg.split('\n');
 		assert.deepStrictEqual(
 			[head, blank, body.join('|')],
-			['VibeIDE checkpoint: ход 7 (edit_file)', '', 'tree abc123|turnIndex 7|toolName edit_file|threadId t1'],
+			['VibeIDE checkpoint: ход 7 (edit_file)', '', 'tree: abc123|turnIndex: 7|toolName: edit_file|threadId: t1'],
 		);
 	});
 
 	test('без метаданных сообщение остаётся прежним — снимок ценен и без подписи', () => {
-		assert.match(snapshotCommitMessage('abc123'), /^VibeIDE checkpoint snapshot\n\ntree abc123$/);
+		assert.match(snapshotCommitMessage('abc123'), /^VibeIDE checkpoint snapshot\n\ntree: abc123$/);
 	});
 
 	test('то же дерево — переиспользуем прошлый снимок; другое или пустое — нет', () => {
@@ -107,6 +107,43 @@ suite('workspaceSnapshotPolicy — подпись снимка и пропуск
 				shouldReuseSnapshot('', ''),
 			],
 			[true, true, false, false, false],
+		);
+	});
+});
+
+suite('workspaceSnapshotPolicy — пути, агент и прежняя запись сообщения', () => {
+	ensureNoDisposablesAreLeakedInTestSuite();
+
+	test('paths are listed with -z, otherwise git quotes non-ASCII names and they are not found on disk', () => {
+		assert.deepStrictEqual(
+			{ tree: SNAPSHOT_ARGV.listTree('abc'), working: SNAPSHOT_ARGV.listWorking },
+			{
+				tree: ['ls-tree', '-r', '-z', '--name-only', 'abc'],
+				working: ['ls-files', '-z', '--cached', '--others', '--exclude-standard'],
+			},
+		);
+	});
+
+	test('the commit is signed by the product, address in lower case', () => {
+		assert.deepStrictEqual(snapshotIdentity(), {
+			GIT_AUTHOR_NAME: 'VibeIDE',
+			GIT_AUTHOR_EMAIL: 'snapshot@vibeide.local',
+			GIT_COMMITTER_NAME: 'VibeIDE',
+			GIT_COMMITTER_EMAIL: 'snapshot@vibeide.local',
+		});
+	});
+
+	test('a snapshot written before the contract (`key value` lines) is still read', () => {
+		assert.deepStrictEqual(
+			parseSnapshotCommitMessage('VibeIDE checkpoint: ход 7 (edit_file)\n\ntree abc123\nturnIndex 7\ntoolName edit_file\nthreadId t1'),
+			{ tree: 'abc123', turnIndex: 7, toolName: 'edit_file', threadId: 't1' },
+		);
+	});
+
+	test('a plan has no repeats even when git lists a path twice (a file in a merge conflict)', () => {
+		assert.deepStrictEqual(
+			planSnapshotRestore(['a.txt', 'a.txt'], ['new.txt', 'new.txt', 'a.txt']),
+			{ restore: ['a.txt'], delete: ['new.txt'] },
 		);
 	});
 });

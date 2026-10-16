@@ -150,7 +150,8 @@ import { IVibeCheckpointCoordinator } from '../common/vibeCheckpointCoordinatorS
 import { IWorkbenchEnvironmentService } from '../../../services/environment/common/environmentService.js';
 import { IDialogService } from '../../../../platform/dialogs/common/dialogs.js';
 import { IVibeWorkspaceSnapshotService } from '../common/vibeideSCMTypes.js';
-import { checkpointCoverage, isShellToolName } from '../common/checkpointCoverage.js';
+import { checkpointCoverage, toolNamesForCoverage } from '../common/checkpointCoverage.js';
+import { SNAPSHOT_AGENT_BUILTIN } from '../common/workspaceSnapshotPolicy.js';
 import { buildToolCallAudit, ToolCallAuditInput } from '../common/toolCallAudit.js';
 import { billedModelOf, isModelSubstituted } from '../common/modelEcho.js';
 
@@ -8766,8 +8767,14 @@ Output ONLY the JSON, no other text. Start with { and end with }.`;
 			.map(m => m.workspaceSnapshotTree)
 			.filter((t): t is string => typeof t === 'string' && t.length > 0)
 			.pop();
+		// The turn number counts the person's requests, not messages: the snapshot is the boundary before turn N.
+		// `agent` tells whose turn this boundary belongs to — the built-in agent or an external one from the ACP registry.
 		const workspaceSnapshotTree = await this._workspaceSnapshotService.capture(
-			{ turnIndex: thread?.messages.length ?? 0, threadId },
+			{
+				turnIndex: thread?.messages.filter(m => m.role === 'user').length ?? 0,
+				threadId,
+				agent: thread?.acpAgent?.agentId ?? SNAPSHOT_AGENT_BUILTIN,
+			},
 			previousSnapshot,
 		);
 		await this._addCheckpoint(threadId, {
@@ -8960,16 +8967,13 @@ We only need to do it for files that were edited since `from`, ie files between 
 
 		this._setThreadState(threadId, { currCheckpointIdx: toIdx });
 
-		// Count shell calls in the span being undone: their effects are outside the chat's tracking,
-		// so they decide whether an un-snapshotted rollback is silently incomplete.
+		// Tool calls in the span being undone, both ends included: shell commands among them have effects
+		// outside the chat's tracking, so they decide whether an un-snapshotted rollback is silently incomplete.
+		// An external agent's command cards count as well, under their ACP kind.
 		const [spanLo, spanHi] = toIdx < fromIdx ? [toIdx, fromIdx] : [fromIdx, toIdx];
-		let shellCallCount = 0;
-		for (let k = spanLo; k <= spanHi && k < thread.messages.length; k++) {
-			const m = thread.messages[k];
-			if (m.role === 'tool' && isShellToolName(m.name)) { shellCallCount++; }
-		}
+		const toolNames = toolNamesForCoverage(thread.messages.slice(spanLo, spanHi + 1));
 
-		await this._offerWorkspaceSnapshotRestore(c[0], shellCallCount);
+		await this._offerWorkspaceSnapshotRestore(c[0], toolNames);
 	}
 
 	/**
@@ -9048,13 +9052,14 @@ We only need to do it for files that were edited since `from`, ie files between 
 		await this._workspaceSnapshotService.prune([...live]);
 	}
 
-	private async _offerWorkspaceSnapshotRestore(checkpoint: CheckpointEntry, shellCallCount: number): Promise<void> {
+	private async _offerWorkspaceSnapshotRestore(checkpoint: CheckpointEntry, toolNames: readonly string[]): Promise<void> {
 		const tree = checkpoint.workspaceSnapshotTree;
 		const plan = tree ? await this._workspaceSnapshotService.plan(tree) : undefined;
 		const coverage = checkpointCoverage({
 			hasSnapshot: !!tree && !!plan,
-			wouldChangeAnything: plan ? plan.delete.length > 0 : undefined,
-			shellCallCount,
+			// Not `delete.length > 0`: a file the terminal edited in place is overwritten by the restore, yet nothing is deleted
+			wouldChangeAnything: plan ? plan.changed.length > 0 : undefined,
+			toolNames,
 		});
 
 		if (coverage.kind === 'complete') { return; }
@@ -9075,7 +9080,8 @@ We only need to do it for files that were edited since `from`, ie files between 
 			message: localize('vibeide.checkpoint.snapshot.title', "Вернуть рабочую папку к состоянию чекпоинта?"),
 			detail: localize(
 				'vibeide.checkpoint.snapshot.detail',
-				"Правки из терминала и сборки чат не отслеживает. Возврат перезапишет файлы папки состоянием на момент чекпоинта и удалит {0} файл(ов), созданных после него. Отменить это будет нечем.",
+				"Правки из терминала и сборки чат не отслеживает. С момента чекпоинта в папке изменилось файлов — {0}: возврат перезапишет файлы папки состоянием на момент чекпоинта и удалит {1} файл(ов), созданных после него. Отменить это будет нечем.",
+				plan.changed.length,
 				plan.delete.length,
 			),
 			primaryButton: localize('vibeide.checkpoint.snapshot.confirm', "Вернуть папку"),
@@ -9412,6 +9418,12 @@ We only need to do it for files that were edited since `from`, ie files between 
 		// chat's own preparation — prompt, router, plan, guards — applies to it
 		if (thread.acpAgent) {
 			this._setThreadState(threadId, { currCheckpointIdx: null });
+			// The boundary a person rolls back to, taken before the agent touches the folder: the agent's own edits
+			// never pass through the chat's file tracking, so the snapshot of the folder is all this checkpoint holds.
+			// Another checkpoint right here (the thread was just cut back to one) already marks the boundary
+			if (thread.messages[thread.messages.length - 1]?.role !== 'checkpoint') {
+				await this._addUserCheckpoint({ threadId });
+			}
 			this._wrapRunAgentToNotify(this._acpRunner.send({
 				threadId,
 				text: userMessage,
