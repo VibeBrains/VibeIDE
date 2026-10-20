@@ -27,17 +27,20 @@ import { Disposable } from '../../../../../base/common/lifecycle.js';
 import { Emitter, Event } from '../../../../../base/common/event.js';
 import { generateUuid } from '../../../../../base/common/uuid.js';
 import { URI } from '../../../../../base/common/uri.js';
+import { basename } from '../../../../../base/common/path.js';
 import { InstantiationType, registerSingleton } from '../../../../../platform/instantiation/common/extensions.js';
 import { IMainProcessService } from '../../../../../platform/ipc/common/mainProcessService.js';
 import { IConfigurationService } from '../../../../../platform/configuration/common/configuration.js';
 import { INotificationService, Severity } from '../../../../../platform/notification/common/notification.js';
 import { IProgressService, ProgressLocation } from '../../../../../platform/progress/common/progress.js';
 import { IFileService } from '../../../../../platform/files/common/files.js';
+import { IWorkspaceContextService } from '../../../../../platform/workspace/common/workspace.js';
 import { ILogService } from '../../../../../platform/log/common/log.js';
+import { IPathService } from '../../../../services/path/common/pathService.js';
 import { IVibeModalService } from '../../common/vibeModalService.js';
 import { IVibeVideoChatService, IVibeVideoChatState } from '../../common/video/vibeVideoChatService.js';
 import { VIBE_VIDEO_CHANNEL, VideoAnalysisProgress, VideoAnalysisResult, VideoAnalysisStage, VideoAnalyzeOptions, VideoToolsDownloadProgress, VideoToolsState, VideoTranscriptSegment, formatVideoTimecode } from '../../common/video/vibeVideoTypes.js';
-import { classifyWatchInput } from '../../common/video/vibeVideoTools.js';
+import { classifyWatchInput, resolveWatchTarget, WatchTargetResolution } from '../../common/video/vibeVideoTools.js';
 import { VIDEO_ENABLED_KEY } from '../../common/video/vibeVideoConfiguration.js';
 import { IVibeVoiceInputService } from '../../common/voice/vibeVoiceInputService.js';
 import { VoiceProfileId } from '../../common/voice/vibeVoiceTypes.js';
@@ -126,6 +129,8 @@ class VibeVideoChatService extends Disposable implements IVibeVideoChatService {
 		@IProgressService private readonly progressService: IProgressService,
 		@IVibeModalService private readonly vibeModalService: IVibeModalService,
 		@IFileService private readonly fileService: IFileService,
+		@IWorkspaceContextService private readonly workspaceContextService: IWorkspaceContextService,
+		@IPathService private readonly pathService: IPathService,
 		@IVibeVoiceInputService private readonly voiceInputService: IVibeVoiceInputService,
 		@IVibeideSettingsService private readonly settingsService: IVibeideSettingsService,
 		@IChatThreadService private readonly chatThreadService: IChatThreadService,
@@ -162,12 +167,12 @@ class VibeVideoChatService extends Disposable implements IVibeVideoChatService {
 	// ── /watch cycle ─────────────────────────────────────────────────────────
 
 	async startWatch(threadId: string, input: string, userHint: string): Promise<void> {
-		const target = input.trim();
+		const typed = input.trim();
 		if (!this.isEnabled()) {
 			this.notificationService.warn(localize('vibeVideo.disabled', "Просмотр видео выключен настройкой vibeide.video.enabled."));
 			return;
 		}
-		if (!target) {
+		if (!typed) {
 			this.notificationService.info(localize('vibeVideo.usage', "Использование: /watch <ссылка или путь к видео> [вопрос]. Пример: /watch https://youtu.be/… что показано в демо?"));
 			return;
 		}
@@ -175,6 +180,13 @@ class VibeVideoChatService extends Disposable implements IVibeVideoChatService {
 			this.notificationService.warn(localize('vibeVideo.busy', "Разбор видео уже идёт — дождитесь окончания или отмените его в уведомлении."));
 			return;
 		}
+		// Файл ищем до гейтов: не найденный путь не должен сначала просить модель и скачивание инструментов.
+		const resolution = await this.resolveTarget(typed);
+		if (resolution.kind === 'missing') {
+			this.notificationService.error(this.missingTargetMessage(typed, resolution));
+			return;
+		}
+		const target = resolution.target;
 		// Extension hint only places the gate and labels progress; the pipeline decides the
 		// real kind probe-first (the hint breaks ties for probeless direct links). A
 		// hint/probe mismatch is re-checked after the pipeline below.
@@ -217,7 +229,8 @@ class VibeVideoChatService extends Disposable implements IVibeVideoChatService {
 			const attachmentsNote = isAudio
 				? localize('vibeVideo.display.audio', "аудио, транскрипт: {0}", transcriptLabel)
 				: localize('vibeVideo.display.video', "кадров: {0}, транскрипт: {1}", images.length, transcriptLabel);
-			const displayContent = `/watch ${target}${userHint ? ` — ${userHint}` : ''}\n(${attachmentsNote})`;
+			// В ленте — то, что написал пользователь; абсолютный путь уходит модели в запросе.
+			const displayContent = `/watch ${typed}${userHint ? ` — ${userHint}` : ''}\n(${attachmentsNote})`;
 			await this.chatThreadService.addUserMessageAndStreamResponse({ userMessage, threadId, images, displayContent });
 		} catch (error) {
 			this.reportPipelineError(error);
@@ -226,6 +239,42 @@ class VibeVideoChatService extends Disposable implements IVibeVideoChatService {
 			this.activeRequestId = undefined;
 			this.fireStateChange();
 		}
+	}
+
+	/**
+	 * Путь из `/watch` разрешаем здесь, а не в main-процессе: там `existsSync` смотрит от cwd Electron,
+	 * а не от папки проекта, и уведомление о «не найден» не могло бы назвать, где искали.
+	 */
+	private async resolveTarget(typed: string): Promise<WatchTargetResolution> {
+		const workspaceFolders = this.workspaceContextService.getWorkspace().folders.map(folder => folder.uri.fsPath);
+		const home = await this.pathService.userHome();
+		return resolveWatchTarget(typed, {
+			workspaceFolders,
+			homeDir: home.fsPath,
+			isFile: async absolutePath => {
+				try {
+					return (await this.fileService.stat(URI.file(absolutePath))).isFile;
+				} catch {
+					return false;
+				}
+			},
+		});
+	}
+
+	private missingTargetMessage(typed: string, resolution: Extract<WatchTargetResolution, { readonly kind: 'missing' }>): string {
+		if (resolution.scope !== 'project') {
+			return resolution.scope === 'home'
+				? localize('vibeVideo.fileNotInHome', "Не нашёл {0} в домашней папке.", typed)
+				: localize('vibeVideo.fileNotFound', "Файл не найден: {0}.", typed);
+		}
+		const { folders } = resolution;
+		if (folders.length === 0) {
+			return localize('vibeVideo.noWorkspaceFolder', "Не нашёл {0}: папка проекта не открыта. Откройте папку или укажите полный путь к файлу.", typed);
+		}
+		if (folders.length === 1) {
+			return localize('vibeVideo.fileNotInProject', "Не нашёл {0} в корне проекта {1}. Если файл в другом месте, укажите полный путь.", typed, basename(folders[0]));
+		}
+		return localize('vibeVideo.fileNotInProjects', "Не нашёл {0} ни в одной папке проекта: {1}.", typed, folders.join(', '));
 	}
 
 	/** Early vision gate — mirrors the chatThreadService image hard-block, but BEFORE the pipeline. */

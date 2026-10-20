@@ -16,7 +16,7 @@
  * standalone binaries 2026.07.04 (Unlicense). Licenses are recorded in the release notes.
  */
 
-import { join } from '../../../../../base/common/path.js';
+import { isAbsolute, join } from '../../../../../base/common/path.js';
 
 const MIRROR_BASE_URL = 'https://github.com/VibeBrains/VibeIDE/releases/download/video-tools-v1';
 
@@ -132,4 +132,55 @@ export function classifyWatchInput(input: string): 'audio' | 'video' | 'unknown'
 		return 'video';
 	}
 	return 'unknown';
+}
+
+/**
+ * Итог разбора ввода `/watch` до пайплайна: ссылка или найденный локальный файл (в нём путь уже
+ * абсолютный), либо «не нашли» с местом, где искали — уведомление должно его назвать.
+ */
+export type WatchTargetResolution =
+	| { readonly kind: 'resolved'; readonly target: string }
+	| { readonly kind: 'missing'; readonly scope: 'home' | 'absolute' }
+	| { readonly kind: 'missing'; readonly scope: 'project'; readonly folders: readonly string[] };
+
+/** Что окружение знает о путях; сама функция ввода-вывода не делает — проверку файла передаёт вызывающий. */
+export interface WatchTargetEnvironment {
+	/** Папки рабочей области по порядку: относительный путь ищется в каждой, первая найденная побеждает. */
+	readonly workspaceFolders: readonly string[];
+	/** Домашняя папка пользователя, от неё разрешается `~/…`. */
+	readonly homeDir: string;
+	/** Есть ли по абсолютному пути обычный файл (папка с таким именем — нет). */
+	readonly isFile: (absolutePath: string) => Promise<boolean>;
+}
+
+/**
+ * Разрешить ввод `/watch` в ресурс. Порядок: ссылка `http(s)://` — как есть; `~/…` — от домашней
+ * папки; абсолютный путь — как есть; относительный (`1.webm`, `./1.webm`, `sub/2.webm`, `../x.mp4`) —
+ * от папок рабочей области по очереди. Пути нормализует `join`, поэтому `./` и `../` сходятся к одному.
+ */
+export async function resolveWatchTarget(input: string, env: WatchTargetEnvironment): Promise<WatchTargetResolution> {
+	const trimmed = input.trim();
+	if (isRemoteVideoInput(trimmed)) {
+		return { kind: 'resolved', target: trimmed };
+	}
+	if (trimmed.startsWith('~/') || trimmed.startsWith('~\\')) {
+		const candidate = join(env.homeDir, trimmed.slice(2));
+		if (await env.isFile(candidate)) {
+			return { kind: 'resolved', target: candidate };
+		}
+		return { kind: 'missing', scope: 'home' };
+	}
+	if (isAbsolute(trimmed)) {
+		if (await env.isFile(trimmed)) {
+			return { kind: 'resolved', target: trimmed };
+		}
+		return { kind: 'missing', scope: 'absolute' };
+	}
+	for (const folder of env.workspaceFolders) {
+		const candidate = join(folder, trimmed);
+		if (await env.isFile(candidate)) {
+			return { kind: 'resolved', target: candidate };
+		}
+	}
+	return { kind: 'missing', scope: 'project', folders: env.workspaceFolders };
 }

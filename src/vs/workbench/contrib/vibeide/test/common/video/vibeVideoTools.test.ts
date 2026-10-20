@@ -5,7 +5,8 @@
 
 import * as assert from 'assert';
 import { ensureNoDisposablesAreLeakedInTestSuite } from '../../../../../../base/test/common/utils.js';
-import { classifyWatchInput, isRemoteVideoInput, resolveVideoToolPaths, videoToolsArchiveForPlatform } from '../../../common/video/vibeVideoTools.js';
+import { join } from '../../../../../../base/common/path.js';
+import { classifyWatchInput, isRemoteVideoInput, resolveVideoToolPaths, resolveWatchTarget, videoToolsArchiveForPlatform, WatchTargetEnvironment } from '../../../common/video/vibeVideoTools.js';
 import { formatVideoTimecode, selectEvenlySpreadFrames } from '../../../common/video/vibeVideoTypes.js';
 import { clampVideoMaxFrames, clampVideoSceneThreshold, normalizeVideoSubtitleLanguages, resolveVideoTuning } from '../../../common/video/vibeVideoConfiguration.js';
 
@@ -163,6 +164,83 @@ suite('vibeVideoTools', () => {
 					{ framesEnabled: true, sceneThreshold: 0.9, maxFrames: 150, frameHeight: 240 },
 					{ framesEnabled: true, sceneThreshold: 0.45, maxFrames: 16, frameHeight: 480 },
 				],
+			);
+		});
+	});
+
+	suite('watch target resolution', () => {
+
+		const root = join('/work', 'test');
+		const home = join('/home', 'user');
+
+		function environment(files: readonly string[], workspaceFolders: readonly string[] = [root]): WatchTargetEnvironment {
+			const existing = new Set(files);
+			return { workspaceFolders, homeDir: home, isFile: async absolutePath => existing.has(absolutePath) };
+		}
+
+		test('relative paths resolve from the project folder: bare name, ./, nested, ../ — normalised, trimmed', async () => {
+			const env = environment([join(root, '1.webm'), join(root, 'sub', 'dir', '2.webm'), join(root, '..', 'x.mp4')]);
+			assert.deepStrictEqual(
+				await Promise.all(['1.webm', ' ./1.webm ', 'sub/dir/2.webm', '../x.mp4'].map(input => resolveWatchTarget(input, env))),
+				[
+					{ kind: 'resolved', target: join(root, '1.webm') },
+					{ kind: 'resolved', target: join(root, '1.webm') },
+					{ kind: 'resolved', target: join(root, 'sub', 'dir', '2.webm') },
+					{ kind: 'resolved', target: join(root, '..', 'x.mp4') },
+				],
+			);
+		});
+
+		test('several project folders: searched in order, the first one holding the file wins', async () => {
+			const first = join('/work', 'a');
+			const second = join('/work', 'b');
+			const env = environment([join(first, 'both.mp4'), join(second, 'both.mp4'), join(second, 'only-b.mp4')], [first, second]);
+			assert.deepStrictEqual(
+				await Promise.all(['both.mp4', 'only-b.mp4', 'none.mp4'].map(input => resolveWatchTarget(input, env))),
+				[
+					{ kind: 'resolved', target: join(first, 'both.mp4') },
+					{ kind: 'resolved', target: join(second, 'only-b.mp4') },
+					{ kind: 'missing', scope: 'project', folders: [first, second] },
+				],
+			);
+		});
+
+		test('an absolute path is taken as it is; ~/ goes from the home folder and a bare name never does', async () => {
+			const env = environment([join(home, 'Videos', 'c.mp4'), join(root, 'c.mp4'), '/abs/clip.webm']);
+			assert.deepStrictEqual(
+				await Promise.all(['/abs/clip.webm', '~/Videos/c.mp4', 'Videos/c.mp4'].map(input => resolveWatchTarget(input, env))),
+				[
+					{ kind: 'resolved', target: '/abs/clip.webm' },
+					{ kind: 'resolved', target: join(home, 'Videos', 'c.mp4') },
+					{ kind: 'missing', scope: 'project', folders: [root] },
+				],
+			);
+		});
+
+		test('a missing file says where it was searched: the absolute path, the home folder, the project folders', async () => {
+			const withRoot = environment([]);
+			assert.deepStrictEqual(
+				[
+					await resolveWatchTarget('/abs/none.webm', withRoot),
+					await resolveWatchTarget('~/none.mp4', withRoot),
+					await resolveWatchTarget('none.webm', environment([], [])),
+					await resolveWatchTarget('none.webm', withRoot),
+				],
+				[
+					{ kind: 'missing', scope: 'absolute' },
+					{ kind: 'missing', scope: 'home' },
+					{ kind: 'missing', scope: 'project', folders: [] },
+					{ kind: 'missing', scope: 'project', folders: [root] },
+				],
+			);
+		});
+
+		test('a URL is passed as it is and never looked up on disk', async () => {
+			let lookups = 0;
+			const env: WatchTargetEnvironment = { workspaceFolders: [root], homeDir: home, isFile: async () => { lookups++; return false; } };
+			assert.deepStrictEqual(
+				[await resolveWatchTarget(' https://youtu.be/abc ', env), lookups],
+				[{ kind: 'resolved', target: 'https://youtu.be/abc' }, 0],
 			);
 		});
 	});
