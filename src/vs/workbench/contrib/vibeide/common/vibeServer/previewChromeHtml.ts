@@ -153,8 +153,9 @@ export function buildPreviewChromeHtml(initialUrl: string, inspectSupported: boo
 
 	function buttons(){ back.disabled = idx <= 0; fwd.disabled = idx >= hist.length - 1; }
 	function onNav(href, title){
-		// Адрес приходит от страницы: в историю и в адресную строку попадает только веб-адрес
-		if (typeof href !== 'string' || !/^https?:\\/\\//i.test(href)){ return; }
+		// Адрес приходит от страницы: в историю и в адресную строку попадает только адрес с origin этой вкладки.
+		// Рамке по CSP другой origin не показать, так что чужой адрес — подмена адресной строки («страница выдаёт себя за другой сайт»)
+		if (typeof href !== 'string' || (href !== ORIGIN && href.indexOf(ORIGIN + '/') !== 0)){ return; }
 		if (href !== current){ hist = hist.slice(0, idx + 1); hist.push(href); idx = hist.length - 1; current = href; }
 		addr.value = href; buttons();
 		vscode.postMessage({ type: 'navigated', href: href, title: title });

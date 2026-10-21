@@ -154,10 +154,11 @@ suite('previewChromeHtml — граница между воркбенчем и �
 		);
 	});
 
-	test('адрес страницы в `nav` принимается только веб-адресом', () => {
+	test('адрес страницы в `nav` принимается только с origin вкладки: иначе адресная строка показала бы чужой сайт', () => {
 		const chrome = runChrome();
-		chrome.send(chrome.frameWindow, { __vibeBrowser: 'nav', href: 'javascript:alert(1)', title: 'x' });
-		chrome.send(chrome.frameWindow, { __vibeBrowser: 'nav', href: { toString: () => 'http://x' }, title: 'x' });
+		for (const href of ['javascript:alert(1)', 'https://evil.example/', `${ORIGIN}.evil.example/`, { toString: () => ORIGIN }]) {
+			chrome.send(chrome.frameWindow, { __vibeBrowser: 'nav', href, title: 'подделка' });
+		}
 		chrome.send(chrome.frameWindow, { __vibeBrowser: 'nav', href: `${ORIGIN}/ok`, title: 'Ok' });
 		assert.deepStrictEqual(chrome.toHost, [{ type: 'navigated', href: `${ORIGIN}/ok`, title: 'Ok' }]);
 	});
