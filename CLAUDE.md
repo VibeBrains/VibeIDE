@@ -87,10 +87,19 @@
 | <a href="https://boosty.to/borodatych/donate" target="_blank"><img src="https://raw.githubusercontent.com/VibeBrains/VibeIDE/main/media/QR-Boosty.png" width="120" alt="QR-код Boosty — поддержать проект"></a> | <a href="https://raw.githubusercontent.com/VibeBrains/VibeIDE/main/media/QR-Code.jpg" target="_blank"><img src="https://raw.githubusercontent.com/VibeBrains/VibeIDE/main/media/QR-Code.jpg" width="120" alt="QR-код для поддержки проекта"></a> |
 ```
 
+**Предпоследним — блок отката на предыдущую версию** (после технических секций, прямо перед блоком поддержки). Ссылка ведёт только на непосредственно предыдущий релиз, цепочку не разворачивать: в том релизе такой же блок ведёт ещё на шаг назад.
+
+```markdown
+---
+
+> ⚠️ **Что-то пошло не так?** Откатитесь на предыдущую стабильную сборку — [vX.Y.Z](https://github.com/VibeBrains/VibeIDE/releases/tag/vX.Y.Z) (там — ссылка на ещё более раннюю).
+```
+
 **Важно:**
 - Версия в заголовке тега: `vX.Y.Z`.
 - Не добавлять секции, для которых нет изменений в этом релизе.
-- Блок поддержки — **всегда последний**. В нём обязательны обе ссылки и оба QR: Boosty (`https://boosty.to/borodatych/donate` + `media/QR-Boosty.png`) и перевод по СБП (`media/QR-Code.jpg`). Наличие стережёт `node scripts/vibe-release-lint.js`.
+- **«Что нового» в IDE:** если релиз стоит анонсировать, добавить запись в `WHATS_NEW_BY_VERSION` (`src/vs/workbench/contrib/vibeide/common/vibeWhatsNew.ts`): ключ — `vibeVersion`, тело — Markdown. Нет записи — окно «Что нового» для этой версии не показывается (для тихих патчей это нормально).
+- Блок поддержки — **всегда последний**, блок отката — прямо перед ним. В блоке поддержки обязательны обе ссылки и оба QR: Boosty (`https://boosty.to/borodatych/donate` + `media/QR-Boosty.png`) и перевод по СБП (`media/QR-Code.jpg`). Наличие стережёт `node scripts/vibe-release-lint.js`.
 - Перед каждым релизом — пройти по алгоритму выбора фразы из `AGENTS.md`.
 - **Перед `gh release edit --notes-file` — `node scripts/vibe-release-lint.js <файл заметок>`:** формат, блок поддержки и нейрослоп (детектор продукта с дом-стилем `scripts/slopHouseStyle.json`). Не прошло — править по навыку `anti-slop`, а не публиковать.
 - **Догоняющая платформа = артефакт + НОТЫ.** Кросс-платформенный догон (вторая платформа доливает артефакты в существующий релиз тега) считается сделанным **только** когда в тело релиза добавлена строка про эту платформу в секции `## 📦 Сборка` (installer/portable + специфика запуска: macOS → Gatekeeper «Open Anyway»; Windows → SmartScreen «неизвестный издатель»). Релиз-скрипт доливает **только файлы** и не трогает ноты — после его успешного завершения **всегда** прочитать `gh release view vX.Y.Z --json body`, дописать платформу в «📦 Сборка» через `gh release edit --notes-file` и проверить фактом (`grep` секции). Успех скрипта ≠ завершённый релиз.
