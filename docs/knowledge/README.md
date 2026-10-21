@@ -238,7 +238,7 @@
 | Файл | О чём |
 |---|---|
 | [runs.md](roadmap/runs.md) | Run logs ночных roadmap-max сессий |
-| [digestLedger.md](roadmap/digestLedger.md) | **[порядок]** Журнал дайджестов: какие сводки разобраны, где прогоны рутины, как найти неразобранные и как прочитать прогон без `RemoteTrigger` (страница запуска в claude.ai) |
+| [digestLedger.md](roadmap/digestLedger.md) | **[порядок]** Журнал дайджестов: какие сводки разобраны, **где их брать (репозиторий `VibeBrains/VibeDigests`, клон в `Caches`, аккаунт `VibeBrains`)**, как найти неразобранные и как прочитать старый прогон без `RemoteTrigger` |
 | [tokenEconomy.md](roadmap/tokenEconomy.md) | Токен-экономия: cache-friendly prompt assembly, конденсер вывода терминала, auxiliary-модель для служебных вызовов Диагностика кэша Anthropic (30.09): причину промаха называет вендор, `diagnostics.previous_message_id` телом запроса. |
 
 ### [assets/](assets/) — лого, иконки, онбординг
