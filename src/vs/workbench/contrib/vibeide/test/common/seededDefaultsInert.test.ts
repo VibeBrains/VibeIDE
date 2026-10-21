@@ -99,6 +99,34 @@ suite('засеянное окружение .vibe: что включено, а 
 	});
 
 	/**
+	 * Правило просмотра записей включается фразами человека: вне них оно не нужно, а ехало бы в каждом ходе.
+	 * Проверяются отгружаемые байты: каждая фраза шапки включает правило, обычный текст и однокоренное слово — нет.
+	 * Фразы из задачи (восемь) обязаны быть среди фраз шапки: их назвал владелец, и уйти из набора они не должны.
+	 */
+	test('правило «watch-media» включается фразами про видео и запись и молчит на обычном тексте', () => {
+		const parsed = parseRuleFrontmatter(seed('rules/watch-media.mdc'));
+		const meta = { alwaysApply: parseAlwaysApply(parsed.frontmatter), triggers: parseTriggers(parsed.frontmatter), globs: parseGlobs(parsed.frontmatter) };
+		const activationOn = (userText: string) => decideRuleActivation(meta, { userText });
+		const named = ['посмотри видео', 'разбери видео', 'что в ролике', 'что на записи', 'послушай аудио', 'расшифруй запись', 'разбери созвон', 'посмотри ролик'];
+		assert.deepStrictEqual({
+			alwaysApply: meta.alwaysApply,
+			globs: meta.globs,
+			namedPhrasesAreTriggers: named.filter(phrase => !meta.triggers.includes(phrase)),
+			everyPhraseInjects: meta.triggers.filter(phrase => activationOn(`слушай, ${phrase.toUpperCase()} — вот файл @demo.mp4`) !== 'inject'),
+			ordinaryText: activationOn('поправь кнопку в шапке'),
+			nearMiss: activationOn('посмотри видеокарту в диспетчере'),
+		}, {
+			alwaysApply: false,
+			globs: [],
+			namedPhrasesAreTriggers: [],
+			everyPhraseInjects: [],
+			ordinaryText: 'index',
+			nearMiss: 'index',
+		});
+		assert.ok(parsed.frontmatter['description'], 'у правила нет description — в списке доступных оно будет безымянным');
+	});
+
+	/**
 	 * `ui-kit.mdc` держит в globs фигурные скобки: `**\/*.{css,scss,...}`.
 	 * Разбор по запятым разрезал такой glob на куски, и правило не срабатывало ни на одном файле.
 	 */
