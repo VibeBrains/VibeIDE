@@ -10,6 +10,7 @@ import { VSBuffer } from '../../../../base/common/buffer.js';
 import { StringSHA1 } from '../../../../base/common/hash.js';
 import { IFileService } from '../../../../platform/files/common/files.js';
 import { VIBE_DEFAULTS_MANIFEST, VIBE_DEPRECATED_MANIFEST, VIBE_VERSIONS_MANIFEST, VibeDeprecatedSeed, VibeSeedRevision } from './vibeDefaultsManifest.generated.js';
+import { recordSeedBases, SeedBaseRecord } from './vibeSeedBase.js';
 
 export interface ApplyVibeDefaultsResult {
 	readonly created: number;
@@ -18,6 +19,9 @@ export interface ApplyVibeDefaultsResult {
 
 /** URI scheme serving the release's version of a default file, read-only (for diffing against `.vibe/`). */
 export const VIBE_DEFAULT_SCHEME = 'vibe-default';
+
+/** URI-схема «вашего файла» на момент слияния: у редактора слияния сторона и результат не могут быть одним ресурсом. */
+export const VIBE_SEED_YOURS_SCHEME = 'vibe-seed-yours';
 
 /**
  * Reconciliation record: `.vibe/.defaults.lock.json`. Deliberately NOT in `.vibe/.gitignore` — unlike
@@ -48,10 +52,12 @@ interface VibeDefaultsLock {
  * `customized` — without it both look like «differs» and we would nag the user about their own text.
  *
  * `missing`    — release has it, workspace does not. Safe to add.
- * `outdated`   — the release moved, the user did not touch the file since. Safe to update: nothing to lose.
+ * `outdated`   — the release moved, and the file is still an untouched copy of an older release (on the last
+ *                reconciliation it equalled the release). Safe to update: nothing to lose.
  * `customized` — the user's file, and the release has not moved since they settled on it. **Quiet**:
  *                a customized file differs from the release forever, which is not news.
- * `conflict`   — both moved since the last reconciliation. Needs a human (diff).
+ * `conflict`   — both moved since the last reconciliation, or the release moved on past a copy the user had
+ *                settled as their own. Needs a human (merge).
  * `unknown`    — differs, but never reconciled (no lock entry — a `.vibe` predating the lock file).
  *                Cannot be classified; surfaced once so the user can resolve it.
  * `same`       — identical to the release.
@@ -111,6 +117,9 @@ async function readLock(fileService: IFileService, vibeDir: URI): Promise<VibeDe
  * is what the user meant it to look like, against the release they have now. This is what stops a
  * customized file from nagging forever — and why it is called after every resolution path, including
  * «оставить своё».
+ *
+ * Вместе с точкой сверки сохраняется текст ревизии набора, которую человек этим решением увидел: он станет
+ * основой следующего слияния, когда набор уйдёт дальше. Журнал хранит только хеши, по ним текст не восстановить.
  */
 export async function recordVibeDefaultsReconciled(
 	fileService: IFileService,
@@ -118,6 +127,7 @@ export async function recordVibeDefaultsReconciled(
 	paths: readonly string[],
 ): Promise<void> {
 	const files: { [path: string]: VibeDefaultsLockEntry } = { ...await readLock(fileService, vibeDir) };
+	const bases: SeedBaseRecord[] = [];
 
 	for (const path of paths) {
 		const release = vibeDefaultContent(path);
@@ -131,6 +141,7 @@ export async function recordVibeDefaultsReconciled(
 			continue; // nothing on disk to reconcile with
 		}
 		files[path] = { release: sha(release), local };
+		bases.push({ path, contents: release });
 	}
 
 	// Sorted keys → the file is diff-stable across runs and machines (it may well be committed).
@@ -143,6 +154,7 @@ export async function recordVibeDefaultsReconciled(
 		joinPath(vibeDir, VIBE_DEFAULTS_LOCK_FILE),
 		VSBuffer.fromString(JSON.stringify(lock, null, '\t') + '\n'),
 	);
+	await recordSeedBases(fileService, vibeDir, bases);
 }
 
 /**
@@ -194,6 +206,9 @@ export async function diffVibeDefaults(
 
 		const userMoved = localSha !== lock.local;
 		const releaseMoved = releaseSha !== lock.release;
+		// На точке сверки файл уже отличался от релиза: это решение человека («оставить своё», ручное слияние).
+		// Когда набор уйдёт дальше, перезаписать такой файл — потерять его правки, поэтому нужен человек, а не «обновить безопасно»
+		const settledOwn = lock.local !== lock.release;
 		// The lock and the file can part ways — a merge, a branch that carries the file but not the lock, one file
 		// checked out alone. A copy that is byte for byte an old release is untouched whatever the lock says:
 		// Read as the user's own choice it would stay old for good
@@ -202,7 +217,7 @@ export async function diffVibeDefaults(
 			continue;
 		}
 		const status: VibeDefaultStatus = releaseMoved
-			? (userMoved ? 'conflict' : 'outdated')
+			? (userMoved || settledOwn ? 'conflict' : 'outdated')
 			: 'customized'; // release stood still → the difference is the user's own, settled choice
 		entries.push({ path: file.path, status });
 	}
@@ -225,6 +240,39 @@ export async function diffVibeDefaults(
 		// decision and would otherwise nag on every single open.
 		needsAttention: missing.length + outdated.length + conflict.length + unknown.length > 0,
 	};
+}
+
+/**
+ * Досыпает базы слияния тем файлам, чей текст в точности равен ревизии набора, и ничего больше не трогает.
+ *
+ * `same` — копия равна нынешней ревизии, значит, база — текст набора.
+ * `outdated` — копия не тронута с тех пор, как совпадала с прежней ревизией, значит, её текст и есть та ревизия.
+ * Так проекты, засеянные до появления баз, получают их без участия человека, пока файл ещё не правлен.
+ * Правленым файлам (`conflict`, `customized`, `unknown`) базу не придумать: их текст — уже не ревизия набора.
+ *
+ * Читает только файлы `outdated`; `diff` уже посчитан вызывающим, второй обход не нужен.
+ */
+export async function refreshSeedBases(
+	fileService: IFileService,
+	vibeDir: URI,
+	diff: VibeDefaultsDiff,
+): Promise<number> {
+	const records: SeedBaseRecord[] = [];
+	for (const entry of diff.same) {
+		const release = vibeDefaultContent(entry.path);
+		if (release !== undefined) {
+			records.push({ path: entry.path, contents: release });
+		}
+	}
+	for (const entry of diff.outdated) {
+		try {
+			const local = (await fileService.readFile(joinPath(vibeDir, ...entry.path.split('/')))).value.toString();
+			records.push({ path: entry.path, contents: local });
+		} catch {
+			continue; // файл пропал между сверкой и чтением — базы не будет, это не ошибка
+		}
+	}
+	return recordSeedBases(fileService, vibeDir, records);
 }
 
 /**

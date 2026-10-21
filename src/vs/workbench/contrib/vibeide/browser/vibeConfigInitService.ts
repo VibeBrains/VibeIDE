@@ -21,7 +21,7 @@ import { IVibeideModelService } from '../common/vibeideModelService.js';
 import { IVibeideSettingsService } from '../common/vibeideSettingsService.js';
 import { getDefaultVibeReadmeMarkdown, VIBE_WORKSPACE_FORMAT_VERSION } from '../common/vibeDefaultWorkspaceReadme.js';
 import { serializeProjectCommandsInitTemplate } from '../common/projectCommandsInitTemplate.js';
-import { applyVibeDefaults, cleanupDeprecatedVibeDefaults, diffVibeDefaults } from '../common/vibeDefaults.js';
+import { applyVibeDefaults, cleanupDeprecatedVibeDefaults, diffVibeDefaults, refreshSeedBases } from '../common/vibeDefaults.js';
 import { VIBEIDE_APPLY_DEFAULTS_CMD, VIBEIDE_ENV_NOTIFY_SETTING, VIBEIDE_SHOW_DEFAULTS_CMD } from './vibeDefaultsContribution.js';
 
 const VIBE_VERSION = VIBE_WORKSPACE_FORMAT_VERSION;
@@ -283,15 +283,18 @@ export class VibeConfigInitContribution extends Disposable implements IWorkbench
 	 * saying anything. The diff still runs after seeding, which is what keeps the report honest.
 	 */
 	private async _notifyIfReleaseMovedEnvironment(vibeDir: URI): Promise<void> {
-		if (this._configurationService.getValue<boolean>(VIBEIDE_ENV_NOTIFY_SETTING) === false) {
-			return;
-		}
 		await this._lifecycleService.when(LifecyclePhase.Restored);
 		let diff;
 		try {
 			diff = await diffVibeDefaults(this._fileService, vibeDir);
 		} catch (e) {
 			vibeLog.warn('vibeConfigInit', 'Failed to diff .vibe against release defaults:', e);
+			return;
+		}
+		// Основа слияния нужна и тому, кто выключил уведомление: конфликт возникнет, когда набор уйдёт дальше,
+		// а восстановить основу задним числом нечем. Пока копия ещё не правлена, её текст и есть ревизия набора
+		await refreshSeedBases(this._fileService, vibeDir, diff);
+		if (this._configurationService.getValue<boolean>(VIBEIDE_ENV_NOTIFY_SETTING) === false) {
 			return;
 		}
 		if (!diff.needsAttention) {

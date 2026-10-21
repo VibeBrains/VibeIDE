@@ -7,6 +7,7 @@
 import { localize, localize2 } from '../../../../nls.js';
 import { joinPath } from '../../../../base/common/resources.js';
 import { URI } from '../../../../base/common/uri.js';
+import { generateUuid } from '../../../../base/common/uuid.js';
 import { Action2, registerAction2 } from '../../../../platform/actions/common/actions.js';
 import { ServicesAccessor } from '../../../../platform/instantiation/common/instantiation.js';
 import { IFileService } from '../../../../platform/files/common/files.js';
@@ -23,6 +24,7 @@ import {
 	VibeDefaultsDiff,
 	VibeDefaultsDiffEntry,
 } from '../common/vibeDefaults.js';
+import { planSeedMerge, seedBaseUri, seedBasesPresent, SeedMergePlan } from '../common/vibeSeedBase.js';
 import { VibeDefaultsContentProvider } from './vibeDefaultsContentProvider.js';
 import { VIBE_COMMAND_CATEGORY } from '../common/vibeCommandCategory.js';
 
@@ -75,7 +77,7 @@ function needsHuman(diff: VibeDefaultsDiff): readonly VibeDefaultsDiffEntry[] {
 }
 
 /** Markdown report shared by both commands — one description of the state, two entry points. */
-function renderReport(diff: VibeDefaultsDiff): string {
+function renderReport(diff: VibeDefaultsDiff, plan: SeedMergePlan<VibeDefaultsDiffEntry>): string {
 	// Don't claim the copy «may have fallen behind» when it demonstrably has not — a report that
 	// cries wolf on a healthy environment teaches the user to skip reading it.
 	const parts: string[] = [
@@ -92,6 +94,12 @@ function renderReport(diff: VibeDefaultsDiff): string {
 	}
 	if (diff.conflict.length > 0) {
 		parts.push(localize('vibeide.defaults.report.conflict', '## Разошлись обе стороны ({0})\n\nИ вы правили файл, и релиз его изменил. Решать вам — посмотрите различия.\n\n{1}', diff.conflict.length, listPaths(diff.conflict)));
+	}
+	if (plan.threeWay.length > 0) {
+		parts.push(localize('vibeide.defaults.report.mergeable', 'Слияние трёх сторон — ваш файл, релиз и основа (ревизия, от которой файл засеян) — доступно для файлов: {0}.', plan.threeWay.length));
+	}
+	if (plan.twoWay.length > 0) {
+		parts.push(localize('vibeide.defaults.report.noBase', 'Основы нет у файлов: {0}. Проект засеян до того, как IDE начала хранить основу, поэтому для них доступно только сравнение двух сторон, а не слияние.', plan.twoWay.length));
 	}
 	if (diff.unknown.length > 0) {
 		parts.push(localize('vibeide.defaults.report.unknown', '## Не сверялось ({0})\n\nФайл отличается от релиза, но сверки не было (окружение создано до того, как появился учёт). Кто менял — неизвестно. Посмотрите различия и решите; после этого файл перестанет попадать в этот список.\n\n{1}', diff.unknown.length, listPaths(diff.unknown)));
@@ -114,6 +122,64 @@ async function openDiffs(editorService: IEditorService, vibeDir: URI, entries: r
 			modified: { resource: joinPath(vibeDir, ...entry.path.split('/')) },
 			label: localize('vibeide.defaults.diffLabel', '{0} — релиз ⇄ ваш', entry.path),
 			options: { pinned: false },
+		});
+	}
+}
+
+/**
+ * Открывает слияние трёх сторон в штатном редакторе слияния: ваш файл (снимок на момент открытия), релиз и основа.
+ * Результатом служит сам файл в `.vibe/`, поэтому правка в редакторе слияния и есть решение.
+ *
+ * Редактор закрыт, а файл изменился — слияние состоялось: записывается точка сверки (и основа — нынешняя ревизия),
+ * файл перестаёт напоминать о себе до следующего сдвига набора. Закрыт без изменений — ничего не записывается:
+ * для «оставить своё» есть отдельная кнопка, а закрытие окна решением не считается.
+ */
+async function openMerges(
+	editorService: IEditorService,
+	fileService: IFileService,
+	notificationService: INotificationService,
+	vibeDir: URI,
+	entries: readonly VibeDefaultsDiffEntry[],
+): Promise<void> {
+	const readText = async (resource: URI): Promise<string | undefined> => {
+		try {
+			return (await fileService.readFile(resource)).value.toString();
+		} catch {
+			return undefined;
+		}
+	};
+	for (const entry of entries.slice(0, MAX_LISTED)) {
+		const target = joinPath(vibeDir, ...entry.path.split('/'));
+		const before = await readText(target);
+		const pane = await editorService.openEditor({
+			base: { resource: seedBaseUri(vibeDir, entry.path) },
+			input1: {
+				resource: VibeDefaultsContentProvider.toYoursResource(entry.path, generateUuid()),
+				label: localize('vibeide.defaults.merge.yours', 'Ваш файл'),
+				description: entry.path,
+			},
+			input2: {
+				resource: VibeDefaultsContentProvider.toResource(entry.path),
+				label: localize('vibeide.defaults.merge.release', 'Релиз'),
+				description: entry.path,
+			},
+			result: { resource: target },
+			options: { pinned: true },
+		});
+		const input = pane?.input;
+		if (!input) {
+			continue;
+		}
+		const closed = input.onWillDispose(() => {
+			closed.dispose();
+			void (async () => {
+				const after = await readText(target);
+				if (after === undefined || after === before) {
+					return;
+				}
+				await recordVibeDefaultsReconciled(fileService, vibeDir, [entry.path]);
+				notificationService.info(localize('vibeide.defaults.merge.done', 'Слияние {0} записано как разобранное: файл не будет напоминать о себе, пока набор не изменит его снова.', entry.path));
+			})();
 		});
 	}
 }
@@ -143,10 +209,12 @@ registerAction2(class extends Action2 {
 		}
 
 		const diff = await diffVibeDefaults(fileService, vibeDir);
-		const diffable = [...needsHuman(diff), ...diff.customized, ...diff.outdated];
+		const human = needsHuman(diff);
+		const plan = planSeedMerge(human, await seedBasesPresent(fileService, vibeDir, human.map(e => e.path)));
+		const diffable = [...human, ...diff.customized, ...diff.outdated];
 		const res = await modal.showModal<'diffs' | 'close'>({
 			title: localize('vibeide.defaults.show.title', 'Новое в окружении из релиза'),
-			body: renderReport(diff),
+			body: renderReport(diff, plan),
 			bodyMarkdown: true,
 			icon: 'diff',
 			size: 'large',
@@ -207,6 +275,7 @@ registerAction2(class extends Action2 {
 		}
 
 		const human = needsHuman(diff);
+		const plan = planSeedMerge(human, await seedBasesPresent(fileService, vibeDir, human.map(e => e.path)));
 		const safeCount = diff.missing.length + diff.outdated.length;
 		if (!diff.needsAttention) {
 			notificationService.notify({
@@ -216,10 +285,13 @@ registerAction2(class extends Action2 {
 			return;
 		}
 
-		type Btn = 'safe' | 'diffs' | 'keep' | 'replace' | 'cancel';
+		type Btn = 'safe' | 'merge' | 'diffs' | 'keep' | 'replace' | 'cancel';
 		const buttons: { id: Btn; label: string; role: 'primary' | 'secondary' }[] = [];
 		if (safeCount > 0) {
 			buttons.push({ id: 'safe', label: localize('vibeide.defaults.safe', 'Обновить безопасно ({0})', safeCount), role: 'primary' });
+		}
+		if (plan.threeWay.length > 0) {
+			buttons.push({ id: 'merge', label: localize('vibeide.defaults.merge', 'Смержить ({0})', plan.threeWay.length), role: buttons.length === 0 ? 'primary' : 'secondary' });
 		}
 		if (human.length > 0) {
 			buttons.push({ id: 'diffs', label: localize('vibeide.defaults.showDiffs', 'Показать различия'), role: buttons.length === 0 ? 'primary' : 'secondary' });
@@ -229,7 +301,7 @@ registerAction2(class extends Action2 {
 
 		const res = await modal.showModal<Btn>({
 			title: localize('vibeide.defaults.apply.title', 'Обновить окружение из релиза'),
-			body: renderReport(diff),
+			body: renderReport(diff, plan),
 			bodyMarkdown: true,
 			icon: 'cloud-download',
 			size: 'large',
@@ -240,6 +312,10 @@ registerAction2(class extends Action2 {
 
 		try {
 			switch (res.buttonId) {
+				case 'merge':
+					await openMerges(editorService, fileService, notificationService, vibeDir, plan.threeWay);
+					return;
+
 				case 'diffs':
 					await openDiffs(editorService, vibeDir, human);
 					return;
