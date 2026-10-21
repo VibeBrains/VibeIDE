@@ -19,6 +19,10 @@
  *
  * What this does NOT catch: a server that keeps its definitions and changes what its calls return.
  * Tool output is covered elsewhere: `untrustedToolOutputGuard` flags it and the system prompt says it is data, not instructions
+ *
+ * Сравнение идёт по смыслу определения, а не по его записи — см. `comparableDefinition`.
+ * Сохранённый текст остаётся читаемым: его показывает сравнение «одобрено ↔ сейчас».
+ * Нормализуется текст только при сверке.
  */
 
 import { IStorageService, StorageScope, StorageTarget } from '../../../../platform/storage/common/storage.js';
@@ -64,12 +68,126 @@ export function diffToolDefinitions(pinned: McpToolDefinitions, current: McpTool
 	for (const name of Object.keys(current)) {
 		if (!Object.hasOwn(pinned, name)) {
 			added.push(name);
-		} else if (pinned[name] !== current[name]) {
+		} else if (pinned[name] !== current[name]
+			&& comparableDefinition(pinned[name]) !== comparableDefinition(current[name])) {
 			changed.push(name);
 		}
 	}
 	const removed = Object.keys(pinned).filter(name => !Object.hasOwn(current, name));
 	return { changed: changed.sort(), added: added.sort(), removed: removed.sort() };
+}
+
+/** Ключевые слова схемы, значение которых — множество: порядок элементов не значим. */
+const UNORDERED_KEYWORDS: ReadonlySet<string> = new Set(['required', 'enum', 'type']);
+/** Ключевые слова схемы, значение которых — подсказка-значение: сравнивается набор слов. */
+const HINT_KEYWORDS: ReadonlySet<string> = new Set(['default', 'examples', 'example']);
+/**
+ * Ключевые слова, чьё значение — таблица «имя → схема»
+ * Ключи в ней имена, а не ключевые слова: свойство вправе зваться `default`
+ */
+const SCHEMA_TABLE_KEYWORDS: ReadonlySet<string> = new Set([
+	'properties', 'patternProperties', '$defs', 'definitions', 'dependentSchemas',
+]);
+/** Разделители слов в подсказке: пробелы и те, которыми склеивают список в строку. */
+const HINT_SEPARATORS = /[\s,;|]+/;
+
+/**
+ * Определение в виде, пригодном для сверки: то, что сервер вправе переставлять, приведено к одному порядку.
+ *
+ * Отпечаток нужен, чтобы сервер не мог молча подменить то, что читает модель.
+ * Подмену делают новыми словами: приказом в описании, новым параметром, новым значением.
+ * Перестановка уже одобренных слов модели нового не говорит.
+ * Между тем сервер, собирающий список из множества (set в Python, HashSet на JVM), отдаёт его в другом порядке
+ * при каждом запуске, и без этого различия каждый запуск выглядел бы подменой, а «Принять» не помогало бы:
+ * следующий порядок снова другой.
+ *
+ * Что сравнивается по смыслу:
+ * - `required`, `enum`, `type` массивом: по JSON Schema это множества, порядок в них ничего не значит
+ * - `default`, `examples`, `example`: подсказки-значения, сравнивается набор слов без порядка
+ *   Новое слово в подсказке — изменение, как и новое слово в описании: подсказка тоже доходит до модели
+ *
+ * Что сравнивается слово в слово и в том же порядке: всё остальное, включая каждое `description` и `title`.
+ * Описание — проза, обращённая к модели, и порядок слов в нём меняет смысл.
+ * Неразобранный текст возвращается как есть: чужую запись лучше показать изменением, чем пропустить.
+ */
+export function comparableDefinition(canonical: string): string {
+	let parsed: unknown;
+	try {
+		parsed = JSON.parse(canonical);
+	} catch {
+		return canonical;
+	}
+	if (!isRecord(parsed)) {
+		return canonical;
+	}
+	return stableStringify({
+		...parsed,
+		inputSchema: comparableSchema(parsed['inputSchema']),
+		outputSchema: comparableSchema(parsed['outputSchema']),
+	});
+}
+
+function comparableSchema(node: unknown): unknown {
+	if (Array.isArray(node)) {
+		return node.map(comparableSchema);
+	}
+	if (!isRecord(node)) {
+		return node;
+	}
+	const result: Record<string, unknown> = {};
+	for (const [keyword, value] of Object.entries(node)) {
+		if (HINT_KEYWORDS.has(keyword)) {
+			result[keyword] = { words: hintWords(value) };
+		} else if (UNORDERED_KEYWORDS.has(keyword) && Array.isArray(value)) {
+			// Элементы — данные, а не схемы: порядок убирается, внутрь не заходим
+			result[keyword] = value.map(item => stableStringify(item)).sort();
+		} else if (SCHEMA_TABLE_KEYWORDS.has(keyword) && isRecord(value)) {
+			result[keyword] = Object.fromEntries(
+				Object.entries(value).map(([name, schema]) => [name, comparableSchema(schema)]),
+			);
+		} else if (keyword === 'const') {
+			result[keyword] = value;
+		} else {
+			result[keyword] = comparableSchema(value);
+		}
+	}
+	return result;
+}
+
+/** Слова подсказки по всем листьям значения, отсортированные: строка списка, массив и объект сводятся к одному виду. */
+function hintWords(value: unknown): string[] {
+	const words: string[] = [];
+	collectHintWords(value, words);
+	return words.sort();
+}
+
+function collectHintWords(value: unknown, into: string[]): void {
+	if (Array.isArray(value)) {
+		for (const item of value) {
+			collectHintWords(item, into);
+		}
+	} else if (isRecord(value)) {
+		for (const [key, item] of Object.entries(value)) {
+			into.push(...splitHintWords(key));
+			collectHintWords(item, into);
+		}
+	} else {
+		into.push(...splitHintWords(String(value)));
+	}
+}
+
+function splitHintWords(text: string): string[] {
+	return text.split(HINT_SEPARATORS).filter(word => word !== '');
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+	return !!value && typeof value === 'object' && !Array.isArray(value);
+}
+
+/** Тексты определений совпадают буква в букву: нечего ни показывать, ни перезаписывать. */
+export function identicalDefinitions(a: McpToolDefinitions, b: McpToolDefinitions): boolean {
+	const names = Object.keys(a);
+	return names.length === Object.keys(b).length && names.every(name => Object.hasOwn(b, name) && a[name] === b[name]);
 }
 
 /** Tools the model must not see until a person has looked: changed and added ones. */

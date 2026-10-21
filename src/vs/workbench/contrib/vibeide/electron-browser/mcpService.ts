@@ -51,7 +51,7 @@ import { IConfigurationService } from '../../../../platform/configuration/common
 import { INotificationHandle, INotificationService, Severity } from '../../../../platform/notification/common/notification.js';
 import { IStorageService } from '../../../../platform/storage/common/storage.js';
 import { InMemoryFileSystemProvider } from '../../../../platform/files/common/inMemoryFilesystemProvider.js';
-import { McpToolDefinitions, McpToolDrift, McpToolPinsStore, describeDefinitions, diffToolDefinitions, serverPinKey, toolDefinitionsOf, withheldToolsOf } from '../common/mcpToolPins.js';
+import { McpToolDefinitions, McpToolDrift, McpToolPinsStore, comparableDefinition, describeDefinitions, diffToolDefinitions, identicalDefinitions, serverPinKey, toolDefinitionsOf, withheldToolsOf } from '../common/mcpToolPins.js';
 import { MCP_REQUIRE_TOOL_REAPPROVAL_KEY } from '../common/mcpToolPinsConfiguration.js';
 import { scanMcpConfig, ConfigGuardFinding } from '../common/vibeConfigGuard.js';
 import { IMCPService, MCPServiceState } from '../common/mcpService.js';
@@ -336,7 +336,9 @@ class MCPService extends Disposable implements IMCPService {
 		const drift = diffToolDefinitions(pinned, current);
 		const needsLook = drift.changed.length > 0 || drift.added.length > 0;
 		if (!needsLook || this._configurationService.getValue<boolean>(MCP_REQUIRE_TOOL_REAPPROVAL_KEY) === false) {
-			if (needsLook || drift.removed.length > 0) {
+			// Запоминается и перестановка того, что сервер вправе переставлять: тогда сравнение «одобрено ↔ сейчас»
+			// позже покажет только настоящую правку, без шума порядка
+			if (!identicalDefinitions(pinned, current)) {
 				this._toolPins.set(key, current);
 			}
 			this._forgetToolDrift(serverName);
@@ -344,7 +346,8 @@ class MCPService extends Disposable implements IMCPService {
 		}
 		this._withheldTools.set(serverName, withheldToolsOf(drift));
 		this._pendingDrift.set(serverName, { key, pinned, current, drift });
-		const signature = JSON.stringify(drift) + JSON.stringify(drift.changed.map(name => current[name]));
+		// Подпись по сверяемой форме: перестановка порядка в соседнем поле не должна объявлять то же изменение заново
+		const signature = JSON.stringify(drift) + JSON.stringify(drift.changed.map(name => comparableDefinition(current[name])));
 		if (this._announcedDrift.get(serverName) === signature) {
 			return;
 		}
