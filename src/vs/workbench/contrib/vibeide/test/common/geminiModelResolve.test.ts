@@ -5,6 +5,7 @@
 
 import * as assert from 'assert';
 import { geminiModelOptions, getModelCapabilities, getReservedOutputTokenSpace } from '../../common/modelCapabilities.js';
+import { deprecationStatus, retiredForAutoPick } from '../../common/modelDeprecation.js';
 import { effectiveCost } from '../../common/modelPriceSchedule.js';
 import { ensureNoDisposablesAreLeakedInTestSuite } from '../../../../../base/test/common/utils.js';
 
@@ -139,6 +140,27 @@ suite('Gemini — model resolution, pricing and thinking levels', () => {
 				{ input: 4.00, output: 20.00, cache_read: 0.20 },
 			],
 		);
+	});
+
+	/**
+	 * Flash 3.7 и 3.5 вендор снял с выбора 08.10.2026 (ai.google.dev: deprecations, changelog, сверено 22.10.2026)
+	 * Адрес не выключен, запросы сами уходят на замену, даты выключения нет — поэтому отметка «снимается» без даты и с заменой
+	 * 2.5 вендор объявлением не снимал, 3.6 и 3.8 — действующие: отметки у них быть не должно
+	 */
+	test('Flash 3.7 и 3.5: отметка «снимается» с заменой и без даты, автовыбор их не исключает', () => {
+		const statusOf = (model: string) => deprecationStatus(caps('gemini', model).deprecation, Date.parse('2026-10-22T00:00:00Z'));
+		assert.deepStrictEqual(
+			['gemini-3.7-flash', 'gemini-3.5-flash', 'gemini-3.6-flash', 'gemini-3.8-flash', 'gemini-2.5-flash', 'gemini-2.5-pro'].map(statusOf),
+			[
+				{ severity: 'announced', replacedBy: 'gemini-3.8-flash', note: undefined },
+				{ severity: 'announced', replacedBy: 'gemini-3.6-flash', note: undefined },
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+			],
+		);
+		assert.strictEqual(retiredForAutoPick(caps('gemini', 'gemini-3.7-flash'), Date.parse('2026-10-22T00:00:00Z')), false);
 	});
 
 	test('every paid Gemini profile has a non-zero price', () => {

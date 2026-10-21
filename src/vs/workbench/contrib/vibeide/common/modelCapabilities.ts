@@ -1608,11 +1608,14 @@ export const geminiModelOptions = { // https://ai.google.dev/gemini-api/docs/pri
 		reasoningCapabilities: gemini3Thinking(['low', 'medium', 'high'], 'medium'),
 	},
 	'gemini-3.8-flash': gemini3Flash,
-	'gemini-3.7-flash': gemini3Flash,
+	// Снята с выбора 08.10.2026, но адрес вендор не выключает: запросы сами уходят на замену
+	// Даты выключения нет, поэтому в `deprecation` её тоже нет (ai.google.dev/gemini-api/docs/deprecations, сверено 22.10.2026)
+	'gemini-3.7-flash': { ...gemini3Flash, deprecation: { replacedBy: 'gemini-3.8-flash' } },
 	'gemini-3.6-flash': gemini3Flash,
 	'gemini-3.5-flash': {
 		...gemini3FlashBase,
 		cost: { input: 1.50, output: 9.00, cache_read: 0.15 },
+		deprecation: { replacedBy: 'gemini-3.6-flash' },
 	},
 	'gemini-3.5-flash-lite': {
 		contextWindow: 1_048_576, // 1M tokens input
