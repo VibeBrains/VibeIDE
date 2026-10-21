@@ -25,7 +25,7 @@ export interface ThreadToMarkdownOptions {
 	toolResultMaxChars?: number;
 	/** Optional H1 title. */
 	title?: string;
-	/** Optional metadata line (e.g. "minimax-m2.7 · openCodeGo · 2026-06-04"). */
+	/** Optional metadata line (e.g. "minimax-m2.7 · OpenCode Go · 2026-06-04"). */
 	subtitle?: string;
 }
 

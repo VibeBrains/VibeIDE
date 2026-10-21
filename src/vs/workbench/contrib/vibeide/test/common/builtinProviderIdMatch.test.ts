@@ -15,8 +15,16 @@ suite('Built-in provider id matching', () => {
 		// lowercase-with-dashes because VibeIDEA reads them that way. Copying such a file into
 		// `providers.json` must patch the built-in, not define a twin beside it.
 		assert.deepStrictEqual(
-			['openai', 'openrouter', 'opencode-zen', 'opencode-go', 'OpenAI', 'open_router'].map(builtinProviderIdOf),
-			['openAI', 'openRouter', 'openCodeZen', 'openCodeGo', 'openAI', 'openRouter']);
+			['openai', 'openrouter', 'opencode-zen', 'OpenAI', 'open_router'].map(builtinProviderIdOf),
+			['openAI', 'openRouter', 'openCodeZen', 'openAI', 'openRouter']);
+	});
+
+	// OpenCode Go вышел из встроенных: файл набора `opencode-go.jsonc` теперь ОПРЕДЕЛЯЕТ провайдера, а не патчит встроенного.
+	// Если id снова совпадёт со встроенным, файл превратится в патч несуществующего и провайдер пропадёт из списка
+	test('OpenCode Go is not built in: the seed file defines it', () => {
+		assert.deepStrictEqual(
+			[builtinProviderIdOf('opencode-go'), builtinProviderIdOf('openCodeGo'), isBuiltinProviderId('opencode-go')],
+			[undefined, undefined, false]);
 	});
 
 	test('an unknown id still defines a new provider', () => {

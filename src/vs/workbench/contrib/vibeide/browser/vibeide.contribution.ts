@@ -397,6 +397,7 @@ import './vibeChatModeStatusBar.js';
 
 // VibeIDE: One-shot cortexide.* → vibeide.* settings migration
 import './vibeSettingsMigrationContribution.js';
+import './openCodeGoMigrationNotice.js';
 
 // VibeIDE: Agent response language setting + helper
 import '../common/vibeAgentResponseLanguageConfiguration.js';

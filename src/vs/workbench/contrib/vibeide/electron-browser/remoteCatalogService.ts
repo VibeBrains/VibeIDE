@@ -298,7 +298,6 @@ export class RemoteCatalogService implements IRemoteCatalogService {
 		// proxy-fronted) — each case below validates whatever it actually needs.
 		const allowsEmptyKey =
 			providerName === 'openCodeZen'
-			|| providerName === 'openCodeGo'
 			|| providerName === 'openRouter'
 			|| providerName === 'lmRoute'
 			|| providerName === 'pollinations'
@@ -332,8 +331,6 @@ export class RemoteCatalogService implements IRemoteCatalogService {
 					return await this.fetchOpenRouterCatalog(apiKey);
 				case 'openCodeZen':
 					return await this.fetchOpenAICompatibleModelsCatalog('https://opencode.ai/zen/v1/models', apiKey);
-				case 'openCodeGo':
-					return await this.fetchOpenAICompatibleModelsCatalog('https://opencode.ai/zen/go/v1/models', apiKey);
 				case 'minimax':
 					return await this.fetchOpenAICompatibleModelsCatalog('https://api.minimax.io/v1/models', apiKey);
 				case 'liteLLM': {

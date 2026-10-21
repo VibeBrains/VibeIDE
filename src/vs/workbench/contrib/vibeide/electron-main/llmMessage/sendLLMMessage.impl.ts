@@ -646,11 +646,6 @@ export const sendLLMMessageToProviderImplementation = {
 		sendFIM: null,
 		list: null,
 	},
-	openCodeGo: {
-		sendChat: (params) => sendViaAISdk(params),
-		sendFIM: null,
-		list: null,
-	},
 	minimax: {
 		sendChat: (params) => sendViaAISdk(params),
 		sendFIM: null,

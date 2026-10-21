@@ -500,10 +500,12 @@ OpenAI. Поле читают и VibeIDE, и VibeIDEA.
 Встроенные id — для патча по `id`, для `extends` и для `apiKeyRef`:
 
 ```
-openCodeZen  openCodeGo  minimax  openRouter  lmRoute  liteLLM  gemini  groq
-pollinations anthropic   openAI   deepseek    mistral  xAI      googleVertex
-microsoftAzure awsBedrock ollama  vLLM  lmStudio  openAICompatible
+minimax  deepseek  openCodeZen  openRouter  lmRoute  liteLLM  gemini  groq
+pollinations  anthropic  openAI  mistral  xAI  googleVertex  microsoftAzure
+awsBedrock  ollama  vLLM  lmStudio  openAICompatible
 ```
+
+OpenCode Go в списке нет: он не встроенный, а провайдер из файла набора `providers/opencode-go.jsonc` (id `opencode-go`). Ключ у него общий с OpenCode Zen: `"apiKeyRef": "opencode"` указывает на ключ, введённый у встроенного Zen, а `OPENCODE_API_KEY` в `.vibe/.env` подходит обоим.
 
 (Тот же список с описаниями — команда «VibeIDE: Показать распознанные провайдеры».)
 

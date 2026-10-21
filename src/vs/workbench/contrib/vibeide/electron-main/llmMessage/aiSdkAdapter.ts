@@ -55,12 +55,13 @@ import { extractReasoningWrapper, extractTextToolCallsWrapper, extractXMLToolsWr
 import type { SendChatParams_Internal } from './sendLLMMessage.internalTypes.js';
 import { assertHttpHeaderSafe, getGoogleApiKey, withProcessEnvApiKey } from './llmHelpers.js';
 import { detectNoFundsRefusal, noFundsStatusText } from '../../common/providerFundsRefusal.js';
+import { isOpencodeGatewayUrl, opencodeGatewayHeaders } from '../../common/opencodeGateway.js';
 
 // Every chat goes through this adapter: the built-ins by id, config providers (.vibe/providers) by
 // their transport overlay. FIM and model listing keep their own paths in sendLLMMessage.impl.ts.
 export type AiSdkProviderName =
 	| 'anthropic' | 'openAI' | 'gemini'
-	| 'openCodeGo' | 'openCodeZen' | 'openRouter' | 'minimax' | 'openAICompatible' | 'liteLLM' | 'lmRoute' | 'pollinations'
+	| 'openCodeZen' | 'openRouter' | 'minimax' | 'openAICompatible' | 'liteLLM' | 'lmRoute' | 'pollinations'
 	| 'deepseek' | 'mistral' | 'xAI' | 'groq' | 'awsBedrock' | 'googleVertex' | 'microsoftAzure'
 	| 'ollama' | 'vLLM' | 'lmStudio';
 
@@ -68,7 +69,7 @@ export type AiSdkProviderName =
  * Providers whose silence before the first visible token is bounded by `timeoutMs.aggregator`: the
  * extra hop client → aggregator → upstream adds latency. Config providers join them in `firstContentLimitMs`.
  */
-const AGGREGATOR_PROVIDERS: ReadonlySet<string> = new Set(['openCodeGo', 'openCodeZen', 'openRouter', 'openAICompatible', 'liteLLM', 'lmRoute', 'pollinations']);
+const AGGREGATOR_PROVIDERS: ReadonlySet<string> = new Set(['openCodeZen', 'openRouter', 'openAICompatible', 'liteLLM', 'lmRoute', 'pollinations']);
 
 const BUILTIN_PROVIDERS: ReadonlySet<string> = new Set<string>(providerNames);
 const isBuiltinProvider = (providerName: string): boolean => BUILTIN_PROVIDERS.has(providerName);
@@ -160,7 +161,7 @@ interface AiSdkErrorView {
 //     close enough to the per-chat-session grain at upstream without plumbing
 //     chat-thread IDs through the main-process adapter layer.
 // Note: `x-opencode-request` is generated per `resolveEndpoint()` call (one
-// per streamText invocation) — see the openCodeGo branch below.
+// per streamText invocation) — see the OpenCode Zen branch below.
 const OPENCODE_PROCESS_PROJECT_ID = `vibeide-${createHash('sha256').update(process.execPath).digest('hex').slice(0, 16)}`;
 const OPENCODE_PROCESS_SESSION_ID = `vibeide-${generateUuid()}`;
 
@@ -739,44 +740,16 @@ const resolveEndpoint = async (
 			return { baseURL: endpoint ? `${endpoint}/v1` : '', apiKey: 'noop' };
 		}
 		// ---------- Aggregators ----------
-		case 'openCodeGo': {
-			const c = settingsOfProvider.openCodeGo;
-			// Headers mimic upstream opencode CLI (anomalyco/opencode session/llm.ts).
-			// The opencode.ai/zen aggregator routes prompt-injection / model-formatting
-			// based on `x-opencode-*` headers + `User-Agent: opencode/<ver>`. Without
-			// them, requests fall to a generic path where minimax/qwen variants emit
-			// numeric tool names and miss required params. With them, aggregator
-			// applies whatever the opencode CLI session-aware path does and minimax
-			// works correctly. See anomalyco/opencode src/session/llm.ts:361-374.
-			//
-			// We use stable per-process values for project/session (good enough for
-			// aggregator routing/grouping; not security-sensitive) and a fresh UUID
-			// per request. `x-opencode-client: vibeide` is our honest identification.
-			return {
-				baseURL: 'https://opencode.ai/zen/go/v1',
-				apiKey: c?.apiKey ?? '',
-				headers: {
-					'User-Agent': 'opencode/0.13.0',
-					'x-opencode-client': 'vibeide',
-					'x-opencode-project': OPENCODE_PROCESS_PROJECT_ID,
-					'x-opencode-session': OPENCODE_PROCESS_SESSION_ID,
-					'x-opencode-request': generateUuid(),
-				},
-			};
-		}
 		case 'openCodeZen': {
 			const c = settingsOfProvider.openCodeZen;
-			// Same rationale as openCodeGo — see comment above.
+			// Headers mimic upstream opencode CLI (anomalyco/opencode session/llm.ts): the opencode.ai gateway
+			// picks its request path by them, and without them minimax/qwen emit numeric tool names and miss
+			// required params. Stable per-process project/session, a fresh UUID per request — see
+			// common/opencodeGateway.ts. The same headers go to every config provider on opencode.ai (OpenCode Go)
 			return {
 				baseURL: 'https://opencode.ai/zen/v1',
 				apiKey: c?.apiKey ?? '',
-				headers: {
-					'User-Agent': 'opencode/0.13.0',
-					'x-opencode-client': 'vibeide',
-					'x-opencode-project': OPENCODE_PROCESS_PROJECT_ID,
-					'x-opencode-session': OPENCODE_PROCESS_SESSION_ID,
-					'x-opencode-request': generateUuid(),
-				},
+				headers: opencodeGatewayHeaders({ project: OPENCODE_PROCESS_PROJECT_ID, session: OPENCODE_PROCESS_SESSION_ID, request: generateUuid() }),
 			};
 		}
 		case 'openRouter': {
@@ -901,13 +874,18 @@ const resolveEndpoint = async (
 			// error (PRODUCT invariant 3). Mirror of the openai-compatible fallthrough in
 			// `newOpenAICompatibleSDK` (sendLLMMessage.impl.ts), but for the AI-SDK path.
 			const cfg = (settingsOfProvider as unknown as Record<string, DynProviderTransportConfig | undefined>)[providerName as string];
-			const headers = (cfg?.headers && typeof cfg.headers === 'object') ? cfg.headers : undefined;
-			if (headers) {
-				for (const [hName, hValue] of Object.entries(headers)) {
+			const fileHeaders = (cfg?.headers && typeof cfg.headers === 'object') ? cfg.headers : undefined;
+			if (fileHeaders) {
+				for (const [hName, hValue] of Object.entries(fileHeaders)) {
 					assertHttpHeaderSafe(`Dynamic provider "${providerName}" header name "${hName}"`, hName);
 					if (typeof hValue === 'string') { assertHttpHeaderSafe(`Dynamic provider "${providerName}" header "${hName}" value`, hValue); }
 				}
 			}
+			// A provider on the opencode.ai gateway (OpenCode Go from the shared set) is introduced to it the way the
+			// built-in Zen is — a file cannot carry per-request ids. Headers the file declares itself win
+			const headers = isOpencodeGatewayUrl(cfg?.baseURL)
+				? { ...opencodeGatewayHeaders({ project: OPENCODE_PROCESS_PROJECT_ID, session: OPENCODE_PROCESS_SESSION_ID, request: generateUuid() }), ...fileHeaders }
+				: fileHeaders;
 			// A keyless server gets no key; any other one gets the key it has, or nothing — never a placeholder
 			const key = cfg?.keyless ? undefined : cfg?.apiKey || (cfg?.apiKeyEnv ? process.env[cfg.apiKeyEnv] : undefined) || undefined;
 			if (key) { assertHttpHeaderSafe(`Dynamic provider "${providerName}" API key`, key); }
@@ -936,7 +914,7 @@ const buildToolNameLookup = (messages: LLMChatMessage[]): Map<string, string> =>
 		}
 		// Anthropic shape: assistant.content[] with { type: 'tool_use', id, name } blocks.
 		// (The renderer emits this shape for anthropic-protocol routes — e.g. sonnet via
-		// openCodeGo Zen /v1/messages. Without this branch the lookup stayed empty and the
+		// OpenCode Go Zen /v1/messages. Without this branch the lookup stayed empty and the
 		// whole tool history was silently dropped below — see the get_dir_tree replay bug.)
 		if (Array.isArray(msg.content)) {
 			for (const p of msg.content) {
@@ -1052,7 +1030,7 @@ const convertMessagesToModelMessages = (messages: LLMChatMessage[], modelName: s
 						// Anthropic shape carries tool results as user-content blocks. AI SDK wants a
 						// dedicated `role: 'tool'` message. These were silently DROPPED before — the
 						// model saw empty user turns instead of its tool outputs and re-issued the
-						// same call forever (observed: sonnet via openCodeGo Zen, get_dir_tree replay).
+						// same call forever (observed: sonnet via OpenCode Go Zen, get_dir_tree replay).
 						const resultText = typeof p.content === 'string' ? p.content : flattenTextContent(p.content);
 						if (toolNameLookup.has(p.tool_use_id)) {
 							out.push({
@@ -1089,7 +1067,7 @@ const convertMessagesToModelMessages = (messages: LLMChatMessage[], modelName: s
 			const content = msg.content;
 			// AI SDK 4.x supports `{ type: 'reasoning', text }` parts inside assistant
 			// messages. Providers that natively understand thinking-mode roundtrip
-			// (DeepSeek via openai-compatible, openCodeGo/zen-proxied reasoning models)
+			// (DeepSeek via openai-compatible, OpenCode Go/Zen-proxied reasoning models)
 			// require the previous assistant's `reasoning_content` to be sent back —
 			// without it the provider rejects continuation with HTTP 400 "must be
 			// passed back". Surface it FIRST (before text/tool-call parts) so the SDK
@@ -1199,7 +1177,7 @@ const convertMessagesToModelMessages = (messages: LLMChatMessage[], modelName: s
 			//     array contains a tool_call with this callId, the tool message is a true
 			//     orphan — auto-summary dropped its parent assistant turn entirely. We
 			//     can't synthesize a faithful replacement: strict providers (DeepSeek
-			//     thinking via openCodeGo) require `reasoning_content` on the assistant
+			//     thinking via OpenCode Go) require `reasoning_content` on the assistant
 			//     turn, and we have no reasoning to attach. A bare tool-call stub passes
 			//     the "tool must follow tool_calls" check but fails the
 			//     "reasoning_content must be passed back" check. Dropping the orphan tool
@@ -1738,7 +1716,7 @@ export const sendViaAISdk = async (params: SendChatParams_Internal): Promise<voi
 				}).chat(modelName)
 			: sdkNpm === '@ai-sdk/google'
 				? // Native Google Generative AI (Gemini): the built-in `gemini` provider, a
-				// Gemini model the models.dev catalog maps here (openCodeGo/zen, openRouter
+				// Gemini model the models.dev catalog maps here (OpenCode Go/Zen, openRouter
 				// with Gemini), or the user's apiProtocol="google" override. Tool-call format is
 				// functionDeclarations / functionCall — different from OpenAI shape
 				// — but @ai-sdk/google handles that conversion internally.
@@ -1782,7 +1760,7 @@ export const sendViaAISdk = async (params: SendChatParams_Internal): Promise<voi
 	//      because the top-level `system: string` option cannot carry providerOptions;
 	//   2. the LAST message — Anthropic reuses the longest previously-cached prefix, so
 	//      marking the tail makes each turn cache the whole conversation for the next one.
-	// Harmless when a proxy (openCodeGo Zen) strips the field — it is purely additive.
+	// Harmless when a proxy (OpenCode Go Zen) strips the field — it is purely additive.
 	// Reasoning effort as PROSE for models that never learned the API field (quirk
 	// `reasoningEffortInSystemPrompt`, e.g. Muse Glimmer). Applied before the caching
 	// branches below, so the line is inside the block that gets the cache breakpoint —
@@ -1886,7 +1864,7 @@ export const sendViaAISdk = async (params: SendChatParams_Internal): Promise<voi
 	let firstContentTimeoutId: ReturnType<typeof setTimeout> | null = null;
 	// Idle (inter-token) timeout: abort if the stream goes silent for `idleMs`
 	// after content has started. A model that STALLS mid-stream (e.g. native FC on
-	// an openCodeGo aggregator that confuses tool args) is caught in ~45s, while a
+	// an OpenCode Go aggregator that confuses tool args) is caught in ~45s, while a
 	// legitimately long response keeps emitting tokens and is never cut: there is
 	// no wall-clock cap once content flows. (There used to be one — 180s from the
 	// start — which cut long answers and, worse, handed their half-written tool
@@ -1952,7 +1930,7 @@ export const sendViaAISdk = async (params: SendChatParams_Internal): Promise<voi
 	// top) clears it on the first part of ANY kind, so a connected-but-still-thinking
 	// model (reasoning silently before it emits) is NOT aborted — that false abort
 	// was the abort→retry churn. 90s is a deliberately generous TEMPORARY ceiling
-	// until the [VibeIDE/llmTurn] trace shows how openCodeGo actually streams (early
+	// until the [VibeIDE/llmTurn] trace shows how OpenCode Go actually streams (early
 	// `start` part vs buffering ~60s); then we tune the number from data, not guesses.
 	firstTokenTimeoutId = setTimeout(() => {
 		if (!firstTokenReceived) { abortController.abort(new Error('Connection timeout (no stream parts received).')); }
@@ -2462,7 +2440,7 @@ export const sendViaAISdk = async (params: SendChatParams_Internal): Promise<voi
 		const errBody: string = typeof errorView.responseBody === 'string' ? errorView.responseBody
 			: (typeof inner?.responseBody === 'string' ? inner.responseBody : '');
 		// The provider's response BODY often carries the REAL reason while the status code
-		// lies (observed: openCodeGo 401 with body «Free promotion has ended for Qwen3.6 Plus
+		// lies (observed: OpenCode Go 401 with body «Free promotion has ended for Qwen3.6 Plus
 		// Free…» — a static «Invalid API key» message hid it). Prefer `data.error.message`
 		// (AI SDK pre-parses it) with a raw-JSON-body fallback.
 		const bodyErrMsg: string | undefined = (() => {

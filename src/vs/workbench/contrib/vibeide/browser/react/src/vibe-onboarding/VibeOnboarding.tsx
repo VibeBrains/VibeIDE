@@ -113,7 +113,6 @@ const cloudProviders: ProviderName[] = ['googleVertex', 'liteLLM', 'microsoftAzu
 
 // Data structures for provider tabs
 const providerNamesOfTab: Record<TabName, ProviderName[]> = {
-	// OpenCode Go (`openCodeGo`) is subscription-only — NOT free. It lands in Paid via the complement below.
 	Free: ['openCodeZen', 'openRouter', 'gemini', 'pollinations'],
 	Local: localProviderNames,
 	Paid: providerNames.filter(pn => !(['openCodeZen', 'gemini', 'openRouter', 'pollinations', ...localProviderNames, ...cloudProviders] as string[]).includes(pn)) as ProviderName[],
@@ -126,7 +125,8 @@ const descriptionOfTab: Record<TabName, string> = onboardingS.tabDescription;
 const featureNameMap: ReadonlyArray<{ display: string; featureName: FeatureName }> = onboardingS.featureLabel;
 
 const AddProvidersPage = ({ pageIndex, setPageIndex }: { pageIndex: number; setPageIndex: (index: number) => void }) => {
-	const [currentTab, setCurrentTab] = useState<TabName>('Free');
+	// Первой открывается «Платно»: в ней MiniMax и DeepSeek, а «Бесплатно» с OpenCode Zen идёт следом
+	const [currentTab, setCurrentTab] = useState<TabName>(tabNames[0]);
 	const settingsState = useSettingsState();
 	const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
@@ -214,7 +214,7 @@ const AddProvidersPage = ({ pageIndex, setPageIndex }: { pageIndex: number; setP
 								<div className="flex items-center justify-between mb-3">
 									<div className="text-xl font-medium text-vibe-fg-0 flex items-center gap-2">
 										{onboardingS.addProviderTitle(displayInfoOfProviderName(providerName).title)}
-										{(providerName === 'openCodeZen' || providerName === 'openCodeGo' || providerName === 'gemini' || providerName === 'openRouter' || providerName === 'pollinations') && (
+										{(providerName === 'openCodeZen' || providerName === 'gemini' || providerName === 'openRouter' || providerName === 'pollinations') && (
 											<span
 												data-tooltip-id="vibe-tooltip-provider-info"
 												data-tooltip-place="right"

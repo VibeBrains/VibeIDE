@@ -46,6 +46,20 @@ export const builtinProviderIdOf = (id: ProviderId): ProviderName | undefined =>
 
 export const isBuiltinProviderId = (id: ProviderId): id is ProviderName => builtinProviderIdOf(id) !== undefined;
 
+/**
+ * Слоты ключа, которые общий набор называет не по id встроенного провайдера.
+ * Набор пишут оба продукта; у VibeIDEA ключ OpenCode один на Go и Zen и живёт в слоте `opencode`.
+ * У нас Go — провайдер из файла, а ключ Zen — настройка встроенного `openCodeZen`: на неё и указывает `opencode`.
+ */
+const API_KEY_REF_ALIASES: Readonly<Record<string, ProviderName>> = { opencode: 'openCodeZen' };
+
+/**
+ * Ключ в `settingsOfProvider`, на который указывает `apiKeyRef` провайдера из файла.
+ * Встроенный id в любом написании (`opencode-zen`, `openCodeZen`) приводится к каноническому, общие слоты набора — по таблице,
+ * остальное остаётся как есть (так, как и раньше, `apiKeyRef` мог указывать на id другого провайдера из файла).
+ */
+export const apiKeySlotOfRef = (apiKeyRef: string): string => builtinProviderIdOf(apiKeyRef) ?? API_KEY_REF_ALIASES[apiKeyRef.toLowerCase()] ?? apiKeyRef;
+
 export const localProviderNames = ['ollama', 'vLLM', 'lmStudio'] satisfies ProviderName[]; // all local names
 export const nonlocalProviderNames = providerNames.filter((name) => !(localProviderNames as string[]).includes(name)); // all non-local names
 
@@ -57,7 +71,10 @@ export const nonlocalProviderNames = providerNames.filter((name) => !(localProvi
  * providers first (Anthropic / OpenAI / Gemini), then alternative clouds
  * (xAI / Mistral / DeepSeek / Groq), then local (Ollama / vLLM / LMStudio),
  * then generic aggregators (OpenAI-compatible / OpenRouter / LiteLLM /
- * Pollinations), then VibeIDE-aligned aggregators (OpenCode Zen / Go).
+ * Pollinations), then VibeIDE-aligned aggregators (OpenCode Zen).
+ *
+ * Голова списка — MiniMax, DeepSeek, OpenCode Zen: порядок задан владельцем и совпадает с порядком провайдеров в настройках
+ * (`defaultProviderSettings`). OpenCode Go в списке нет: он подключается файлом провайдера, а у файловых провайдеров свой порядок.
  *
  * SINGLE SOURCE OF TRUTH — used by chatThreadService._findModelSelectionForId,
  * vibeideSettingsService.resolveAutoModelSelection, errorDetectionService and
@@ -67,7 +84,7 @@ export const nonlocalProviderNames = providerNames.filter((name) => !(localProvi
  * provider = add the name HERE (and to defaultProviderSettings); the four
  * callers automatically pick it up.
  */
-export const autoModelFallbackProviderOrder = ['anthropic', 'openAI', 'gemini', 'xAI', 'mistral', 'deepseek', 'groq', 'ollama', 'vLLM', 'lmStudio', 'openAICompatible', 'openRouter', 'liteLLM', 'pollinations', 'openCodeZen', 'openCodeGo', 'minimax'] satisfies ProviderName[];
+export const autoModelFallbackProviderOrder = ['minimax', 'deepseek', 'openCodeZen', 'anthropic', 'openAI', 'gemini', 'xAI', 'mistral', 'groq', 'ollama', 'vLLM', 'lmStudio', 'openAICompatible', 'openRouter', 'liteLLM', 'pollinations'] satisfies ProviderName[];
 
 /**
  * Auto-fallback candidate order over the MERGED provider set: config providers (providers.json —
@@ -92,7 +109,7 @@ export const autoFallbackProviderIds = (settingsOfProvider: SettingsOfProvider):
  * requires EVERY field of a provider to be non-empty. Multi-field providers (liteLLM /
  * lmRoute need `endpoint`, microsoftAzure needs `project`, awsBedrock needs `region`) are
  * deliberately absent — an env key alone would not unblock them. Providers with no
- * established convention (openCodeZen / openCodeGo / pollinations) are absent too rather
+ * established convention (openCodeZen / pollinations) are absent too rather
  * than inventing a name.
  *
  * The NAME lives here (shared); the VALUE is read only in electron-main, where
@@ -262,9 +279,6 @@ export const displayInfoOfProviderName = (providerName: ProviderId): DisplayInfo
 	else if (providerName === 'openCodeZen') {
 		return { title: 'OpenCode Zen', };
 	}
-	else if (providerName === 'openCodeGo') {
-		return { title: 'OpenCode Go', };
-	}
 	else if (providerName === 'minimax') {
 		return { title: 'MiniMax', };
 	}
@@ -300,7 +314,6 @@ export const subTextMdOfProviderName = (providerName: ProviderId): string => {
 	if (providerName === 'lmRoute') { return 'OpenAI-совместимый агрегатор. Hosted: `https://api.lmrouter.com/openai/v1`, либо self-hosted endpoint. [Исходники](https://github.com/LMRouter/lmrouter).'; }
 	if (providerName === 'pollinations') { return '[Ключ API](https://enter.pollinations.ai/). [Документация API](https://enter.pollinations.ai/api/docs).'; }
 	if (providerName === 'openCodeZen') { return 'Ключ на [opencode.ai/zen](https://opencode.ai/zen). Бесплатные модели: MiniMax M2.5 Free, Ling 2.6 Flash и др. ([документация Zen](https://opencode.ai/docs/zen)).'; }
-	if (providerName === 'openCodeGo') { return 'Подписка OpenCode Go — тот же аккаунт Zen. [Модели Go](https://dev.opencode.ai/docs/go) на opencode.ai/zen/go (Qwen, DeepSeek V4, …).'; }
 	if (providerName === 'minimax') { return '[Ключ API](https://platform.minimax.io/user-center/basic-information/interface-key). OpenAI-совместимый API. Модели: MiniMax-M3 (контекст 1M, мультимодальная, thinking переключается), MiniMax-M2.'; }
 
 	// Dynamic providers (.vibe/providers.json) aren't in the built-in list — don't throw, just hint at
@@ -334,8 +347,7 @@ export const displayInfoOfSettingName = (providerName: ProviderId, settingName: 
 														providerName === 'awsBedrock' ? 'key-...' :
 															providerName === 'pollinations' ? 'sk-... or pk-...' :
 																providerName === 'openCodeZen' ? 'opencode-key...' :
-																	providerName === 'openCodeGo' ? 'opencode-key...' :
-																		providerName === 'minimax' ? 'eyJ...' :
+																	providerName === 'minimax' ? 'eyJ...' :
 																			providerName === 'lmRoute' ? 'lmrouter-key...' :
 																				'',
 
@@ -553,12 +565,6 @@ export const defaultSettingsOfProvider: SettingsOfProvider = {
 		...defaultCustomSettings,
 		...defaultProviderSettings.openCodeZen,
 		...modelInfoOfDefaultModelNames(defaultModelsOfProvider.openCodeZen),
-		_didFillInProviderSettings: undefined,
-	},
-	openCodeGo: {
-		...defaultCustomSettings,
-		...defaultProviderSettings.openCodeGo,
-		...modelInfoOfDefaultModelNames(defaultModelsOfProvider.openCodeGo),
 		_didFillInProviderSettings: undefined,
 	},
 	minimax: {

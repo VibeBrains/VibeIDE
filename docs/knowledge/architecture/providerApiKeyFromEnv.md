@@ -27,7 +27,7 @@
 **Применение:**
 
 - В карту `apiKeyEnvVarOfProvider` можно добавлять ТОЛЬКО провайдеров, у которых `apiKey` — единственное обязательное поле. У `liteLLM`/`lmRoute` есть `endpoint`, у `microsoftAzure` — `project`, у `awsBedrock` — `region`: env-ключ их всё равно не разблокирует, потому что `computeDidFillInProviderSettings` требует непустыми ВСЕ поля. Это гейтится тестом `providerEnvApiKey.test.ts` («every listed provider has apiKey as its only required setting»).
-- Имена переменных не выдумывать. Провайдеры без устоявшегося канона (`openCodeZen`, `openCodeGo`, `pollinations`) в карту не добавлены намеренно.
+- Имена переменных не выдумывать. Провайдеры без устоявшегося канона (`openCodeZen`, `pollinations`) в карту не добавлены намеренно.
 - Значение env всегда `trim()` — шеллы и CI оставляют хвостовой перевод строки, который всплывёт много позже как невнятная ошибка HTTP-заголовка (ровно тот класс, что ловит `assertHttpHeaderSafe`).
 
 **Антипаттерны:**

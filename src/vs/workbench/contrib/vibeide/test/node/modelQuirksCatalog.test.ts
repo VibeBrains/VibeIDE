@@ -88,6 +88,22 @@ suite('ModelQuirks — настоящий каталог resources/model-quirks.
 		['gpt-5-pro', { responsesOnly: true }],
 	];
 
+	// OpenCode Go вышел из встроенных: его подключает файл набора с id `opencode-go`. Правила каталога привязаны к подстроке
+	// провайдера `openCode`, поэтому провайдер из файла получает те же причуды моделей, что встроенный Zen
+	// Правило, привязанное к прежнему id `openCodeGo`, молча перестало бы срабатывать — каталог такого не содержит
+	test('причуды моделей через OpenCode одинаковы у встроенного Zen и у провайдера Go из файла', () => {
+		const providers = ['openCodeZen', 'opencode-go'];
+		const quirksOf = (model: string) => providers.map(provider => matchQuirks(catalog.rules, model, provider));
+		const withoutOpenCodeScope = (model: string) => matchQuirks(catalog.rules, model, 'someOtherProvider');
+		for (const model of ['kimi-k2.6', 'deepseek-v4-pro', 'minimax-m3', 'qwen3.6-plus']) {
+			const [zen, go] = quirksOf(model);
+			assert.deepStrictEqual(go, zen, `причуды ${model} у Go и у Zen разошлись`);
+			assert.strictEqual(zen?.forceToolCallFormat, 'auto', `для ${model} через OpenCode ожидался native-first (forceToolCallFormat: auto)`);
+			assert.notStrictEqual(withoutOpenCodeScope(model)?.forceToolCallFormat, 'auto', `${model}: правило OpenCode не должно срабатывать у чужого провайдера`);
+		}
+		assert.deepStrictEqual(catalog.rules.filter(rule => rule.provider && /go/i.test(rule.provider)).map(rule => rule.provider), [], 'правило привязано к id Go, которого больше нет');
+	});
+
 	for (const [modelId, expected] of cases) {
 		test(`${modelId} → ожидаемые квирки`, () => {
 			const q = matchQuirks(catalog.rules, modelId);

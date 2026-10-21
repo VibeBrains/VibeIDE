@@ -6,7 +6,8 @@
 
 import type { FeatureName, ProviderName } from '../../../../common/vibeideSettingsTypes.js';
 
-export const tabNames = ['Free', 'Paid', 'Local'] as const;
+// Порядок вкладок — порядок показа: первой идёт «Платно» (MiniMax, DeepSeek), «Бесплатно» с OpenCode Zen — после неё
+export const tabNames = ['Paid', 'Free', 'Local'] as const;
 export type TabName = typeof tabNames[number] | 'Cloud/Other';
 
 export const onboardingS = {
@@ -76,8 +77,6 @@ export const onboardingS = {
 		switch (providerName) {
 			case 'openCodeZen':
 				return 'OpenCode Zen: отобранные модели через opencode.ai/zen; бесплатные модели указаны в документации (MiniMax M2.5 Free, Ling 2.6 Flash и др.).';
-			case 'openCodeGo':
-				return 'OpenCode Go: подписка Go на том же аккаунте Zen; модели и endpoint /zen/go — см. dev.opencode.ai/docs/go.';
 			case 'minimax':
 				return 'MiniMax: прямой OpenAI-совместимый API. Флагман MiniMax-M3 (контекст 1M, мультимодальная, thinking переключается). Ключ на platform.minimax.io.';
 			case 'gemini':

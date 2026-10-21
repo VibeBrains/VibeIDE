@@ -19,7 +19,7 @@ export type SpecialToolFormat = 'openai-style' | 'anthropic-style' | 'gemini-sty
 
 /**
  * Resolve the model family from a (providerName, modelName, specialToolFormat)
- * triple. Direct cloud providers map by name. Aggregators (openCodeGo, openRouter,
+ * triple. Direct cloud providers map by name. Aggregators (OpenCode Go, openRouter,
  * liteLLM, openCodeZen, lmRoute, openAICompatible, pollinations) fall back to
  * a name-substring heuristic over `modelName`. If both fail, the `specialToolFormat`
  * acts as a last-resort hint.

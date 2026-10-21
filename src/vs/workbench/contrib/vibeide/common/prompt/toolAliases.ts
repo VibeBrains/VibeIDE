@@ -289,7 +289,7 @@ const classifyPatternTool = (pattern: string): 'glob' | 'grep' =>
 
 /**
  * Shape-based tool-name correction. Aggregator-proxied models (deepseek/minimax/
- * qwen/nemotron via openCodeGo & co.) routinely emit the RIGHT params under the
+ * qwen/nemotron via OpenCode Go & co.) routinely emit the RIGHT params under the
  * WRONG tool name. Map an unambiguous param SHAPE back to the tool it belongs to
  * so we run what the model obviously meant instead of bouncing schema hints (the
  * invalid_params loop that burns the whole token budget — model-stalls #010).

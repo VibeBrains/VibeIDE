@@ -27,17 +27,19 @@ import type { VibeReasoningDialect } from './vibeProvidersFile.js';
 
 
 
-// Key order controls Main Providers UI (see nonlocalProviderNames): OpenCode Zen + OpenCode + OpenRouter first, then free-tier-friendly, then by coding-model breadth/quality; locals last.
+// Порядок ключей задаёт список провайдеров в настройках, вкладки знакомства и порядок «Авто»: сначала MiniMax, за ним DeepSeek,
+// потом OpenCode Zen и агрегаторы, облака по широте и качеству моделей для кода, локальные — последними
+// OpenCode Go отсюда убран: его подключает файл провайдера из общего набора (.vibe/providers/opencode-go.jsonc)
 export const defaultProviderSettings = {
-	// Featured aggregators block (shown first in Settings UI). Order is significant:
+	// Featured block (shown first in Settings UI). Order is significant:
 	// `providerNames` is `Object.keys(defaultProviderSettings)`, which is what the UI iterates.
-	openCodeZen: {
-		apiKey: '',
-	},
-	openCodeGo: {
-		apiKey: '',
-	},
 	minimax: { // direct cloud, OpenAI-compatible — https://platform.minimax.io/docs/api-reference/text-chat-openai
+		apiKey: '',
+	},
+	deepseek: {
+		apiKey: '',
+	},
+	openCodeZen: {
 		apiKey: '',
 	},
 	openRouter: {
@@ -67,9 +69,6 @@ export const defaultProviderSettings = {
 		apiKey: '',
 	},
 	openAI: {
-		apiKey: '',
-	},
-	deepseek: {
 		apiKey: '',
 	},
 	mistral: {
@@ -144,7 +143,6 @@ export const defaultModelsOfProvider = {
 	lmRoute: [],
 	pollinations: [],
 	openCodeZen: [],
-	openCodeGo: [],
 	// Empty like every other catalog-capable cloud provider: models come from
 	// RemoteCatalogService (/v1/models) after the key is entered. Seeding here
 	// would collide with catalog 'autodetected' rows (same modelName, different
@@ -503,7 +501,7 @@ const openSourceModelOptions_assumingOAICompat = {
 		contextWindow: 64_000, reservedOutputTokenSpace: 8_000,
 	},
 	// Latest DeepSeek family (V4, V4-pro, …). New default when no explicit version is given.
-	// Catalog wins for known aggregators (openCodeGo/openRouter) — this is only the fallback
+	// Catalog wins for known aggregators (OpenCode Go/openRouter) — this is only the fallback
 	// for self-hosted / unknown endpoints that don't return context_length in /v1/models.
 	'deepseekV4': {
 		supportsFIM: false,
@@ -515,7 +513,7 @@ const openSourceModelOptions_assumingOAICompat = {
 		supportsFIM: false,
 		supportsSystemMessage: false, // unstable
 		reasoningCapabilities: false,
-		// V3 spec is 128K through every modern aggregator path (openCodeGo/openRouter).
+		// V3 spec is 128K through every modern aggregator path (OpenCode Go/openRouter).
 		// Self-hosted Ollama variants may be smaller, but those usually override via catalog.
 		contextWindow: 128_000, reservedOutputTokenSpace: 8_192,
 	},
@@ -2097,7 +2095,7 @@ const ollamaSettings: VoidStaticProviderInfo = {
 
 /**
  * Universal modelOptionsFallback for OpenAI-compatible aggregator providers
- * (openCodeGo, openCodeZen, openRouter, liteLLM, lmRoute, openAICompatible,
+ * (openCodeZen, openRouter, liteLLM, lmRoute, openAICompatible,
  * pollinations). Aggregators proxy any model behind an OpenAI-compatible
  * `/chat/completions` endpoint and almost universally support OpenAI tools
  * format — so unrecognized models (yesterday's minimax, tomorrow's maximax)
@@ -2170,16 +2168,6 @@ const lmRouteSettings: VoidStaticProviderInfo = { // OpenAI-compatible aggregato
 // Model ids: https://opencode.ai/zen/v1/models — sync via RemoteCatalogService (refresh catalog in settings).
 // Context limits: catalog entries may expose context_length in the future; until then, ids like gpt-5.1 / glm-5.1 match extensiveModelOptionsFallback; others use aggregator fallback (assumes openai-style tools).
 const openCodeZenSettings: VoidStaticProviderInfo = {
-	modelOptionsFallback: aggregatorOpenAIFallback,
-	modelOptions: {},
-	providerReasoningIOSettings: {
-		input: { includeInPayload: openAICompatIncludeInPayloadReasoning },
-		output: { nameOfFieldInDelta: 'reasoning_content' },
-	},
-};
-
-// ---------------- OPENCODE (GO) ----------------
-const openCodeSettings: VoidStaticProviderInfo = {
 	modelOptionsFallback: aggregatorOpenAIFallback,
 	modelOptions: {},
 	providerReasoningIOSettings: {
@@ -2525,7 +2513,6 @@ const modelSettingsOfProvider: { [providerName in ProviderName]: VoidStaticProvi
 
 	pollinations: pollinationsSettings,
 	openCodeZen: openCodeZenSettings,
-	openCodeGo: openCodeSettings,
 	minimax: minimaxSettings,
 
 	googleVertex: googleVertexSettings,

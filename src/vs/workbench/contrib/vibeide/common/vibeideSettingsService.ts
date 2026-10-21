@@ -17,7 +17,8 @@ import { vibeLog } from './vibeLog.js';
 import { defaultProviderSettings, getModelCapabilities, isFloatingModel, ModelOverrides, VibeideStaticModelInfo } from './modelCapabilities.js';
 import { retiredForAutoPick } from './modelDeprecation.js';
 import type { VibeProviderEntry, VibeReasoningDialect } from './vibeProvidersFile.js';
-import { VOID_SETTINGS_STORAGE_KEY } from './storageKeys.js';
+import { OPENCODE_GO_MIGRATION_NOTICE_KEY, VOID_SETTINGS_STORAGE_KEY } from './storageKeys.js';
+import { migrateOpenCodeGoState, OpenCodeGoMigratableState, OpenCodeGoMigrationReport, openCodeGoMigrationWorthMentioning } from './openCodeGoMigration.js';
 import type { BuiltinWireHints } from './builtinWireHints.js';
 import { withBuiltinFileModels, withoutFileModels } from './builtinFileModels.js';
 import { autoFallbackProviderIds, defaultSettingsOfProvider, FeatureName, isBuiltinProviderId, ProviderId, ProviderName, ModelSelectionOfFeature, SettingsOfProvider, SettingName, providerNames, ModelSelection, modelSelectionsEqual, featureNames, VibeideStatefulModelInfo, GlobalSettings, GlobalSettingName, defaultGlobalSettings, ModelSelectionOptions, OptionsOfModelSelection, ChatMode, OverridesOfModel, defaultOverridesOfModel, MCPUserStateOfName as MCPUserStateOfName, MCPUserState, MinimalismMode } from './vibeideSettingsTypes.js';
@@ -755,6 +756,7 @@ class VoidSettingsService extends Disposable implements IVibeideSettingsService 
 
 	async readAndInitializeState() {
 		let readS: VibeideSettingsState;
+		let openCodeGoReport: OpenCodeGoMigrationReport | undefined;
 		try {
 			readS = await this._readState();
 			const rw = readS as unknown as LegacyMigrationState;
@@ -783,6 +785,11 @@ class VoidSettingsService extends Disposable implements IVibeideSettingsService 
 				rw.settingsOfProvider.openCodeGo = rw.settingsOfProvider.openCode;
 				delete rw.settingsOfProvider.openCode;
 			}
+
+			// OpenCode Go is no longer built in: key, selected models and model tweaks move to the provider from the
+			// shared set (`providers/opencode-go.jsonc`, id `opencode-go`). Runs after the rename above, which
+			// feeds it the legacy `openCode` data, and before the normalisation loop below, which no longer knows the id
+			openCodeGoReport = migrateOpenCodeGoState(rw as unknown as OpenCodeGoMigratableState);
 			readS = rw as unknown as VibeideSettingsState;
 		}
 		catch (e) {
@@ -875,6 +882,14 @@ class VoidSettingsService extends Disposable implements IVibeideSettingsService 
 		this._resolver();
 		this._onDidChangeState.fire();
 
+		// The move must outlive this run: stored state still holds `openCodeGo` until the next write, and the notice
+		// is shown later, when the window exists (browser/openCodeGoMigrationNotice.ts)
+		if (openCodeGoReport) {
+			await this._storeState();
+			if (openCodeGoMigrationWorthMentioning(openCodeGoReport)) {
+				this._storageService.store(OPENCODE_GO_MIGRATION_NOTICE_KEY, JSON.stringify(openCodeGoReport), StorageScope.APPLICATION, StorageTarget.USER);
+			}
+		}
 	}
 
 

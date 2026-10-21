@@ -32,3 +32,8 @@ export const OPT_OUT_KEY = 'vibeide.app.optOutAll';
 // are usable BEFORE the async file reads land (and in windows with no folder open); every reload
 // overwrites it, so entries deleted from the files reconcile away instead of lingering as ghosts.
 export const VIBE_CONFIG_PROVIDERS_CACHE_KEY = 'vibeide.configProvidersCacheI';
+
+// OpenCode Go перестал быть встроенным провайдером, и его настройки переехали к провайдеру из файла набора.
+// Ключ хранит отчёт о переносе до тех пор, пока человеку не показано уведомление: перенос идёт при чтении настроек,
+// когда окна для уведомления ещё нет. Значение — JSON `OpenCodeGoMigrationReport`; после показа ключ удаляется.
+export const OPENCODE_GO_MIGRATION_NOTICE_KEY = 'vibeide.migration.openCodeGoNotice';

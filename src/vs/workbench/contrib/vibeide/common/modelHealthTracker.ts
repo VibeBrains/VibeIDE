@@ -12,7 +12,7 @@
  *
  * Use case: aggregator-proxied routes (opencode.ai/zen, openrouter, etc.) have
  * transient failure patterns that aren't caught by single-incident detectors.
- * After 3 different failures of `openCodeGo/minimax-m2.7` in 10 minutes, the user
+ * After 3 different failures of `OpenCode Go/minimax-m2.7` in 10 minutes, the user
  * should be told "this route is unstable today, try elsewhere" — without nagging
  * them every single failure.
  *

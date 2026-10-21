@@ -95,7 +95,6 @@ export const remoteCatalogCapableProviderNames: readonly ProviderName[] = [
 	'deepseek',
 	'openRouter',
 	'openCodeZen',
-	'openCodeGo',
 	'minimax',
 	'liteLLM',
 	'lmRoute',

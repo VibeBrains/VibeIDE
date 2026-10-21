@@ -37,7 +37,7 @@ import { INotificationService } from '../../../../platform/notification/common/n
 import { IStorageService, StorageScope, StorageTarget } from '../../../../platform/storage/common/storage.js';
 import { IPathService } from '../../../services/path/common/pathService.js';
 import { scanProviderConfig, scanEnvFileSecrets, ConfigGuardFinding } from '../common/vibeConfigGuard.js';
-import { builtinProviderIdOf, isBuiltinProviderId, VibeideStatefulModelInfo, apiKeyEnvVarOfProvider, ProviderName } from '../common/vibeideSettingsTypes.js';
+import { apiKeySlotOfRef, builtinProviderIdOf, isBuiltinProviderId, VibeideStatefulModelInfo, apiKeyEnvVarOfProvider, ProviderName } from '../common/vibeideSettingsTypes.js';
 import { IVibeideSettingsService, VibeProviderActiveOverrides, ModelOption, DynProviderTransportConfig, DynamicProviderSeed } from '../common/vibeideSettingsService.js';
 import type { BuiltinWireHints } from '../common/builtinWireHints.js';
 import { setExternalProviders, setBuiltinModelPatches, BuiltinModelPatch, ExternalProviderDescriptor, VibeideStaticModelInfo, ModelLongContext } from '../common/modelCapabilities.js';
@@ -940,7 +940,7 @@ class VibeDynamicProvidersService extends Disposable implements IVibeDynamicProv
 		// → .vibe/.env. The UI key wins because it's the most explicit, per-provider user action.
 		const uiKey = (this._settingsService.state.dynamicProviderApiKeys ?? {})[p.id];
 		const refKey = p.entry.apiKeyRef
-			? this._settingsService.state.settingsOfProvider[p.entry.apiKeyRef]?.apiKey
+			? this._settingsService.state.settingsOfProvider[apiKeySlotOfRef(p.entry.apiKeyRef)]?.apiKey
 			: undefined;
 		const envFileKey = p.entry.apiKeyEnv ? this._envFileVars[p.entry.apiKeyEnv] : undefined;
 		return (uiKey?.trim() ? uiKey : undefined) || refKey || envFileKey || undefined;
@@ -953,7 +953,7 @@ class VibeDynamicProvidersService extends Disposable implements IVibeDynamicProv
 		const uiKey = (this._settingsService.state.dynamicProviderApiKeys ?? {})[p.id];
 		if (uiKey?.trim()) { return 'gui'; }
 		const refKey = p.entry.apiKeyRef
-			? this._settingsService.state.settingsOfProvider[p.entry.apiKeyRef]?.apiKey
+			? this._settingsService.state.settingsOfProvider[apiKeySlotOfRef(p.entry.apiKeyRef)]?.apiKey
 			: undefined;
 		if (refKey?.trim()) { return 'ref'; }
 		const envFileKey = p.entry.apiKeyEnv ? this._envFileVars[p.entry.apiKeyEnv] : undefined;

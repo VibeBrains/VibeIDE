@@ -36,10 +36,10 @@
 
 **Суть:**
 - **OpenCode Zen** — шлюз OpenCode, OpenAI-compatible base **`https://opencode.ai/zen/v1`**, ключ с [opencode.ai/zen](https://opencode.ai/zen).
-- **OpenCode Go** (в продукте — карточка **OpenCode**, id **`openCode`**) — та же экосистема аккаунта, отдельный API prefix **`https://opencode.ai/zen/go/v1`** ([доки Go](https://dev.opencode.ai/docs/go)), модели Qwen / DeepSeek V4 / Kimi / GLM / MiMo / … (часть моделей на Go использует не `/chat/completions` — в дефолтный список попадают только OAI-compatible id).
+- **OpenCode Go** (с 21.10.2026 не встроенный: провайдер из файла набора `providers/opencode-go.jsonc`, id **`opencode-go`**; прежний встроенный id был `openCodeGo`, до него `openCode`) — та же экосистема аккаунта, отдельный API prefix **`https://opencode.ai/zen/go/v1`** ([доки Go](https://dev.opencode.ai/docs/go)), модели Qwen / DeepSeek V4 / Kimi. Разбор — [openCodeGoRemoval.md](openCodeGoRemoval.md) / GLM / MiMo / … (часть моделей на Go использует не `/chat/completions` — в дефолтный список попадают только OAI-compatible id).
 - **OpenRouter** — другой агрегатор, **`https://openrouter.ai/api/v1`**.
 
-Порядок карточек **Main Providers** задаётся порядком ключей в **`defaultProviderSettings`** (`modelCapabilities.ts`) → `providerNames` / `nonlocalProviderNames`. Старт non-local: **Zen → OpenCode (Go) → OpenRouter**, далее по файлу.
+Порядок карточек **Main Providers** задаётся порядком ключей в **`defaultProviderSettings`** (`modelCapabilities.ts`) → `providerNames` / `nonlocalProviderNames`. Старт non-local: **MiniMax → DeepSeek → Zen → OpenRouter**, далее по файлу (с 21.10.2026; раньше — Zen → OpenCode (Go) → MiniMax → OpenRouter).
 
 **Применение:** при правках LLM-провайдеров и саппорте уточнять endpoint и ключ (Zen vs Go vs OR).
 
