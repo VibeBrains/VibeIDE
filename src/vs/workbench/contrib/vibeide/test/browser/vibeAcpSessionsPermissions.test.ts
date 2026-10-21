@@ -57,6 +57,7 @@ suite('VibeAcpSessionsService — кто отвечает на вопрос вн
 			{ detectSecrets: (text: string) => ({ redactedText: text }) } as never,
 			{ getWorkspace: () => ({ folders: [{ uri: URI.file('/ws/app') }] }) } as never,
 			disposables.add(new InMemoryStorageService()),
+			{ beginTurn: () => { }, remember: () => { }, settle: async () => { }, settleWritten: async () => { }, forget: () => { } } as never,
 		));
 		return { service, events, answers, snapshots, audit };
 	}

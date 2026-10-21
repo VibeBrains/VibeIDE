@@ -6,6 +6,7 @@
 import { AcpMcpServer } from './acpMcpExport.js';
 import { Event } from '../../../../../base/common/event.js';
 import { AcpContentBlock, AcpReconnectMode, AcpStopReason, AcpToolStatus, IAcpAuthMethod, IAcpCommand, IAcpConfigOption, IAcpDiff, IAcpPromptCapabilities } from './acpProtocol.js';
+import { AcpFileBefore } from './acpEditBaseline.js';
 
 /**
  * Контракт хоста ACP: VibeIDE как клиент, внешний агент как процесс.
@@ -77,6 +78,11 @@ export type AcpEvent =
 	| { readonly kind: 'usage'; readonly sessionId: string; readonly used: number; readonly size: number; readonly costUsd?: number }
 	/** Агент записал файл нашими руками — путь `fs/write_text_file`. */
 	| { readonly kind: 'wrote'; readonly sessionId: string; readonly path: string }
+	/**
+	 * Файлы, какими их застали до правки: главный процесс читает их в момент, когда кадр вызова только пришёл
+	 * Приходит раньше кадра, который о них рассказывает, и один раз на файл за ход
+	 */
+	| { readonly kind: 'before'; readonly sessionId: string; readonly files: readonly AcpFileBefore[] }
 	/** Агент не авторизован: ход не начнётся, пока человек не войдёт. */
 	| { readonly kind: 'authRequired'; readonly sessionId: string; readonly agentName: string; readonly methods: readonly IAcpAuthMethod[] }
 	/** Ход закончился. */

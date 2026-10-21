@@ -38,6 +38,15 @@ export type AddCtrlKOpts = {
 	editor: ICodeEditor;
 };
 
+/** A change that is already in the file: written there by something other than this service */
+export type ExternalEditOpts = {
+	uri: URI;
+	/** The text before the change; the file's current text is what the change is shown against */
+	originalCode: string;
+	/** Called after the person rejects the change: the text is back to `originalCode` and the zone is gone */
+	onRejected?: () => void;
+};
+
 export const IEditCodeService = createDecorator<IEditCodeService>('editCodeService');
 
 export interface IEditCodeService {
@@ -49,6 +58,12 @@ export interface IEditCodeService {
 	startApplying(opts: StartApplyingOpts): [URI, Promise<void>] | null;
 	instantlyApplySearchReplaceBlocks(opts: { uri: URI; searchReplaceBlocks: string }): { indentAdjustments: { fileIndentWidth: number }[] };
 	instantlyRewriteFile(opts: { uri: URI; newContent: string }): void;
+	/**
+	 * Put a change the file already holds under review, like the agent's own: accept keeps it, reject writes `originalCode` back
+	 * The file's model has to hold the new text already. Returns whether there is something to review
+	 * A file with changes under review keeps its earlier baseline: the new change joins them instead of starting a second zone
+	 */
+	registerExternalEdit(opts: ExternalEditOpts): boolean;
 	addCtrlKZone(opts: AddCtrlKOpts): number | undefined;
 	removeCtrlKZone(opts: { diffareaid: number }): void;
 

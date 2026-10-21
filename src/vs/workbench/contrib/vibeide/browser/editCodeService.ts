@@ -45,7 +45,7 @@ import { Emitter } from '../../../../base/common/event.js';
 import { ILLMMessageService } from '../common/sendLLMMessageService.js';
 import { LLMChatMessage } from '../common/sendLLMMessageTypes.js';
 import { IMetricsService } from '../common/metricsService.js';
-import { IEditCodeService, AddCtrlKOpts, StartApplyingOpts, CallBeforeStartApplyingOpts, } from './editCodeServiceInterface.js';
+import { IEditCodeService, AddCtrlKOpts, StartApplyingOpts, CallBeforeStartApplyingOpts, ExternalEditOpts, } from './editCodeServiceInterface.js';
 import { IVibeideSettingsService } from '../common/vibeideSettingsService.js';
 import { FeatureName } from '../common/vibeideSettingsTypes.js';
 import { IVibeideModelService } from '../common/vibeideModelService.js';
@@ -1272,6 +1272,40 @@ class EditCodeService extends Disposable implements IEditCodeService {
 	}
 
 
+	public registerExternalEdit({ uri, originalCode, onRejected }: ExternalEditOpts): boolean {
+		const { model } = this._vibeideModelService.getModel(uri);
+		if (!model) { return false; }
+
+		const hasZone = [...(this.diffAreasOfURI[uri.fsPath] ?? [])].some(id => this.diffAreaOfId[id]?.type === 'DiffZone');
+		if (hasZone) {
+			// The file is already under review: its zone follows the new text on its own and keeps the earlier baseline
+			this._refreshStylesAndDiffsInURI(uri);
+			return true;
+		}
+
+		const adding: Omit<DiffZone, 'diffareaid'> = {
+			type: 'DiffZone',
+			originalCode,
+			startLine: 1,
+			endLine: model.getLineCount(),
+			_URI: uri,
+			_streamState: { isStreaming: false },
+			_diffOfId: {}, // added by the refresh below
+			_removeStylesFns: new Set(),
+			...(onRejected ? { _onRejected: onRejected } : {}),
+		};
+		const diffZone = this._addDiffArea(adding);
+		this._refreshStylesAndDiffsInURI(uri);
+		if (Object.keys(diffZone._diffOfId).length === 0) {
+			// The text equals the baseline: nothing to review, and an empty zone would only add a file with no changes to the list
+			this._deleteDiffZone(diffZone);
+			return false;
+		}
+		this._onDidAddOrDeleteDiffZones.fire({ uri });
+		return true;
+	}
+
+
 	public instantlyRewriteFile({ uri, newContent }: { uri: URI; newContent: string }) {
 		// start diffzone
 		const res = this._startStreamingDiffZone({
@@ -2270,6 +2304,7 @@ class EditCodeService extends Disposable implements IEditCodeService {
 				if (behavior === 'reject') {
 					this._revertDiffZone(diffArea);
 					this._deleteDiffZone(diffArea);
+					diffArea._onRejected?.();
 				}
 				else if (behavior === 'accept') {
 					// Only accept enabled diffs
@@ -2468,6 +2503,7 @@ class EditCodeService extends Disposable implements IEditCodeService {
 		// diffArea should be removed if it has no more diffs in it
 		if (Object.keys(diffArea._diffOfId).length === 0) {
 			this._deleteDiffZone(diffArea);
+			diffArea._onRejected?.();
 		}
 
 		this._refreshStylesAndDiffsInURI(uri);

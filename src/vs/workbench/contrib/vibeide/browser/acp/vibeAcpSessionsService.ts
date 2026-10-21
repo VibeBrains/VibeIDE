@@ -47,6 +47,7 @@ import {
 } from '../../common/acp/acpPermissionPolicy.js';
 import { IVibeAgentActivityLogService } from '../vibeAgentActivityLogService.js';
 import { IVibeAcpRegistryService } from './vibeAcpRegistryService.js';
+import { IVibeAcpEditReviewService } from './vibeAcpEditReview.js';
 import { VibeAgentEntry } from '../../common/acp/vibeAgentsFile.js';
 import { BREVITY_SETTING, BrevityLevel, brevityForAgent, brevityLevelOf } from '../../common/prompt/brevity.js';
 
@@ -199,6 +200,7 @@ export class VibeAcpSessionsService extends Disposable implements IVibeAcpSessio
 		@ISecretDetectionService private readonly _secretDetection: ISecretDetectionService,
 		@IWorkspaceContextService private readonly _workspace: IWorkspaceContextService,
 		@IStorageService private readonly _storageService: IStorageService,
+		@IVibeAcpEditReviewService private readonly _review: IVibeAcpEditReviewService,
 	) {
 		super();
 		this._register(this._acpService.onEvent(event => this._observe(event)));
@@ -299,6 +301,7 @@ export class VibeAcpSessionsService extends Disposable implements IVibeAcpSessio
 			return;
 		}
 		state.turnStart = state.log.beginTurn();
+		this._review.beginTurn(sessionId);
 		state.busy = true;
 		state.error = undefined;
 		state.lastStopReason = undefined;
@@ -487,6 +490,7 @@ export class VibeAcpSessionsService extends Disposable implements IVibeAcpSessio
 		if (state) {
 			this._audit(buildAcpSessionAudit({ agentId: state.agentId, sessionId, phase: 'ended' }, Date.now()));
 		}
+		this._review.forget(sessionId);
 		this._sessions.delete(sessionId);
 		this._onDidChange.fire();
 	}
@@ -505,10 +509,14 @@ export class VibeAcpSessionsService extends Disposable implements IVibeAcpSessio
 				if (state) {
 					this._journalEdit(state, event.toolCallId, event.status);
 					this._auditToolCall(state, event.toolCallId, event.status);
+					this._reviewEdit(state, event.toolCallId, event.status);
 				}
 				this._onDidChange.fire();
 				return;
 			}
+			case 'before':
+				if (this._sessions.has(event.sessionId)) { this._review.remember(event.sessionId, event.files); }
+				return;
 			case 'usage':
 				this._sessions.get(event.sessionId)?.log.applySpend(event.used, event.size, event.costUsd);
 				this._onDidChange.fire();
@@ -530,6 +538,7 @@ export class VibeAcpSessionsService extends Disposable implements IVibeAcpSessio
 			}
 			case 'wrote':
 				this._activityLog.logFinished(localize('vibeide.acp.log.wrote', "Внешний агент записал файл нашими руками: {0}", event.path));
+				if (this._sessions.has(event.sessionId)) { void this._review.settleWritten(event.sessionId, event.path); }
 				return;
 			case 'authRequired': {
 				// Голый код ошибки не говорит, что делать. Способ входа агент назвал сам при знакомстве.
@@ -584,6 +593,16 @@ export class VibeAcpSessionsService extends Disposable implements IVibeAcpSessio
 		} else {
 			this._activityLog.logFinished(text);
 		}
+	}
+
+	/**
+	 * A finished edit goes under review: the person accepts or rejects it in the list of changed files
+	 * Built from the accumulated log entry, like the journal above: the finishing frame carries no diff
+	 */
+	private _reviewEdit(state: ISessionState, toolCallId: string, status: string): void {
+		const entry = settledToolEntry(state, toolCallId, status);
+		if (!entry) { return; }
+		void this._review.settle(state.sessionId, { toolKind: entry.toolKind, status: entry.status, paths: entry.paths, diffs: entry.diffs });
 	}
 
 	/**

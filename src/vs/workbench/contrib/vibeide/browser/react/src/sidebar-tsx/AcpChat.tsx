@@ -189,8 +189,8 @@ export const AcpPermissionCard = ({ threadId }: { threadId: string }) => {
 				{describeGrant(offer)}
 			</AcpButton>)}
 		</div>}
-		{request.paths.length > 0 && request.options.some(option => option.kind.startsWith('allow')) && <div className='mt-2 text-xs text-vibe-fg-3'>
-			Чекпоинт по этим файлам уже снят — правку можно откатить.
+		{request.toolKind === 'edit' && request.paths.length > 0 && request.options.some(option => option.kind.startsWith('allow')) && <div className='mt-2 text-xs text-vibe-fg-3'>
+			Принятая правка встанет в список файлов с изменениями: там её можно принять или отклонить.
 		</div>}
 	</div>;
 };

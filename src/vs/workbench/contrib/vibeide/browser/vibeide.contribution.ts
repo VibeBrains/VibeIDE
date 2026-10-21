@@ -31,6 +31,7 @@ import './vibeideSettingsPane.js';
 import './vibeAgentsDispatchPane.js';
 import './acp/vibeAcpRegistryService.js';
 import './acp/vibeAcpSessionsService.js';
+import './acp/vibeAcpEditReview.js';
 import './chatPromptHistoryService.js';
 import './vibeSettingsNavigationService.js';
 import './acp/vibeAcpAgentsCommand.js';

@@ -12,6 +12,7 @@ import { Emitter, Event } from '../../../../../base/common/event.js';
 import { Disposable } from '../../../../../base/common/lifecycle.js';
 import { raceTimeout } from '../../../../../base/common/async.js';
 import { generateUuid } from '../../../../../base/common/uuid.js';
+import { isAbsolute, join } from '../../../../../base/common/path.js';
 import { vibeLog } from '../../common/vibeLog.js';
 import {
 	ACP_AGENT_METHOD,
@@ -20,6 +21,7 @@ import {
 	AcpReconnectMode,
 	AcpStreamDecoder,
 	AcpStopReason,
+	AcpToolStatus,
 	IAcpAuthMethod,
 	IAcpCommand,
 	IAcpConfigOption,
@@ -36,6 +38,7 @@ import {
 	isNotification,
 	isRequest,
 	isResponse,
+	isToolOpen,
 	newSessionParams,
 	agentSupportsHttpMcp,
 	parseSessionUpdate,
@@ -50,6 +53,8 @@ import {
 	toolCallFacts,
 } from '../../common/acp/acpProtocol.js';
 import { AcpEvent, IAcpAgentLaunch, IAcpReconnection, IAcpSession, IVibeAcpMain } from '../../common/acp/acpTypes.js';
+import { ACP_EDIT_TOOL_KIND, AcpFileBefore, isInsideRoot } from '../../common/acp/acpEditBaseline.js';
+import { readFileBefore } from './acpFileBefore.js';
 
 /** Отказ агента на вызов: код нужен, чтобы отличать «не авторизован» от прочих бед. */
 class AcpCallError extends Error {
@@ -123,6 +128,10 @@ interface IAgentProcess {
 	 * in the feed; passing it on would show every message and every edit twice, and journal them twice.
 	 */
 	replaying?: boolean;
+	/** Files whose state before the edit has been read this turn: the first touch is the baseline, later frames do not reread */
+	readonly beforeTaken: Set<string>;
+	/** Calls known as edits: a later frame may omit the kind, but the files it names are still the edit's */
+	readonly editCalls: Set<string>;
 }
 
 /** What the agent told about the session before it was handed over: its settings and its commands */
@@ -244,7 +253,7 @@ export class VibeAcpMainService extends Disposable implements IVibeAcpMain {
 			shell: false,
 		}) as ChildProcessWithoutNullStreams;
 
-		const agent: IAgentProcess = { launch, child, decoder: new AcpStreamDecoder(), pending: new Map(), nextId: 1, authMethods: [], promptCapabilities: promptCapabilitiesOf(undefined) };
+		const agent: IAgentProcess = { launch, child, decoder: new AcpStreamDecoder(), pending: new Map(), nextId: 1, authMethods: [], promptCapabilities: promptCapabilitiesOf(undefined), beforeTaken: new Set(), editCalls: new Set() };
 		child.stdout.setEncoding('utf8');
 		child.stdout.on('data', chunk => this._onStdout(agent, String(chunk)));
 		// stderr агента — не протокол, а его собственные жалобы. В лог, но не в разбор: смешать
@@ -324,6 +333,9 @@ export class VibeAcpMainService extends Disposable implements IVibeAcpMain {
 
 	async prompt(sessionId: string, blocks: readonly AcpContentBlock[]): Promise<AcpStopReason> {
 		const agent = this._require(sessionId);
+		// Новый ход: первое касание файла снова задаёт базу для разбора правок
+		agent.beforeTaken.clear();
+		agent.editCalls.clear();
 		let result: JsonValue;
 		try {
 			result = await this._call(agent, ACP_AGENT_METHOD.prompt, promptParams(sessionId, blocks));
@@ -425,6 +437,33 @@ export class VibeAcpMainService extends Disposable implements IVibeAcpMain {
 	}
 
 	/**
+	 * Файлы, которые собирается править вызов-правка, читаются сразу: после записи прежний текст уже не получить
+	 * Берутся кадры, пока вызов не закончился: на завершающем кадре файл уже записан
+	 */
+	private _captureBeforeEdit(agent: IAgentProcess, toolCallId: string, toolKind: string, status: AcpToolStatus, paths: readonly string[]): void {
+		if (toolCallId && toolKind === ACP_EDIT_TOOL_KIND) { agent.editCalls.add(toolCallId); }
+		if (!toolCallId || !agent.editCalls.has(toolCallId) || !isToolOpen(status)) { return; }
+		this._captureBefore(agent, paths);
+	}
+
+	private _captureBefore(agent: IAgentProcess, paths: readonly string[]): void {
+		const { sessionId } = agent;
+		if (!sessionId || agent.replaying) { return; }
+		const files: AcpFileBefore[] = [];
+		for (const raw of paths) {
+			const path = isAbsolute(raw) ? raw : join(agent.launch.cwd, raw);
+			// Только рабочая папка сессии: база нужна для разбора правок проекта, а читать чужие файлы по слову агента незачем
+			if (agent.beforeTaken.has(path) || !isInsideRoot(agent.launch.cwd, path)) { continue; }
+			agent.beforeTaken.add(path);
+			const before = readFileBefore(path);
+			if (before) { files.push(before); }
+		}
+		if (files.length > 0) {
+			this._onEvent.fire({ kind: 'before', sessionId, files });
+		}
+	}
+
+	/**
 	 * Что рассказал агент о своей работе.
 	 *
 	 * Вызовы инструментов важны наравне с текстом: правку файла Claude Code делает сам, и о том,
@@ -457,6 +496,7 @@ export class VibeAcpMainService extends Disposable implements IVibeAcpMain {
 				this._onEvent.fire({ kind: 'text', sessionId, text: update.text, thought: update.thought });
 				return;
 			case 'tool':
+				this._captureBeforeEdit(agent, update.toolCallId, update.toolKind, update.status, update.paths);
 				this._onEvent.fire({
 					kind: 'tool',
 					sessionId,
@@ -497,6 +537,8 @@ export class VibeAcpMainService extends Disposable implements IVibeAcpMain {
 				const path = readString(params, 'path');
 				const content = readString(params, 'content');
 				if (!path) { throw new Error('в запросе нет пути'); }
+				// Файл меняем мы, поэтому и базу снимаем сами — до записи
+				this._captureBefore(agent, [path]);
 				await fsPromises.writeFile(path, content ?? '', 'utf8');
 				if (agent.sessionId) {
 					this._onEvent.fire({ kind: 'wrote', sessionId: agent.sessionId, path });
@@ -528,6 +570,7 @@ export class VibeAcpMainService extends Disposable implements IVibeAcpMain {
 		this._permissions.set(requestId, { agent, rpcId });
 		const toolCall = readObject(params, 'toolCall');
 		const facts = toolCallFacts(toolCall ?? null);
+		this._captureBeforeEdit(agent, readString(toolCall, 'toolCallId') ?? '', facts.toolKind, 'pending', facts.paths);
 		const rawOptions = readValue(params, 'options');
 		const options = Array.isArray(rawOptions)
 			? rawOptions

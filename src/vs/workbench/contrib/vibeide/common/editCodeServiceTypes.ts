@@ -107,6 +107,8 @@ export type DiffZone = {
 	editorId?: undefined;
 	linkedStreamingDiffZone?: undefined;
 	_removeStylesFns: Set<Function>; // these don't remove diffs or this diffArea, only their styles
+	/** Called once the change has been rejected and the zone is gone; not part of a snapshot, so undo does not bring it back */
+	_onRejected?: () => void;
 } & CommonZoneProps;
 
 
