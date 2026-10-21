@@ -734,6 +734,10 @@ const extensiveModelOptionsFallback: VoidStaticProviderInfo['modelOptionsFallbac
 		};
 	};
 
+	// Gemini 4: профиль один, поэтому он стоит до всех веток третьего поколения и до общей ветки `gemini` внизу
+	// Без него любой id Argon получил бы цену и уровни мышления Flash третьего поколения
+	if (lower.includes('gemini-4')) { return toFallback(geminiModelOptions, 'gemini-4-argon'); }
+
 	// Gemini 3 models (latest). NARROW branches MUST stay above the catch-all `gemini-3` — otherwise every
 	// new 3.x id (Flash, Flash-Lite, whatever ships next) silently inherits the PRO profile: Pro pricing,
 	// Pro reserved output space, Pro thinking levels. That is exactly how `gemini-3.6-flash` and
@@ -1586,6 +1590,25 @@ const geminiProLongContext = { over_input_tokens: 200_000, input: 2, cache: 2, o
 // Retired ids are gone from the table (the deprecations page, checked 30.09.2026): 3 Pro Preview, 3 Pro Image Preview,
 // 2.0 and 1.5, the 2.5 previews. The fallback maps their names onto the replacements the vendor names
 export const geminiModelOptions = { // https://ai.google.dev/gemini-api/docs/pricing
+	// Gemini 4 Argon: окно 1 048 576 на вход и выход вместе, вывод по умолчанию 65 536 (до 1 048 576 в режиме long decode)
+	// Мышление low, medium, high, по умолчанию medium; minimal и «выключено» вендор для неё не называет
+	// Цена плоская, без порога по длине: вводная до 30.11.2026 включительно, с 01.12.2026 вдвое выше; вывод считает и мышление
+	// Кэш только неявный, явного нет. Сверено 21.10.2026: ai.google.dev, страницы models/gemini-4-argon, pricing и thinking
+	'gemini-4-argon': {
+		contextWindow: 1_048_576,
+		reservedOutputTokenSpace: 65_536,
+		cost: { input: 2.00, output: 10.00, cache_read: 0.10 },
+		costSchedule: {
+			validUntil: '2026-12-01',
+			after: { input: 4.00, output: 20.00, cache_read: 0.20 },
+			note: 'вводная цена до 30.11.2026 включительно, дальше вдвое выше (ai.google.dev/gemini-api/docs/pricing)',
+		},
+		downloadable: false,
+		supportsFIM: false,
+		supportsSystemMessage: 'separated',
+		specialToolFormat: 'gemini-style',
+		reasoningCapabilities: gemini3Thinking(['low', 'medium', 'high'], 'medium'),
+	},
 	'gemini-3.8-flash': gemini3Flash,
 	'gemini-3.7-flash': gemini3Flash,
 	'gemini-3.6-flash': gemini3Flash,
@@ -2347,6 +2370,19 @@ const sakanaModelOptions = {
 	},
 } as const satisfies { [s: string]: VibeideStaticModelInfo };
 
+// Один профиль на релизный id и на прежний Preview: у них одинаковые возможности
+const minimaxM31Flash = {
+	contextWindow: 1_000_000,
+	reservedOutputTokenSpace: 8_192,
+	cost: { input: 0.15, output: 0.60, cache_read: 0.015 },
+	downloadable: false,
+	supportsFIM: false,
+	supportsVision: true,
+	specialToolFormat: 'openai-style',
+	supportsSystemMessage: 'system-role',
+	reasoningCapabilities: { supportsReasoning: true, canTurnOffReasoning: false, canIOReasoning: true, reasoningSlider: { type: 'effort_slider', values: ['low', 'medium', 'high', 'xhigh', 'max'], default: 'high' } },
+} as const satisfies VibeideStaticModelInfo;
+
 const minimaxModelOptions = {
 	// M3: 1M-token context (MSA architecture), native multimodality, three thinking modes via
 	// `thinking:{type}`: 'adaptive' (model decides per request; the API default), 'enabled'
@@ -2369,23 +2405,16 @@ const minimaxModelOptions = {
 		supportsSystemMessage: 'system-role',
 		reasoningCapabilities: { supportsReasoning: true, canTurnOffReasoning: true, canIOReasoning: true, stripThinkTagsFromContent: ['<think>', '</think>'], reasoningSlider: { type: 'effort_slider', values: ['adaptive', 'enabled'], default: 'adaptive' } },
 	},
-	// M3.1 Flash Preview: served through the M Plan and MiniMax Code only; the vendor catalogue does not list it, and
-	// there is no pay-as-you-go price yet (platform.minimax.io/docs/guides/models-intro and pricing-paygo, checked 01.10.2026)
-	// Thinking cannot be switched off: `reasoning_effort: "none"` and `thinking: disabled` answer 400. Levels low…max; without
-	// one the vendor thinks at `max`, which burns the subscription, so the slider always sends a level
-	// (platform.minimax.io/docs/api-reference/text-openai-api). Reasoning comes in `reasoning_content`, not inline tags
-	// The price is the M3 rate as an estimate: a zero would read as a free model to cost routing
-	'MiniMax-M3.1-Flash-Preview': {
-		contextWindow: 1_000_000,
-		reservedOutputTokenSpace: 8_192,
-		cost: { input: 0.30, output: 1.20, cache_read: 0.06 },
-		downloadable: false,
-		supportsFIM: false,
-		supportsVision: true,
-		specialToolFormat: 'openai-style',
-		supportsSystemMessage: 'system-role',
-		reasoningCapabilities: { supportsReasoning: true, canTurnOffReasoning: false, canIOReasoning: true, reasoningSlider: { type: 'effort_slider', values: ['low', 'medium', 'high', 'xhigh', 'max'], default: 'high' } },
-	},
+	// M3.1 Flash: 1M-контекст, картинки на входе. Релиз 19.10.2026, поштучная оплата $0.15 / $0.60, чтение кэша $0.015,
+	// без разбивки по длине (platform.minimax.io/docs/guides/pricing-paygo, сверено 21.10.2026)
+	// Мышление НЕ выключается: `thinking: disabled` и `reasoning_effort: none` отвечают 400 (text-anthropic-api: «always thinks»)
+	// Уровни low…max, без уровня вендор ставит max и жжёт лимит подписки, поэтому ползунок всегда шлёт уровень
+	// Рассуждение приходит полем `reasoning_content`, а не тегами в content
+	'MiniMax-M3.1-Flash': minimaxM31Flash,
+	// Прежний id: до релиза модель обслуживалась только по подписке M Plan, и поштучной цены у неё не было
+	// Из списков вендора он исчез, но у пользователей остался в настройках — профиль тот же, цена по релизной Flash как оценка:
+	// ноль читался бы как бесплатная модель, а ставка M3 завышала бы вдвое
+	'MiniMax-M3.1-Flash-Preview': minimaxM31Flash,
 	'MiniMax-M2': {
 		contextWindow: 204_800,
 		reservedOutputTokenSpace: 8_192,
@@ -2429,10 +2458,11 @@ const minimaxModelOptions = {
  * `text-01` → the non-thinking 1M-context Text-01, `m3.1` → M3.1, `m3` → the 1M-context M3, anything else → M2
  * Text-01 comes first: it does not think at all, and the M2 profile would send it a reasoning level it has no use for
  * M3.1 comes before M3: its thinking cannot be switched off, and the M3 profile would send `thinking: disabled`, a 400
+ * Любой id поколения M3.1 уходит на релизный профиль; прежний Preview в таблице есть как запись, поэтому находится точным id
  */
 function minimaxProfileOf(modelName: string): keyof typeof minimaxModelOptions {
 	if (/text-?01/i.test(modelName)) { return 'MiniMax-Text-01'; }
-	return /m-?3[.-]1/i.test(modelName) ? 'MiniMax-M3.1-Flash-Preview' : /m-?3/i.test(modelName) ? 'MiniMax-M3' : 'MiniMax-M2';
+	return /m-?3[.-]1/i.test(modelName) ? 'MiniMax-M3.1-Flash' : /m-?3/i.test(modelName) ? 'MiniMax-M3' : 'MiniMax-M2';
 }
 
 const minimaxSettings: VoidStaticProviderInfo = {

@@ -58,6 +58,7 @@ suite('ModelQuirks — настоящий каталог resources/model-quirks.
 		['minimax-m2.7', { temperature: 1.0, topP: 0.95, topK: 40 }],
 		// M3.1 sends reasoning in its own field, not in <think> tags like the rest of the family; thinks adaptively
 		['minimax-m3.1-flash-preview', { mirrorReasoningContent: true, reasoningAsThinkTags: false, adaptiveThinking: true, forcedToolChoiceUnsupported: true }],
+		['minimax-m3.1-flash', { mirrorReasoningContent: true, reasoningAsThinkTags: false, adaptiveThinking: true, forcedToolChoiceUnsupported: true }],
 		['minimax-m3', { mirrorReasoningContent: true, reasoningAsThinkTags: true }],
 		// Text-01 does not think: the family's empty reasoning slot, mirroring and <think> parsing are switched off for it
 		['minimax-text-01', { forceEmptyReasoning: false, mirrorReasoningContent: false, reasoningAsThinkTags: false, forcedToolChoiceUnsupported: true, topK: 40 }],

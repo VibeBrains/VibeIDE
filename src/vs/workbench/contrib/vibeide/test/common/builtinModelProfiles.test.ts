@@ -283,26 +283,34 @@ suite('builtin model profiles — имя на проводе, профиль, п
 		]);
 	});
 	/**
-	 * MiniMax M3.1 Flash Preview: мышление не выключается, без уровня вендор думает на max и выжигает подписку M Plan
+	 * MiniMax M3.1 Flash: мышление не выключается, без уровня вендор думает на max и выжигает подписку M Plan
 	 * Профиль M3 слал бы «выключено» как thinking: disabled — 400; поэтому M3.1 распознаётся раньше M3 и шлёт уровень
+	 * Релизный id и прежний Preview ведут в один профиль с ценой релиза (pricing-paygo, 21.10.2026), id агрегатора — туда же
 	 */
-	test('MiniMax M3.1: свой профиль раньше M3, уровень уходит полем reasoning_effort, выключателя нет', () => {
+	test('MiniMax M3.1: свой профиль раньше M3, цена релиза, уровень уходит полем reasoning_effort, выключателя нет', () => {
 		const card = (provider: 'minimax' | 'openRouter', modelName: string) => {
 			const caps = getModelCapabilities(provider, modelName, undefined);
 			const reasoning = caps.reasoningCapabilities || undefined;
 			const slider = reasoning?.reasoningSlider?.type === 'effort_slider' ? reasoning.reasoningSlider : undefined;
-			return `${modelName} ← ${caps.recognizedModelName} | ${reasoning?.canTurnOffReasoning} | ${slider?.values.join('/')} | ${slider?.default}`;
+			return `${modelName} ← ${caps.recognizedModelName} | ${reasoning?.canTurnOffReasoning} | ${slider?.values.join('/')} | ${slider?.default} | ${caps.cost.input}/${caps.cost.output}/${caps.cost.cache_read}`;
 		};
 		const payload = getProviderCapabilities('minimax').providerReasoningIOSettings?.input?.includeInPayload;
 		assert.deepStrictEqual({
-			cards: [card('minimax', 'MiniMax-M3.1-Flash-Preview'), card('minimax', 'MiniMax-M3.1'), card('minimax', 'MiniMax-M3'), card('openRouter', 'minimax/minimax-m3.1')],
+			cards: [
+				card('minimax', 'MiniMax-M3.1-Flash'),
+				card('minimax', 'MiniMax-M3.1-Flash-Preview'),
+				card('minimax', 'MiniMax-M3.1'),
+				card('minimax', 'MiniMax-M3'),
+				card('openRouter', 'minimax/minimax-m3.1'),
+			],
 			high: payload?.({ type: 'effort_slider_value', isReasoningEnabled: true, reasoningEffort: 'high' }),
 		}, {
 			cards: [
-				'MiniMax-M3.1-Flash-Preview ← MiniMax-M3.1-Flash-Preview | false | low/medium/high/xhigh/max | high',
-				'MiniMax-M3.1 ← MiniMax-M3.1-Flash-Preview | false | low/medium/high/xhigh/max | high',
-				'MiniMax-M3 ← MiniMax-M3 | true | adaptive/enabled | adaptive',
-				'minimax/minimax-m3.1 ← MiniMax-M3.1-Flash-Preview | false | low/medium/high/xhigh/max | high',
+				'MiniMax-M3.1-Flash ← MiniMax-M3.1-Flash | false | low/medium/high/xhigh/max | high | 0.15/0.6/0.015',
+				'MiniMax-M3.1-Flash-Preview ← MiniMax-M3.1-Flash-Preview | false | low/medium/high/xhigh/max | high | 0.15/0.6/0.015',
+				'MiniMax-M3.1 ← MiniMax-M3.1-Flash | false | low/medium/high/xhigh/max | high | 0.15/0.6/0.015',
+				'MiniMax-M3 ← MiniMax-M3 | true | adaptive/enabled | adaptive | 0.3/1.2/0.06',
+				'minimax/minimax-m3.1 ← MiniMax-M3.1-Flash | false | low/medium/high/xhigh/max | high | 0.15/0.6/0.015',
 			],
 			high: { reasoning_effort: 'high' },
 		});

@@ -5,6 +5,7 @@
 
 import * as assert from 'assert';
 import { geminiModelOptions, getModelCapabilities, getReservedOutputTokenSpace } from '../../common/modelCapabilities.js';
+import { effectiveCost } from '../../common/modelPriceSchedule.js';
 import { ensureNoDisposablesAreLeakedInTestSuite } from '../../../../../base/test/common/utils.js';
 
 /**
@@ -93,6 +94,51 @@ suite('Gemini — model resolution, pricing and thinking levels', () => {
 			],
 		);
 		assert.deepStrictEqual(shape('openRouter', 'google/gemini-3.1-pro-preview'), proShape);
+	});
+
+	/**
+	 * Gemini 4 Argon (ai.google.dev: models/gemini-4-argon, pricing, thinking — 21.10.2026): цена плоская, вводная до 30.11.2026
+	 * включительно и вдвое выше с 01.12.2026; мышление low / medium / high по умолчанию medium, выключить нельзя
+	 * До появления профиля любой `gemini-4-…` получал ветку Flash третьего поколения: чужую цену и уровень minimal, которого у Argon нет
+	 */
+	test('Gemini 4 Argon: своя цена, свои уровни мышления, окно 1M, а не профиль Flash третьего поколения', () => {
+		const argonLevels = { values: ['low', 'medium', 'high'], default: 'medium' };
+		const c = caps('gemini', 'gemini-4-argon');
+		assert.deepStrictEqual(
+			{
+				direct: shape('gemini', 'gemini-4-argon').recognized,
+				effort: shape('gemini', 'gemini-4-argon').effort,
+				viaRouter: shape('openRouter', 'google/gemini-4-argon').recognized,
+				futureId: shape('gemini', 'gemini-4-argon-2').recognized,
+				window: c.contextWindow,
+				canTurnOff: c.reasoningCapabilities ? c.reasoningCapabilities.canTurnOffReasoning : undefined,
+				reserved: getReservedOutputTokenSpace('gemini', 'gemini-4-argon', { isReasoningEnabled: true, overridesOfModel: undefined }),
+			},
+			{
+				direct: 'gemini-4-argon',
+				effort: argonLevels,
+				viaRouter: 'gemini-4-argon',
+				futureId: 'gemini-4-argon',
+				window: 1_048_576,
+				canTurnOff: false,
+				reserved: 65_536,
+			},
+		);
+	});
+
+	/** Время передаётся параметром: тест не зависит от того, в какой день он запущен */
+	test('Gemini 4 Argon: вводная цена до конца 30.11.2026, с 01.12.2026 вдвое выше', () => {
+		const argon = geminiModelOptions['gemini-4-argon'];
+		// Литеральные типы `as const` расширены: цена до и цена после — разные литералы одного вида
+		const priceAt = (instant: string) => effectiveCost<{ input: number; output: number; cache_read: number }>(argon.cost, argon.costSchedule.validUntil, argon.costSchedule.after, Date.parse(instant));
+		assert.deepStrictEqual(
+			[priceAt('2026-10-21T12:00:00Z'), priceAt('2026-11-30T23:59:59Z'), priceAt('2026-12-01T00:00:00Z')],
+			[
+				{ input: 2.00, output: 10.00, cache_read: 0.10 },
+				{ input: 2.00, output: 10.00, cache_read: 0.10 },
+				{ input: 4.00, output: 20.00, cache_read: 0.20 },
+			],
+		);
 	});
 
 	test('every paid Gemini profile has a non-zero price', () => {
