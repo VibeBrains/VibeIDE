@@ -33,6 +33,7 @@ import { ACP_IDE_TOOLS_KEY } from '../../common/acp/acpRegistryConfiguration.js'
 import {
 	IDE_TOOL_OPEN_FILE,
 	IDE_TOOL_PROBLEMS,
+	IDE_TOOL_WATCH_MEDIA,
 	IIdeEditorFacts,
 	IIdeMcpToolResult,
 	IIdeProblem,
@@ -44,6 +45,8 @@ import { IIdeMcpCall, IIdeMcpIssued, IVibeAcpIdeMcpMain, VIBE_ACP_IDE_MCP_CHANNE
 import { JsonValue } from '../../common/acp/acpProtocol.js';
 import { IVibeAcpIdeMcpService } from '../../common/acp/vibeAcpIdeMcpService.js';
 import { ISecretDetectionService } from '../../common/secretDetectionService.js';
+import { IVibeWatchMediaService } from '../../common/video/vibeWatchMediaService.js';
+import { isRemoteVideoInput } from '../../common/video/vibeVideoTools.js';
 import { vibeLog } from '../../common/vibeLog.js';
 
 export class VibeAcpIdeMcpService extends Disposable implements IVibeAcpIdeMcpService {
@@ -63,6 +66,7 @@ export class VibeAcpIdeMcpService extends Disposable implements IVibeAcpIdeMcpSe
 		@IWorkspaceContextService private readonly _workspace: IWorkspaceContextService,
 		@IVibeIgnoreService private readonly _ignore: IVibeIgnoreService,
 		@ISecretDetectionService private readonly _secrets: ISecretDetectionService,
+		@IVibeWatchMediaService private readonly _watchMedia: IVibeWatchMediaService,
 	) {
 		super();
 		this._main = ProxyChannel.toService<IVibeAcpIdeMcpMain>(mainProcessService.getChannel(VIBE_ACP_IDE_MCP_CHANNEL));
@@ -84,7 +88,7 @@ export class VibeAcpIdeMcpService extends Disposable implements IVibeAcpIdeMcpSe
 	private async _answer(call: IIdeMcpCall): Promise<void> {
 		let result: IIdeMcpToolResult;
 		try {
-			result = this._run(call.tool, call.args);
+			result = await this._run(call.tool, call.args);
 		} catch (err) {
 			vibeLog.warn('ACP', `инструмент редактора ${call.tool} не отработал: ${err instanceof Error ? err.message : String(err)}`);
 			result = { text: `Не удалось прочитать редактор: ${err instanceof Error ? err.message : String(err)}`, isError: true };
@@ -92,7 +96,7 @@ export class VibeAcpIdeMcpService extends Disposable implements IVibeAcpIdeMcpSe
 		await this._main.completeToolCall(call.callId, result);
 	}
 
-	private _run(tool: string, args: Record<string, JsonValue>): IIdeMcpToolResult {
+	private async _run(tool: string, args: Record<string, JsonValue>): Promise<IIdeMcpToolResult> {
 		// The text leaves the machine for the agent's vendor: a key in the open file is masked the way it is in the prompt
 		const redact = (text: string) => this._secrets.detectSecrets(text).redactedText;
 		switch (tool) {
@@ -102,8 +106,36 @@ export class VibeAcpIdeMcpService extends Disposable implements IVibeAcpIdeMcpSe
 			}
 			case IDE_TOOL_PROBLEMS:
 				return { text: redact(formatProblems(this._problems(typeof args['path'] === 'string' ? args['path'] : undefined))) };
+			case IDE_TOOL_WATCH_MEDIA:
+				return this._watch(args, redact);
 			default:
 				return { text: `Неизвестный инструмент: ${tool}`, isError: true };
+		}
+	}
+
+	/**
+	 * A recording for the agent: its transcript and the frames themselves
+	 * The agent asks for it, the editor plays it: a link meets the user's network filter, a file meets `.vibe/ignore`
+	 */
+	private async _watch(args: Record<string, JsonValue>, redact: (text: string) => string): Promise<IIdeMcpToolResult> {
+		const source = typeof args['source'] === 'string' ? args['source'].trim() : '';
+		if (!source) {
+			return { text: 'Нужен source: путь к файлу или ссылка на запись.', isError: true };
+		}
+		const question = typeof args['question'] === 'string' ? args['question'].trim() : '';
+		try {
+			const report = await this._watchMedia.forTool({
+				input: source,
+				question,
+				frames: 'attach',
+				authorize: async target => isRemoteVideoInput(target) || !this._ignore.isIgnored(URI.file(target))
+					? undefined
+					: `Файл ${target} закрыт для агента правилом .vibe/ignore.`,
+			});
+			return { text: redact(report.text), images: report.images.map(({ mimeType, data }) => ({ mimeType, data })) };
+		} catch (err) {
+			// The engine words its refusals for the person and for the agent alike: they are the answer, not a fault of the editor
+			return { text: err instanceof Error ? err.message : String(err), isError: true };
 		}
 	}
 

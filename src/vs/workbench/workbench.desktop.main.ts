@@ -240,6 +240,7 @@ import './contrib/vibeide/electron-browser/telegram/vibeTelegramBridgeContributi
 import './contrib/vibeide/electron-browser/httpApi/vibeHttpApiContribution.js';
 import './contrib/vibeide/electron-browser/vibeGitReadService.js';
 import './contrib/vibeide/electron-browser/hooks/vibeHooksService.js';
+import './contrib/vibeide/electron-browser/video/vibeWatchMediaService.js';
 import './contrib/vibeide/electron-browser/video/vibeVideoChatService.js';
 import './contrib/vibeide/electron-browser/acp/vibeAcpService.js';
 import './contrib/vibeide/electron-browser/acp/vibeAcpRegistryImportService.js';

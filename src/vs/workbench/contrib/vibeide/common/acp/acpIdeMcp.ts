@@ -9,7 +9,7 @@
  * The agent is a separate process and does not see the editor. The hint that rides in the prompt (`acpPromptContext`)
  * says what was open when the message was written; a tool answers for the moment the agent asks, in the middle of a
  * long turn, when the person has already moved to another file
- * The tools carry the names of the same two in VibeIDEA, so an agent that works with both finds the same vocabulary
+ * The tools carry the names of the same ones in VibeIDEA, so an agent that works with both finds the same vocabulary
  *
  * This module is the protocol and the wording: JSON-RPC over HTTP in the shape MCP clients speak (the handshake
  * revisions, `tools/list`, `tools/call`) and the text of the answers. Sockets and the editor are not here, so it is
@@ -23,6 +23,8 @@ export const IDE_MCP_SERVER_NAME = 'vibe-ide';
 
 export const IDE_TOOL_OPEN_FILE = 'vibe_open_file';
 export const IDE_TOOL_PROBLEMS = 'vibe_problems';
+/** The name is VibeIDEA's: the shared rule `watch-media` names it for an agent that reaches the editor through MCP */
+export const IDE_TOOL_WATCH_MEDIA = 'vibe_watch_media';
 
 /**
  * Revisions of the protocol we answer to, newest first
@@ -42,11 +44,27 @@ export const IDE_MCP_MAX_PROBLEMS = 200;
 /** How long of a line the problem quotes */
 const PROBLEM_LINE_CHARS = 200;
 
+/** How long a tool call waits for the window: an editor answers at once, and a silent one should not hold the agent's turn */
+export const IDE_MCP_WINDOW_ANSWER_TIMEOUT_MS = 30_000;
+
+/**
+ * How long watching a recording may take: downloading, cutting frames, recognising speech — minutes on a long one
+ * The person sees the progress in the editor and can stop it, so the wait has a ceiling, not a clock to hurry by
+ */
+export const IDE_MCP_WATCH_TIMEOUT_MS = 30 * 60_000;
+
 export interface IIdeMcpTool {
 	readonly name: string;
 	readonly title: string;
 	readonly description: string;
 	readonly inputSchema: JsonValue;
+	/** How long the window may take to answer; the usual one when absent */
+	readonly timeoutMs?: number;
+}
+
+/** How long the window may take to answer a call of this tool */
+export function ideMcpToolTimeoutMs(name: string): number {
+	return IDE_MCP_TOOLS.find(tool => tool.name === name)?.timeoutMs ?? IDE_MCP_WINDOW_ANSWER_TIMEOUT_MS;
 }
 
 /** The tools in a fixed order: a client caches the listing, and a shuffle that changes nothing would break its cache */
@@ -72,11 +90,38 @@ export const IDE_MCP_TOOLS: readonly IIdeMcpTool[] = [
 			properties: { path: { type: 'string', description: 'Путь файла; без него — открытый в редакторе' } },
 		},
 	},
+	{
+		name: IDE_TOOL_WATCH_MEDIA,
+		title: 'Посмотреть видео или послушать аудио',
+		description: 'Разбор записи движком IDE: видео, аудио, созвона, подкаста, голосового сообщения — по ссылке (YouTube, Loom, прямая) ' +
+			'или по файлу. Возвращает транскрипт с тайм-кодами (субтитры ссылки или локальное распознавание речи) и кадры, вырезанные по ' +
+			'сменам сцен: сами картинки идут следом за текстом, по порядку, а тайм-код каждой назван в тексте. ' +
+			'Это ответ на «посмотри видео», «разбери ролик», «расшифруй запись»: открывать запись самому и искать для этого скилл не нужно. ' +
+			'Длинная запись разбирается минуты, человек видит ход в IDE и может остановить. Первый вызов может попросить у человека согласие скачать ' +
+			'yt-dlp и ffmpeg. Чего нет в ответе — реплик, сцен, цифр, — не выдумывай: скажи, чего не хватило.',
+		inputSchema: {
+			type: 'object',
+			properties: {
+				source: { type: 'string', description: 'Файл или ссылка так, как их назвал человек: абсолютный путь, путь от корня проекта или ссылка http(s). Путь из @-вложения — как есть' },
+				question: { type: 'string', description: 'Необязательно. Что человек хочет узнать о записи; без вопроса — пересказ' },
+			},
+			required: ['source'],
+		},
+		timeoutMs: IDE_MCP_WATCH_TIMEOUT_MS,
+	},
 ];
 
-/** What a tool answers: text for the agent, and whether the call failed */
+/** A picture that goes with the answer: a frame of the recording */
+export interface IIdeMcpImage {
+	readonly mimeType: string;
+	/** base64 */
+	readonly data: string;
+}
+
+/** What a tool answers: text for the agent, pictures that follow it, and whether the call failed */
 export interface IIdeMcpToolResult {
 	readonly text: string;
+	readonly images?: readonly IIdeMcpImage[];
 	readonly isError?: boolean;
 }
 
@@ -152,7 +197,11 @@ export async function handleIdeMcpBody(body: string, call: IdeMcpToolCaller): Pr
 				: {};
 			try {
 				const result = await call(name, args);
-				return resultReply(id, { content: [{ type: 'text', text: result.text }], isError: result.isError === true });
+				const content: JsonValue[] = [{ type: 'text', text: result.text }];
+				for (const image of result.images ?? []) {
+					content.push({ type: 'image', data: image.data, mimeType: image.mimeType });
+				}
+				return resultReply(id, { content, isError: result.isError === true });
 			} catch (err) {
 				return errorReply(id, JSON_RPC_ERROR_INTERNAL, err instanceof Error ? err.message : String(err));
 			}

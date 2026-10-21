@@ -80,6 +80,10 @@ export const TOOL_NAME_ALIASES: { readonly [alias: string]: string } = {
 	'fetch': 'browse_url',
 	'webfetch': 'browse_url',
 	'web_fetch': 'browse_url',
+	// watching a recording: the shared rule names VibeIDEA's tool `vibe_watch_media`, and a model that read it may call it that
+	'vibe_watch_media': 'watch_media',
+	'watch': 'watch_media',
+	'watch_video': 'watch_media',
 	// end-of-turn / completion (Cline/Roo/Kilo emit `attempt_completion`; others vary)
 	'attempt_completion': 'vibe_complete',
 	'complete_task': 'vibe_complete',
@@ -192,6 +196,10 @@ export const PARAM_ALIASES_BY_TOOL: { readonly [canonicalToolName: string]: { re
 		// Normalize foreign location names TO `url`; never remap `url` itself (that left params.url
 		// undefined and broke the tool for every input).
 		uri: 'url', link: 'url', href: 'url',
+	},
+	watch_media: {
+		// the field is `source` in both products of the family (the shared rule says so); the stray names are a file's or a link's
+		target: 'source', path: 'source', uri: 'source', url: 'source', link: 'source', file: 'source', file_path: 'source', filepath: 'source', input: 'source',
 	},
 	vibe_complete: {
 		// Cline/Roo `attempt_completion` carries the closing text in `result`; others vary.

@@ -10,13 +10,17 @@ import {
 	IDE_MCP_MAX_TABS,
 	IDE_MCP_PROTOCOL_VERSIONS,
 	IDE_MCP_TOOLS,
+	IDE_MCP_WATCH_TIMEOUT_MS,
+	IDE_MCP_WINDOW_ANSWER_TIMEOUT_MS,
 	IDE_TOOL_OPEN_FILE,
 	IDE_TOOL_PROBLEMS,
+	IDE_TOOL_WATCH_MEDIA,
 	IIdeMcpToolResult,
 	IdeMcpToolCaller,
 	formatOpenFile,
 	formatProblems,
 	handleIdeMcpBody,
+	ideMcpToolTimeoutMs,
 } from '../../common/acp/acpIdeMcp.js';
 import { JsonValue } from '../../common/acp/acpProtocol.js';
 
@@ -48,7 +52,7 @@ suite('acpIdeMcp', () => {
 		test('список инструментов — в фиксированном порядке, с описанием и схемой', async () => {
 			const reply = await handleIdeMcpBody(rpc('tools/list'), answer(''));
 			const tools = resultOf(reply)['tools'] as { name: string; description: string; inputSchema: JsonValue }[];
-			assert.deepStrictEqual(tools.map(tool => tool.name), [IDE_TOOL_OPEN_FILE, IDE_TOOL_PROBLEMS]);
+			assert.deepStrictEqual(tools.map(tool => tool.name), [IDE_TOOL_OPEN_FILE, IDE_TOOL_PROBLEMS, IDE_TOOL_WATCH_MEDIA]);
 			assert.ok(tools.every(tool => tool.description.length > 0 && (tool.inputSchema as { type: string }).type === 'object'));
 			assert.strictEqual(IDE_MCP_TOOLS.length, tools.length);
 		});
@@ -60,6 +64,31 @@ suite('acpIdeMcp', () => {
 				return { text: 'ответ' };
 			});
 			assert.deepStrictEqual([seen, resultOf(reply)], [[[IDE_TOOL_PROBLEMS, { path: 'src/a.ts' }]], { content: [{ type: 'text', text: 'ответ' }], isError: false }]);
+		});
+
+		test('кадры записи идут картинками вслед за текстом, в порядке кадров', async () => {
+			const reply = await handleIdeMcpBody(rpc('tools/call', { name: IDE_TOOL_WATCH_MEDIA, arguments: { source: 'demo.mp4' } }), async () => ({
+				text: 'Кадры (2)',
+				images: [{ mimeType: 'image/jpeg', data: 'QUJD' }, { mimeType: 'image/jpeg', data: 'REVG' }],
+			}));
+			assert.deepStrictEqual(resultOf(reply), {
+				content: [{ type: 'text', text: 'Кадры (2)' }, { type: 'image', data: 'QUJD', mimeType: 'image/jpeg' }, { type: 'image', data: 'REVG', mimeType: 'image/jpeg' }],
+				isError: false,
+			});
+		});
+
+		test('разбор записи занимает минуты, остальные инструменты окно обязано закрыть за секунды', () => {
+			assert.deepStrictEqual(
+				[IDE_TOOL_OPEN_FILE, IDE_TOOL_PROBLEMS, IDE_TOOL_WATCH_MEDIA, 'неизвестный'].map(ideMcpToolTimeoutMs),
+				[IDE_MCP_WINDOW_ANSWER_TIMEOUT_MS, IDE_MCP_WINDOW_ANSWER_TIMEOUT_MS, IDE_MCP_WATCH_TIMEOUT_MS, IDE_MCP_WINDOW_ANSWER_TIMEOUT_MS]);
+			assert.ok(IDE_MCP_WATCH_TIMEOUT_MS > IDE_MCP_WINDOW_ANSWER_TIMEOUT_MS);
+		});
+
+		test('схема инструмента просмотра: source обязателен, question — нет; имена полей те же, что у VibeIDEA', () => {
+			const tool = IDE_MCP_TOOLS.find(candidate => candidate.name === IDE_TOOL_WATCH_MEDIA);
+			assert.deepStrictEqual(
+				{ name: tool?.name, required: (tool?.inputSchema as { required: string[] }).required, fields: Object.keys((tool?.inputSchema as { properties: object }).properties) },
+				{ name: 'vibe_watch_media', required: ['source'], fields: ['source', 'question'] });
 		});
 
 		test('отказ инструмента виден агенту как isError, а не как успех', async () => {

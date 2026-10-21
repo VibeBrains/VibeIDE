@@ -123,6 +123,8 @@ export type BuiltinToolCallParams = {
 	'browse_url': { url: string; refresh?: boolean };
 	/** Extraction by a dedicated model: the page's HTML and a JSON Schema in, JSON matching it out. */
 	'extract_structured': { url: string; schema: Record<string, unknown> };
+	/** `source` is a link, or a path already resolved and checked like a read_file path; `question` is what to find out */
+	'watch_media': { source: string; question: string | null };
 	// ---
 	'vibe_complete': { summary: string };
 };
@@ -312,6 +314,8 @@ export type BuiltinToolResultType = {
 	'web_search': { results: Array<{ title: string; snippet: string; url: string }> };
 	'browse_url': { content: string; title?: string; url: string; metadata?: { publishedDate?: string } };
 	'extract_structured': { data: unknown; url: string; model: string; truncated: boolean };
+	// `text` is the whole answer for the model; the rest is what the chat shows in the card.
+	'watch_media': { text: string; kind: 'video' | 'audio'; title?: string; durationSec?: number; frameCount: number; describedBy?: string };
 	// ---
 	'vibe_complete': { summary: string };
 };

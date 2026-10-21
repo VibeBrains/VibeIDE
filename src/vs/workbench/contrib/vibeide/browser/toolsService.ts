@@ -73,6 +73,9 @@ import { IVibeCallIndexService } from './codeGraph/vibeCallIndexService.js';
 import { IVibeDesignScanService, unreachableReasonOf } from './designReview/vibeDesignScanService.js';
 import { IVibeDesignContextService } from './designContext/vibeDesignContextService.js';
 import { IVibeTextSlopService } from '../common/textSlop/vibeTextSlopService.js';
+import { IVibeWatchMediaService } from '../common/video/vibeWatchMediaService.js';
+import { IPathService } from '../../../services/path/common/pathService.js';
+import { isRemoteVideoInput } from '../common/video/vibeVideoTools.js';
 import { renderSlopReport } from '../common/textSlop/slopRender.js';
 import { AgentReadRules, agentMayReadByRules } from '../common/agentReadPolicy.js';
 import { Finding, ViewportLabel, mergeViewportFindings, reviewDesign, summarize } from '../common/designReview/designSlopRules.js';
@@ -347,6 +350,8 @@ export class ToolsService extends Disposable implements IToolsService {
 		@IVibeIgnoreService vibeIgnoreService: IVibeIgnoreService,
 		@IAgentNetworkFilterService private readonly _networkFilter: IAgentNetworkFilterService,
 		@ILLMMessageService private readonly _llmMessageService: ILLMMessageService,
+		@IVibeWatchMediaService private readonly watchMediaService: IVibeWatchMediaService,
+		@IPathService private readonly pathService: IPathService,
 	) {
 		super();
 		this._offlineGate = new OfflinePrivacyGate();
@@ -799,6 +804,22 @@ export class ToolsService extends Disposable implements IToolsService {
 					action, title: asString(title), task_id: asString(task_id), to: asString(to),
 					blocked_reason: asString(blocked_reason), dependency_ids: ids, intent: asString(intent),
 				};
+			},
+
+			watch_media: (params: RawToolParamsObj) => {
+				const { source: sourceUnknown, question: questionUnknown } = params;
+				const typed = typeof sourceUnknown === 'string' ? sourceUnknown.trim() : '';
+				if (!typed) { throw new Error(`Invalid LLM output: source must be a path to a file or an http(s) link, got ${sourceUnknown}`); }
+				const question = typeof questionUnknown === 'string' && questionUnknown.trim() ? questionUnknown.trim() : null;
+				if (isRemoteVideoInput(typed)) { return { source: typed, question }; }
+				// `~/` is the user's home, as the shared rule `watch-media` tells the model it may write
+				const home = this.pathService.resolvedUserHome;
+				const written = home && /^~[\\/]/.test(typed) ? resources.joinPath(home, typed.slice(2)).fsPath : typed;
+				// A file goes through the same boundary as read_file: the workspace, or the folder the user has opened for the agent.
+				// The checked path replaces the typed one, so what is checked and what is played are the same file.
+				const uri = validateReadURI(written);
+				if (uri.scheme !== Schemas.file) { throw new Error(`Invalid LLM output: source must be a path to a file or an http(s) link, got ${typed}`); }
+				return { source: uri.fsPath, question };
 			},
 
 			docs_search: (params: RawToolParamsObj) => {
@@ -1933,6 +1954,28 @@ export class ToolsService extends Disposable implements IToolsService {
 				return moved.ok
 					? { result: { action, tasks: await snapshot(), changed: { id: moved.task.id, title: moved.task.title, status: moved.task.status }, repeated: moved.repeated } }
 					: { result: { action, tasks: await snapshot(), refused: moved.error } };
+			},
+
+			watch_media: async ({ source, question }) => {
+				// A link meets the network gates inside `forTool` (the MCP tool of the editor meets the same ones); a file meets the read rules here
+				const report = await this.watchMediaService.forTool({
+					input: source,
+					question: question ?? '',
+					frames: 'describe',
+					// A file is played, which is a read like any other: the read rules and `.vibe/ignore` hold for every name it answers to
+					authorize: async target => {
+						if (isRemoteVideoInput(target)) { return undefined; }
+						try {
+							const names = await gateRead(URI.file(target));
+							return names.some(name => vibeIgnoreService.isIgnored(name))
+								? localize('vibeide.watchMedia.ignored', "Файл «{0}» закрыт правилом .vibe/ignore — разбор не выполнялся.", target)
+								: undefined;
+						} catch (error) {
+							return error instanceof Error ? error.message : String(error);
+						}
+					},
+				});
+				return { result: { text: report.text, kind: report.kind, title: report.title, durationSec: report.durationSec, frameCount: report.frameCount, describedBy: report.describedBy } };
 			},
 
 			docs_search: async ({ query, limit }) => {
@@ -3716,6 +3759,8 @@ export class ToolsService extends Disposable implements IToolsService {
 				header.push(result.tasks.length > 0 ? `Register (${result.tasks.length}):` : 'The register is empty.');
 				return [...header, ...lines].join('\n');
 			},
+
+			watch_media: (_params, result) => result.text,
 
 			docs_search: (params, result) => {
 				// The empty case names the corpus size and says what to do instead. A bare "nothing

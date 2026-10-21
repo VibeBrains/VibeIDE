@@ -20,11 +20,14 @@ export const VIDEO_SCENE_THRESHOLD_KEY = 'vibeide.video.sceneThreshold';
 export const VIDEO_MAX_FRAMES_KEY = 'vibeide.video.maxFrames';
 export const VIDEO_FRAME_HEIGHT_KEY = 'vibeide.video.frameHeight';
 export const VIDEO_SUBTITLE_LANGUAGES_KEY = 'vibeide.video.subtitleLanguages';
+export const VIDEO_FRAME_MODEL_KEY = 'vibeide.video.frameModel';
+export const VIDEO_TOOL_MAX_FRAMES_KEY = 'vibeide.video.toolMaxFrames';
 
 export const VIDEO_SCENE_THRESHOLD_DEFAULT = 0.3;
 export const VIDEO_MAX_FRAMES_DEFAULT = 48;
 export const VIDEO_FRAME_HEIGHT_DEFAULT = 720;
 export const VIDEO_SUBTITLE_LANGUAGES_DEFAULT = 'ru,en';
+export const VIDEO_TOOL_MAX_FRAMES_DEFAULT = 12;
 
 const SCENE_THRESHOLD_MIN = 0.05;
 const SCENE_THRESHOLD_MAX = 0.9;
@@ -32,6 +35,8 @@ const MAX_FRAMES_MIN = 4;
 const MAX_FRAMES_MAX = 150;
 const FRAME_HEIGHT_MIN = 240;
 const FRAME_HEIGHT_MAX = 1080;
+const TOOL_MAX_FRAMES_MIN = 1;
+const TOOL_MAX_FRAMES_MAX = 48;
 
 export function clampVideoSceneThreshold(configured: unknown): number {
 	const value = typeof configured === 'number' ? configured : NaN;
@@ -55,6 +60,15 @@ export function clampVideoFrameHeight(configured: unknown): number {
 		return VIDEO_FRAME_HEIGHT_DEFAULT;
 	}
 	return Math.min(FRAME_HEIGHT_MAX, Math.max(FRAME_HEIGHT_MIN, Math.round(value)));
+}
+
+/** Сколько кадров рассматривает или прикладывает инструмент: каждый кадр — картинка в запросе, и платить за неё приходится на каждом ходе */
+export function clampVideoToolMaxFrames(configured: unknown): number {
+	const value = typeof configured === 'number' ? configured : NaN;
+	if (!Number.isFinite(value)) {
+		return VIDEO_TOOL_MAX_FRAMES_DEFAULT;
+	}
+	return Math.min(TOOL_MAX_FRAMES_MAX, Math.max(TOOL_MAX_FRAMES_MIN, Math.round(value)));
 }
 
 /**
@@ -165,6 +179,18 @@ Registry.as<IConfigurationRegistry>(ConfigurationExtensions.Configuration).regis
 			minimum: FRAME_HEIGHT_MIN,
 			maximum: FRAME_HEIGHT_MAX,
 			description: localize('vibeide.video.frameHeight', 'Высота кадров в пикселях (240–1080), к которой даунскейлится видео перед отправкой модели. Выше — читаемее мелкий текст на экране, но тяжелее запрос. Заданное здесь значение перекрывает пресет «Подробность разбора».'),
+		},
+		[VIDEO_FRAME_MODEL_KEY]: {
+			type: 'string',
+			default: '',
+			description: localize('vibeide.video.frameModel', 'Модель, которая рассматривает кадры записи, когда её разбирает инструмент модели watch_media: «провайдер/модель», например anthropic/claude-sonnet-5. Нужна, потому что в ответе инструмента картинок нет: кадры описывает отдельный запрос. Пусто — модель чата, если она выбрана явно и умеет смотреть изображения; иначе в ответе будут только тайм-коды кадров.'),
+		},
+		[VIDEO_TOOL_MAX_FRAMES_KEY]: {
+			type: 'number',
+			default: VIDEO_TOOL_MAX_FRAMES_DEFAULT,
+			minimum: TOOL_MAX_FRAMES_MIN,
+			maximum: TOOL_MAX_FRAMES_MAX,
+			description: localize('vibeide.video.toolMaxFrames', 'Сколько кадров инструмент watch_media отдаёт на рассмотрение (в основном чате и ролях) или прикладывает картинками (внешнему агенту). Лишние кадры прореживаются равномерно по времени. Команда /watch этим не ограничена — у неё свой предел, «Максимум кадров».'),
 		},
 		[VIDEO_SUBTITLE_LANGUAGES_KEY]: {
 			type: 'string',

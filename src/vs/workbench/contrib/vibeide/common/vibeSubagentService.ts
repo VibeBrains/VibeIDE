@@ -338,7 +338,7 @@ const DEFAULT_MAX_STEPS = 20;
 // run_terminal_command — which the MVP stub never exercised.)
 // `vibe_text_slop_check` only reads: a judging role runs it on the text under review — the reviewer
 // brief of the shared `anti-slop` skill asks for it.
-const READONLY_TOOLS: string[] = ['read_file', 'ls_dir', 'grep', 'glob', 'search_for_files', 'search_pathnames_only', 'docs_search', 'vibe_text_slop_check'];
+const READONLY_TOOLS: string[] = ['read_file', 'ls_dir', 'grep', 'glob', 'search_for_files', 'search_pathnames_only', 'docs_search', 'vibe_text_slop_check', 'watch_media'];
 const FULL_TOOLS: string[] = [...READONLY_TOOLS, 'edit_file', 'rewrite_file', 'create_file_or_folder', 'run_command'];
 
 const TOOL_WHITELIST: Record<SubagentType, string[]> = {

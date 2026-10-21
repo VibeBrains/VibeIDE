@@ -12,11 +12,8 @@ import { Disposable } from '../../../../../base/common/lifecycle.js';
 import { generateUuid } from '../../../../../base/common/uuid.js';
 import { IWindowsMainService } from '../../../../../platform/windows/electron-main/windows.js';
 import { vibeLog } from '../../common/vibeLog.js';
-import { IDE_MCP_MAX_BODY_BYTES, IDE_MCP_SERVER_NAME, IIdeMcpToolResult, handleIdeMcpBody } from '../../common/acp/acpIdeMcp.js';
+import { IDE_MCP_MAX_BODY_BYTES, IDE_MCP_SERVER_NAME, IIdeMcpToolResult, handleIdeMcpBody, ideMcpToolTimeoutMs } from '../../common/acp/acpIdeMcp.js';
 import { IIdeMcpCall, IIdeMcpIssued, IVibeAcpIdeMcpMain } from '../../common/acp/acpIdeMcpTypes.js';
-
-/** How long a tool call waits for the window: an editor answers at once, and a silent one should not hold the agent's turn */
-const WINDOW_ANSWER_TIMEOUT_MS = 30_000;
 
 /** The path the agent connects to */
 const MCP_PATH = '/mcp';
@@ -194,12 +191,13 @@ export class VibeAcpIdeMcpMainService extends Disposable implements IVibeAcpIdeM
 
 	private _callWindow(token: string, owner: ITokenOwner, tool: string, args: IIdeMcpCall['args']): Promise<IIdeMcpToolResult> {
 		const callId = generateUuid();
+		const timeoutMs = ideMcpToolTimeoutMs(tool);
 		return new Promise<IIdeMcpToolResult>(resolve => {
 			const timer = setTimeout(() => {
 				if (this._pending.delete(callId)) {
-					resolve({ text: 'Окно IDE не ответило за 30 секунд', isError: true });
+					resolve({ text: `Окно IDE не ответило за ${Math.round(timeoutMs / 1000)} с`, isError: true });
 				}
-			}, WINDOW_ANSWER_TIMEOUT_MS);
+			}, timeoutMs);
 			this._pending.set(callId, { resolve, timer, token });
 			this._onToolCall.fire({ callId, instanceId: owner.instanceId, tool, args });
 		});
