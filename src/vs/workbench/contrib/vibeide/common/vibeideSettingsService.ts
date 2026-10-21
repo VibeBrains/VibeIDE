@@ -642,7 +642,7 @@ const defaultState = () => {
 
 
 export const IVibeideSettingsService = createDecorator<IVibeideSettingsService>('VibeideSettingsService');
-class VoidSettingsService extends Disposable implements IVibeideSettingsService {
+export class VoidSettingsService extends Disposable implements IVibeideSettingsService {
 	_serviceBrand: undefined;
 
 	private readonly _onDidChangeState = new Emitter<void>();

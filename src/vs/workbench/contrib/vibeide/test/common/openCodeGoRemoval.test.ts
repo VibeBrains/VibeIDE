@@ -8,11 +8,20 @@
 // общий ключ Go и Zen через слот `opencode` и заголовки клиента для шлюза opencode.ai у провайдера из файла.
 
 import * as assert from 'assert';
+import { timeout } from '../../../../../base/common/async.js';
+import { DisposableStore } from '../../../../../base/common/lifecycle.js';
 import { ensureNoDisposablesAreLeakedInTestSuite } from '../../../../../base/test/common/utils.js';
+import { TestConfigurationService } from '../../../../../platform/configuration/test/common/testConfigurationService.js';
+import { IEncryptionService, KnownStorageProvider } from '../../../../../platform/encryption/common/encryptionService.js';
+import { StorageScope, StorageTarget } from '../../../../../platform/storage/common/storage.js';
+import { TestStorageService } from '../../../../test/common/workbenchTestServices.js';
+import { IMetricsService } from '../../common/metricsService.js';
 import { defaultProviderSettings } from '../../common/modelCapabilities.js';
 import { matchQuirks } from '../../common/modelQuirks/modelQuirksTypes.js';
 import { LEGACY_OPENCODE_GO_ID, migrateOpenCodeGoState, OPENCODE_GO_CONFIG_ID, OpenCodeGoMigratableState, openCodeGoMigrationWorthMentioning } from '../../common/openCodeGoMigration.js';
 import { isOpencodeGatewayUrl, opencodeGatewayHeaders } from '../../common/opencodeGateway.js';
+import { OPENCODE_GO_MIGRATION_NOTICE_KEY, VOID_SETTINGS_STORAGE_KEY } from '../../common/storageKeys.js';
+import { VoidSettingsService } from '../../common/vibeideSettingsService.js';
 import { apiKeySlotOfRef, autoModelFallbackProviderOrder, defaultSettingsOfProvider, providerNames } from '../../common/vibeideSettingsTypes.js';
 
 suite('OpenCode Go — вышел из встроенных провайдеров', () => {
@@ -132,6 +141,110 @@ suite('OpenCode Go — вышел из встроенных провайдеро
 			assert.deepStrictEqual(
 				[state.modelSelectionOfFeature?.Chat, openCodeGoMigrationWorthMentioning(report)],
 				[{ providerName: OPENCODE_GO_CONFIG_ID, modelName: 'minimax-m3' }, true],
+			);
+		});
+	});
+
+	suite('перенос при чтении настроек сервисом', () => {
+
+		const store = new DisposableStore();
+		teardown(() => store.clear());
+
+		// Шифрование подменено тождественным: проверяется порядок «прочитал → перенёс → сохранил → оставил отметку для уведомления»
+		const encryption: IEncryptionService = {
+			_serviceBrand: undefined,
+			encrypt: async (value: string) => value,
+			decrypt: async (value: string) => value,
+			isEncryptionAvailable: async () => true,
+			getKeyStorageProvider: async () => KnownStorageProvider.basicText,
+			setUsePlainTextEncryption: async () => { },
+		};
+		const metrics = { capture: () => { }, setOptOut: () => { }, getDebuggingProperties: async () => ({}) } as unknown as IMetricsService;
+
+		const startService = async (stored: object | undefined) => {
+			const storage = store.add(new TestStorageService());
+			if (stored) {
+				storage.store(VOID_SETTINGS_STORAGE_KEY, JSON.stringify(stored), StorageScope.APPLICATION, StorageTarget.USER);
+			}
+			const service = store.add(new VoidSettingsService(storage, encryption, metrics, new TestConfigurationService()));
+			await service.waitForInitState;
+			// Сохранение идёт сразу после того, как состояние объявлено готовым
+			await timeout(0);
+			return { service, storage };
+		};
+		const storedState = (storage: TestStorageService) => JSON.parse(storage.get(VOID_SETTINGS_STORAGE_KEY, StorageScope.APPLICATION)!);
+
+		// Пустой SCM при чтении берёт выбор Chat (старая миграция 1.3.5), поэтому переезжают два выбора, а не один
+		test('у пользователя Go перенос доходит до хранилища, а отметка для уведомления ждёт окна', async () => {
+			const { service, storage } = await startService({
+				globalSettings: {},
+				settingsOfProvider: { openCodeGo: { apiKey: 'sk-go-123', models: [{ modelName: 'qwen3.6-plus', isHidden: false, type: 'custom' }] } },
+				modelSelectionOfFeature: { Chat: { providerName: LEGACY_OPENCODE_GO_ID, modelName: 'qwen3.6-plus' }, 'Ctrl+K': null, Autocomplete: null, Apply: null, SCM: null },
+				optionsOfModelSelection: { Chat: {}, 'Ctrl+K': {}, Autocomplete: {}, Apply: {}, SCM: {} },
+			});
+			const persisted = storedState(storage);
+			assert.deepStrictEqual(
+				{
+					memory: {
+						goLeft: LEGACY_OPENCODE_GO_ID in service.state.settingsOfProvider,
+						key: service.state.dynamicProviderApiKeys,
+						chat: service.state.modelSelectionOfFeature.Chat,
+						scm: service.state.modelSelectionOfFeature.SCM,
+					},
+					persisted: {
+						goLeft: LEGACY_OPENCODE_GO_ID in persisted.settingsOfProvider,
+						key: persisted.dynamicProviderApiKeys,
+						chat: persisted.modelSelectionOfFeature.Chat,
+					},
+					notice: JSON.parse(storage.get(OPENCODE_GO_MIGRATION_NOTICE_KEY, StorageScope.APPLICATION)!),
+				},
+				{
+					memory: { goLeft: false, key: { [OPENCODE_GO_CONFIG_ID]: 'sk-go-123' }, chat: { providerName: OPENCODE_GO_CONFIG_ID, modelName: 'qwen3.6-plus' }, scm: { providerName: OPENCODE_GO_CONFIG_ID, modelName: 'qwen3.6-plus' } },
+					persisted: { goLeft: false, key: { [OPENCODE_GO_CONFIG_ID]: 'sk-go-123' }, chat: { providerName: OPENCODE_GO_CONFIG_ID, modelName: 'qwen3.6-plus' } },
+					notice: { movedKey: true, movedSelections: 2, movedVisibleModels: 1 },
+				},
+			);
+		});
+
+		test('второй запуск на уже перенесённом состоянии уведомления не оставляет, ключ остаётся на месте', async () => {
+			const first = await startService({
+				globalSettings: {},
+				settingsOfProvider: { openCodeGo: { apiKey: 'sk-go-123', models: [] } },
+				modelSelectionOfFeature: { Chat: null },
+				optionsOfModelSelection: { Chat: {} },
+			});
+			const afterFirst = first.storage.get(VOID_SETTINGS_STORAGE_KEY, StorageScope.APPLICATION)!;
+			first.storage.remove(OPENCODE_GO_MIGRATION_NOTICE_KEY, StorageScope.APPLICATION);
+
+			const second = new TestStorageService();
+			store.add(second);
+			second.store(VOID_SETTINGS_STORAGE_KEY, afterFirst, StorageScope.APPLICATION, StorageTarget.USER);
+			store.add(new VoidSettingsService(second, encryption, metrics, new TestConfigurationService()));
+			await timeout(0);
+			assert.deepStrictEqual(
+				[second.get(OPENCODE_GO_MIGRATION_NOTICE_KEY, StorageScope.APPLICATION), JSON.parse(second.get(VOID_SETTINGS_STORAGE_KEY, StorageScope.APPLICATION)!).dynamicProviderApiKeys],
+				[undefined, { [OPENCODE_GO_CONFIG_ID]: 'sk-go-123' }],
+			);
+		});
+
+		test('свежий профиль и пользователь без Go: уведомления нет, ключей у провайдера из файла нет', async () => {
+			const fresh = await startService(undefined);
+			const empty = await startService({
+				globalSettings: {},
+				settingsOfProvider: { openCodeGo: { apiKey: '', models: [] } },
+				modelSelectionOfFeature: { Chat: null },
+				optionsOfModelSelection: { Chat: {} },
+			});
+			assert.deepStrictEqual(
+				[fresh, empty].map(({ service, storage }) => ({
+					notice: storage.get(OPENCODE_GO_MIGRATION_NOTICE_KEY, StorageScope.APPLICATION),
+					keys: service.state.dynamicProviderApiKeys,
+					goLeft: LEGACY_OPENCODE_GO_ID in service.state.settingsOfProvider,
+				})),
+				[
+					{ notice: undefined, keys: {}, goLeft: false },
+					{ notice: undefined, keys: {}, goLeft: false },
+				],
 			);
 		});
 	});
