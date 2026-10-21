@@ -36,6 +36,7 @@ export const VibeTelegramConfigKeys = {
 	proxyUrl: 'vibeide.telegram.proxy.url',
 	progressIntervalMs: 'vibeide.telegram.progressIntervalMs',
 	approvals: 'vibeide.telegram.approvals',
+	notifyAttention: 'vibeide.telegram.notifyAttention',
 } as const;
 
 /** SecretStorage key holding the bot token issued by @BotFather. */

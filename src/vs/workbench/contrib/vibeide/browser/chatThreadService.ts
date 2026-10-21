@@ -653,6 +653,9 @@ type AutoModelChoice = {
 
 
 
+/** Предохранитель, остановивший ход: повтор одного вызова либо череда неудачных вызовов инструментов */
+export type ChatRunGuard = 'loop' | 'toolErrors';
+
 export interface IChatThreadService {
 	readonly _serviceBrand: undefined;
 
@@ -661,6 +664,11 @@ export interface IChatThreadService {
 
 	onDidChangeCurrentThread: Event<void>;
 	onDidChangeStreamState: Event<{ threadId: string }>;
+	/**
+	 * Предохранитель сам остановил ход: модель повторяла один вызов или подряд ошибалась в инструментах
+	 * В ленте такая остановка не оставляет ошибки, и снаружи (Telegram-мост) её не отличить от обычного конца
+	 */
+	readonly onDidStopByGuard: Event<{ threadId: string; guard: ChatRunGuard }>;
 	/** Fired when provider/model health degradation state changes (3099) — model-chip warning. */
 	readonly onDidChangeProviderHealth: Event<void>;
 	/** True if the (provider×model) is currently over the failure threshold within the window (3099). */
@@ -929,6 +937,9 @@ class ChatThreadService extends Disposable implements IChatThreadService {
 
 	private readonly _onDidChangeStreamState = new Emitter<{ threadId: string }>();
 	readonly onDidChangeStreamState: Event<{ threadId: string }> = this._onDidChangeStreamState.event;
+
+	private readonly _onDidStopByGuard = new Emitter<{ threadId: string; guard: ChatRunGuard }>();
+	readonly onDidStopByGuard: Event<{ threadId: string; guard: ChatRunGuard }> = this._onDidStopByGuard.event;
 
 	// Fires the threadId whenever the «scout my next turn» arm flag flips (toggle in the input
 	// toolbar, «Уточнить» on a scout card, or consumption when the turn actually scouts).
@@ -4310,6 +4321,8 @@ Output ONLY the JSON, no other text. Start with { and end with }.`;
 				mode: isThrash ? 'thrash' : 'same-shape',
 			});
 			this._addMessageToThread(threadId, refusedToolMessage({ name: toolName, id: toolId, why: breakerMsg, rawParams: opts.unvalidatedToolParams, mcpServerName }));
+			// Событие идёт до смены состояния: подписчик узнаёт причину остановки, а не только ошибку в ленте
+			this._onDidStopByGuard.fire({ threadId, guard: 'loop' });
 			this._setStreamState(threadId, {
 				isRunning: undefined,
 				error: { message: breakerMsg, fullError: null },
@@ -8083,6 +8096,7 @@ Output ONLY the JSON, no other text. Start with { and end with }.`;
 								this._notificationService.warn(abortMsg);
 								this._addMessageToThread(threadId, refusedToolMessage({ name: toolCall.name, id: toolCall.id, why: abortMsg, rawParams: {}, mcpServerName: undefined }));
 								this._agentActivityLog.logError(`Anti-loop: aborting loop after ${antiLoopBlocks} blocked repetitions`);
+								this._onDidStopByGuard.fire({ threadId, guard: 'loop' });
 								this._setStreamState(threadId, { isRunning: undefined });
 								return;
 							}
@@ -8248,6 +8262,7 @@ Output ONLY the JSON, no other text. Start with { and end with }.`;
 							const abortMsg = `Agent loop aborted: ${maxConsecutiveToolErrors} consecutive tool failures on ${resolvedModelSelection.modelName} (${resolvedModelSelection.providerName}). Even after auto-downgrade to XML-fallback the model couldn't recover. Switch to a different model (Claude, GPT, Gemini, DeepSeek) or simplify the request.`;
 							this._notificationService.warn(abortMsg);
 							this._addMessageToThread(threadId, refusedToolMessage({ name: 'invalid' as ToolName, id: generateUuid(), why: abortMsg, rawParams: {}, mcpServerName: undefined }));
+							this._onDidStopByGuard.fire({ threadId, guard: 'toolErrors' });
 							this._setStreamState(threadId, { isRunning: undefined });
 							return;
 						}

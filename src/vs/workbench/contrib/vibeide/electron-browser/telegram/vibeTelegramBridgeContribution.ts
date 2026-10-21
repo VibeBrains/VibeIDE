@@ -23,6 +23,8 @@ import { basename } from '../../../../../base/common/resources.js';
 import { IWorkbenchContribution, registerWorkbenchContribution2, WorkbenchPhase } from '../../../../common/contributions.js';
 import { IChatThreadService } from '../../browser/chatThreadService.js';
 import { watchChatRun } from '../../browser/chatRunWatch.js';
+import { IVibeLoopDetectorService } from '../../browser/vibeLoopDetectorService.js';
+import { IVibeDeadMansSwitchService } from '../../browser/vibeDeadMansSwitchService.js';
 import { IVibeAgentRunLedgerService } from '../../common/vibeAgentRunLedgerService.js';
 import { buildAgentDailyDigest, formatAgentDailyDigest } from '../../common/agentDailyDigest.js';
 import { vibeLog } from '../../common/vibeLog.js';
@@ -36,6 +38,7 @@ import { IVibeAcpSessionsService, IVibeAcpSessionView } from '../../browser/acp/
 import { IVibeAcpRegistryService } from '../../browser/acp/vibeAcpRegistryService.js';
 import { allowOptionOf, formatAcpPermissionCard, formatAcpTurnEnd } from '../../common/acp/acpPermissionCard.js';
 import { shouldMirrorApproval, VibeTelegramApprovalPolicy } from '../../common/telegram/telegramApprovalPolicy.js';
+import { AttentionKind, AttentionLedger, attentionClassKey, classifyStreamAttention, formatAttentionMessage, isCoveredByTelegramRun, isTurnRunning, selectAttentionRecipients, threadLabelOf } from '../../common/telegram/telegramAttention.js';
 import { approvalTypeOfBuiltinToolName } from '../../common/prompt/tools/index.js';
 import { VIBE_COMMAND_CATEGORY } from '../../common/vibeCommandCategory.js';
 import {
@@ -115,6 +118,10 @@ export class VibeTelegramBridgeContribution extends Disposable implements IWorkb
 	private readonly _acpApprovals = new Map<string, { sessionId: string; chatId: number; messageId?: number }>();
 	/** Чаты, чьё следующее сообщение — правка отклонённого действия внешнего агента. */
 	private readonly _acpAmendOf = new Set<number>();
+	/** О чём в пределах хода уже сказано в чат: лента повторяет состояние на каждое событие. */
+	private readonly _attention = new AttentionLedger();
+	/** Опрос запущен и сообщения доходят: без этого пуш «нужно внимание» слать некуда. */
+	private _bridgeLive = false;
 
 	constructor(
 		@IMainProcessService mainProcessService: IMainProcessService,
@@ -128,6 +135,8 @@ export class VibeTelegramBridgeContribution extends Disposable implements IWorkb
 		@IVibeAgentRunLedgerService private readonly _runLedger: IVibeAgentRunLedgerService,
 		@IVibeAcpSessionsService private readonly _acp: IVibeAcpSessionsService,
 		@IVibeAcpRegistryService private readonly _acpRegistry: IVibeAcpRegistryService,
+		@IVibeLoopDetectorService loopDetector: IVibeLoopDetectorService,
+		@IVibeDeadMansSwitchService deadMansSwitch: IVibeDeadMansSwitchService,
 	) {
 		super();
 		this._register(toDisposable(() => this._lifetime.dispose(true)));
@@ -149,6 +158,13 @@ export class VibeTelegramBridgeContribution extends Disposable implements IWorkb
 		this._register(this._claude.onEvent(e => void this._onClaudeEvent(e)));
 		this._register(this._acp.onDidChange(() => void this._onAcpChanged()));
 		this._register(this._chatThreadService.onDidChangeStreamState(e => void this._onStreamStateChanged(e.threadId)));
+		this._register(this._chatThreadService.onDidChangeStreamState(e => this._onAttentionStreamState(e.threadId)));
+		this._register(this._chatThreadService.onDidDeleteThread(threadId => this._attention.reset(threadId)));
+		this._register(this._chatThreadService.onDidStopByGuard(e => this._notifyAttention(e.guard === 'loop' ? 'loopStopped' : 'toolErrorsStopped', e.threadId)));
+		// Детектор петель и сторож пока никто не кормит (у `recordAction` и `start` нет вызовов), подписка ждёт их
+		this._register(loopDetector.onLoopDetected(e => this._notifyAttention('loopStopped', e.sessionId)));
+		this._register(deadMansSwitch.onAgentPaused(e => this._notifyAttention('agentPaused', e.taskId)));
+		this._register(deadMansSwitch.onAgentResumed(e => this._attention.reset(e.taskId)));
 		this._register(this._configurationService.onDidChangeConfiguration(e => {
 			if (e.affectsConfiguration(VibeTelegramConfigKeys.section)) {
 				void this._applyConfig();
@@ -199,6 +215,7 @@ export class VibeTelegramBridgeContribution extends Disposable implements IWorkb
 			voiceProfile: resolveVoiceProfile(this._configurationService.getValue<unknown>('accessibility.voice.speechLanguage')),
 		});
 
+		this._bridgeLive = false;
 		if (!enabled) {
 			await this._main.stop();
 			return;
@@ -214,6 +231,7 @@ export class VibeTelegramBridgeContribution extends Disposable implements IWorkb
 		} else if (status.state === 'listening') {
 			vibeLog.info('Telegram', `bridge listening as ${status.botUsername ?? 'бот'}`);
 		}
+		this._bridgeLive = status.state === 'listening' || status.state === 'connecting';
 	}
 
 	/**
@@ -838,6 +856,72 @@ export class VibeTelegramBridgeContribution extends Disposable implements IWorkb
 				editMessageId: run.progressMessageId,
 				text: formatProgressLine(now - run.startedAtMs, activity),
 			});
+		}
+	}
+
+	// --- «агенту нужно внимание» --------------------------------------------------------------
+
+	/**
+	 * Состояние ленты изменилось: не просит ли оно человека
+	 *
+	 * Ход пошёл — прежние остановки больше не мешают, следующая будет новой
+	 * Остановка по ошибке и ожидание разрешения приходят отсюда, остановка предохранителем — своим событием
+	 */
+	private _onAttentionStreamState(threadId: string): void {
+		const state = this._chatThreadService.streamState[threadId];
+		if (isTurnRunning(state)) {
+			this._attention.reset(threadId);
+			return;
+		}
+		const attention = classifyStreamAttention(state);
+		if (!attention) {
+			return;
+		}
+		if (attention.kind !== 'awaitingApproval') {
+			this._notifyAttention(attention.kind, threadId, attention.detail);
+			return;
+		}
+		// Лента на каждое событие повторяет «ждёт разрешения», а новый вопрос отличает только вызов, на который ждут ответа
+		const thread = this._chatThreadService.state.allThreads[threadId];
+		const lastMessage = thread?.messages[thread.messages.length - 1];
+		if (lastMessage?.role === 'tool' && lastMessage.type === 'tool_request') {
+			this._notifyAttention('awaitingApproval', threadId, undefined, lastMessage.id);
+		}
+	}
+
+	/**
+	 * Сказать в чат, что агенту нужен человек
+	 *
+	 * Ход из Telegram сообщает свою ошибку и свои вопросы сам, повтор был бы вторым сообщением о том же
+	 * Сообщение уходит один раз за ход: о той же остановке молчим, пока ход не пойдёт снова
+	 */
+	private _notifyAttention(kind: AttentionKind, turnKey: string, detail?: string, callId?: string): void {
+		const origin = this._activeRuns.get(turnKey);
+		if (origin && isCoveredByTelegramRun(kind)) {
+			return;
+		}
+		const recipients = selectAttentionRecipients({
+			notifyEnabled: this._configurationService.getValue<boolean>(VibeTelegramConfigKeys.notifyAttention) !== false,
+			bridgeLive: this._bridgeLive,
+			originChatId: origin?.chatId,
+			allowedChatIds: this._configurationService.getValue<number[]>(VibeTelegramConfigKeys.allowedChatIds) ?? [],
+		});
+		if (!recipients.length || !this._attention.claim(turnKey, attentionClassKey(kind, callId))) {
+			return;
+		}
+		const folder = this._workspaceService.getWorkspace().folders[0];
+		const thread = this._chatThreadService.state.allThreads[turnKey];
+		const text = escapeTelegramHtml(formatAttentionMessage({
+			kind,
+			project: folder ? basename(folder.uri) : undefined,
+			thread: thread ? threadLabelOf(thread.messages) : undefined,
+			detail,
+		}));
+		for (const chatId of recipients) {
+			this._main.send({ chatId, text }).then(
+				delivery => { if (!delivery.ok) { vibeLog.warn('Telegram', `attention not delivered: ${delivery.error ?? 'причина неизвестна'}`); } },
+				err => vibeLog.warn('Telegram', `attention send failed: ${err instanceof Error ? err.message : String(err)}`),
+			);
 		}
 	}
 

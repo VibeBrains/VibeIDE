@@ -265,6 +265,12 @@ export class VibeideGlobalSettingsConfigurationContribution extends Disposable i
 					scope: ConfigurationScope.APPLICATION,
 					markdownDescription: localize('vibeide.telegram.approvals.desc', 'Какие запросы подтверждения показывать в Telegram кнопками «Разрешить / Отклонить / Поправить».\n\nСообщение показывает, **что именно** будет сделано — команду или путь, — а не безымянное «действие». Молчание в течение 5 минут считается отказом: телефон может лежать в кармане, и тишина не должна означать «да».\n\nЭта настройка ничего не одобряет сама: незеркалированный запрос просто ждёт вас в IDE. Автоодобрение — отдельные настройки инструментов.'),
 				},
+				'vibeide.telegram.notifyAttention': {
+					type: 'boolean',
+					default: true,
+					scope: ConfigurationScope.APPLICATION,
+					markdownDescription: localize('vibeide.telegram.notifyAttention.desc', 'Присылать в Telegram сообщение, когда агенту нужен человек, а он, возможно, не у экрана: ход остановлен предохранителем от петли или от череды ошибок инструментов, сторож зависания не помог, ход упал с ошибкой, агент ждёт разрешения, сторож приостановил агента.\n\nРаботает, только пока мост включён и привязан хотя бы один чат. Ход, начатый из Telegram, сообщает только тому чату, откуда он начат; ход из IDE — всем привязанным чатам. Об одной остановке — одно сообщение за ход.\n\nОшибку и вопрос разрешения хода, начатого из Telegram, мост и так присылает сам, поэтому они не дублируются.'),
+				},
 				'vibeide.vibeServer.previewTabs': {
 					type: 'string',
 					enum: ['single', 'perService'],
