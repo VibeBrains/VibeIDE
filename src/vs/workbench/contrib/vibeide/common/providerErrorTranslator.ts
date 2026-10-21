@@ -47,6 +47,13 @@ const TRANSLATION_RULES: readonly { pattern: RegExp; ru: string | ((message: str
 		pattern: REGION_RESTRICTION_PATTERN,
 		ru: 'Эта модель доступна у провайдера только в регионе Global. Выберите Global в настройках приватности рабочего пространства у провайдера — или выберите другую модель или провайдера, например DeepSeek напрямую своим ключом.',
 	},
+	// Кредиты Anthropic API кончились — раньше общего «Billing / credits»: тот ловит «billing» в «Plans & Billing»
+	// и сказал бы про адрес API, который здесь ни при чём. Текст отказа дословно у вендора
+	// (platform.claude.com/docs/en/about-claude/api-credits-for-subscribers)
+	{
+		pattern: /credit balance is too low/i,
+		ru: 'Кредиты Anthropic API закончились. Докупите их на странице Plans & Billing консоли Anthropic. Кредиты подписки Max и Team сгорают в конце расчётного периода и возобновятся в новом, остаток не переносится: до тех пор докупите кредиты или возьмите другую модель или провайдера. Повторять запрос бесполезно.',
+	},
 	// Billing / credits — before rate-limit ("quota" alone is ambiguous, billing wording is specific).
 	{
 		pattern: /insufficient[\s_-]*(?:credits?|balance|funds|quota)|payment required|billing|\b402\b|top up|exceeded your current quota|no resource package|please recharge/i,

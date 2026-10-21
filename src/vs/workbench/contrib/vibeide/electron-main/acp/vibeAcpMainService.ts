@@ -79,7 +79,7 @@ function isAuthRequired(err: unknown): boolean {
  * Dock does not inherit `PATH` from `~/.zshrc`, so for the agent those commands do not exist. VS Code
  * resolves the login shell's environment once for its terminals and extension host; agents get the same.
  */
-function childEnv(extra: Readonly<Record<string, string>> | undefined, shellEnv: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
+export function childEnv(extra: Readonly<Record<string, string>> | undefined, shellEnv: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
 	const env: NodeJS.ProcessEnv = { ...process.env, ...shellEnv, ...(extra ?? {}) };
 	for (const marker of NESTED_SESSION_MARKERS) {
 		if (extra && marker in extra) { continue; }
@@ -164,6 +164,9 @@ const NESTED_SESSION_MARKERS = [
  * мимо IDE: его работу не видят ни подтверждения, ни журнал, ни снимок рабочей папки. Здесь всё
  * наоборот — файл читается и пишется запросом к нам (`fs/read_text_file`, `fs/write_text_file`),
  * а перед действием агент спрашивает разрешение (`session/request_permission`), и вопрос уходит
+	// Режим «простой» включает у Claude Code голый запуск: без входа, CLAUDE.md и правил пользователя,
+	// и адаптер отвечает «Authentication required»
+	'CLAUDE_CODE_SIMPLE',
  * человеку. Агент перестаёт быть соседом по папке и становится гостем редактора.
  *
  * Процесс живёт в main по той же причине, что поллер Telegram: он один на приложение.

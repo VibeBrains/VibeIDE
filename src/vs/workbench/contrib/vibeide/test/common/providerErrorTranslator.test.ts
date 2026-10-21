@@ -23,6 +23,8 @@ suite('providerErrorTranslator', () => {
 			{ name: 'rate limit (429)', input: 'Request failed with status code 429', expectRu: 'частоту запросов' },
 			{ name: 'overloaded (Anthropic)', input: 'Overloaded', expectRu: 'перегружен' },
 			{ name: 'billing (OpenAI quota)', input: 'You exceeded your current quota, please check your plan and billing details.', expectRu: 'квота' },
+			// Дословный текст отказа Anthropic: «Plans & Billing» не должно уводить в общее «billing» про адрес API
+			{ name: 'Anthropic API credits exhausted', input: 'Your credit balance is too low to access the Anthropic API. Please go to Plans & Billing to upgrade or purchase credits.', expectRu: 'Кредиты Anthropic API закончились' },
 			{ name: 'billing (insufficient credits)', input: 'Insufficient credits. Please top up your account.', expectRu: 'квота' },
 			{ name: 'auth 401', input: 'Incorrect API key provided: sk-***. You can find your API key at...', expectRu: 'API-ключ' },
 			{ name: 'auth invalid x-api-key', input: 'authentication_error: invalid x-api-key', expectRu: 'API-ключ' },
@@ -49,6 +51,15 @@ suite('providerErrorTranslator', () => {
 				assert.ok(out.includes('(исходно:'), 'original text must be echoed for bug reports');
 			});
 		}
+
+		test('кредиты Anthropic — своя подсказка, а не общий совет про адрес API', () => {
+			const out = translateProviderError('Your credit balance is too low to access the Anthropic API. Please go to Plans & Billing to upgrade or purchase credits.');
+			assert.ok(out);
+			assert.deepStrictEqual(
+				[out.includes('Plans & Billing'), out.includes('возобновятся в новом'), out.includes('адрес API')],
+				[true, true, false],
+			);
+		});
 	});
 
 	suite('translateProviderError — pass-through', () => {

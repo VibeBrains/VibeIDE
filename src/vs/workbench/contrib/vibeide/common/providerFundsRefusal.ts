@@ -32,6 +32,9 @@ const NO_FUNDS_PATTERNS: readonly RegExp[] = [
 	/no\s+resource\s+package/i,
 	/please\s+recharge/i,
 	/account\s+balance\s+is\s+(?:insufficient|too\s+low)/i,
+	// Anthropic: кредиты API кончились (у подписчиков Max и Team — кредиты плана), вендор отвечает 400
+	// Текст дословно с platform.claude.com/docs/en/about-claude/api-credits-for-subscribers
+	/credit\s+balance\s+is\s+too\s+low/i,
 	/arrearage|欠费/i,
 ];
 

@@ -7204,14 +7204,13 @@ VibeIDEA разобрала те же сводки раньше (`docs/vibe/refe
       и `top_p` молча игнорируются, пустой ответ при малом `max_tokens` на `high`) страница вендора не подтверждает.
       Цены со ступенью по дате в схеме `cost` нет (есть только `timeOfDay`): решить, завести ли поле или поставить текущую
       цену с пометкой о 01.12. Запись в сид `providers/google-gemini.jsonc` — через VibeBrains
-- [ ] **Исчерпанные API-кредиты Anthropic распознаются как «деньги кончились»** — найдено 21.10.2026, польза средняя,
-      трудоёмкость малая. Вендор называет текст отказа дословно: «Your credit balance is too low to access the Anthropic
-      API. Please go to Plans & Billing to upgrade or purchase credits.» (api-credits-for-subscribers). Список
-      `NO_FUNDS_PATTERNS` в `providerFundsRefusal.ts` его не знает (есть `insufficient …`, `account balance is … too low`,
-      `please recharge`, но нет `credit balance is too low`), по `grep` фразы нет нигде в `vibeide`. Кредиты Max/Team сгорают в конце
-      цикла и тратятся быстро ($100 — порядка 5 млн выходных токенов Opus 5.5), поэтому отказ станет обычным. Сделать:
-      шаблон `/credit\s+balance\s+is\s+too\s+low/i`, тест, в подсказке — что кредиты возобновятся в новом цикле, а до
-      того можно докупить на странице Billing консоли
+- [x] **Исчерпанные API-кредиты Anthropic распознаются как «деньги кончились»** — ✅ (21.10.2026, `next`) шаблон
+      `/credit\s+balance\s+is\s+too\s+low/i` в `NO_FUNDS_PATTERNS` (`providerFundsRefusal.ts`): отказ с кодом 400 теперь
+      превращается в 402 без повторов, а не остаётся «неверным запросом». В `providerErrorTranslator.ts` своё правило стоит
+      раньше общего «Billing»: тот ловил «Plans & Billing» из самого текста вендора и советовал проверить адрес API.
+      Карточка говорит, что кредиты закончились, где их докупить и что кредиты плана Max и Team возобновятся в новом
+      расчётном периоде. Текст отказа вендора — дословно по api-credits-for-subscribers (21.10). Тесты:
+      `providerFundsRefusal.test.ts`, `providerErrorTranslator.test.ts`
 - [ ] **Сид и мануал: кредиты Max/Team — как получить и чем ограничить расход** — найдено 21.10.2026, польза
       средняя (для пользователей с подпиской), трудоёмкость малая. В шапке `providers/anthropic.jsonc` уже есть
       суммы; нет того, что вендор пишет в «How credits are applied»: кредиты приходят после привязки организации консоли

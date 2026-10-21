@@ -35,6 +35,21 @@ suite('providerFundsRefusal — "out of money" is not "too fast"', () => {
 		);
 	});
 
+	// Тело отказа Anthropic: вендор называет текст дословно (api-credits-for-subscribers), статус 400
+	const ANTHROPIC_CREDITS_BODY = '{"type":"error","error":{"type":"invalid_request_error","message":"Your credit balance is too low to access the Anthropic API. Please go to Plans & Billing to upgrade or purchase credits."}}';
+
+	test('исчерпанные кредиты Anthropic — отказ по деньгам, а не неверный запрос: повторы бесполезны', () => {
+		assert.deepStrictEqual(
+			[400, 402, 429].map(status => detectNoFundsRefusal(status, ANTHROPIC_CREDITS_BODY)),
+			[{ isNoFunds: true }, { isNoFunds: true }, { isNoFunds: true }],
+		);
+	});
+
+	test('другой 400 от Anthropic деньгами не становится', () => {
+		const body = '{"type":"error","error":{"type":"invalid_request_error","message":"max_tokens: 100000 > 64000, which is the maximum allowed number of output tokens"}}';
+		assert.strictEqual(detectNoFundsRefusal(400, body).isNoFunds, false);
+	});
+
 	test('a success or an empty body is never a funds refusal', () => {
 		assert.deepStrictEqual(
 			[detectNoFundsRefusal(200, ZAI_BODY).isNoFunds, detectNoFundsRefusal(429, undefined).isNoFunds, detectNoFundsRefusal(429, '').isNoFunds],
