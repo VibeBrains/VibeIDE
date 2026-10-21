@@ -201,7 +201,9 @@ const STOP_SOUND_SUPPRESS_MS = 2500; // After a user abort / non-terminal clear,
 const CHAT_RETRIES = 3;
 const INITIAL_RETRY_DELAY = 1000; // Start with 1s for faster recovery
 const MAX_RETRY_DELAY = 5000; // Cap at 5s
-const DEFAULT_MAX_AGENT_LOOP_ITERATIONS = 30; // Default cap; overridable via `vibeide.agent.maxLoopIterations`. 0 in the setting disables the cap.
+// Запасное значение, когда в `vibeide.agent.maxLoopIterations` оказалось не число
+// Совпадает с умолчанием схемы: 0 — жёсткого потолка нет, длиной прогона ведут мягкие чекпоинты
+const DEFAULT_MAX_AGENT_LOOP_ITERATIONS = 0;
 const MAX_AGENT_LOOP_ITERATIONS_UPPER_BOUND = 200; // Hard ceiling for user-supplied values to avoid runaway loops via accidental large input.
 const MAX_RUN_TEXT_SCANNED_CHARS = 60_000; // TURN-CHECKS: cap on the assistant text kept per run for the citation scan. A long agent run can emit far more; the regex only feeds the first 20 citations anyway, so the tail buys nothing.
 const MAX_CONSECUTIVE_TOOL_ERRORS = 15; // Circuit-breaker: abort agent loop after this many back-to-back tool failures. opencode CLI has no breaker — model just keeps iterating until it succeeds. 15 gives breathing room (some models recover after 5-10 attempts before finding the right tool format) while still preventing infinite loops on truly broken combos.
@@ -5613,7 +5615,7 @@ Output ONLY the JSON, no other text. Start with { and end with }.`;
 		const maxLoopIterations = (typeof rawMaxIter === 'number' && Number.isFinite(rawMaxIter) && rawMaxIter >= 0)
 			? Math.min(MAX_AGENT_LOOP_ITERATIONS_UPPER_BOUND, Math.floor(rawMaxIter))
 			: DEFAULT_MAX_AGENT_LOOP_ITERATIONS;
-		// 0 = no cap (user opted out)
+		// 0 — потолка нет (умолчание схемы)
 
 		// Auto-downgrade-to-XML threshold (config-driven; default AUTO_DOWNGRADE_THRESHOLD).
 		// `0` disables auto-downgrade entirely → model stays on native FC no matter what, like

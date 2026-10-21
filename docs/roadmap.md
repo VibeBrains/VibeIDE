@@ -7106,6 +7106,28 @@ VibeIDEA разобрала те же сводки раньше (`docs/vibe/refe
       (`f79dd9714`) как заглушка для ненаписанного рантайма; рантайм давно есть, класс не бросался нигде, кроме своего теста.
       Замысла, которого у нас нет, не несёт
 
+## VIBEIDEA-1021. Хендоффы VibeIDEA 16–21.10.2026 — пять пунктов одной пачкой (2026-10-21)
+
+Источник: `~/.vibememory/store/projects/VibeIDE/memory/sessions/` — `max-loop-iterations-double-from-vibeidea.md`,
+`seed-merge-base-from-vibeidea.md`, `rules-generic-from-vibeidea.md`, `mcp-pins-vectors-from-vibeidea.md`,
+`daily-digest-pickup-from-vibeidea.md`. Утверждения о нашем коде сверены командой, а не приняты из писем.
+
+- [x] **`vibeide.agent.maxLoopIterations` зарегистрирован дважды (30 и 0)** — ✅ (21.10.2026, `next`) раскопки: запись
+      с умолчанием 0 лежит в `vibeAgentBehaviorConfiguration.ts` (с 13.05), запись с 30 — в «сиротах»
+      `vibeideGlobalSettingsConfiguration.ts` (21.05, `55724a112`). Реестр второй регистрации ключа не принимает и молчит:
+      действует первая (замер в тестовом прогоне: ключ с умолчаниями 0 и 30 остался с 0). Файл «сирот» регистрирует из
+      вкладчика `BlockRestore`, то есть позже любой регистрации на уровне модуля, поэтому на деле действовало 0 — как
+      и задумывал `64be39209` (полная автономия, длиной прогона ведут мягкие чекпоинты). Оставлена запись из
+      `vibeAgentBehaviorConfiguration.ts`. Тем же способом пропадали ещё шесть ключей: `vibeide.cost.confirmThreshold`,
+      `confirmTokenThreshold`, `alwaysConfirm` (первая — в `costForecastConfiguration.ts`), `vibeide.agent.responseLanguage`
+      (`vibeAgentResponseLanguageConfiguration.ts`), `vibeide.agent.preferJsonToolArguments` (поведение агента) и
+      `vibeide.subagent.maxResumes` (проигравшая — в `vibeSubagentIsolationRuntime.ts`, первым вычисляется оркестратор).
+      Убраны проигравшие записи: в поведении ничего не изменилось, они и так выбрасывались. Запасное значение
+      `DEFAULT_MAX_AGENT_LOOP_ITERATIONS` в `chatThreadService.ts` 30 → 0 (срабатывает, только если в настройке не число),
+      подсказка в `vibeSettingsRu.ts` исправлена. Тест `test/node/settingKeysUnique.test.ts`: ни один ключ `vibeide.*` не
+      описан дважды. Не менялось: у `vibeide.cost.*` проигравшие копии просили область приложения и потолки значений,
+      действует оконная область без потолков — решать владельцу, нужно ли это
+
 ## DIGEST-1021. Сводки 15–21.10.2026 одним разбором — пять пробелов в продукте, три идеи и один смоук (2026-10-21)
 
 Семь прогонов рутины: 15.10 `cse_01UqHjyoQFmh51gQAWtzpt3T`, 16.10 `cse_01JGNgeTP6a8yfh5GdjcB2fN`,

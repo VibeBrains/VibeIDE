@@ -99,13 +99,6 @@ Registry.as<IConfigurationRegistry>(ConfigurationExtensions.Configuration).regis
 			default: false,
 			description: localize('vibeide.subagent.forceInline', 'Принудительно запускать субагентов в inline-режиме без изоляции (worker/process). Полезно для отладки; ломает гарантию «explore-subagent не сжигает родительский контекст». По умолчанию выключено.'),
 		},
-		'vibeide.subagent.maxResumes': {
-			type: 'number',
-			default: 2,
-			minimum: 0,
-			maximum: 10,
-			description: localize('vibeide.subagent.maxResumes', 'Сколько раз субагента, остановленного по лимиту (токены/шаги/время), автоматически продолжать с сохранённым прогрессом, прежде чем оставить решение человеку. 0 — не продолжать автоматически. По умолчанию 2.'),
-		},
 		'vibeide.subagent.resumeBudgetFactor': {
 			type: 'number',
 			default: 1.5,
