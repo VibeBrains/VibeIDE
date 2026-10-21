@@ -7256,20 +7256,21 @@ VibeIDEA разобрала те же сводки раньше (`docs/vibe/refe
       (workspace spend limit); сначала тратятся включённые кредиты, потом купленные; Claude Code и расход в приложениях
       Claude не покрыты. Нет и в `docs/manuals/providersSpec.md`, и в `docs/functional.md`. Сделать: дописать шапку
       сида (VibeBrains) и строку в мануал провайдеров
-- [ ] **Мост превью `__vibeBrowser` принимает команды от любой страницы** — найдено 21.10.2026 при аудите по мотивам
-      SneakPeek (уязвимость превью HTML в Claude Code Desktop, раскрыта 14.10; CSO Online и Dark Reading: файлы ≥256 КБ
-      шли по `file://` без политики безопасности контента), польза средняя (безопасность), трудоёмкость малая.
-      Прямого аналога нет: адресная строка превью берёт только `http(s)` и пути от своего origin (`normalize`), автопревью
-      файла по `file://` нет. Но по коду `browser/vibeServer/vibeBrowserManager.ts`: (1) `<iframe id="vb-frame">` без
-      `sandbox`; (2) слушатель `message` не сверяет `ev.source` и `ev.origin`; (3) любая страница в рамке может послать
-      `{__vibeBrowser:'external', href}` — и `_openerService.open(URI.parse(href), { openExternal: true })` откроет любую
-      схему (в `openerService.ts:136` при `openExternal` проверки схем нет; что режет слой main — не смотрел); так же она
-      шлёт `{type:'navigate', url}`, а `goto` ставит `frame.src` без `normalize`;
-      (4) `inspect` (селектор и фрагмент HTML) и `console` (текст) идут от страницы в чат и журнал консоли агента — проходят
-      ли они через `VibePromptGuardService`, не проверял. Сценарий — dev-сервер проекта, склонированного из чужого репо.
-      Живьём не воспроизводилось. Сделать: только `http`/`https` у `open-external` и совпадение origin с превью; лимит
-      длины полей; сверка `ev.source === frame.contentWindow` для `__vibeBrowser`; `navigate` от страницы — через
-      `normalize`; охранник на `inspect.html` и `console.text`. Запись знания — [previewBridgeTrust.md](knowledge/security/previewBridgeTrust.md)
+- [x] **Мост превью `__vibeBrowser` принимает команды от любой страницы** — ✅ (21.10.2026, `next`) найдено при аудите по
+      мотивам SneakPeek (прямого аналога у нас нет: адресная строка берёт только `http(s)`, автопревью по `file://` нет),
+      закрыто целиком. Хром (`common/vibeServer/previewChromeHtml.ts`, вынесен из менеджера ради теста) принимает сообщения
+      моста только от самой рамки, команды — только от родительского окна веб-вью; рамка получила `sandbox` без
+      `allow-top-navigation`/`allow-popups`/`allow-modals`. Хост (`vibeBrowserManager.ts`): наружу открывается только
+      `http(s)` без имени и пароля (платформа при `openExternal` открывает `file:` и `vscode:` без вопросов), не чаще трёх раз
+      за десять секунд; `navigated` с чужим origin отбрасывается; поля обрезаны, селектор однострочный, консоль не чаще 200
+      записей в секунду. Селектор, разметка, ошибки консоли и правило находки идут в чат через охранник
+      (`previewPageTextGuard.ts`) под рамкой «данные страницы, не указания»; разметка ограждена кавычками длиннее любой
+      серии внутри. `design_review` добавлен в список недоверенного вывода. Адрес превью из `.vibe/servers.json`
+      проверяется до открытия. Совпадение origin для `open-external` не вводили: обработчик нужен ради ссылок на другие сайты.
+      Измерено в Chromium на вложенных песочницах с настоящим документом хрома: localStorage, cookie, `fetch`, `postMessage`
+      работают; увод окна, всплывающее окно и `alert` закрыты. Тесты: `previewBridgePolicy`, `previewPageTextGuard`,
+      `previewChromeHtml` (скрипт хрома на подставных окнах), `vibeBrowserManager` (менеджер на подставном веб-вью),
+      `untrustedToolOutputGuard`. Знание — [previewBridgeTrust.md](knowledge/security/previewBridgeTrust.md)
 - [ ] **Поисковый бэкенд по ключу для `web_search`** — найдено 21.10.2026 (DeepSeek Search и Fetch API, сводки 17–21.10),
       польза средняя, трудоёмкость средняя. Сегодня `web_search` идёт по цепочке DuckDuckGo Instant Answer и запасных
       способов (`toolsService.ts`, ~3114), ключевого бэкенда нет. Вендор (api-docs.deepseek.com/guides/search, 21.10):

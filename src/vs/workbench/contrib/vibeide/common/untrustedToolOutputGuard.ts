@@ -34,9 +34,10 @@ import { GuardedContext, isInjectionWarning, SanitizeFn } from './retrievedConte
  *
  * `extract_structured` is here because the page goes through an extraction model first
  * A model that read an injection can return it as a field value
+ * `design_review` is here because its findings quote the previewed page: selectors and measured text come from the page itself
  * Tools that read workspace files are not: `read_file` is guarded at the read itself
  */
-const UNTRUSTED_OUTPUT_BUILTIN_TOOLS: ReadonlySet<string> = new Set(['web_search', 'browse_url', 'extract_structured']);
+const UNTRUSTED_OUTPUT_BUILTIN_TOOLS: ReadonlySet<string> = new Set(['web_search', 'browse_url', 'extract_structured', 'design_review']);
 
 /** The line put in front of an output that looks like an attempt to give the model orders */
 function injectionNotice(toolName: string): string {

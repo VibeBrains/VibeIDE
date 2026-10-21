@@ -52,10 +52,11 @@ suite('untrustedToolOutputGuard — tool output is data, not instructions', () =
 		});
 	});
 
-	test('every web reader is covered: browse_url and extract_structured as well', () => {
-		const flagged = ['browse_url', 'extract_structured'].map(toolName => guardToolOutput({ toolName, isMcpTool: false, output: hostile, sanitize }).tainted);
+	// design_review цитирует страницу превью: селекторы и замеренный текст пишет сама страница
+	test('every web reader is covered: browse_url and extract_structured as well, and the design review that quotes the previewed page', () => {
+		const flagged = ['browse_url', 'extract_structured', 'design_review'].map(toolName => guardToolOutput({ toolName, isMcpTool: false, output: hostile, sanitize }).tainted);
 
-		assert.deepStrictEqual(flagged, [true, true]);
+		assert.deepStrictEqual(flagged, [true, true, true]);
 	});
 
 	test('invisible characters are stripped without a notice: nothing in the text addresses the model', () => {

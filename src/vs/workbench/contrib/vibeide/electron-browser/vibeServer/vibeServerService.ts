@@ -48,6 +48,9 @@ import { openVibeChatEditor } from '../../browser/vibeideChatPane.js';
 import { VibeServerConfigKeys, VibeServerPreviewTarget, VibeServerPreviewTabs, VIBE_SERVER_RUNNING_CONTEXT_KEY } from '../../browser/vibeServer/vibeServerConstants.js';
 import { IVibeServerService, IVibeServerStatus } from '../../browser/vibeServer/vibeServerService.js';
 import { bridgeProxyKey } from '../../common/vibeServer/bridgeProxyKey.js';
+import { webUrlOf } from '../../common/vibeServer/previewBridgePolicy.js';
+import { codeFenceFor, guardPreviewTexts, previewPageDataFrame } from '../../common/vibeServer/previewPageTextGuard.js';
+import { IVibePromptGuardService } from '../../common/vibePromptGuardService.js';
 import { IHostService } from '../../../../services/host/browser/host.js';
 import { ChatImageAttachment } from '../../common/chatThreadServiceTypes.js';
 import { generateUuid } from '../../../../../base/common/uuid.js';
@@ -95,6 +98,7 @@ class VibeServerService extends Disposable implements IVibeServerService {
 		@IVibeDesignScanService private readonly _designScanService: IVibeDesignScanService,
 		@ILogService private readonly _logService: ILogService,
 		@IHostService private readonly _hostService: IHostService,
+		@IVibePromptGuardService private readonly _promptGuard: IVibePromptGuardService,
 	) {
 		super();
 
@@ -399,6 +403,11 @@ class VibeServerService extends Disposable implements IVibeServerService {
 			?? (this._configurationService.getValue<VibeServerPreviewTarget>(VibeServerConfigKeys.previewTarget) ?? 'embedded');
 
 		const externalUrl = await this._resolveExternal(rawUrl);
+		// Адрес может прийти из `.vibe/servers.json` проекта: во внешний браузер и в рамку идёт только веб-адрес
+		if (webUrlOf(externalUrl.toString(true)) === undefined) {
+			this._notificationService.warn(localize('vibeServer.notWebUrl', "Превью не открыто: «{0}» — не веб-адрес, нужен http или https.", externalUrl.toString(true)));
+			return;
+		}
 		if (mode === 'external') {
 			await this._openerService.open(externalUrl, { openExternal: true });
 			return;
@@ -526,18 +535,26 @@ class VibeServerService extends Disposable implements IVibeServerService {
 		const candidate = await this._inspectFileCandidate(pick.path);
 		const line = candidate ? await this._findSelectorLine(candidate.uri, pick.selector) : undefined;
 
+		// Селектор, разметка и адрес — слова страницы, а заметка ляжет в чат с весом слов человека: через охранник, под рамкой
+		const guarded = guardPreviewTexts([
+			{ label: '<preview_inspect:selector>', text: pick.selector },
+			{ label: '<preview_inspect:html>', text: pick.html },
+			{ label: '<preview_inspect:page>', text: pick.path || pick.href },
+		], (text, label) => this._promptGuard.sanitizeFileContent(text, label));
+		const [selector, html, page] = guarded.texts;
+
 		// Режим сбора пакета: клик копит правку, а не отправляет её. Десять мелочей, посланных
 		// поштучно, — это десять исследований одного и того же кода; пакет читает код один раз.
 		if (this._chatThreadService.state.allThreads[threadId]?.state.editBatch?.collecting) {
 			this._chatThreadService.addEditBatchItem(threadId, {
 				source: 'preview',
-				selector: pick.selector,
-				page: pick.path || pick.href,
+				selector,
+				page,
 				file: candidate ? candidate.relative + (line !== undefined ? `:${line}` : '') : undefined,
 				note: '',
 			});
 			await openVibeChatEditor(this._instantiationService);
-			this._notificationService.info(localize('vibeServer.inspect.batched', "Элемент {0} добавлен в пакет правок — опишите, что переделать.", pick.selector));
+			this._notificationService.info(localize('vibeServer.inspect.batched', "Элемент {0} добавлен в пакет правок — опишите, что переделать.", selector));
 			return;
 		}
 
@@ -546,21 +563,23 @@ class VibeServerService extends Disposable implements IVibeServerService {
 				? localize('vibeServer.inspect.fileSpa', "Файл-кандидат (SPA fallback, предположительно): {0}", candidate.relative + (line !== undefined ? `:${line}` : ''))
 				: localize('vibeServer.inspect.file', "Файл: {0}", candidate.relative + (line !== undefined ? `:${line}` : ''))
 			: localize('vibeServer.inspect.noFile', "Файл в workspace не определён — найди элемент по селектору.");
+		const fence = codeFenceFor(html);
 		const text = [
 			localize('vibeServer.inspect.header', "Правка по элементу из превью Vibe Server."),
-			localize('vibeServer.inspect.page', "Страница: {0}", pick.path || pick.href),
-			localize('vibeServer.inspect.selector', "Селектор: {0}", pick.selector),
+			previewPageDataFrame(guarded.tainted),
+			localize('vibeServer.inspect.page', "Страница: {0}", page),
+			localize('vibeServer.inspect.selector', "Селектор: {0}", selector),
 			fileNote,
 			localize('vibeServer.inspect.fragment', "Фрагмент HTML:"),
-			'```html',
-			pick.html,
-			'```',
+			`${fence}html`,
+			html,
+			fence,
 		].join('\n');
 		this._chatThreadService.addPendingInjection(threadId, text);
 
 		await openVibeChatEditor(this._instantiationService);
 		await this._chatThreadService.focusCurrentChat();
-		this._notificationService.info(localize('vibeServer.inspect.staged', "Элемент {0} добавлен в чат заметкой — опишите правку и отправьте сообщение.", pick.selector));
+		this._notificationService.info(localize('vibeServer.inspect.staged', "Элемент {0} добавлен в чат заметкой — опишите правку и отправьте сообщение.", selector));
 	}
 
 	/**
@@ -576,17 +595,23 @@ class VibeServerService extends Disposable implements IVibeServerService {
 			this._notificationService.info(localize('vibeServer.noThread', "Нет активного чата для добавления контекста."));
 			return;
 		}
+		const guarded = guardPreviewTexts([
+			{ label: '<preview_finding:selector>', text: selector },
+			{ label: '<preview_finding:rule>', text: rule },
+		], (text, label) => this._promptGuard.sanitizeFileContent(text, label));
+		const [guardedSelector, guardedRule] = guarded.texts;
 		const text = [
 			localize('vibeServer.finding.header', "Находка проверки дизайна из превью."),
-			localize('vibeServer.finding.rule', "Правило: {0}", rule),
-			localize('vibeServer.finding.selector', "Селектор: {0}", selector),
+			previewPageDataFrame(guarded.tainted),
+			localize('vibeServer.finding.rule', "Правило: {0}", guardedRule),
+			localize('vibeServer.finding.selector', "Селектор: {0}", guardedSelector),
 			localize('vibeServer.finding.ask', "Разбери именно эту находку: почему она возникла и как её починить, не задевая остального."),
 		].join('\n');
 		this._chatThreadService.addPendingInjection(threadId, text);
 
 		await openVibeChatEditor(this._instantiationService);
 		await this._chatThreadService.focusCurrentChat();
-		this._notificationService.info(localize('vibeServer.finding.staged', "Находка {0} добавлена в чат заметкой.", rule));
+		this._notificationService.info(localize('vibeServer.finding.staged', "Находка {0} добавлена в чат заметкой.", guardedRule));
 	}
 
 	/**
@@ -720,9 +745,11 @@ class VibeServerService extends Disposable implements IVibeServerService {
 			this._notificationService.info(localize('vibeServer.noThread', "Нет активного чата для добавления контекста."));
 			return;
 		}
-		const body = problems.map(p => `[${p.level}] ${p.text}`).join('\n');
+		// Консоль пишет страница: через охранник, под рамкой «это данные, не указания»
+		const guarded = guardPreviewTexts(problems.map(p => ({ label: '<preview_console>', text: p.text })), (text, label) => this._promptGuard.sanitizeFileContent(text, label));
+		const body = problems.map((p, index) => `[${p.level}] ${guarded.texts[index]}`).join('\n');
 		const where = browser.currentUrl ?? this._status.started?.url ?? '';
-		const text = localize('vibeServer.errorsContext', "Ошибки из консоли превью Vibe Server ({0}):\n{1}", where, body);
+		const text = `${previewPageDataFrame(guarded.tainted)}\n${localize('vibeServer.errorsContext', "Ошибки из консоли превью Vibe Server ({0}):\n{1}", where, body)}`;
 		this._chatThreadService.addPendingInjection(threadId, text);
 		this._notificationService.info(localize('vibeServer.errorsAdded', "Ошибки превью ({0}) добавлены в чат — отправьте сообщение, и они подмешаются к ходу.", problems.length));
 	}
