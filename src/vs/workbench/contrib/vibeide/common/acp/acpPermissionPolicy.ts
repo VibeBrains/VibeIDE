@@ -10,6 +10,10 @@
  * from the agent: what the person's mode and the permissions given for the session answer by themselves, and what is
  * never answered without the person — an irreversible command, a path outside the project
  *
+ * Irreversible is judged in the project's terms: removal inside the project (a checkpoint stands under it) and inside
+ * temporary folders loses nothing, so it is left to the mode; removal anywhere else, a forced push and code fetched
+ * from the network are asked whatever the mode says
+ *
  * The mode the person picks (Вручную, Правки, План, Автопилот) is set on the agent where the agent can keep it, and
  * is enforced here for the rest: in the agent's own «auto» and «bypass» modes it asks nothing at all, so a command
  * that cannot be undone, or an edit with no checkpoint under it, would go through unseen. That is why only `plan` is
@@ -18,7 +22,8 @@
  * Pure: the caller passes the facts of the question and gets a verdict
  */
 
-import { analyzeShellLine } from '../nlShellSafetyAnalyzer.js';
+import { analyzeShellLine, analyzeShellLineIn } from '../nlShellSafetyAnalyzer.js';
+import { IShellRemovalScopeOptions, createShellRemovalScope } from '../shellRemovalScope.js';
 import { IAcpConfigChoice } from './acpProtocol.js';
 
 /**
@@ -75,6 +80,8 @@ export interface IAcpDecisionContext {
 	readonly grants: readonly AcpGrant[];
 	/** The folders of the project: an edit outside them is not the project's */
 	readonly roots: readonly string[];
+	/** Where the agent's commands run; the first folder of the project when not given */
+	readonly cwd?: string;
 }
 
 /** ACP kinds that change files */
@@ -102,10 +109,17 @@ export function agentModeFor(mode: AcpPermissionMode, choices: readonly IAcpConf
 	return choices.find(choice => pattern.test(choice.value))?.value ?? choices.find(choice => pattern.test(choice.name))?.value;
 }
 
-/** True when the question is about a command that cannot be undone: removal, a forced push, code fetched and run */
-export function isIrreversible(facts: IAcpRequestFacts): boolean {
+/**
+ * True when the question is about a command that cannot be undone: removal, a forced push, code fetched and run
+ *
+ * With the project (`area`), removal that stays inside the project or a temporary folder is not counted:
+ * the checkpoint covers the first, and nothing is lost in the second. Without it every removal is counted
+ */
+export function isIrreversible(facts: IAcpRequestFacts, area?: IShellRemovalScopeOptions): boolean {
 	const line = commandLineOf(facts);
-	return line !== undefined && analyzeShellLine(line) !== undefined;
+	if (line === undefined) { return false; }
+	const found = area ? analyzeShellLineIn(line, createShellRemovalScope({ roots: area.roots, cwd: area.cwd ?? area.roots[0] })) : analyzeShellLine(line);
+	return found !== undefined;
 }
 
 /** The command line the question is about: what the agent sent, else a title that is one (tool names do not run) */
@@ -122,7 +136,7 @@ export function decidePermission(facts: IAcpRequestFacts, context: IAcpDecisionC
 
 	if (facts.toolKind === SHELL_KIND) {
 		if (commandLineOf(facts) === undefined) { return ask('unknownCommand'); }
-		if (isIrreversible(facts)) { return ask('irreversible'); }
+		if (isIrreversible(facts, context)) { return ask('irreversible'); }
 	}
 	if (PATH_BOUND_KINDS.has(facts.toolKind) && !pathsAreAllowed(facts.paths, context)) {
 		return ask('outsideProject');
@@ -279,7 +293,7 @@ export function describeGrant(grant: AcpGrant): string {
 /** Why a question reached the person although a mode or a grant could have answered, when that is worth saying */
 export function describeAsking(reason: AcpDecisionReason): string | undefined {
 	switch (reason) {
-		case 'irreversible': return 'Команду нельзя отменить, поэтому её не разрешают заранее ни режим, ни разрешения сессии.';
+		case 'irreversible': return 'Команду нельзя отменить (удаление вне проекта и временных папок, принудительный пуш, код из сети), поэтому её не разрешают заранее ни режим, ни разрешения сессии.';
 		case 'unknownCommand': return 'Агент не прислал текст команды, поэтому оценить её нечем.';
 		case 'outsideProject': return 'Правка за пределами проекта: режим и разрешения сессии её не покрывают.';
 		default: return undefined;

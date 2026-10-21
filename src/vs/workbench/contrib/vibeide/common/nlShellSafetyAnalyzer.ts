@@ -102,7 +102,7 @@ const MAX_WRAPPER_DEPTH = 4;
 const ASSIGNMENT = /^[A-Za-z_][A-Za-z0-9_]*=/;
 
 /** Lower-case program name without directory or `.exe`/`.com`: `/usr/bin/Bash.exe` → `bash`. */
-function programOf(command: string): string {
+export function programOf(command: string): string {
 	const base = command.replace(/\\/g, '/').split('/').pop() ?? command;
 	return base.replace(/\.(?:exe|com)$/i, '').toLowerCase();
 }
@@ -391,6 +391,26 @@ const INPUT_EVALUATORS: ReadonlySet<string> = new Set(['iex', 'invoke-expression
 const POWERSHELL_DOWNLOAD = /(?:^|[\s(])(?:iwr|irm|curl|wget|invoke-webrequest|invoke-restmethod)\b|\.download(?:string|data|file)\s*\(/i;
 
 /**
+ * Область, в которой разбирается строка: что в ней можно удалить без потери
+ *
+ * Классификатор зовёт разрушительным любое `rm`, потому что не знает, что именно удаляется
+ * Вызывающий знает: у него есть проект и временные каталоги, потеря которых потерей не считается
+ * Он передаёт область, и удаление внутри неё перестаёт быть разрушительным
+ * Всё остальное в строке оценивается как прежде: код из сети, принудительный пуш, диски
+ *
+ * Реализация — `shellRemovalScope.ts`
+ * Без области (`analyzeShellLine`) разбор прежний: на это рассчитан основной чат
+ */
+export interface IShellLineScope {
+	/** Удаление в этом этапе не выходит за область; `verdict` — что классификатор сказал об этапе */
+	excuses(stage: readonly string[], verdict: ShellSafetyResult): boolean;
+	/** Этап оценён: запомнить, что он делает со средой (задал переменную, сменил каталог) */
+	note(chain: readonly (readonly string[])[], stage: readonly string[]): void;
+	/** Копия состояния: вложенный скрипт и подстановка не должны менять среду окружающей строки */
+	fork(): IShellLineScope;
+}
+
+/**
  * Worst verdict over every simple command in a raw shell line, or undefined when nothing is
  * destructive. Returning the offending command (not just a flag) is the point: the dialog must
  * name the command the user is being asked about.
@@ -399,24 +419,39 @@ export function analyzeShellLine(line: string): ShellSafetyResult | undefined {
 	return analyzeLine(line, 0);
 }
 
-function analyzeLine(line: string, depth: number): ShellSafetyResult | undefined {
+/**
+ * То же, что `analyzeShellLine`, но удаление, не выходящее за `scope`, разрушительным не считается
+ * Код из сети, принудительный пуш и прочее оценивается одинаково с областью и без неё
+ *
+ * Отдельная функция, а не второй параметр: `lines.map(analyzeShellLine)` передал бы туда индекс
+ */
+export function analyzeShellLineIn(line: string, scope: IShellLineScope): ShellSafetyResult | undefined {
+	return analyzeLine(line, 0, scope);
+}
+
+function analyzeLine(line: string, depth: number, scope?: IShellLineScope): ShellSafetyResult | undefined {
 	const chains = parseShellLine(line);
-	for (const stage of chains.flat()) {
-		const verdict = analyzeNLShellSafety(stage[0], stage.slice(1));
-		if (verdict.safety === 'destructive') {
-			return verdict;
-		}
-		// `bash -c "rm notes.txt"`, `eval "rm notes.txt"`: the script handed over is a line of its own.
-		const script = depth < MAX_NESTED_DEPTH ? scriptOf(verdict.command, verdict.args) : undefined;
-		const nested = script !== undefined ? analyzeLine(script, depth + 1) : undefined;
-		if (nested) {
-			return nested;
+	// Подстановки выполняются раньше строки: среду они видят такой, какой она была в начале
+	const atStart = scope?.fork();
+	for (const chain of chains) {
+		for (const stage of chain) {
+			const verdict = analyzeNLShellSafety(stage[0], stage.slice(1));
+			if (verdict.safety === 'destructive' && !scope?.excuses(stage, verdict)) {
+				return verdict;
+			}
+			// `bash -c "rm notes.txt"`, `eval "rm notes.txt"`: the script handed over is a line of its own.
+			const script = depth < MAX_NESTED_DEPTH ? scriptOf(verdict.command, verdict.args) : undefined;
+			const nested = script !== undefined ? analyzeLine(script, depth + 1, scope?.fork()) : undefined;
+			if (nested) {
+				return nested;
+			}
+			scope?.note(chain, stage);
 		}
 	}
 	if (depth < MAX_NESTED_DEPTH) {
 		// `echo $(rm notes.txt)`: a substitution runs before the command that reads its output.
 		for (const inner of extractSubstitutions(line)) {
-			const nested = analyzeLine(inner, depth + 1);
+			const nested = analyzeLine(inner, depth + 1, atStart?.fork());
 			if (nested) {
 				return nested;
 			}

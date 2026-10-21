@@ -95,9 +95,21 @@ suite('VibeAcpSessionsService — кто отвечает на вопрос вн
 		const { service, events, answers } = setup();
 		await service.startSession(agent);
 		await service.setPermissionMode('s1', 'auto');
-		events.fire(request({ title: 'rm -rf build', name: 'Bash', toolKind: 'execute', command: 'rm -rf build', paths: [] }));
+		events.fire(request({ title: 'rm -rf ~/work', name: 'Bash', toolKind: 'execute', command: 'rm -rf ~/work', paths: [] }));
 		await settle();
 		assert.deepStrictEqual([pendingOf(service)?.requestId, service.sessions[0].pendingReason, answers], ['r1', 'irreversible', []]);
+	});
+
+	test('автопилот сам отвечает на удаление временной папки и папки проекта, а удаление вне них идёт человеку', async () => {
+		const { service, events, answers } = setup();
+		await service.startSession(agent);
+		await service.setPermissionMode('s1', 'auto');
+		const run = (requestId: string, command: string) => events.fire(request({ requestId, title: command, name: 'Bash', toolKind: 'execute', command, paths: [] }));
+		run('r1', 'export VIBEAGENT_HOME=$(mktemp -d /tmp/va-XXXXXX) && node run.js && rm -rf $VIBEAGENT_HOME');
+		run('r2', 'rm -rf build');
+		run('r3', 'rm -rf /Users/me/Documents');
+		await settle();
+		assert.deepStrictEqual([answers.map(a => a.requestId), pendingOf(service)?.requestId, service.sessions[0].pendingReason], [['r1', 'r2'], 'r3', 'irreversible']);
 	});
 
 	test('автопилот отвечает на обычную команду сам; запрос без разрешающего варианта всё равно идёт человеку', async () => {

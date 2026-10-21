@@ -152,6 +152,8 @@ interface ISessionState {
 	readonly sessionId: string;
 	readonly agentId: string;
 	readonly agentName: string;
+	/** Рабочая папка сессии: в ней агент запускает команды, от неё читаются относительные пути в них */
+	cwd: string;
 	readonly log: AcpSessionLog;
 	busy: boolean;
 	lastStopReason?: AcpStopReason;
@@ -240,7 +242,7 @@ export class VibeAcpSessionsService extends Disposable implements IVibeAcpSessio
 			if (ideMcp) { void this._ideMcp.revoke(ideMcp.token); }
 			throw err;
 		}
-		this._adopt(agent, session, ideMcp);
+		this._adopt(agent, session, ideMcp, launch.cwd);
 		return session;
 	}
 
@@ -257,16 +259,17 @@ export class VibeAcpSessionsService extends Disposable implements IVibeAcpSessio
 			if (ideMcp) { void this._ideMcp.revoke(ideMcp.token); }
 			throw err;
 		}
-		this._adopt(agent, back, ideMcp);
+		this._adopt(agent, back, ideMcp, launch.cwd);
 		return { session: back, mode: back.mode };
 	}
 
 	/** A session the agent opened, taken into the list: the state the surfaces read, and the first lines of the journals */
-	private _adopt(agent: VibeAgentEntry, session: IAcpSession, ideMcp: IIdeMcpIssued | undefined): void {
+	private _adopt(agent: VibeAgentEntry, session: IAcpSession, ideMcp: IIdeMcpIssued | undefined, cwd: string): void {
 		this._sessions.set(session.sessionId, {
 			sessionId: session.sessionId,
 			agentId: agent.id,
 			agentName: session.agentName,
+			cwd,
 			log: new AcpSessionLog(),
 			busy: false,
 			disconnected: false,
@@ -443,6 +446,7 @@ export class VibeAcpSessionsService extends Disposable implements IVibeAcpSessio
 			}
 			current.disconnected = false;
 			current.busy = false;
+			current.cwd = launch.cwd;
 			// A new process may expose other settings and commands; an agent that reported none keeps showing none
 			current.configOptions = back.configOptions ?? [];
 			current.commands = back.commands ?? [];
@@ -626,7 +630,7 @@ export class VibeAcpSessionsService extends Disposable implements IVibeAcpSessio
 		}
 		const facts: IAcpRequestFacts = { toolKind: request.toolKind, name: request.name, title: request.title, command: request.command, paths: request.paths };
 		const roots = this._workspace.getWorkspace().folders.map(folder => folder.uri.fsPath);
-		const decision = decidePermission(facts, { mode: state.permissionMode, grants: state.grants, roots });
+		const decision = decidePermission(facts, { mode: state.permissionMode, grants: state.grants, roots, cwd: state.cwd });
 		const autoOption = decision.action === 'allow' ? autoAnswerOptionOf(request.options) : undefined;
 		if (autoOption) {
 			await this._acpService.answerPermission(request.requestId, autoOption);
