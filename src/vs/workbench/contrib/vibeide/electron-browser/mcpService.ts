@@ -1150,7 +1150,7 @@ class MCPService extends Disposable implements IMCPService {
 		return toolResultStr;
 	}
 
-	public getAcpMcpServers(names: readonly string[]): AcpMcpExportResult {
+	public getAcpMcpServers(names: readonly string[] | undefined): AcpMcpExportResult {
 		// Выключатель читается оттуда же, откуда его пишет `toggleServerIsOn`: выключенный у нас сервер
 		// не должен оказаться включённым у гостя. Новый сервер без записи состояния считается включённым — так же,
 		// как при загрузке конфига.

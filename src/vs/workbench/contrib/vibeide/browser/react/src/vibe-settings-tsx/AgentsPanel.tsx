@@ -30,24 +30,31 @@ const AgentCard = ({ agent, source, update }: { agent: VibeAgentEntry; source: V
 	const [error, setError] = useState<string | undefined>(undefined);
 
 	const editable = source !== 'jetbrains';
-	const exported = agent.mcpServers ?? [];
+	// Поля нет — агент получает все серверы файла, которые можно передать; список (даже пустой) — только названные
+	const givesAll = agent.mcpServers === undefined;
 	const available = Object.keys(mcpState.mcpServerOfName);
+	const handover = useMemo(() => mcpService.getAcpMcpServers(agent.mcpServers), [mcpService, agent.mcpServers, mcpState]);
+	// Что агент получает сейчас: при умолчании — всё, что собрал экспорт, при списке — названное
+	const exported = useMemo(() => givesAll ? handover.servers.map(server => server.name) : agent.mcpServers ?? [], [givesAll, handover, agent.mcpServers]);
 	// Имя, записанное в agents.json, но пропавшее из mcp.json, всё равно показывается: иначе его нельзя было бы снять
 	const names = useMemo(() => [...new Set([...available, ...exported])], [available, exported]);
 	// Пропуск называется вслух: гость без сервера ведёт себя так, будто сервер сломан
-	const skipped = useMemo(() => exported.length > 0 ? mcpService.getAcpMcpServers(exported).skipped : [], [mcpService, exported, mcpState]);
+	const skipped = handover.skipped;
 
-	const toggle = useCallback(async (name: string, on: boolean) => {
+	const save = useCallback(async (list: readonly string[] | undefined) => {
 		setSaving(true);
 		setError(undefined);
 		try {
-			await registry.setMcpServers(agent.id, on ? [...exported, name] : exported.filter(item => item !== name));
+			await registry.setMcpServers(agent.id, list);
 		} catch (err) {
 			setError(err instanceof Error ? err.message : String(err));
 		} finally {
 			setSaving(false);
 		}
-	}, [registry, agent.id, exported]);
+	}, [registry, agent.id]);
+
+	// Первое же изменение превращает умолчание в явный список из того, что агент получал до него
+	const toggle = useCallback((name: string, on: boolean) => save(on ? [...exported, name] : exported.filter(item => item !== name)), [save, exported]);
 
 	return <div className='rounded-lg border border-vibe-border-3 bg-vibe-bg-2 px-3 py-3'>
 		<div className='flex flex-wrap items-center justify-between gap-2'>
@@ -75,6 +82,14 @@ const AgentCard = ({ agent, source, update }: { agent: VibeAgentEntry; source: V
 						{names.map(name => <McpChoice key={name} name={name} checked={exported.includes(name)} disabled={saving} onChange={on => void toggle(name, on)} />)}
 					</div>
 				: <div className='mt-1 text-xs text-vibe-fg-3'>{agentsS.mcpReadOnly}</div>}
+			{editable && names.length > 0 && (givesAll
+				? <div className='mt-1 text-xs text-vibe-fg-3'>{agentsS.mcpAll}</div>
+				: <div className='mt-1 flex flex-wrap items-center gap-2 text-xs text-vibe-fg-3'>
+					<span>{agentsS.mcpListed}</span>
+					<VibeButtonBgDarken className='px-2 py-0.5 text-xs' title={agentsS.mcpResetTitle} disabled={saving} onClick={() => { void save(undefined); }}>
+						{agentsS.mcpReset}
+					</VibeButtonBgDarken>
+				</div>)}
 			{skipped.map(miss => <div key={miss.name} className='mt-1 text-xs text-vibe-warning'>{agentsS.mcpSkipped(miss.name, miss.reason)}</div>)}
 			{error && <div className='mt-1 text-xs text-vibe-warning'>{error}</div>}
 		</div>

@@ -61,12 +61,15 @@ export interface IMCPService {
 	callToolFromApp(serverName: string, toolName: string, args: Record<string, unknown>): Promise<MCP.CallToolResult>;
 
 	/**
-	 * Серверы для гостевого ACP-агента — поимённо, с причинами пропусков.
+	 * Серверы для гостевого ACP-агента — с причинами пропусков.
+	 *
+	 * `names` — список `mcpServers` записи агента: названные уедут, пустой не отдаёт ничего,
+	 * `undefined` (поля нет) отдаёт все серверы файла, которые можно передать.
 	 *
 	 * Живёт здесь, а не в реестре агентов: `mcp.json` разбирается ровно один раз, и второй разбор разошёлся бы с
 	 * первым молча. Правила отбора чистые — `acpMcpExport.ts`.
 	 */
-	getAcpMcpServers(names: readonly string[]): AcpMcpExportResult;
+	getAcpMcpServers(names: readonly string[] | undefined): AcpMcpExportResult;
 
 	/** Config Guard findings from the last load of `mcp.json` (empty if disabled/clean). */
 	getLastGuardFindings(): readonly ConfigGuardFinding[];

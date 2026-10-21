@@ -58,12 +58,14 @@ export function withAgentUpdated(text: string, agentId: string, fields: AgentUpd
 
 /**
  * The file with the MCP servers one agent receives replaced by `names`; nothing when the agent is not in the file
- * An empty list removes the field: «no servers» is the absence of the field, as in a hand-written file
+ *
+ * Пустой список записывается как `[]`: это слово «ни одного», а не отсутствие поля
+ * Без поля агент получает все серверы файла, поэтому поле убирает только `undefined`
  */
-export function withAgentMcpServers(text: string, agentId: string, names: readonly string[]): string | undefined {
+export function withAgentMcpServers(text: string, agentId: string, names: readonly string[] | undefined): string | undefined {
 	const index = rawAgentIndex(text, agentId);
 	if (index < 0) {
 		return undefined;
 	}
-	return applyEdits(text, setProperty(text, ['agents', index, 'mcpServers'], names.length > 0 ? [...names] : undefined, FORMATTING));
+	return applyEdits(text, setProperty(text, ['agents', index, 'mcpServers'], names ? [...names] : undefined, FORMATTING));
 }

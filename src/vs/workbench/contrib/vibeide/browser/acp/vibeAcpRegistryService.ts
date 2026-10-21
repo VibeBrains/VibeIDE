@@ -71,8 +71,10 @@ export interface IVibeAcpRegistryService {
 	/**
 	 * The MCP servers of the project the agent receives, written into its own file
 	 * Only the names change: the entry keeps its comments and the rest of its fields. An agent of JetBrains' file cannot be edited
+	 *
+	 * Пустой список записывается как `[]` и значит «ни одного»; `undefined` убирает поле, и агент снова получает все серверы
 	 */
-	setMcpServers(agentId: string, names: readonly string[]): Promise<void>;
+	setMcpServers(agentId: string, names: readonly string[] | undefined): Promise<void>;
 
 	/** The file of a layer; `undefined` for the project layer while no folder is open. */
 	fileOf(layer: VibeAgentLayer): Promise<URI | undefined>;
@@ -136,7 +138,7 @@ export class VibeAcpRegistryService extends Disposable implements IVibeAcpRegist
 		return this._layers.get(agentId);
 	}
 
-	async setMcpServers(agentId: string, names: readonly string[]): Promise<void> {
+	async setMcpServers(agentId: string, names: readonly string[] | undefined): Promise<void> {
 		const layer = this.layerOf(agentId);
 		const file = layer ? await this.fileOf(layer) : undefined;
 		if (!file) {
@@ -168,10 +170,9 @@ export class VibeAcpRegistryService extends Disposable implements IVibeAcpRegist
 		const root = this._root();
 		if (!root) { return undefined; }
 		const cwd = agent.dir ? joinPath(root, agent.dir) : root;
-		// Политика записи — единственный источник: нет списка, нет и серверов у гостя.
-		const { servers: mcpServers, skipped } = agent.mcpServers?.length
-			? this._mcp.getAcpMcpServers(agent.mcpServers)
-			: { servers: [], skipped: [] };
+		// Политика записи — единственный источник: список назвал серверы поимённо, пустой не отдаёт ничего,
+		// а без поля гость получает все пригодные серверы файла
+		const { servers: mcpServers, skipped } = this._mcp.getAcpMcpServers(agent.mcpServers);
 		for (const miss of skipped) {
 			// Пропуск называется вслух: гость без сервера ведёт себя так, будто сервер сломан, и без
 			// этой строки причину искали бы у него.

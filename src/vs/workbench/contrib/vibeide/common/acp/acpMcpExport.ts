@@ -18,10 +18,15 @@ import { MCPConfigFileEntryJSON } from '../mcpServiceTypes.js';
  * списком не экспортируется вовсе: отдать его значило бы молча снять ограничение, которое человек
  * написал руками.
  *
- * Второе: вместе с конфигурацией уезжают `env` и `headers`, а там бывают ключи. Поэтому экспорт
- * поимённый и по умолчанию пустой — «отдать всё» не предлагается даже как вариант: список,
- * который растёт сам при добавлении нового сервера в `mcp.json`, однажды увезёт гостю то, чего
- * человек не имел в виду.
+ * Второе: вместе с конфигурацией уезжают `env` и `headers`, а там бывают ключи. Поэтому у человека
+ * есть поимённый список в записи агента (`mcpServers`): названное уедет, неназванное — нет,
+ * пустой список не отдаёт ничего.
+ *
+ * Список не задан вовсе — гость получает все серверы файла, которые можно передать. Так же
+ * делает VibeIDEA, и так ждёт человек, подключивший сервер в IDE: сервер, настроенный в IDE и
+ * не видный внешнему агенту, выглядит поломкой агента, а причину — отсутствие отметки в
+ * настройках агентов — никто не ищет. Цена умолчания — список растёт вместе с `mcp.json`;
+ * она названа в панели агента, а закрывается списком или пустым `mcpServers`.
  */
 
 /** Сервер в том виде, в каком его принимает ACP. */
@@ -38,8 +43,13 @@ export interface AcpMcpSkipped {
 export interface AcpMcpExportInput {
 	/** Записи из `~/.vibeide/mcp.json` по именам. */
 	readonly entries: Readonly<Record<string, MCPConfigFileEntryJSON>>;
-	/** Имена, которые разрешил экспортировать `.vibe/agents.json`. Пусто — ничего не уезжает. */
-	readonly allowed: readonly string[];
+	/**
+	 * Имена из `mcpServers` записи агента в `.vibe/agents.json`.
+	 *
+	 * `undefined` — списка нет, и гость получает все серверы файла, которые можно передать.
+	 * Пустой список — ничего не уезжает.
+	 */
+	readonly allowed: readonly string[] | undefined;
 	/** Выключенные пользователем серверы: выключен здесь — выключен и у гостя. */
 	readonly isEnabled: (name: string) => boolean;
 }
@@ -62,14 +72,18 @@ const pairs = (record: Readonly<Record<string, string>> | undefined): { name: st
 export function buildAcpMcpServers(input: AcpMcpExportInput): AcpMcpExportResult {
 	const servers: AcpMcpServer[] = [];
 	const skipped: AcpMcpSkipped[] = [];
-	for (const name of input.allowed) {
+	const named = input.allowed !== undefined;
+	for (const name of input.allowed ?? Object.keys(input.entries)) {
 		const entry = input.entries[name];
 		if (!entry) {
 			skipped.push({ name, reason: 'сервера с таким именем нет в mcp.json' });
 			continue;
 		}
 		if (!input.isEnabled(name)) {
-			skipped.push({ name, reason: 'сервер выключен в настройках' });
+			// Выключенный сервер, которого никто не просил по имени, объяснять нечем: его для гостя нет, как и для IDE
+			if (named) {
+				skipped.push({ name, reason: 'сервер выключен в настройках' });
+			}
 			continue;
 		}
 		if (entry.tools !== undefined) {

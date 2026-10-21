@@ -59,8 +59,32 @@ suite('acpMcpExport — какие MCP-серверы получает гост�
 		});
 	});
 
-	test('пустая политика не отдаёт ничего', () => {
+	test('пустой список не отдаёт ничего', () => {
 		assert.deepStrictEqual(buildAcpMcpServers({ entries, allowed: [], isEnabled: () => true }), { servers: [], skipped: [] });
+	});
+
+	test('списка нет — гость получает все серверы файла, которые можно передать, а остальные названы причиной', () => {
+		// Живой случай: сервер подключён в IDE, у агента из реестра поля mcpServers нет, и гость раньше не получал ничего
+		const result = buildAcpMcpServers({ entries, allowed: undefined, isEnabled: name => name !== 'off' });
+		assert.deepStrictEqual({
+			уехали: result.servers.map(server => server.name),
+			причины: result.skipped.map(s => s.name),
+		}, {
+			уехали: ['fs', 'docs'],
+			// Выключенный `off` тут не назван: его никто не просил по имени, и для гостя его нет, как нет и для IDE
+			причины: ['legacy', 'guarded', 'broken', 'team'],
+		});
+	});
+
+	test('список по имени строже умолчания: выключенный сервер, названный в списке, объяснён', () => {
+		const named = buildAcpMcpServers({ entries, allowed: ['off', 'fs'], isEnabled: name => name !== 'off' });
+		assert.deepStrictEqual({
+			уехали: named.servers.map(server => server.name),
+			причины: named.skipped.map(s => `${s.name}: ${s.reason}`),
+		}, {
+			уехали: ['fs'],
+			причины: ['off: сервер выключен в настройках'],
+		});
 	});
 
 	test('HTTP-запись узнаётся — её отсеивают у агента без такой поддержки', () => {
