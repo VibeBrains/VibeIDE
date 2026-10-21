@@ -124,6 +124,7 @@ export const chatS = {
 	previousThreads: 'Прошлые чаты',
 	chipFile: 'Файл',
 	chipModel: 'Модель',
+	chipAgent: 'Агент',
 	quickExplain: 'Объяснить',
 	quickRefactor: 'Рефакторинг',
 	quickAddTests: 'Добавить тесты',
@@ -196,6 +197,8 @@ export const chatS = {
 	trainingOptIn: 'только с вашего согласия',
 	trainingOptOut: 'используются, можно отказаться',
 	trainingMayTrain: 'могут использоваться',
+	trainingAgent: 'определяет агент',
+	trainingTipAgent: (agent: string) => `Тред ведёт внешний агент ${agent}: данные обрабатывает он и его провайдер, каталог моделей VibeIDE их условий не знает.`,
 	trainingTipUnknown:
 		'Политика обучения неизвестна — обновите каталог или проверьте документацию провайдера (VibeIDE models.json).',
 	trainingTipNone: 'Каталог: провайдер указывает, что данные API по умолчанию не используются для обучения.',

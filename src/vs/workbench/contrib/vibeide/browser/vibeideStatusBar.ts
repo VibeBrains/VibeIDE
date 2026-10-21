@@ -12,6 +12,7 @@ import { IStatusbarEntry, IStatusbarEntryAccessor, IStatusbarService, StatusbarA
 import { IVibeideSettingsService } from '../common/vibeideSettingsService.js';
 import { metricsCollector } from '../common/metricsCollector.js';
 import { IChatThreadService } from './chatThreadService.js';
+import { currentChatLeader, onDidChangeChatLeader } from './chatLeaderWatcher.js';
 import { isLocalProvider } from '../common/isLocalProvider.js';
 
 export class VibeideStatusBarContribution extends Disposable implements IWorkbenchContribution {
@@ -68,6 +69,12 @@ export class VibeideStatusBarContribution extends Disposable implements IWorkben
 			this.modelEntry?.update(this.getModelEntryProps());
 		}));
 
+		// Другой тред или другой ведущий (агент вместо модели): модель функции «Чат» в таком треде ничего не делает
+		this._register(onDidChangeChatLeader(this.chatThreadService, this.vibeideSettingsService, () => {
+			this.modelEntry?.update(this.getModelEntryProps());
+			this.privacyEntry?.update(this.getPrivacyEntryProps());
+		}));
+
 		// W.20 fix — pre-2026-05-23 unconditionally pushed 3 status-bar entry
 		// updates 2×/sec forever even on idle (~36k allocs per 5h idle).
 		// Now: early-return when no stream is running. `modelEntry` /
@@ -100,6 +107,17 @@ export class VibeideStatusBarContribution extends Disposable implements IWorkben
 
 		// Get status message if preparing
 		const statusMessage = isRunning === 'preparing' ? currentStreamState?.llmInfo?.displayContentSoFar : undefined;
+
+		const leader = currentChatLeader(this.chatThreadService, this.vibeideSettingsService);
+		if (leader.kind === 'agent') {
+			const agentName = leader.agentName.length > 15 ? leader.agentName.substring(0, 12) + '...' : leader.agentName;
+			return {
+				name: localize('vibeide.model', "Модель VibeIDE"),
+				text: `${isActive ? '$(loading~spin)' : '$(robot)'} ${agentName}`,
+				ariaLabel: localize('vibeide.model.agent', "VibeIDE, тред ведёт внешний агент: {0}{1}", leader.agentName, isActive ? ' (активен)' : ''),
+				tooltip: statusMessage || localize('vibeide.model.agent.tooltip', "Внешний агент: {0}\n\nТред ведёт агент по ACP: модель он выбирает сам, её видно в пилюлях у поля ввода. Модель функции «Чат» в этом треде не участвует.", leader.agentName),
+			};
+		}
 
 		// Check if model is local/offline
 		const isLocal = modelSelection && isLocalProvider(modelSelection.providerName, this.vibeideSettingsService.state.settingsOfProvider);
@@ -198,6 +216,14 @@ export class VibeideStatusBarContribution extends Disposable implements IWorkben
 	}
 
 	private getPrivacyEntryProps(): IStatusbarEntry {
+		// Где работает агент и куда он отправляет данные, решает он сам: о локальности модели чата тут сказать нечего
+		if (currentChatLeader(this.chatThreadService, this.vibeideSettingsService).kind === 'agent') {
+			return {
+				name: localize('vibeide.privacy', "Конфиденциальность VibeIDE"),
+				text: '',
+				ariaLabel: '',
+			};
+		}
 		const settings = this.vibeideSettingsService.state;
 		const modelSelection = settings.modelSelectionOfFeature['Chat'];
 

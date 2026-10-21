@@ -12,6 +12,8 @@ import { IVibeModelsRegistryService, ModelInfo } from '../common/vibeModelsRegis
 import { IVibeideSettingsService } from '../common/vibeideSettingsService.js';
 import { IVibeUnifiedStatusBarService } from '../common/vibeUnifiedStatusBarService.js';
 import { IConfigurationService } from '../../../../platform/configuration/common/configuration.js';
+import { IChatThreadService } from './chatThreadService.js';
+import { currentChatLeader, onDidChangeChatLeader } from './chatLeaderWatcher.js';
 
 function labelForTrainingPolicy(p: ModelInfo['trainingPolicy']): string {
 	switch (p) {
@@ -57,10 +59,12 @@ export class VibeTrainingPolicyStatusBarContribution extends Disposable implemen
 		@IVibeideSettingsService private readonly _settingsService: IVibeideSettingsService,
 		@IVibeUnifiedStatusBarService private readonly _unified: IVibeUnifiedStatusBarService,
 		@IConfigurationService private readonly _config: IConfigurationService,
+		@IChatThreadService private readonly _threads: IChatThreadService,
 	) {
 		super();
 		this._wire();
 		this._register(this._settingsService.onDidChangeState(() => this._refresh()));
+		this._register(onDidChangeChatLeader(this._threads, this._settingsService, () => this._refresh()));
 		this._register(this._config.onDidChangeConfiguration(e => {
 			if (e.affectsConfiguration('vibeide.statusBar.unifiedOnly')) { this._wire(); }
 		}));
@@ -99,7 +103,17 @@ export class VibeTrainingPolicyStatusBarContribution extends Disposable implemen
 	}
 
 	private _getEntryProps(): IStatusbarEntry {
-		const sel = this._settingsService.state.modelSelectionOfFeature['Chat'];
+		const leader = currentChatLeader(this._threads, this._settingsService);
+		if (leader.kind === 'agent') {
+			// Что агент делает с данными, зависит от него и его провайдера; каталог моделей VibeIDE о нём молчит
+			return {
+				name: localize('vibeTrainingPolicy', 'Политика обучения VibeIDE'),
+				text: localize('vibeTrainingPolicyTextAgent', '📚 обучение: у агента'),
+				tooltip: localize('vibeTrainAgentTooltip', 'Тред ведёт внешний агент {0}. Использование ваших данных для обучения определяют условия самого агента и его провайдера — каталог моделей VibeIDE их не знает.', leader.agentName),
+				ariaLabel: localize('vibeTrainAriaAgent', 'Политика обучения: определяется внешним агентом {0}', leader.agentName),
+			};
+		}
+		const sel = leader.selection;
 		if (!sel || sel.providerName === 'auto' && sel.modelName === 'auto') {
 			return {
 				name: localize('vibeTrainingPolicy', 'Политика обучения VibeIDE'),

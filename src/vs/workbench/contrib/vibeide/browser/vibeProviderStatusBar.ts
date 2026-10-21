@@ -13,6 +13,14 @@ import { IVibeTokenCostForecastService } from '../common/vibeTokenCostForecastSe
 import { IVibeideSettingsService } from '../common/vibeideSettingsService.js';
 import { IVibeUnifiedStatusBarService } from '../common/vibeUnifiedStatusBarService.js';
 import { IConfigurationService } from '../../../../platform/configuration/common/configuration.js';
+import { ChatLeader } from '../common/chatLeader.js';
+import { IChatThreadService } from './chatThreadService.js';
+import { currentChatLeader, onDidChangeChatLeader } from './chatLeaderWatcher.js';
+import { IVibeAcpSessionsService } from './acp/vibeAcpSessionsService.js';
+import { VIBE_ACP_SHOW_COMMAND_ID } from './acp/vibeAcpAgentsCommand.js';
+
+/** Связь с внешним агентом треда: сессии ещё нет, она на связи, она оборвалась */
+type AgentLink = 'idle' | 'connected' | 'disconnected';
 
 /**
  * VibeIDE Provider Status Widget.
@@ -34,6 +42,8 @@ export class VibeProviderStatusBarContribution extends Disposable implements IWo
 		@IVibeideSettingsService private readonly _settingsService: IVibeideSettingsService,
 		@IVibeUnifiedStatusBarService private readonly _unified: IVibeUnifiedStatusBarService,
 		@IConfigurationService private readonly _config: IConfigurationService,
+		@IChatThreadService private readonly _threads: IChatThreadService,
+		@IVibeAcpSessionsService private readonly _sessions: IVibeAcpSessionsService,
 	) {
 		super();
 		this._wire();
@@ -87,6 +97,18 @@ export class VibeProviderStatusBarContribution extends Disposable implements IWo
 
 	private _registerListeners(): void {
 		this._register(this._providerStatusService.onStatusChanged(() => this._refresh()));
+		this._register(this._settingsService.onDidChangeState(() => this._refresh()));
+		// Другой тред или другой ведущий: здоровье модели чата в треде агента ничего не говорит
+		this._register(onDidChangeChatLeader(this._threads, this._settingsService, () => this._refresh()));
+		// Связь с агентом оборвалась или вернулась: сессии сообщают о каждом куске хода, а показ меняется редко
+		let link = this._agentLink();
+		this._register(this._sessions.onDidChange(() => {
+			const next = this._agentLink();
+			if (next !== link) {
+				link = next;
+				this._refresh();
+			}
+		}));
 		this._register(this._config.onDidChangeConfiguration(e => {
 			if (e.affectsConfiguration('vibeide.statusBar.unifiedOnly')) { this._wire(); }
 		}));
@@ -100,8 +122,37 @@ export class VibeProviderStatusBarContribution extends Disposable implements IWo
 		super.dispose();
 	}
 
+	/** Связь с агентом активного треда; у треда с моделью — `idle`, показ от неё не зависит */
+	private _agentLink(): AgentLink {
+		const { allThreads, currentThreadId } = this._threads.state;
+		const sessionId = allThreads[currentThreadId]?.acpAgent?.sessionId;
+		const view = sessionId ? this._sessions.sessions.find(session => session.sessionId === sessionId) : undefined;
+		return !view ? 'idle' : view.disconnected ? 'disconnected' : 'connected';
+	}
+
+	private _getAgentEntryProps(leader: Extract<ChatLeader, { kind: 'agent' }>): IStatusbarEntry {
+		const link = this._agentLink();
+		const mark = link === 'connected' ? '✅' : link === 'disconnected' ? '⚠️' : '$(plug)';
+		const state = link === 'connected'
+			? localize('vibeProviderAgentConnected', 'на связи')
+			: link === 'disconnected'
+				? localize('vibeProviderAgentDisconnected', 'связь оборвалась, следующее сообщение поднимет агента заново')
+				: localize('vibeProviderAgentIdle', 'сессия ещё не начата');
+		return {
+			name: localize('vibeProviderStatus', 'Статус провайдера VibeIDE'),
+			text: `${mark} ${leader.agentName}`,
+			tooltip: localize('vibeProviderStatusAgentTooltip', 'Внешний агент: {0} — {1}. Нажмите, чтобы открыть реестр агентов.', leader.agentName, state),
+			command: VIBE_ACP_SHOW_COMMAND_ID,
+			ariaLabel: localize('vibeProviderStatusAgentAria', 'Внешний агент: {0}, {1}', leader.agentName, state),
+		};
+	}
+
 	private _getProviderEntryProps(): IStatusbarEntry {
-		const modelSelection = this._settingsService.state.modelSelectionOfFeature?.['Chat'];
+		const leader = currentChatLeader(this._threads, this._settingsService);
+		if (leader.kind === 'agent') {
+			return this._getAgentEntryProps(leader);
+		}
+		const modelSelection = leader.selection ?? undefined;
 		const providerName = modelSelection?.providerName || 'unknown';
 		const modelName = modelSelection?.modelName || '';
 
@@ -131,9 +182,19 @@ export class VibeProviderStatusBarContribution extends Disposable implements IWo
 	}
 
 	private _getCostEntryProps(): IStatusbarEntry {
+		const leader = currentChatLeader(this._threads, this._settingsService);
+		if (leader.kind === 'agent') {
+			return {
+				name: localize('vibeTokenCost', 'Стоимость токенов VibeIDE'),
+				text: '$(symbol-currency)',
+				tooltip: localize('vibeTokenCostAgentTooltip', 'Тред ведёт внешний агент {0}: расход хода идёт по его подписке или ключу и записывается в журнал чата. Цену модели чата прогнозировать не по чему.', leader.agentName),
+				command: 'vibeide.tokenBudget.status',
+				ariaLabel: localize('vibeTokenCostAgentAria', 'Расход внешнего агента: {0}', leader.agentName),
+			};
+		}
 		// Audit C (Void legacy): pricing was hardcoded to 'gpt-4o-mini' regardless of the
 		// model actually selected — price the CURRENT Chat model instead.
-		const chatModelName = this._settingsService.state.modelSelectionOfFeature?.['Chat']?.modelName;
+		const chatModelName = leader.selection?.modelName;
 		const pricing = chatModelName ? this._costForecastService.getPricing(chatModelName) : undefined;
 		const text = pricing
 			? `$(symbol-currency) in ${pricing.inputPer1kTokens.toFixed(3)}/1k`

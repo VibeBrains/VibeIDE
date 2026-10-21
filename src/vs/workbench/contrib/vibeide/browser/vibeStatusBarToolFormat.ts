@@ -14,6 +14,8 @@ import { StatusRowSeverity } from '../common/statusBarRowAggregator.js';
 import { IVibeideSettingsService } from '../common/vibeideSettingsService.js';
 import { getModelCapabilities, AUTO_DOWNGRADE_TTL_MS } from '../common/modelCapabilities.js';
 import { classifyToolCallFormat } from '../common/toolCallFormatStatus.js';
+import { IChatThreadService } from './chatThreadService.js';
+import { currentChatLeader, onDidChangeChatLeader } from './chatLeaderWatcher.js';
 
 /**
  * VibeIDE Tool-call Format indicator — statusbar.
@@ -35,17 +37,28 @@ export class VibeStatusBarToolFormatContribution extends Disposable implements I
 		@IVibeideSettingsService private readonly _settingsService: IVibeideSettingsService,
 		@IVibeUnifiedStatusBarService private readonly _unified: IVibeUnifiedStatusBarService,
 		@IConfigurationService private readonly _config: IConfigurationService,
+		@IChatThreadService private readonly _threads: IChatThreadService,
 	) {
 		super();
 		this._wire();
 		this._register(this._settingsService.onDidChangeState(() => this._refresh()));
+		this._register(onDidChangeChatLeader(this._threads, this._settingsService, () => this._refresh()));
 		this._register(this._config.onDidChangeConfiguration(e => {
 			if (e.affectsConfiguration('vibeide.statusBar.unifiedOnly')) { this._wire(); }
 		}));
 	}
 
 	private _compute(): { text: string; tooltip: string; severity: StatusRowSeverity } {
-		const sel = this._settingsService.state.modelSelectionOfFeature['Chat'];
+		const leader = currentChatLeader(this._threads, this._settingsService);
+		if (leader.kind === 'agent') {
+			// Инструменты агент вызывает сам по ACP, формат вызова модели чата тут ни при чём
+			return {
+				text: '🔧 FC: агент',
+				tooltip: localize('vibeToolFormatAgent', 'Тред ведёт внешний агент {0}: инструменты он вызывает сам, формат вызова модели чата не участвует.', leader.agentName),
+				severity: 'info',
+			};
+		}
+		const sel = leader.selection;
 		const isAutoSelection = !sel || sel.providerName === 'auto' || sel.modelName === 'auto';
 
 		const overrides = this._settingsService.state.overridesOfModel;

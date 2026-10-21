@@ -27,6 +27,7 @@ import { BlockCode, TextAreaFns, VibeCustomDropdownBox, VibeInputBox2, VibeSlide
 import { ModelDropdown, } from '../vibe-settings-tsx/ModelDropdown.js';
 import { AcpModeControl, AcpPermissionCard, AcpToolCard, useAcpAgentCommands } from './AcpChat.js';
 import { agentCommandOf } from '../../../../common/acp/acpProtocol.js';
+import { chatLeaderOf } from '../../../../common/chatLeader.js';
 import { PastThreadsList, ChatHistoryToolbarDropdown } from './SidebarThreadSelector.js';
 import { ChatContextMeterButton } from './ChatContextMeter.js';
 import { ChatQuickSettingsButton } from './ChatQuickSettings.js';
@@ -7403,9 +7404,12 @@ export const SidebarChat = () => {
         const activeFileLabel = activeResource && FILE_CHIP_SCHEMES.has(activeResource.scheme)
             ? activeResource.path?.split('/').pop()
             : undefined;
-        const modelSel = settingsState.modelSelectionOfFeature['Chat'];
+        // Агент треда ведёт его сам, и модель функции «Чат» там ни при чём: чип называет того, кто отвечает
+        const leader = chatLeaderOf(chatThreadsState.allThreads[chatThreadsState.currentThreadId], settingsState.modelSelectionOfFeature['Chat']);
+        const modelSel = leader.kind === 'model' ? leader.selection : null;
         const modelLabel = modelSel ? `${displayInfoOfProviderName(modelSel.providerName).title}:${modelSel.modelName}` : undefined;
-        if (!activeFileLabel && !modelLabel) {return null;}
+        const agentLabel = leader.kind === 'agent' ? leader.agentName : undefined;
+        if (!activeFileLabel && !modelLabel && !agentLabel) {return null;}
         return (
             <div className='w-full flex items-center gap-2 flex-wrap mt-2 mb-1 px-1'>
                 {activeFileLabel && (
@@ -7418,6 +7422,12 @@ export const SidebarChat = () => {
                     <span className='inline-flex items-center gap-1 px-2 py-0.5 rounded-xl border border-vibe-border-3 bg-vibe-bg-1 text-vibe-fg-2 text-[11px]'>
                         <span>{chatS.chipModel}</span>
                         <span className='text-vibe-fg-1'>{modelLabel}</span>
+                    </span>
+                )}
+                {agentLabel && (
+                    <span className='inline-flex items-center gap-1 px-2 py-0.5 rounded-xl border border-vibe-border-3 bg-vibe-bg-1 text-vibe-fg-2 text-[11px]'>
+                        <span>{chatS.chipAgent}</span>
+                        <span className='text-vibe-fg-1'>{agentLabel}</span>
                     </span>
                 )}
             </div>

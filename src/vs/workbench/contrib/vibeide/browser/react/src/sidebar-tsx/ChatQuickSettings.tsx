@@ -15,9 +15,10 @@
 import { ReactNode, useCallback, useEffect, useState } from 'react';
 import { autoUpdate, flip, offset, shift, size, useFloating } from '@floating-ui/react';
 import { SlidersHorizontal } from 'lucide-react';
-import { useAccessor, useSettingsState } from '../util/services.js';
+import { useAccessor, useChatThreadsState, useSettingsState } from '../util/services.js';
 import { chatS } from '../vibe-settings-tsx/vibeSettingsRu.js';
 import { displayInfoOfProviderName, isValidProviderModelSelection } from '../../../../common/vibeideSettingsTypes.js';
+import { chatLeaderOf } from '../../../../common/chatLeader.js';
 import { BREVITY_SETTING, brevityLevelOf } from '../../../../common/prompt/brevity.js';
 import { CLAUDE_THINKING_DISPLAY_SETTING, claudeThinkingDisplayOf } from '../../../../common/wireReasoning.js';
 
@@ -63,8 +64,19 @@ function ChoiceRow<T extends string>({ label, title, choices, value, onChange }:
  */
 const TrainingPolicyLine = () => {
 	const settingsState = useSettingsState();
+	const threadsState = useChatThreadsState();
 	const accessor = useAccessor();
-	const sel = settingsState.modelSelectionOfFeature['Chat'];
+	const leader = chatLeaderOf(threadsState.allThreads[threadsState.currentThreadId], settingsState.modelSelectionOfFeature['Chat']);
+	// Тред ведёт внешний агент: условия обучения задаёт он и его провайдер, каталог моделей о них не знает
+	if (leader.kind === 'agent') {
+		return <div
+			className='mt-3 pt-2 border-t border-vibe-border-3 text-[11px] text-vibe-fg-4'
+			title={chatS.trainingTipAgent(leader.agentName)}
+		>
+			{chatS.trainingLine(chatS.trainingAgent)}
+		</div>;
+	}
+	const sel = leader.selection;
 	if (!sel || (sel.providerName === 'auto' && sel.modelName === 'auto')) {
 		return null;
 	}
