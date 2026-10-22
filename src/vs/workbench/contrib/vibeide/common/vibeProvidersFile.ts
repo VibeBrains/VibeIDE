@@ -90,13 +90,17 @@ export interface VibeProviderLongContext {
 export type VibeProviderProtocol = 'openai' | 'openai-responses' | 'anthropic' | 'gemini';
 
 /**
- * Auth shorthand `"bearer"` / `"none"` or the explicit object form. `header`/`query` carry the field name
+ * Auth shorthand `"bearer"` / `"none"` / `"google-adc"` or the explicit object form. `header`/`query` carry the field name
  * `none` is a server that takes no key: nothing is sent, whatever key sources the entry declares
+ * `google-adc` — сервер, которому нужен короткоживущий токен Google OAuth (Vertex AI)
+ * Вводить нечего: продукт берёт токен у Application Default Credentials (`gcloud auth application-default login`,
+ * `GOOGLE_APPLICATION_CREDENTIALS`) на каждом запросе и шлёт его как `Authorization: Bearer`
  * A missing `name` takes the wire's default — see `keyPlacement`
  */
 export type VibeProviderAuth =
 	| { readonly type: 'bearer' }
 	| { readonly type: 'none' }
+	| { readonly type: 'google-adc' }
 	| { readonly type: 'header'; readonly name?: string }
 	| { readonly type: 'query'; readonly name?: string };
 
@@ -260,6 +264,27 @@ export interface VibeProviderQuota {
 	readonly format?: string;
 }
 
+/**
+ * Параметр провайдера: значение, которое человек вводит в карточке, а файл подставляет в адрес и заголовки.
+ * Так Vertex получает регион и проект, Azure — имя ресурса, шлюз Bedrock — свой адрес: без параметров эти значения
+ * пришлось бы вписывать в файл руками, а засеянный файл набора общий для всех проектов и своих значений нести не может.
+ * Подстановка — `{имя}` в `baseURL`, строке `models.fetch`, значениях `headers` и `query`; разбор — `vibeProviderParams.ts`.
+ * Контракт общего набора: продукт, не знающий `params`, пропускает поле, а `{имя}` остаётся в адресе буквально.
+ */
+export interface VibeProviderParam {
+	/** Подпись поля в карточке; без неё — имя параметра. */
+	readonly title?: string;
+	readonly placeholder?: string;
+	/** Значение, когда человек ничего не ввёл. */
+	readonly default?: string;
+	/** Без значения провайдер работает: подстановка пустая, а заголовок или параметр запроса с пустым значением не уходит. */
+	readonly optional?: boolean;
+	/** `headers` — значение есть JSON-объект заголовков (`{"X-Team": "a"}`), он вливается в `headers` провайдера. */
+	readonly as?: 'headers';
+}
+
+export type VibeProviderParams = Readonly<Record<string, VibeProviderParam>>;
+
 export interface VibeProviderEntry {
 	/** Unique key. Matching a built-in id PATCHES that built-in; a new id DEFINES a provider. */
 	readonly id: string;
@@ -274,7 +299,7 @@ export interface VibeProviderEntry {
 
 	readonly protocol?: VibeProviderProtocol;
 	readonly baseURL?: string;
-	readonly auth?: VibeProviderAuth | 'bearer' | 'none';
+	readonly auth?: VibeProviderAuth | 'bearer' | 'none' | 'google-adc';
 	/** API key from an environment variable (key never stored in the file). */
 	readonly apiKeyEnv?: string;
 	/** API key from VibeIDE's secure settings, by provider id. */
@@ -298,6 +323,8 @@ export interface VibeProviderEntry {
 	 * The shared set's contract with VibeIDEA: `openrouter`, the only dialect so far
 	 */
 	readonly reasoningDialect?: VibeReasoningDialect;
+	/** Значения, которые вводит человек, — см. `VibeProviderParam`. */
+	readonly params?: VibeProviderParams;
 	readonly docsUrl?: string;
 	readonly apiKeyUrl?: string;
 	/**
@@ -339,8 +366,9 @@ const isObject = (v: unknown): v is Record<string, unknown> => !!v && typeof v =
 export function parseAuth(auth: unknown): VibeProviderAuth | 'invalid' {
 	if (auth === undefined || auth === 'bearer') { return { type: 'bearer' }; }
 	if (auth === 'none') { return { type: 'none' }; }
+	if (auth === 'google-adc') { return { type: 'google-adc' }; }
 	if (isObject(auth)) {
-		if (auth.type === 'bearer' || auth.type === 'none') { return { type: auth.type }; }
+		if (auth.type === 'bearer' || auth.type === 'none' || auth.type === 'google-adc') { return { type: auth.type }; }
 		if ((auth.type === 'header' || auth.type === 'query') && (auth.name === undefined || typeof auth.name === 'string')) {
 			return typeof auth.name === 'string' ? { type: auth.type, name: auth.name } : { type: auth.type };
 		}
@@ -360,6 +388,11 @@ export function normalizeAuth(auth: VibeProviderEntry['auth']): VibeProviderAuth
 /** The entry declares a server that takes no key (`"auth": "none"`) */
 export function isKeyless(entry: Pick<VibeProviderEntry, 'auth'>): boolean {
 	return normalizeAuth(entry.auth).type === 'none';
+}
+
+/** Провайдер берёт токен Google OAuth у Application Default Credentials вместо введённого ключа (`"auth": "google-adc"`) */
+export function usesGoogleAdc(entry: Pick<VibeProviderEntry, 'auth'>): boolean {
+	return normalizeAuth(entry.auth).type === 'google-adc';
 }
 
 /** Where a key goes on one request: headers and query parameters, both empty when nothing is sent */
@@ -403,7 +436,7 @@ export function keyPlacement(declared: VibeProviderEntry['auth'], key: string | 
 		case 'none': return NO_PLACEMENT;
 		case 'query': return { headers: {}, query: { [auth.name || DEFAULT_KEY_PARAM]: key } };
 		case 'header': return { headers: { [auth.name || native || DEFAULT_KEY_HEADER]: key }, query: {} };
-		// `bearer`, and anything unrecognised — the loader warns about it
+		// `bearer`, `google-adc` (токен и есть ключ) и всё нераспознанное — о нём загрузчик предупреждает
 		default: return { headers: { Authorization: `Bearer ${key}` }, query: {} };
 	}
 }
