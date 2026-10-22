@@ -26,7 +26,8 @@
 
 **Применение:**
 
-- В карту `apiKeyEnvVarOfProvider` можно добавлять ТОЛЬКО провайдеров, у которых `apiKey` — единственное обязательное поле. У `liteLLM`/`lmRoute` есть `endpoint`, у `microsoftAzure` — `project`, у `awsBedrock` — `region`: env-ключ их всё равно не разблокирует, потому что `computeDidFillInProviderSettings` требует непустыми ВСЕ поля. Это гейтится тестом `providerEnvApiKey.test.ts` («every listed provider has apiKey as its only required setting»).
+- В карту `apiKeyEnvVarOfProvider` можно добавлять ТОЛЬКО встроенных провайдеров, у которых `apiKey` — единственное обязательное поле. У `liteLLM`/`lmRoute` есть `endpoint`: env-ключ их всё равно не разблокирует, потому что `computeDidFillInProviderSettings` требует непустыми ВСЕ поля. Это гейтится тестом `providerEnvApiKey.test.ts` («every listed provider has apiKey as its only required setting»).
+- **С 22.10.2026 в карте только `deepseek`, `openRouter`, `minimax`.** Anthropic, OpenAI, Gemini, Groq, Mistral и xAI — провайдеры из файлов набора, и их ключ из окружения читает общий путь файловых провайдеров: `apiKeyEnv` в файле (`ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `GEMINI_API_KEY`…) + `vibeEnvApiKeysContribution`, который передаёт окну только факт наличия. Для Vertex ключа нет вовсе (токен Google), для Azure и Bedrock — `AZURE_OPENAI_API_KEY` и `BEDROCK_GATEWAY_API_KEY`. Подробнее — [builtinProvidersRemoval.md](builtinProvidersRemoval.md).
 - Имена переменных не выдумывать. Провайдеры без устоявшегося канона (`openCodeZen`, `pollinations`) в карту не добавлены намеренно.
 - Значение env всегда `trim()` — шеллы и CI оставляют хвостовой перевод строки, который всплывёт много позже как невнятная ошибка HTTP-заголовка (ровно тот класс, что ловит `assertHttpHeaderSafe`).
 
