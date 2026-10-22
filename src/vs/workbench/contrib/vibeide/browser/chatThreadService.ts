@@ -194,6 +194,7 @@ import { IVibeAIDebuggingService } from './vibeAIDebuggingContribution.js';
 import { IVibeContextGuardService } from './vibeContextGuardService.js';
 import { describeFinishNotice } from '../common/llmStreamFinish.js';
 import { describeCacheMiss, isCostlyCacheMiss } from '../common/anthropicCacheDiagnostics.js';
+import { canonicalProviderId } from '../common/providerVendor.js';
 
 // related to retrying when LLM message has error
 // Optimized retry logic: faster initial retry, exponential backoff
@@ -1724,7 +1725,7 @@ class ChatThreadService extends Disposable implements IChatThreadService {
 	private _findModelSelectionForId(modelId: string): ModelSelection | null {
 		const slashIdx = modelId.indexOf('/');
 		if (slashIdx > 0) {
-			const providerName = modelId.slice(0, slashIdx);
+			const providerName = canonicalProviderId(modelId.slice(0, slashIdx));
 			const modelName = modelId.slice(slashIdx + 1);
 			const models = this._settingsService.state.settingsOfProvider[providerName]?.models ?? [];
 			if (models.some(m => m.modelName === modelName && !m.isHidden)) {

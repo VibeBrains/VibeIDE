@@ -12,6 +12,7 @@ import { ILLMMessageService } from '../common/sendLLMMessageService.js';
 import { IVibeideSettingsService } from '../common/vibeideSettingsService.js';
 import { ModelSelection } from '../common/vibeideSettingsTypes.js';
 import { councilAdviserPrompt, councilSummaryPrompt, CouncilOpinion, CouncilRequest, CouncilResult } from '../common/modelCouncil.js';
+import { canonicalProviderId } from '../common/providerVendor.js';
 
 export const IVibeModelCouncilService = createDecorator<IVibeModelCouncilService>('vibeModelCouncilService');
 
@@ -35,7 +36,7 @@ function parseSelection(entry: string): ModelSelection | undefined {
 	if (at <= 0 || at === entry.length - 1) {
 		return undefined;
 	}
-	return { providerName: entry.slice(0, at).trim() as ModelSelection['providerName'], modelName: entry.slice(at + 1).trim() };
+	return { providerName: canonicalProviderId(entry.slice(0, at).trim()) as ModelSelection['providerName'], modelName: entry.slice(at + 1).trim() };
 }
 
 /**

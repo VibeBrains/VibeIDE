@@ -18,6 +18,7 @@ import { RoutingEvaluationService, RoutingVerdict } from './routingEvaluation.js
 import { generateUuid } from '../../../../base/common/uuid.js';
 import { IStorageService } from '../../../../platform/storage/common/storage.js';
 import { getPerformanceHarness } from './performanceHarness.js';
+import { providerVendorKey } from './providerVendor.js';
 
 // ── Local-model speed heuristics (data-driven) ──────────────────────────────
 // Substring hints used ONLY for auto-routing SCORING (which local model to prefer
@@ -936,7 +937,7 @@ export class TaskAwareModelRouter extends Disposable implements ITaskAwareModelR
 		const capabilities = this.getCachedCapabilities(modelSelection, settingsState);
 
 		const name = modelSelection.modelName.toLowerCase();
-		const provider = modelSelection.providerName.toLowerCase();
+		const provider = providerVendorKey(modelSelection.providerName);
 		const isLocal = isLocalProvider(modelSelection.providerName, settingsState.settingsOfProvider);
 
 		// Check Local-First AI setting
@@ -1543,7 +1544,7 @@ export class TaskAwareModelRouter extends Disposable implements ITaskAwareModelR
 	 */
 	private isVisionCapable(modelSelection: ModelSelection, capabilities: VibeideStaticModelInfo): boolean {
 		const name = modelSelection.modelName.toLowerCase();
-		const provider = modelSelection.providerName.toLowerCase();
+		const provider = providerVendorKey(modelSelection.providerName);
 
 		// Known vision-capable models
 		if (provider === 'gemini') { return true; } // all Gemini models support vision

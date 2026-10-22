@@ -3,6 +3,8 @@
  *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
 
+import { providerVendorKey } from './providerVendor.js';
+
 /**
  * Does a model switch throw away the reasoning built up so far? — pure decision, no I/O.
  *
@@ -54,7 +56,7 @@ function readableSwitch(input: ReasoningContinuityInput): boolean {
 		return false;
 	}
 	return READABLE_SWITCHES.some(pair => pair.from.test(fromModel) && pair.to.test(toModel)
-		&& (!pair.onlyOn || (fromProvider === pair.onlyOn && toProvider === pair.onlyOn)));
+		&& (!pair.onlyOn || (providerVendorKey(fromProvider ?? '') === pair.onlyOn && providerVendorKey(toProvider ?? '') === pair.onlyOn)));
 }
 
 /**

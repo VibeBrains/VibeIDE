@@ -21,23 +21,23 @@ suite('Provider API key from OS environment', () => {
 
 	suite('resolveApiKeyWithEnv', () => {
 		test('UI key wins over the environment', () => {
-			assert.strictEqual(resolveApiKeyWithEnv('sk-ui', 'anthropic', { ANTHROPIC_API_KEY: 'sk-env' }), 'sk-ui');
+			assert.strictEqual(resolveApiKeyWithEnv('sk-ui', 'deepseek', { DEEPSEEK_API_KEY: 'sk-env' }), 'sk-ui');
 		});
 
 		test('falls back to the env key when the UI key is empty or whitespace', () => {
-			const env = { ANTHROPIC_API_KEY: 'sk-env' };
+			const env = { DEEPSEEK_API_KEY: 'sk-env' };
 			assert.deepStrictEqual(
-				[resolveApiKeyWithEnv('', 'anthropic', env), resolveApiKeyWithEnv('   ', 'anthropic', env), resolveApiKeyWithEnv(undefined, 'anthropic', env)],
+				[resolveApiKeyWithEnv('', 'deepseek', env), resolveApiKeyWithEnv('   ', 'deepseek', env), resolveApiKeyWithEnv(undefined, 'deepseek', env)],
 				['sk-env', 'sk-env', 'sk-env'],
 			);
 		});
 
 		test('trims the env value — a trailing newline would break the HTTP header', () => {
-			assert.strictEqual(resolveApiKeyWithEnv('', 'openAI', { OPENAI_API_KEY: ' sk-env\n' }), 'sk-env');
+			assert.strictEqual(resolveApiKeyWithEnv('', 'minimax', { MINIMAX_API_KEY: ' sk-env\n' }), 'sk-env');
 		});
 
 		test('returns empty when neither source has a key, and ignores unrelated vars', () => {
-			assert.strictEqual(resolveApiKeyWithEnv('', 'anthropic', { SOMETHING_ELSE: 'x' }), '');
+			assert.strictEqual(resolveApiKeyWithEnv('', 'deepseek', { SOMETHING_ELSE: 'x' }), '');
 		});
 
 		test('providers without an env convention keep the configured value', () => {
@@ -48,26 +48,32 @@ suite('Provider API key from OS environment', () => {
 
 	suite('withEnvApiKey', () => {
 		const baseSettings = () => ({
-			anthropic: { apiKey: '' },
-			openAI: { apiKey: 'sk-ui' },
+			deepseek: { apiKey: '' },
+			minimax: { apiKey: 'sk-ui' },
 		} as unknown as SettingsOfProvider);
 
 		test('substitutes the env key only for the requested provider', () => {
-			const result = withEnvApiKey(baseSettings(), 'anthropic', { ANTHROPIC_API_KEY: 'sk-env', OPENAI_API_KEY: 'sk-other' });
+			const result = withEnvApiKey(baseSettings(), 'deepseek', { DEEPSEEK_API_KEY: 'sk-env', MINIMAX_API_KEY: 'sk-other' });
 			assert.deepStrictEqual(
-				{ anthropic: result.anthropic.apiKey, openAI: result.openAI.apiKey },
-				{ anthropic: 'sk-env', openAI: 'sk-ui' },
+				{ deepseek: result.deepseek.apiKey, minimax: result.minimax.apiKey },
+				{ deepseek: 'sk-env', minimax: 'sk-ui' },
 			);
 		});
 
 		test('returns the same object when there is nothing to substitute', () => {
 			const settings = baseSettings();
-			assert.strictEqual(withEnvApiKey(settings, 'anthropic', {}), settings);
-			assert.strictEqual(withEnvApiKey(settings, 'openAI', { OPENAI_API_KEY: 'sk-env' }), settings);
+			assert.strictEqual(withEnvApiKey(settings, 'deepseek', {}), settings);
+			assert.strictEqual(withEnvApiKey(settings, 'minimax', { MINIMAX_API_KEY: 'sk-env' }), settings);
 		});
 	});
 
 	suite('apiKeyEnvVarOfProvider', () => {
+		test('ключи вырезанных встроенных (Anthropic, OpenAI…) из окружения читает их файл набора через apiKeyEnv, а не эта таблица', () => {
+			assert.deepStrictEqual(
+				['anthropic', 'openAI', 'gemini', 'groq', 'mistral', 'xAI'].filter(id => Object.hasOwn(apiKeyEnvVarOfProvider, id)),
+				[]);
+		});
+
 		test('every listed provider exists and has apiKey as its only required setting', () => {
 			// The env key must be enough on its own: _didFillInProviderSettings requires every field of
 			// a provider to be filled, so a provider needing an endpoint/region could never be unblocked

@@ -19,6 +19,7 @@ import { Position } from '../../../../editor/common/core/position.js';
 import { IConfigurationService } from '../../../../platform/configuration/common/configuration.js';
 import { ModelSelection } from './vibeideSettingsTypes.js';
 import { describeAgreement, mergeReviewAnnotations } from './reviewFindingMerge.js';
+import { canonicalProviderId } from './providerVendor.js';
 
 export const ICodeReviewService = createDecorator<ICodeReviewService>('codeReviewService');
 
@@ -354,7 +355,7 @@ Provide your review annotations as a JSON array:`;
 			// Форма `provider:model`; двоеточие в имени модели допустимо, поэтому режем по первому.
 			const at = entry.indexOf(':');
 			if (at <= 0 || at === entry.length - 1) { continue; }
-			const providerName = entry.slice(0, at).trim();
+			const providerName = canonicalProviderId(entry.slice(0, at).trim());
 			const modelName = entry.slice(at + 1).trim();
 			if (providerName && modelName) {
 				panel.push({ providerName, modelName } as ModelSelection);

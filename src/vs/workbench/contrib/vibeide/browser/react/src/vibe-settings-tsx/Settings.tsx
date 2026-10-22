@@ -73,7 +73,10 @@ import { API_PROTOCOL_VALUES, ApiProtocolOverride, getModelCapabilities, isFreeM
 import { TransferEditorType, TransferFilesInfo } from '../../../extensionTransferTypes.js';
 import { MCPServer } from '../../../../common/mcpServiceTypes.js';
 import type { McpToolDrift } from '../../../../common/mcpToolPins.js';
-import { OPT_OUT_KEY } from '../../../../common/storageKeys.js';
+import { CUSTOM_PROVIDERS_COLLAPSED_KEY, OPT_OUT_KEY } from '../../../../common/storageKeys.js';
+import { addProviderFromTemplate } from '../../../vibeAddProvider.js';
+import type { DynamicProviderSeed } from '../../../../common/vibeideSettingsService.js';
+import type { ProviderParamField } from '../../../../common/vibeProviderParams.js';
 import { StorageScope, StorageTarget } from '../../../../../../../platform/storage/common/storage.js';
 import { generateUuid } from '../../../../../../../base/common/uuid.js';
 import { generatePairingCode } from '../../../../common/telegram/telegramPairing.js';
@@ -206,6 +209,9 @@ const RefreshableModels = () => {
 
 };
 
+/** Провайдер не встроенный: его подключает файл `.vibe/providers/*.jsonc` или `.vibe/providers.json`. */
+const isFileProvider = (providerName: string): boolean => !(providerNames as readonly string[]).includes(providerName);
+
 // Refresh button for remote provider catalogs (full row on Providers tab, or compact icon next to model search)
 const RefreshRemoteCatalogButton = ({ providerName, compact }: { providerName: ProviderName; compact?: boolean }) => {
 	const accessor = useAccessor();
@@ -222,7 +228,12 @@ const RefreshRemoteCatalogButton = ({ providerName, compact }: { providerName: P
 		setJustFinished(null);
 
 		try {
-			await refreshModelService.refreshRemoteCatalog(providerName, true);
+			// Провайдер из файла: его каталог опрашивает сервис файловых провайдеров, и «обновить» значит прочитать и опросить заново
+			if (isFileProvider(providerName)) {
+				await accessor.get('IVibeDynamicProvidersService').reload();
+			} else {
+				await refreshModelService.refreshRemoteCatalog(providerName, true);
+			}
 			setJustFinished('finished');
 			metricsService.capture('Click', { providerName, action: 'Refresh Remote Catalog' });
 		} catch (error) {
@@ -952,7 +963,7 @@ export const ModelDump = ({ filteredProviders }: { filteredProviders?: ProviderN
 							className='flex-1 min-w-0 max-w-md'
 						/>
 						<div className='flex items-center gap-1 shrink-0'>
-							{(remoteCatalogCapableProviderNames as readonly string[]).indexOf(providerName) >= 0 ? (
+							{(remoteCatalogCapableProviderNames as readonly string[]).indexOf(providerName) >= 0 || isFileProvider(providerName) ? (
 								<RefreshRemoteCatalogButton compact={true} providerName={providerName} />
 							) : null}
 							<div
@@ -1173,6 +1184,30 @@ const ProviderSetting = ({ providerName, settingName, subTextMd }: { providerNam
 	</ErrorBoundary>;
 };
 
+/**
+ * Поле карточки файлового провайдера из его `params`: регион, проект, ресурс, адрес шлюза.
+ * Значение хранится в настройках IDE под id провайдера, а не в файле: засеянный файл общий для всех проектов.
+ * Пусто — действует умолчание файла (оно видно подсказкой в поле).
+ */
+const ProviderParamInput = ({ providerName, field }: { providerName: ProviderName; field: ProviderParamField }) => {
+	const accessor = useAccessor();
+	const vibeideSettingsService = accessor.get('IVibeideSettingsService');
+	const handleChangeValue = useCallback((newVal: string) => {
+		void vibeideSettingsService.setDynamicProviderParam(providerName, field.name, newVal);
+	}, [vibeideSettingsService, providerName, field.name]);
+
+	return <ErrorBoundary>
+		<div className='my-1'>
+			<VibeSimpleInputBox
+				value={field.value}
+				onChangeValue={handleChangeValue}
+				placeholder={field.placeholder ? `${field.title} (${field.placeholder})` : field.title}
+				compact={true}
+			/>
+		</div>
+	</ErrorBoundary>;
+};
+
 // const OldSettingsForProvider = ({ providerName, showProviderTitle }: { providerName: ProviderName, showProviderTitle: boolean }) => {
 // 	const vibeSettingsState = useSettingsState()
 
@@ -1230,20 +1265,27 @@ export const SettingsForProvider = ({ providerName, showProviderTitle, showProvi
 	// const { enabled } = vibeSettingsState.settingsOfProvider[providerName]
 	// Dynamic providers (.vibe/providers.json) carry key validation status + source on their seeded
 	// entry — surfaced below the key field so the user sees whether the key actually works.
-	const isDynamicProvider = !(providerNames as readonly string[]).includes(providerName as string);
-	const dynSeed = isDynamicProvider ? (vibeSettingsState.settingsOfProvider as Record<string, { keyStatus?: string; keySource?: string; keyless?: boolean; localWithoutKey?: boolean } | undefined>)[providerName] : undefined;
+	const isDynamicProvider = isFileProvider(providerName as string);
+	const dynSeed = isDynamicProvider ? (vibeSettingsState.settingsOfProvider as Record<string, Partial<DynamicProviderSeed> | undefined>)[providerName] : undefined;
 	const dynKeyStatus = dynSeed?.keyStatus;
 	const dynKeySource = (dynSeed?.keySource ?? 'none') as keyof typeof providersS.dynKeySrc;
 	const dynKeyless = dynSeed?.keyless === true;
+	// Токен Google (Vertex): ключа нет и вводить нечего, статус — ответ сервера на запрос с токеном
+	const dynGoogleAdc = dynSeed?.googleAdc === true;
 	// A server on this machine asked without a key: its answer is the status, and the key field stays for one that wants a key
 	const dynLocalWithoutKey = dynSeed?.localWithoutKey === true;
-	const dynServerStatusTexts = dynKeyless ? providersS.dynKeyless : dynLocalWithoutKey ? providersS.dynLocalWithoutKey : undefined;
+	const dynServerStatusTexts = dynGoogleAdc ? providersS.dynGoogleAdc : dynKeyless ? providersS.dynKeyless : dynLocalWithoutKey ? providersS.dynLocalWithoutKey : undefined;
+	// Поля из `params` файла: регион, проект, ресурс, адрес шлюза — ввод в карточке, а не правка JSONC
+	const paramFields = dynSeed?.paramFields ?? [];
+	const paramsMissing = dynSeed?.paramsMissing ?? [];
 
 	const settingNames = customSettingNamesOfProvider(providerName);
 	// A server declared keyless never receives a key, so a key field could only take one and ignore it.
-	const providerFieldKeys = dynKeyless ? [] : settingNames.filter((sn) => !(providerName === 'openRouter' && sn === 'publicCatalog'));
+	const providerFieldKeys = dynKeyless || dynGoogleAdc ? [] : settingNames.filter((sn) => !(providerName === 'openRouter' && sn === 'publicCatalog'));
 
-	const { title: providerTitle } = displayInfoOfProviderName(providerName);
+	// Название провайдера из файла (`name`): карточка показывает его, а не сырой id
+	const providerTitle = dynSeed?.title ?? displayInfoOfProviderName(providerName).title;
+	const subTextMd = <ChatMarkdownRender string={subTextMdOfProviderName(providerName)} chatMessageLocation={undefined} />;
 
 	const inner = <>
 		<div className='flex items-center w-full gap-4'>
@@ -1262,6 +1304,9 @@ export const SettingsForProvider = ({ providerName, showProviderTitle, showProvi
 		</div>
 
 		<div className='px-0 mt-2'>
+			{/* значения параметров файла: регион, проект, ресурс, адрес */}
+			{paramFields.map(field => <ProviderParamInput key={field.name} providerName={providerName} field={field} />)}
+
 			{/* settings besides models (e.g. api key) */}
 			{providerFieldKeys.map((settingName, i) => {
 
@@ -1269,10 +1314,16 @@ export const SettingsForProvider = ({ providerName, showProviderTitle, showProvi
 					key={settingName}
 					providerName={providerName}
 					settingName={settingName}
-					subTextMd={i !== providerFieldKeys.length - 1 ? null
-						: <ChatMarkdownRender string={subTextMdOfProviderName(providerName)} chatMessageLocation={undefined} />}
+					subTextMd={i !== providerFieldKeys.length - 1 ? null : subTextMd}
 				/>;
 			})}
+
+			{/* Нет поля ключа (токен Google, сервер без ключа) — подсказка со ссылками встаёт отдельной строкой */}
+			{providerFieldKeys.length === 0 && isDynamicProvider ? <div className='py-1 px-3 opacity-50 text-sm'>{subTextMd}</div> : null}
+
+			{paramsMissing.length > 0 ? <div className='text-xs mt-1 pl-2 text-amber-400'>
+				{providersS.paramsMissing(paramFields.filter(field => paramsMissing.includes(field.name)).map(field => field.title).join(', '))}
+			</div> : null}
 
 			{providerName === 'openRouter' ?
 				<ProviderSetting
@@ -1281,7 +1332,7 @@ export const SettingsForProvider = ({ providerName, showProviderTitle, showProvi
 					subTextMd={null}
 				/> : null}
 
-			{isDynamicProvider && dynKeyStatus && dynServerStatusTexts ? (() => {
+			{isDynamicProvider && dynKeyStatus && dynServerStatusTexts && paramsMissing.length === 0 ? (() => {
 					const text = dynServerStatusTexts[dynKeyStatus as keyof typeof dynServerStatusTexts] ?? dynServerStatusTexts.none;
 					const color = dynKeyStatus === 'valid' ? 'text-emerald-400'
 						: dynKeyStatus === 'invalid' ? 'text-red-400'
@@ -1290,7 +1341,7 @@ export const SettingsForProvider = ({ providerName, showProviderTitle, showProvi
 					return <div className={`text-xs mt-1 pl-2 ${color}`}>{text}</div>;
 				})() : null}
 
-			{isDynamicProvider && dynKeyStatus && !dynServerStatusTexts ? (() => {
+			{isDynamicProvider && dynKeyStatus && !dynServerStatusTexts && paramsMissing.length === 0 ? (() => {
 					const srcSuffix = (dynKeyStatus !== 'none' && dynKeyStatus !== 'pending')
 						? ` · ${providersS.dynKeySrcPrefix}: ${providersS.dynKeySrc[dynKeySource] ?? providersS.dynKeySrc.none}`
 						: '';
@@ -1339,59 +1390,96 @@ export const VibeProviderSettings = ({ providerNames }: { providerNames: Provide
 };
 
 /**
- * Built-in cloud providers wrapped in a collapsible. Auto-collapses (but stays one click away) when
- * the user has their own providers via .vibe/providers.json AND no built-in has a key — the long
- * built-in list is just noise then. A manual toggle always wins over the auto rule for the session.
+ * Провайдеры из файлов `.vibe/providers/` (и `.vibe/providers.json`): Anthropic, OpenAI, Gemini, xAI и другие из набора,
+ * а также заведённые самим человеком. Сворачиваемый блок ПОСЛЕ встроенных; свёрнутость запоминается между запусками.
+ * Они лежат в `settingsOfProvider` полноправными записями (их кладёт сервис файловых провайдеров), поэтому рисуются той же
+ * карточкой, что и встроенные. Ключ и поля, введённые здесь, хранятся отдельно и подключают провайдера (затем грузится каталог).
+ * Кнопка «Добавить провайдера» копирует образец набора в `.vibe/providers/<имя>.jsonc` и открывает копию.
  */
-const BuiltinProvidersFold = ({ names }: { names: ProviderName[] }) => {
-	const settingsState = useSettingsState();
-
-	const anyBuiltinKey = names.some(p => settingsState.settingsOfProvider[p]?._didFillInProviderSettings);
-	const builtinSet = new Set<string>(providerNames as readonly string[]);
-	const hasDynamicProviders = settingsState._modelOptions.some(o => {
-		const pn = o.selection.providerName as string;
-		return pn !== 'auto' && !builtinSet.has(pn);
-	});
-	const autoCollapse = hasDynamicProviders && !anyBuiltinKey;
-
-	// null = follow the auto rule; once the user clicks, their choice sticks for the session.
-	const [userOpen, setUserOpen] = useState<boolean | null>(null);
-	const open = userOpen ?? !autoCollapse;
-
-	return <div className='@@vibe-chat-like-shell overflow-hidden'>
-		<button
-			type='button'
-			className='w-full flex items-center gap-2 px-3 py-3 text-left text-base font-semibold text-vibe-fg-1 bg-transparent hover:bg-[var(--vscode-list-hoverBackground)] transition-colors'
-			onClick={() => setUserOpen(!open)}
-			aria-expanded={open}
-		>
-			{open ? <ChevronDown size={18} className='shrink-0 opacity-80' /> : <ChevronRight size={18} className='shrink-0 opacity-80' />}
-			<span>{miscS.builtinProvidersToggle(names.length)}</span>
-		</button>
-		{open ? <div className='pt-2'><VibeProviderSettings providerNames={names} /></div> : null}
-	</div>;
-};
-
-
-/**
- * Cloud providers declared in `.vibe/providers.json`. They're seeded into `settingsOfProvider` as
- * first-class entries (by the dynamic-providers service), so they render with the SAME provider card
- * as built-ins — the raw file id as the title is a deliberate signal that the provider comes from a
- * file. The API key typed here persists separately and connects the provider (then its catalog loads).
- * Renders nothing when there are no dynamic providers.
- */
-const DynamicProvidersSection = () => {
+const CustomProvidersSection = () => {
+	const accessor = useAccessor();
+	const storageService = accessor.get('IStorageService');
 	const settingsState = useSettingsState();
 	const builtinSet = new Set<string>(providerNames as readonly string[]);
-	const dynamicIds = Object.keys(settingsState.settingsOfProvider).filter(id => !builtinSet.has(id));
-	if (dynamicIds.length === 0) { return null; }
-	return <div className='mb-4'>
-		<h3 className='text-base font-semibold text-vibe-fg-1 mb-2'>{providersS.dynamicProvidersTitle}</h3>
-		<div className='flex flex-col gap-3'>
-			{dynamicIds.map(id =>
-				<SettingsForProvider key={id} providerName={id as ProviderName} showProviderTitle={true} showProviderSuggestions={true} borderedCard />
-			)}
+	const customIds = Object.keys(settingsState.settingsOfProvider).filter(id => !builtinSet.has(id));
+
+	const [collapsed, setCollapsed] = useState<boolean>(() => storageService.getBoolean(CUSTOM_PROVIDERS_COLLAPSED_KEY, StorageScope.APPLICATION, false));
+	const [isAdding, setIsAdding] = useState(false);
+	const [newName, setNewName] = useState('');
+	const [addError, setAddError] = useState('');
+
+	const toggle = () => {
+		const next = !collapsed;
+		setCollapsed(next);
+		storageService.store(CUSTOM_PROVIDERS_COLLAPSED_KEY, next, StorageScope.APPLICATION, StorageTarget.USER);
+	};
+
+	const create = async () => {
+		const result = await addProviderFromTemplate({
+			fileService: accessor.get('IFileService'),
+			workspaceContextService: accessor.get('IWorkspaceContextService'),
+			pathService: accessor.get('IPathService'),
+			editorService: accessor.get('IEditorService'),
+		}, newName, customIds);
+		if (!result.ok) {
+			setAddError(result.message);
+			return;
+		}
+		setIsAdding(false);
+		setNewName('');
+		setAddError('');
+	};
+
+	return <div className='mb-4 @@vibe-chat-like-shell overflow-hidden'>
+		<div className='flex items-center'>
+			<button
+				type='button'
+				className='flex-1 min-w-0 flex items-center gap-2 px-3 py-3 text-left text-base font-semibold text-vibe-fg-1 bg-transparent hover:bg-[var(--vscode-list-hoverBackground)] transition-colors'
+				onClick={toggle}
+				aria-expanded={!collapsed}
+				aria-label={collapsed ? providersS.dynamicProvidersExpand : providersS.dynamicProvidersCollapse}
+			>
+				{collapsed ? <ChevronRight size={18} className='shrink-0 opacity-80' /> : <ChevronDown size={18} className='shrink-0 opacity-80' />}
+				<span className='truncate'>{providersS.dynamicProvidersTitle}</span>
+				<span className='text-vibe-fg-4 text-xs font-normal'>({customIds.length})</span>
+			</button>
+			<button
+				type='button'
+				className='@@vibe-pill-button @@vibe-focus-ring text-xs px-3 py-1.5 mr-3 shrink-0 flex items-center gap-1'
+				onClick={() => { setCollapsed(false); setIsAdding(true); }}
+				data-tooltip-id='vibe-tooltip'
+				data-tooltip-place='bottom'
+				data-tooltip-content={providersS.addProviderTooltip}
+			>
+				<Plus size={14} />
+				<span>{providersS.addProvider}</span>
+			</button>
 		</div>
+		{collapsed ? null : <div className='px-2 pb-2'>
+			<div className='text-xs text-vibe-fg-3 px-1 pb-2'>{providersS.dynamicProvidersHint}</div>
+			{isAdding ? <div className='mb-3 px-1'>
+				<form
+					className='flex items-center gap-2'
+					onSubmit={e => { e.preventDefault(); void create(); }}
+				>
+					<VibeSimpleInputBox
+						value={newName}
+						onChangeValue={v => { setNewName(v); setAddError(''); }}
+						placeholder={providersS.addProviderNamePh}
+						compact={true}
+						className='flex-1 min-w-0 max-w-sm'
+					/>
+					<button type='submit' className='@@vibe-pill-button @@vibe-focus-ring text-xs px-3 py-1.5 shrink-0' disabled={!newName.trim()}>{providersS.addProviderCreate}</button>
+					<button type='button' className='text-vibe-fg-4 text-xs shrink-0' onClick={() => { setIsAdding(false); setNewName(''); setAddError(''); }}>{providersS.addProviderCancel}</button>
+				</form>
+				{addError ? <div className='text-red-500 text-xs mt-1'>{addError}</div> : null}
+			</div> : null}
+			<div className='flex flex-col gap-3'>
+				{customIds.map(id =>
+					<SettingsForProvider key={id} providerName={id as ProviderName} showProviderTitle={true} showProviderSuggestions={true} borderedCard />
+				)}
+			</div>
+		</div>}
 	</div>;
 };
 
@@ -3958,18 +4046,18 @@ export const Settings = () => {
 											onToggle={() => toggleAllSettingsGroup('providers')}
 										>
 											<h3 className={`text-vibe-fg-3 mb-2`}>{miscS.mainProvBlurb}</h3>
-											<DynamicProvidersSection />
-											<BuiltinProvidersFold names={nonlocalProviderNames} />
+											<VibeProviderSettings providerNames={nonlocalProviderNames} />
 											<div className='w-full h-[1px] my-4' />
+											<CustomProvidersSection />
 											<RefreshableRemoteCatalogs />
 										</AllSettingsFold>
 									) : (
 										<>
 											<h2 className={`text-3xl mb-2`}>{nav.providers}</h2>
 											<h3 className={`text-vibe-fg-3 mb-2`}>{miscS.mainProvBlurb}</h3>
-											<DynamicProvidersSection />
-											<BuiltinProvidersFold names={nonlocalProviderNames} />
+											<VibeProviderSettings providerNames={nonlocalProviderNames} />
 											<div className='w-full h-[1px] my-4' />
+											<CustomProvidersSection />
 											<RefreshableRemoteCatalogs />
 										</>
 									)}

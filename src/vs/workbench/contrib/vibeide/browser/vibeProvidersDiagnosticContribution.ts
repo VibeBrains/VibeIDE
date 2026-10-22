@@ -66,7 +66,7 @@ registerAction2(class extends Action2 {
 	constructor() {
 		super({
 			id: 'vibeide.providers.showResolved',
-			title: localize2('vibeide.providers.showResolved', 'Показать распознанные провайдеры (.vibe/providers.json)'),
+			title: localize2('vibeide.providers.showResolved', 'Показать распознанные провайдеры (.vibe/providers/)'),
 			category: VIBE_COMMAND_CATEGORY,
 			f1: true,
 		});
@@ -82,10 +82,10 @@ registerAction2(class extends Action2 {
 		const s = dynSvc.getState();
 
 		const out: string[] = [];
-		out.push('# VibeIDE — распознанные провайдеры (.vibe/providers.json)');
+		out.push('# VibeIDE — распознанные провайдеры (.vibe/providers/*.jsonc и providers.json)');
 		out.push('');
 		if (!s.fileExists) {
-			out.push('Файл `.vibe/providers.json` отсутствует. Скопируйте `.vibe/providers.example.jsonc` и переименуйте.');
+			out.push('Файлов провайдеров нет ни в `.vibe/providers/`, ни в `.vibe/providers.json`. Нажмите «Добавить провайдера» в Настройки → Облачные провайдеры → «Свои провайдеры» — образец скопируется в `.vibe/providers/`.');
 		} else if (s.parseError) {
 			out.push(`❌ Файл не распознан: \`${s.parseError}\``);
 		} else {

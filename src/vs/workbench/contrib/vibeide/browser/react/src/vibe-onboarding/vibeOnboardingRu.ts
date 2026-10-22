@@ -31,8 +31,8 @@ export const onboardingS = {
 		'Cloud/Other': 'Облако / другое',
 	} satisfies Record<TabName, string>,
 	tabDescription: {
-		Free: 'OpenCode Zen и другие провайдеры с бесплатным уровнем — OpenRouter, Gemini, Pollinations. Добавляйте сколько нужно.',
-		Paid: 'Прямое подключение к любому провайдеру (свой API-ключ).',
+		Free: 'OpenCode Zen и OpenRouter — провайдеры с бесплатным уровнем. Добавляйте сколько нужно.',
+		Paid: 'Прямое подключение к MiniMax и DeepSeek (свой API-ключ). Anthropic, OpenAI, Gemini, Groq и остальные подключаются файлами набора — в Настройки → Облачные провайдеры → «Свои провайдеры».',
 		Local: 'Активные провайдеры подхватываются автоматически. Добавляйте сколько нужно.',
 		'Cloud/Other': 'Добавляйте сколько нужно. Для нестандартной конфигурации — свяжитесь с нами.',
 	} satisfies Record<TabName, string>,
@@ -70,7 +70,7 @@ export const onboardingS = {
 	skipBtn: 'Пропустить',
 	startInVibe: 'Начать в VibeIDE',
 	tagPrivateDetail: 'Приватный хостинг: данные не покидают ваш компьютер или сеть. [Напишите нам](mailto:founders@voideditor.com) для помощи с развёртыванием в компании.',
-	tagCheapDetail: 'Выгодные тарифы вроде Gemini 2.5 Pro или свой хостинг через Ollama и vLLM бесплатно.',
+	tagCheapDetail: 'Выгодные тарифы вроде DeepSeek или свой хостинг через Ollama и vLLM бесплатно.',
 	settingsAndThemes: 'Настройки и темы',
 	transferFromOther: 'Перенести настройки из другого редактора?',
 	providerTooltip: (providerName: ProviderName): string => {
@@ -79,12 +79,8 @@ export const onboardingS = {
 				return 'OpenCode Zen: отобранные модели через opencode.ai/zen; бесплатные модели указаны в документации (MiniMax M2.5 Free, Ling 2.6 Flash и др.).';
 			case 'minimax':
 				return 'MiniMax: прямой OpenAI-совместимый API. Флагман MiniMax-M3 (контекст 1M, мультимодальная, thinking переключается). Ключ на platform.minimax.io.';
-			case 'gemini':
-				return 'Gemini 2.5 Pro — до 25 бесплатных чатов в день, Flash — около 500. При нехватке кредитов можно перейти на платный тариф.';
 			case 'openRouter':
 				return 'OpenRouter: до 50 бесплатных чатов в день (1000 при депозите $10) на моделях с тегом :free.';
-			case 'pollinations':
-				return 'Дешёвый API со множеством моделей (кредиты Pollen). Ключ на enter.pollinations.ai.';
 			default:
 				return '';
 		}

@@ -48,8 +48,9 @@ const modelMarkKey = (model: ModelSelection): string => `model:${model.providerN
  */
 export function providerSetupKey(settingsOfProvider: SettingsOfProvider, providerName: ProviderId): string {
 	const settings = settingsOfProvider[providerName] as unknown as Record<string, unknown> | undefined;
-	// The field list is keyed by the canonical id: a file provider spelled `openai` patches the built-in `openAI`
-	const fieldNames = customSettingNamesOfProvider(builtinProviderIdOf(providerName) ?? providerName);
+	// Встроенный провайдер: поля его карточки. Файловый: ключ и адрес — адрес меняют значения параметров (регион, проект, ресурс)
+	const builtinId = builtinProviderIdOf(providerName);
+	const fieldNames = builtinId ? customSettingNamesOfProvider(builtinId) : ['apiKey', 'endpoint'];
 	return String(hash(fieldNames.map(name => settings?.[name] ?? '')));
 }
 

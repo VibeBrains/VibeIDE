@@ -36,8 +36,8 @@ import {
 	EmbeddingSourceConfig,
 	EmbeddingSourceState,
 	IVibeEmbeddingsService,
-	OPENAI_BASE_URL,
 } from '../common/embeddings/embeddingSource.js';
+import { canonicalProviderId, vendorOfProviderId } from '../common/providerVendor.js';
 import { IOllamaInstallerService } from '../common/ollamaInstallerService.js';
 import { PullProgressEvent } from '../common/embeddings/ollamaPull.js';
 import { ISecretDetectionService } from '../common/secretDetectionService.js';
@@ -61,7 +61,7 @@ Registry.as<IConfigurationRegistry>(ConfigurationExtensions.Configuration).regis
 			type: 'string',
 			default: 'ollama',
 			scope: ConfigurationScope.APPLICATION,
-			markdownDescription: localize('vibeide.embeddings.provider', "Откуда брать векторы для поиска по смыслу. `ollama` — локальная Ollama, код не покидает машину. `off` — только поиск по словам (BM25). Id настроенного провайдера (`openAI` или провайдер из `.vibe/providers`) — его OpenAI-совместимый `/embeddings`: **код фрагментами уходит этому провайдеру**, без сети источник не работает."),
+			markdownDescription: localize('vibeide.embeddings.provider', "Откуда брать векторы для поиска по смыслу. `ollama` — локальная Ollama, код не покидает машину. `off` — только поиск по словам (BM25). Id настроенного провайдера из `.vibe/providers` (например `openai`) — его OpenAI-совместимый `/embeddings`: **код фрагментами уходит этому провайдеру**, без сети источник не работает."),
 		},
 		[EMBEDDINGS_MODEL_SETTING]: {
 			type: 'string',
@@ -182,13 +182,10 @@ class VibeEmbeddingsService extends Disposable implements IVibeEmbeddingsService
 
 	/** What the source is built from in the provider settings: the Ollama endpoint, or the chosen provider's transport */
 	private _sourceSettingsKey(): string {
-		const provider = (this._configuration.getValue<string>(EMBEDDINGS_PROVIDER_SETTING) ?? 'ollama').trim();
+		const provider = canonicalProviderId((this._configuration.getValue<string>(EMBEDDINGS_PROVIDER_SETTING) ?? 'ollama').trim());
 		const settings = this._settings.state.settingsOfProvider as unknown as Record<string, { endpoint?: string; apiKey?: string } | undefined>;
 		if (provider === 'ollama') {
 			return settings['ollama']?.endpoint ?? '';
-		}
-		if (provider === 'openAI') {
-			return settings['openAI']?.apiKey ?? '';
 		}
 		return JSON.stringify(this._settings.getDynamicTransportConfigs()[provider] ?? null);
 	}
@@ -218,16 +215,13 @@ class VibeEmbeddingsService extends Disposable implements IVibeEmbeddingsService
 			this._setState({ ready: false, modelId: '', reason: localize('vibeide.embeddings.offline', "нет сети, а источник векторов облачный") }, undefined);
 			return;
 		}
-		let config: EmbeddingSourceConfig | undefined;
-		if (provider === 'openAI') {
-			const apiKey = (this._settings.state.settingsOfProvider as unknown as Record<string, { apiKey?: string } | undefined>)['openAI']?.apiKey?.trim();
-			config = apiKey ? { kind: 'openai', baseURL: OPENAI_BASE_URL, apiKey, model: model || DEFAULT_OPENAI_EMBEDDING_MODEL } : undefined;
-		} else {
-			const transport = this._settings.getDynamicTransportConfigs()[provider];
-			config = transport && model
-				? { kind: 'openai', baseURL: transport.baseURL, apiKey: transport.apiKey, apiKeyEnv: transport.apiKeyEnv, headers: transport.headers, model }
-				: undefined;
-		}
+		// OpenAI из файла набора: векторы у него есть всегда, модель по умолчанию — маленькая. Остальным провайдерам модель называют сами
+		const providerId = canonicalProviderId(provider);
+		const effectiveModel = model || (vendorOfProviderId(providerId) === 'openAI' ? DEFAULT_OPENAI_EMBEDDING_MODEL : '');
+		const transport = this._settings.getDynamicTransportConfigs()[providerId];
+		const config: EmbeddingSourceConfig | undefined = transport && effectiveModel
+			? { kind: 'openai', baseURL: transport.baseURL, apiKey: transport.apiKey, apiKeyEnv: transport.apiKeyEnv, headers: transport.headers, model: effectiveModel }
+			: undefined;
 		if (!config) {
 			this._setState({
 				ready: false, modelId: '',

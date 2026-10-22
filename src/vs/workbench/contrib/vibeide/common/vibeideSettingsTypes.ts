@@ -7,6 +7,7 @@ import { localize } from '../../../../nls.js';
 import { defaultModelsOfProvider, defaultProviderSettings, ModelOverrides } from './modelCapabilities.js';
 import { ToolApprovalType } from './toolsServiceTypes.js';
 import { VibeideSettingsState } from './vibeideSettingsService.js';
+import { CONFIG_ID_OF_VENDOR, ProviderVendor, vendorOfProviderId } from './providerVendor.js';
 
 
 type UnionOfKeys<T> = T extends T ? keyof T : never;
@@ -64,65 +65,56 @@ export const localProviderNames = ['ollama', 'vLLM', 'lmStudio'] satisfies Provi
 export const nonlocalProviderNames = providerNames.filter((name) => !(localProviderNames as string[]).includes(name)); // all non-local names
 
 /**
- * Preference order for "Auto" model resolution — when user picks
- * `providerName: 'auto', modelName: 'auto'`, we walk this list and pick the
- * first provider that has `_didFillInProviderSettings === true` and at least
- * one non-hidden configured model. Order is hand-curated: cloud-flagship
- * providers first (Anthropic / OpenAI / Gemini), then alternative clouds
- * (xAI / Mistral / DeepSeek / Groq), then local (Ollama / vLLM / LMStudio),
- * then generic aggregators (OpenAI-compatible / OpenRouter / LiteLLM /
- * Pollinations), then VibeIDE-aligned aggregators (OpenCode Zen).
+ * Порядок кандидатов для «Авто»: пользователь выбрал `providerName: 'auto', modelName: 'auto'`, и мы идём по списку и берём
+ * первого провайдера с заполненными настройками и хотя бы одной включённой моделью.
+ * Голова — MiniMax, DeepSeek, OpenCode Zen: порядок задан владельцем и совпадает с порядком встроенных в настройках
+ * (`defaultProviderSettings`). Дальше прежний порядок: облака флагманов (Anthropic, OpenAI, Gemini), другие облака
+ * (xAI, Mistral, Groq), локальные (Ollama, vLLM, LM Studio), общие шлюзы («Совместимо с OpenAI API», OpenRouter, LiteLLM,
+ * Pollinations).
  *
- * Голова списка — MiniMax, DeepSeek, OpenCode Zen: порядок задан владельцем и совпадает с порядком провайдеров в настройках
- * (`defaultProviderSettings`). OpenCode Go в списке нет: он подключается файлом провайдера, а у файловых провайдеров свой порядок.
+ * Anthropic, OpenAI, Gemini, xAI, Mistral, Groq, Pollinations и «Совместимо с OpenAI API» теперь провайдеры из файлов набора,
+ * поэтому в списке стоят их id из файла (`CONFIG_ID_OF_VENDOR`), а не прежние id встроенных. Остальных файловых провайдеров
+ * в списке нет: они идут перед ним (`autoFallbackProviderIds`).
  *
- * SINGLE SOURCE OF TRUTH — used by chatThreadService._findModelSelectionForId,
- * vibeideSettingsService.resolveAutoModelSelection, errorDetectionService and
- * nlShellParserService for their respective auto-fallback resolutions. Used to
- * be hand-copy-pasted 4× before this const was added. `satisfies ProviderName[]`
- * forces TS to fail-loud if a value isn't in `ProviderName`. Adding a new
- * provider = add the name HERE (and to defaultProviderSettings); the four
- * callers automatically pick it up.
+ * ЕДИНСТВЕННЫЙ источник порядка: его читают chatThreadService._findModelSelectionForId, vibeideSettingsService.resolveAutoModelSelection,
+ * errorDetectionService и nlShellParserService. Новый провайдер = дописать id СЮДА (и в defaultProviderSettings, если он встроенный).
  */
-export const autoModelFallbackProviderOrder = ['minimax', 'deepseek', 'openCodeZen', 'anthropic', 'openAI', 'gemini', 'xAI', 'mistral', 'groq', 'ollama', 'vLLM', 'lmStudio', 'openAICompatible', 'openRouter', 'liteLLM', 'pollinations'] satisfies ProviderName[];
+export const autoModelFallbackProviderOrder: readonly ProviderId[] = [
+	'minimax', 'deepseek', 'openCodeZen',
+	CONFIG_ID_OF_VENDOR.anthropic, CONFIG_ID_OF_VENDOR.openAI, CONFIG_ID_OF_VENDOR.gemini,
+	CONFIG_ID_OF_VENDOR.xAI, CONFIG_ID_OF_VENDOR.mistral, CONFIG_ID_OF_VENDOR.groq,
+	'ollama', 'vLLM', 'lmStudio',
+	CONFIG_ID_OF_VENDOR.openAICompatible, 'openRouter', 'liteLLM', CONFIG_ID_OF_VENDOR.pollinations,
+];
 
 /**
- * Auto-fallback candidate order over the MERGED provider set: config providers (providers.json —
- * workspace or `~/.vibe`) FIRST, then the hand-curated built-in order above. Config providers lead
- * for the same reason they sit on top of the model picker — they are the user's explicit,
- * deliberate configuration, which beats our generic preference list. Their relative order follows
- * their state-map insertion order, which the seeding path keeps sorted by the file's `order` field
- * (then name). Every "walk providers to auto-pick a model" MUST use this, not the raw built-in
- * list — otherwise config providers become second-class in auto-selection.
+ * Кандидаты для «Авто» по всему слиянию провайдеров: файловые провайдеры (providers.json, каталог `providers/` — проектные
+ * и из `~/.vibe`) СНАЧАЛА, потом выверенный порядок выше. Файловый провайдер, которого в выверенном порядке нет, — явная
+ * настройка человека, она бьёт общий список предпочтений. Их относительный порядок — порядок вставки в состояние:
+ * засев держит его по полю `order` файла, затем по имени. Тот, чей id уже стоит в выверенном порядке (Anthropic, OpenAI…),
+ * идёт на своём месте в нём, а не вперёд: иначе MiniMax-первым перестал бы быть первым.
+ * Любой обход «найди первого провайдера для авто-выбора» ОБЯЗАН идти через эту функцию, а не по голому списку выше.
  */
 export const autoFallbackProviderIds = (settingsOfProvider: SettingsOfProvider): ProviderId[] => {
-	const configIds = Object.keys(settingsOfProvider).filter(id => !isBuiltinProviderId(id));
+	const known = new Set(autoModelFallbackProviderOrder.map(id => id.toLowerCase()));
+	const configIds = Object.keys(settingsOfProvider).filter(id => !isBuiltinProviderId(id) && !known.has(id.toLowerCase()));
 	return [...configIds, ...autoModelFallbackProviderOrder];
 };
 
 /**
- * Canonical OS-env variable carrying the API key of a built-in cloud provider — the
- * conventional name each vendor documents (`ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, …).
+ * Каноническая переменная окружения ОС с ключом встроенного облачного провайдера
  *
- * Only providers whose SOLE required setting is `apiKey` are listed: the env key has to be
- * enough to make the provider usable on its own, and `computeDidFillInProviderSettings`
- * requires EVERY field of a provider to be non-empty. Multi-field providers (liteLLM /
- * lmRoute need `endpoint`, microsoftAzure needs `project`, awsBedrock needs `region`) are
- * deliberately absent — an env key alone would not unblock them. Providers with no
- * established convention (openCodeZen / pollinations) are absent too rather
- * than inventing a name.
+ * Здесь только провайдеры, у которых единственная обязательная настройка — `apiKey`: ключа из окружения должно хватать, чтобы
+ * провайдером можно было пользоваться, а `computeDidFillInProviderSettings` требует заполненными ВСЕ поля. Многополейные
+ * (liteLLM, lmRoute — нужен `endpoint`) намеренно не перечислены. У OpenCode Zen общепринятого имени нет — его тоже нет.
  *
- * The NAME lives here (shared); the VALUE is read only in electron-main, where
- * `process.env` is reliable — the renderer never receives it, just the presence flag.
+ * Ключи Anthropic, OpenAI, Gemini, xAI, Mistral и Groq из окружения читают их файлы набора через `apiKeyEnv`
+ * (`ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, …): для файлового провайдера это штатный путь
+ *
+ * ИМЯ живёт здесь (общее), ЗНАЧЕНИЕ читается только в electron-main, где `process.env` надёжен: окно получает лишь признак наличия.
  */
 export const apiKeyEnvVarOfProvider = {
-	anthropic: 'ANTHROPIC_API_KEY',
-	openAI: 'OPENAI_API_KEY',
-	gemini: 'GEMINI_API_KEY',
-	groq: 'GROQ_API_KEY',
 	deepseek: 'DEEPSEEK_API_KEY',
-	mistral: 'MISTRAL_API_KEY',
-	xAI: 'XAI_API_KEY',
 	openRouter: 'OPENROUTER_API_KEY',
 	minimax: 'MINIMAX_API_KEY',
 } as const satisfies Partial<Record<ProviderName, string>>;
@@ -224,14 +216,23 @@ type DisplayInfoForProviderName = {
 	desc?: string;
 };
 
+/** Названия вендоров, чьи провайдеры пришли файлами набора: id файла в любом написании читается как вендор. */
+const VENDOR_TITLES: Readonly<Record<ProviderVendor, () => string>> = {
+	anthropic: () => 'Anthropic',
+	openAI: () => 'OpenAI',
+	gemini: () => 'Gemini',
+	xAI: () => 'Grok (xAI)',
+	mistral: () => 'Mistral',
+	groq: () => 'Groq',
+	googleVertex: () => 'Google Vertex AI',
+	microsoftAzure: () => 'Microsoft Azure OpenAI',
+	awsBedrock: () => 'AWS Bedrock',
+	pollinations: () => 'Pollinations',
+	openAICompatible: () => localize('vibeide.provider.openAICompatible', 'Совместимо с OpenAI API'),
+};
+
 export const displayInfoOfProviderName = (providerName: ProviderId): DisplayInfoForProviderName => {
-	if (providerName === 'anthropic') {
-		return { title: 'Anthropic', };
-	}
-	else if (providerName === 'openAI') {
-		return { title: 'OpenAI', };
-	}
-	else if (providerName === 'deepseek') {
+	if (providerName === 'deepseek') {
 		return { title: 'DeepSeek', };
 	}
 	else if (providerName === 'openRouter') {
@@ -249,33 +250,6 @@ export const displayInfoOfProviderName = (providerName: ProviderId): DisplayInfo
 	else if (providerName === 'lmStudio') {
 		return { title: 'LM Studio', };
 	}
-	else if (providerName === 'openAICompatible') {
-		return { title: localize('vibeide.provider.openAICompatible', 'Совместимо с OpenAI API'), };
-	}
-	else if (providerName === 'gemini') {
-		return { title: 'Gemini', };
-	}
-	else if (providerName === 'groq') {
-		return { title: 'Groq', };
-	}
-	else if (providerName === 'xAI') {
-		return { title: 'Grok (xAI)', };
-	}
-	else if (providerName === 'mistral') {
-		return { title: 'Mistral', };
-	}
-	else if (providerName === 'googleVertex') {
-		return { title: 'Google Vertex AI', };
-	}
-	else if (providerName === 'microsoftAzure') {
-		return { title: 'Microsoft Azure OpenAI', };
-	}
-	else if (providerName === 'awsBedrock') {
-		return { title: 'AWS Bedrock', };
-	}
-	else if (providerName === 'pollinations') {
-		return { title: 'Pollinations', };
-	}
 	else if (providerName === 'openCodeZen') {
 		return { title: 'OpenCode Zen', };
 	}
@@ -286,6 +260,12 @@ export const displayInfoOfProviderName = (providerName: ProviderId): DisplayInfo
 		return { title: 'LM Router', };
 	}
 
+	// Провайдер из файла набора: если его id — вендор, то названием служит имя вендора (в карточке — имя из самого файла)
+	const vendor = vendorOfProviderId(providerName);
+	if (vendor) {
+		return { title: VENDOR_TITLES[vendor]() };
+	}
+
 	// Dynamic providers (.vibe/providers.json) carry ids that aren't compile-time union members.
 	// Don't throw — surface the id as the title so the model picker (getOptionDropdownDetail) and any
 	// other caller render instead of crashing the subtree. The picker already shows the full name in
@@ -293,32 +273,39 @@ export const displayInfoOfProviderName = (providerName: ProviderId): DisplayInfo
 	return { title: providerName };
 };
 
+/** Подсказки под полем ключа вендоров, чьи провайдеры пришли файлами набора (ссылки на получение ключа). */
+const VENDOR_SUBTEXT_MD: Readonly<Record<ProviderVendor, string>> = {
+	anthropic: '[Ключ API](https://console.anthropic.com/settings/keys).',
+	openAI: '[Ключ API](https://platform.openai.com/api-keys).',
+	gemini: '[Ключ API](https://aistudio.google.com/apikey). [Лимиты](https://ai.google.dev/gemini-api/docs/rate-limits#current-rate-limits).',
+	groq: '[Ключ API](https://console.groq.com/keys).',
+	xAI: '[Ключ API](https://console.x.ai).',
+	mistral: '[Ключ API](https://console.mistral.ai/api-keys).',
+	openAICompatible: 'Любой провайдер с совместимым с OpenAI API (llama.cpp и др.).',
+	googleVertex: 'Вход через Google: `gcloud auth application-default login`, ключ не нужен. [Конечные точки](https://cloud.google.com/vertex-ai/generative-ai/docs/multimodal/call-vertex-using-openai-library), [регионы](https://cloud.google.com/vertex-ai/docs/general/locations#available-regions).',
+	microsoftAzure: '[Конечные точки](https://learn.microsoft.com/en-us/azure/ai-foundry/openai/api-version-lifecycle), [ключ API](https://learn.microsoft.com/en-us/azure/search/search-security-api-keys?tabs=rest-use%2Cportal-find%2Cportal-query#find-existing-keys).',
+	awsBedrock: 'Через прокси LiteLLM или AWS [Bedrock-Access-Gateway](https://github.com/aws-samples/bedrock-access-gateway). [Документация LiteLLM Bedrock](https://docs.litellm.ai/docs/providers/bedrock).',
+	pollinations: '[Ключ API](https://enter.pollinations.ai/). [Документация API](https://enter.pollinations.ai/api/docs).',
+};
+
 export const subTextMdOfProviderName = (providerName: ProviderId): string => {
 
-	if (providerName === 'anthropic') { return '[Ключ API](https://console.anthropic.com/settings/keys).'; }
-	if (providerName === 'openAI') { return '[Ключ API](https://platform.openai.com/api-keys).'; }
 	if (providerName === 'deepseek') { return '[Ключ API](https://platform.deepseek.com/api_keys).'; }
 	if (providerName === 'openRouter') { return '[Ключ API](https://openrouter.ai/settings/keys). [Лимиты](https://openrouter.ai/docs/api-reference/limits).'; }
-	if (providerName === 'gemini') { return '[Ключ API](https://aistudio.google.com/apikey). [Лимиты](https://ai.google.dev/gemini-api/docs/rate-limits#current-rate-limits).'; }
-	if (providerName === 'groq') { return '[Ключ API](https://console.groq.com/keys).'; }
-	if (providerName === 'xAI') { return '[Ключ API](https://console.x.ai).'; }
-	if (providerName === 'mistral') { return '[Ключ API](https://console.mistral.ai/api-keys).'; }
-	if (providerName === 'openAICompatible') { return `Любой провайдер с совместимым с OpenAI API (llama.cpp и др.).`; }
-	if (providerName === 'googleVertex') { return 'Нужна аутентификация для Vertex. [Конечные точки](https://cloud.google.com/vertex-ai/generative-ai/docs/multimodal/call-vertex-using-openai-library), [регионы](https://cloud.google.com/vertex-ai/docs/general/locations#available-regions).'; }
-	if (providerName === 'microsoftAzure') { return '[Конечные точки](https://learn.microsoft.com/en-us/rest/api/aifoundry/model-inference/get-chat-completions/get-chat-completions?view=rest-aifoundry-model-inference-2024-05-01-preview&tabs=HTTP), [ключ API](https://learn.microsoft.com/en-us/azure/search/search-security-api-keys?tabs=rest-use%2Cportal-find%2Cportal-query#find-existing-keys).'; }
-	if (providerName === 'awsBedrock') { return 'Через прокси LiteLLM или AWS [Bedrock-Access-Gateway](https://github.com/aws-samples/bedrock-access-gateway). [Документация LiteLLM Bedrock](https://docs.litellm.ai/docs/providers/bedrock).'; }
 	if (providerName === 'ollama') { return 'Про свои [конечные точки](https://github.com/ollama/ollama/blob/main/docs/faq.md#how-can-i-expose-ollama-on-my-network).'; }
 	if (providerName === 'vLLM') { return 'Про [конечные точки](https://docs.vllm.ai/en/latest/getting_started/quickstart.html#openai-compatible-server).'; }
 	if (providerName === 'lmStudio') { return 'Про [конечные точки OpenAI](https://lmstudio.ai/docs/app/api/endpoints/openai).'; }
 	if (providerName === 'liteLLM') { return '[Совместимые конечные точки](https://docs.litellm.ai/docs/providers/openai_compatible).'; }
 	if (providerName === 'lmRoute') { return 'OpenAI-совместимый агрегатор. Hosted: `https://api.lmrouter.com/openai/v1`, либо self-hosted endpoint. [Исходники](https://github.com/LMRouter/lmrouter).'; }
-	if (providerName === 'pollinations') { return '[Ключ API](https://enter.pollinations.ai/). [Документация API](https://enter.pollinations.ai/api/docs).'; }
 	if (providerName === 'openCodeZen') { return 'Ключ на [opencode.ai/zen](https://opencode.ai/zen). Бесплатные модели: MiniMax M2.5 Free, Ling 2.6 Flash и др. ([документация Zen](https://opencode.ai/docs/zen)).'; }
 	if (providerName === 'minimax') { return '[Ключ API](https://platform.minimax.io/user-center/basic-information/interface-key). OpenAI-совместимый API. Модели: MiniMax-M3 (контекст 1M, мультимодальная, thinking переключается), MiniMax-M2.'; }
 
-	// Dynamic providers (.vibe/providers.json) aren't in the built-in list — don't throw, just hint at
-	// where the key comes from. The provider's own docs/api-key URLs live in the file, not here.
-	return 'Провайдер из `.vibe/providers.json`. Введите ключ здесь или задайте `apiKeyEnv` в `.vibe/.env`.';
+	const vendor = vendorOfProviderId(providerName);
+	if (vendor) { return VENDOR_SUBTEXT_MD[vendor]; }
+
+	// Провайдер из файла (`.vibe/providers/*.jsonc` или `.vibe/providers.json`) вне встроенного списка — исключений не бросаем,
+	// только подсказываем, откуда берётся ключ. Ссылки на документацию и ключ лежат в самом файле, а не здесь.
+	return 'Провайдер из файла `.vibe/providers/`. Введите ключ здесь или задайте `apiKeyEnv` в `.vibe/.env`.';
 };
 
 type DisplayInfo = {
@@ -328,28 +315,29 @@ type DisplayInfo = {
 };
 export const displayInfoOfSettingName = (providerName: ProviderId, settingName: SettingName): DisplayInfo => {
 	if (settingName === 'apiKey') {
+		const vendor = vendorOfProviderId(providerName);
 		return {
 			title: localize('vibeide.settings.apiKey', 'Ключ API'),
 
 			// **Please follow this convention**:
 			// The word "key..." here is a placeholder for the hash. For example, sk-ant-key... means the key will look like sk-ant-abcdefg123...
-			placeholder: providerName === 'anthropic' ? 'sk-ant-key...' : // sk-ant-api03-key
-				providerName === 'openAI' ? 'sk-proj-key...' :
+			placeholder: vendor === 'anthropic' ? 'sk-ant-key...' : // sk-ant-api03-key
+				vendor === 'openAI' ? 'sk-proj-key...' :
 					providerName === 'deepseek' ? 'sk-key...' :
 						providerName === 'openRouter' ? 'sk-or-key...' : // sk-or-v1-key
-							providerName === 'gemini' ? 'AIzaSy...' :
-								providerName === 'groq' ? 'gsk_key...' :
-									providerName === 'openAICompatible' ? 'sk-key...' :
-										providerName === 'xAI' ? 'xai-key...' :
-											providerName === 'mistral' ? 'api-key...' :
-												providerName === 'googleVertex' ? 'AIzaSy...' :
-													providerName === 'microsoftAzure' ? 'key-...' :
-														providerName === 'awsBedrock' ? 'key-...' :
-															providerName === 'pollinations' ? 'sk-... or pk-...' :
+							vendor === 'gemini' ? 'AIzaSy...' :
+								vendor === 'groq' ? 'gsk_key...' :
+									vendor === 'openAICompatible' ? 'sk-key...' :
+										vendor === 'xAI' ? 'xai-key...' :
+											vendor === 'mistral' ? 'api-key...' :
+												vendor === 'googleVertex' ? 'AIzaSy...' :
+													vendor === 'microsoftAzure' ? 'key-...' :
+														vendor === 'awsBedrock' ? 'key-...' :
+															vendor === 'pollinations' ? 'sk-... or pk-...' :
 																providerName === 'openCodeZen' ? 'opencode-key...' :
 																	providerName === 'minimax' ? 'eyJ...' :
-																			providerName === 'lmRoute' ? 'lmrouter-key...' :
-																				'',
+																		providerName === 'lmRoute' ? 'lmrouter-key...' :
+																			'',
 
 			isPasswordField: true,
 		};
@@ -359,58 +347,19 @@ export const displayInfoOfSettingName = (providerName: ProviderId, settingName: 
 			title: providerName === 'ollama' ? 'Конечная точка' :
 				providerName === 'vLLM' ? 'Конечная точка' :
 					providerName === 'lmStudio' ? 'Конечная точка' :
-						providerName === 'openAICompatible' ? 'baseURL' : // (не добавляйте /chat/completions)
-							providerName === 'googleVertex' ? 'baseURL' :
-								providerName === 'microsoftAzure' ? 'baseURL' :
-									providerName === 'liteLLM' ? 'baseURL' :
-										providerName === 'lmRoute' ? 'baseURL' :
-											providerName === 'awsBedrock' ? 'Конечная точка' :
-												'(нет)',
+						providerName === 'liteLLM' ? 'baseURL' :
+							providerName === 'lmRoute' ? 'baseURL' :
+								'(нет)',
 
 			placeholder: providerName === 'ollama' ? defaultProviderSettings.ollama.endpoint
 				: providerName === 'vLLM' ? defaultProviderSettings.vLLM.endpoint
-					: providerName === 'openAICompatible' ? 'https://my-website.com/v1'
-						: providerName === 'lmStudio' ? defaultProviderSettings.lmStudio.endpoint
-							: providerName === 'liteLLM' ? 'http://localhost:4000'
-								: providerName === 'lmRoute' ? 'https://api.lmrouter.com/openai/v1'
-									: providerName === 'awsBedrock' ? 'http://localhost:4000/v1'
-										: '(нет)',
+					: providerName === 'lmStudio' ? defaultProviderSettings.lmStudio.endpoint
+						: providerName === 'liteLLM' ? 'http://localhost:4000'
+							: providerName === 'lmRoute' ? 'https://api.lmrouter.com/openai/v1'
+								: '(нет)',
 
 
 		};
-	}
-	else if (settingName === 'headersJSON') {
-		return { title: localize('vibeide.settings.customHeaders', 'Произвольные заголовки'), placeholder: '{ "X-Request-Id": "..." }' };
-	}
-	else if (settingName === 'region') {
-		// vertex only
-		return {
-			title: localize('vibeide.settings.region', 'Регион'),
-			placeholder: providerName === 'googleVertex' ? defaultProviderSettings.googleVertex.region
-				: providerName === 'awsBedrock'
-					? defaultProviderSettings.awsBedrock.region
-					: ''
-		};
-	}
-	else if (settingName === 'azureApiVersion') {
-		// azure only
-		return {
-			title: localize('vibeide.settings.azureApiVersion', 'Версия API'),
-			placeholder: providerName === 'microsoftAzure' ? defaultProviderSettings.microsoftAzure.azureApiVersion
-				: ''
-		};
-	}
-	else if (settingName === 'project') {
-		return {
-			title: providerName === 'microsoftAzure' ? 'Ресурс'
-				: providerName === 'googleVertex' ? 'Проект'
-					: '',
-			placeholder: providerName === 'microsoftAzure' ? 'my-resource'
-				: providerName === 'googleVertex' ? 'my-project'
-					: ''
-
-		};
-
 	}
 	else if (settingName === 'publicCatalog') {
 		return {
@@ -438,10 +387,6 @@ export const displayInfoOfSettingName = (providerName: ProviderId, settingName: 
 const defaultCustomSettings: Record<CustomSettingName, undefined> = {
 	apiKey: undefined,
 	endpoint: undefined,
-	region: undefined, // googleVertex
-	project: undefined,
-	azureApiVersion: undefined,
-	headersJSON: undefined,
 	/** OpenRouter: `'1'` = fetch public /v1/models without API key */
 	publicCatalog: undefined,
 };
@@ -459,40 +404,10 @@ const modelInfoOfDefaultModelNames = (defaultModelNames: string[]): { models: Vi
 
 // used when waiting and for a type reference
 export const defaultSettingsOfProvider: SettingsOfProvider = {
-	anthropic: {
-		...defaultCustomSettings,
-		...defaultProviderSettings.anthropic,
-		...modelInfoOfDefaultModelNames(defaultModelsOfProvider.anthropic),
-		_didFillInProviderSettings: undefined,
-	},
-	openAI: {
-		...defaultCustomSettings,
-		...defaultProviderSettings.openAI,
-		...modelInfoOfDefaultModelNames(defaultModelsOfProvider.openAI),
-		_didFillInProviderSettings: undefined,
-	},
 	deepseek: {
 		...defaultCustomSettings,
 		...defaultProviderSettings.deepseek,
 		...modelInfoOfDefaultModelNames(defaultModelsOfProvider.deepseek),
-		_didFillInProviderSettings: undefined,
-	},
-	gemini: {
-		...defaultCustomSettings,
-		...defaultProviderSettings.gemini,
-		...modelInfoOfDefaultModelNames(defaultModelsOfProvider.gemini),
-		_didFillInProviderSettings: undefined,
-	},
-	xAI: {
-		...defaultCustomSettings,
-		...defaultProviderSettings.xAI,
-		...modelInfoOfDefaultModelNames(defaultModelsOfProvider.xAI),
-		_didFillInProviderSettings: undefined,
-	},
-	mistral: {
-		...defaultCustomSettings,
-		...defaultProviderSettings.mistral,
-		...modelInfoOfDefaultModelNames(defaultModelsOfProvider.mistral),
 		_didFillInProviderSettings: undefined,
 	},
 	liteLLM: {
@@ -507,22 +422,10 @@ export const defaultSettingsOfProvider: SettingsOfProvider = {
 		...modelInfoOfDefaultModelNames(defaultModelsOfProvider.lmStudio),
 		_didFillInProviderSettings: undefined,
 	},
-	groq: { // aggregator (serves models from multiple providers)
-		...defaultCustomSettings,
-		...defaultProviderSettings.groq,
-		...modelInfoOfDefaultModelNames(defaultModelsOfProvider.groq),
-		_didFillInProviderSettings: undefined,
-	},
 	openRouter: { // aggregator (serves models from multiple providers)
 		...defaultCustomSettings,
 		...defaultProviderSettings.openRouter,
 		...modelInfoOfDefaultModelNames(defaultModelsOfProvider.openRouter),
-		_didFillInProviderSettings: undefined,
-	},
-	openAICompatible: { // aggregator (serves models from multiple providers)
-		...defaultCustomSettings,
-		...defaultProviderSettings.openAICompatible,
-		...modelInfoOfDefaultModelNames(defaultModelsOfProvider.openAICompatible),
 		_didFillInProviderSettings: undefined,
 	},
 	ollama: { // aggregator (serves models from multiple providers)
@@ -535,30 +438,6 @@ export const defaultSettingsOfProvider: SettingsOfProvider = {
 		...defaultCustomSettings,
 		...defaultProviderSettings.vLLM,
 		...modelInfoOfDefaultModelNames(defaultModelsOfProvider.vLLM),
-		_didFillInProviderSettings: undefined,
-	},
-	googleVertex: { // aggregator (serves models from multiple providers)
-		...defaultCustomSettings,
-		...defaultProviderSettings.googleVertex,
-		...modelInfoOfDefaultModelNames(defaultModelsOfProvider.googleVertex),
-		_didFillInProviderSettings: undefined,
-	},
-	microsoftAzure: { // aggregator (serves models from multiple providers)
-		...defaultCustomSettings,
-		...defaultProviderSettings.microsoftAzure,
-		...modelInfoOfDefaultModelNames(defaultModelsOfProvider.microsoftAzure),
-		_didFillInProviderSettings: undefined,
-	},
-	awsBedrock: { // aggregator (serves models from multiple providers)
-		...defaultCustomSettings,
-		...defaultProviderSettings.awsBedrock,
-		...modelInfoOfDefaultModelNames(defaultModelsOfProvider.awsBedrock),
-		_didFillInProviderSettings: undefined,
-	},
-	pollinations: {
-		...defaultCustomSettings,
-		...defaultProviderSettings.pollinations,
-		...modelInfoOfDefaultModelNames(defaultModelsOfProvider.pollinations),
 		_didFillInProviderSettings: undefined,
 	},
 	openCodeZen: {

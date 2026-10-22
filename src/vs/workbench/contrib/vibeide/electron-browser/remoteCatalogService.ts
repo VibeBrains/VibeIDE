@@ -27,7 +27,7 @@ import { IMainProcessService } from '../../../../platform/ipc/common/mainProcess
 import { IRemoteCatalogService, RemoteModelInfo, DynamicKeyValidation } from '../common/remoteCatalogService.js';
 import { normaliseCatalogCost } from '../common/catalogPricing.js';
 import { floatingRefOf } from '../common/catalogAliases.js';
-import { catalogRequestOf, VibeCatalogRequest } from '../common/vibeProvidersFile.js';
+import { catalogRequestOf, usesGoogleAdc, VibeCatalogRequest } from '../common/vibeProvidersFile.js';
 import { isLocalAddress } from '../common/isLocalProvider.js';
 
 /** Cached catalog entry with TTL. */
@@ -240,6 +240,20 @@ export class RemoteCatalogService implements IRemoteCatalogService {
 		return out;
 	}
 
+	/**
+	 * Токен Google OAuth из Application Default Credentials, который главный процесс отдаёт для Vertex AI
+	 * `undefined` — учётные данные не настроены (`gcloud auth application-default login`) или токен не выдан
+	 */
+	async getGoogleAccessToken(): Promise<string | undefined> {
+		try {
+			const ipc = this.mainProcessService.getChannel('vibeide-channel-remoteCatalogFetch');
+			const token = await ipc.call<string>('getGoogleAccessToken', undefined);
+			return typeof token === 'string' && token.trim() ? token : undefined;
+		} catch {
+			return undefined;
+		}
+	}
+
 	async fetchDynamicWithStatus(request: VibeCatalogRequest): Promise<DynamicKeyValidation> {
 		try {
 			// 'probe' (electron-main channel) returns the raw HTTP status without throwing on non-2xx, so
@@ -269,7 +283,9 @@ export class RemoteCatalogService implements IRemoteCatalogService {
 		// that wants one → nothing to fetch; a server declared keyless, or one on this machine, is asked without one.
 		const dyn = this.settingsService.getDynamicTransportConfigs()[providerName as unknown as string];
 		if (dyn?.baseURL) {
-			const key = dyn.keyless ? undefined : dyn.apiKey?.trim() || undefined;
+			// Провайдеру на токене Google (Vertex) вводить нечего: токен берётся у главного процесса, как и при отправке
+			const adc = usesGoogleAdc(dyn);
+			const key = dyn.keyless ? undefined : adc ? await this.getGoogleAccessToken() : dyn.apiKey?.trim() || undefined;
 			if (!key && !dyn.keyless && !isLocalAddress(dyn.baseURL)) {
 				return [];
 			}
@@ -300,12 +316,9 @@ export class RemoteCatalogService implements IRemoteCatalogService {
 			providerName === 'openCodeZen'
 			|| providerName === 'openRouter'
 			|| providerName === 'lmRoute'
-			|| providerName === 'pollinations'
 			|| providerName === 'ollama'
 			|| providerName === 'vLLM'
-			|| providerName === 'lmStudio'
-			|| providerName === 'googleVertex'
-			|| providerName === 'awsBedrock';
+			|| providerName === 'lmStudio';
 
 		if (!apiKey?.trim() && !allowsEmptyKey) {
 			return [];
@@ -313,18 +326,6 @@ export class RemoteCatalogService implements IRemoteCatalogService {
 
 		try {
 			switch (providerName) {
-				case 'openAI':
-					return await this.fetchOpenAICatalog(apiKey ?? '');
-				case 'anthropic':
-					return await this.fetchAnthropicCatalog(apiKey ?? '');
-				case 'gemini':
-					return await this.fetchGeminiCatalog(apiKey ?? '');
-				case 'mistral':
-					return await this.fetchMistralCatalog(apiKey ?? '');
-				case 'groq':
-					return await this.fetchGroqCatalog(apiKey ?? '');
-				case 'xAI':
-					return await this.fetchXAICatalog(apiKey ?? '');
 				case 'deepseek':
 					return await this.fetchDeepSeekCatalog(apiKey ?? '');
 				case 'openRouter':
@@ -342,16 +343,6 @@ export class RemoteCatalogService implements IRemoteCatalogService {
 					const modelsUrl = base.endsWith('/v1') ? `${base}/models` : `${base}/v1/models`;
 					const k = (this.settingsService.state.settingsOfProvider.liteLLM as { apiKey?: string }).apiKey;
 					return await this.fetchOpenAICompatibleModelsCatalog(modelsUrl, k || undefined);
-				}
-				case 'openAICompatible': {
-					const s = this.settingsService.state.settingsOfProvider.openAICompatible;
-					const ep = (s.endpoint || '').trim();
-					if (!ep) {
-						return [];
-					}
-					const base = ep.replace(/\/$/, '');
-					const modelsUrl = base.endsWith('/v1') ? `${base}/models` : `${base}/v1/models`;
-					return await this.fetchOpenAICompatibleModelsCatalog(modelsUrl, s.apiKey || undefined);
 				}
 				case 'lmRoute': {
 					// LM Router: hosted at api.lmrouter.com/openai/v1 or self-hosted. The endpoint
@@ -392,23 +383,6 @@ export class RemoteCatalogService implements IRemoteCatalogService {
 					}
 					return await this.fetchOllamaCatalog(ep);
 				}
-				case 'awsBedrock': {
-					// Bedrock is exposed via an OpenAI-compatible proxy (LiteLLM default
-					// http://localhost:4000/v1, or Bedrock-Access-Gateway). Native bedrock-runtime
-					// is NOT OpenAI-compatible, so we never hit it from here.
-					const s = this.settingsService.state.settingsOfProvider.awsBedrock;
-					let baseURL = (s.endpoint || 'http://localhost:4000/v1').trim();
-					if (!baseURL.endsWith('/v1')) {
-						baseURL = baseURL.replace(/\/+$/, '') + '/v1';
-					}
-					return await this.fetchOpenAICompatibleModelsCatalog(`${baseURL}/models`, s.apiKey || undefined);
-				}
-				case 'googleVertex':
-					return await this.fetchGoogleVertexCatalog();
-				case 'microsoftAzure':
-					return await this.fetchMicrosoftAzureCatalog();
-				case 'pollinations':
-					return await this.fetchPollinationsCatalog();
 				default:
 					return [];
 			}
@@ -422,62 +396,6 @@ export class RemoteCatalogService implements IRemoteCatalogService {
 			}
 			return [];
 		}
-	}
-
-	private async fetchOpenAICatalog(apiKey: string): Promise<RemoteModelInfo[]> {
-		if (!apiKey?.trim()) {
-			return [];
-		}
-		return this.fetchOpenAICompatibleModelsCatalog('https://api.openai.com/v1/models', apiKey);
-	}
-
-	private async fetchAnthropicCatalog(apiKey: string): Promise<RemoteModelInfo[]> {
-		if (!apiKey?.trim()) {
-			return [];
-		}
-		try {
-			const data = await this.getJson<{ data?: { id: string }[] }>('https://api.anthropic.com/v1/models', {
-				'x-api-key': apiKey,
-				'anthropic-version': '2023-06-01',
-			}, 'anthropicModels');
-			return (data.data || []).map(m => ({ id: m.id, name: m.id }));
-		} catch {
-			return [];
-		}
-	}
-
-	private async fetchGeminiCatalog(apiKey: string): Promise<RemoteModelInfo[]> {
-		if (!apiKey?.trim()) {
-			return [];
-		}
-		try {
-			const url = `https://generativelanguage.googleapis.com/v1beta/models?key=${encodeURIComponent(apiKey)}`;
-			const data = await this.getJson<{ models?: GeminiCatalogModel[] }>(url, {}, 'geminiModels');
-			return this.parseGeminiModels(data.models || []);
-		} catch {
-			return [];
-		}
-	}
-
-	private async fetchMistralCatalog(apiKey: string): Promise<RemoteModelInfo[]> {
-		if (!apiKey?.trim()) {
-			return [];
-		}
-		return this.fetchOpenAICompatibleModelsCatalog('https://api.mistral.ai/v1/models', apiKey);
-	}
-
-	private async fetchGroqCatalog(apiKey: string): Promise<RemoteModelInfo[]> {
-		if (!apiKey?.trim()) {
-			return [];
-		}
-		return this.fetchOpenAICompatibleModelsCatalog('https://api.groq.com/openai/v1/models', apiKey);
-	}
-
-	private async fetchXAICatalog(apiKey: string): Promise<RemoteModelInfo[]> {
-		if (!apiKey?.trim()) {
-			return [];
-		}
-		return this.fetchOpenAICompatibleModelsCatalog('https://api.x.ai/v1/models', apiKey);
 	}
 
 	private async fetchDeepSeekCatalog(apiKey: string): Promise<RemoteModelInfo[]> {
@@ -542,100 +460,6 @@ export class RemoteCatalogService implements IRemoteCatalogService {
 				return id ? { id, name: id } : null;
 			})
 			.filter((m): m is RemoteModelInfo => m !== null);
-	}
-
-	private async fetchPollinationsCatalog(): Promise<RemoteModelInfo[]> {
-		// Pollinations exposes a public model list at https://text.pollinations.ai/models — JSON array.
-		// Shape varies between releases; we accept a couple of common envelopes.
-		try {
-			const data = await this.getJson<object>('https://text.pollinations.ai/models', {}, 'pollinationsModels');
-			const list: unknown[] = Array.isArray(data)
-				? data
-				: Array.isArray((data as { models?: unknown[] }).models)
-					? (data as { models: unknown[] }).models
-					: Array.isArray((data as { data?: unknown[] }).data)
-						? (data as { data: unknown[] }).data
-						: [];
-			return list
-				.map((m): RemoteModelInfo | null => {
-					if (typeof m === 'string') {
-						return { id: m, name: m };
-					}
-					if (m && typeof m === 'object') {
-						const id = String((m as { name?: string; id?: string }).name ?? (m as { id?: string }).id ?? '');
-						if (!id) {
-							return null;
-						}
-						const description = (m as { description?: string }).description;
-						return {
-							id,
-							name: id,
-							description: typeof description === 'string' ? description : undefined,
-						};
-					}
-					return null;
-				})
-				.filter((m): m is RemoteModelInfo => m !== null);
-		} catch {
-			return [];
-		}
-	}
-
-	private async fetchGoogleVertexCatalog(): Promise<RemoteModelInfo[]> {
-		const cfg = this.settingsService.state.settingsOfProvider.googleVertex;
-		const region = (cfg.region || '').trim();
-		const project = (cfg.project || '').trim();
-		if (!region || !project) {
-			return [];
-		}
-		// Get an OAuth2 access token from the main process (Application Default Credentials).
-		let token: string;
-		try {
-			const ipc = this.mainProcessService.getChannel('vibeide-channel-remoteCatalogFetch');
-			token = await ipc.call<string>('getGoogleAccessToken', undefined);
-		} catch {
-			return [];
-		}
-		// Vertex's OpenAI-compatible bridge mirrors /v1/models at the same baseURL used for chat
-		// (see sendLLMMessage.impl.ts → googleVertex case).
-		const url = `https://${region}-aiplatform.googleapis.com/v1/projects/${project}/locations/${region}/endpoints/openapi/models`;
-		try {
-			return await this.fetchOpenAICompatibleModelsCatalog(url, token);
-		} catch {
-			return [];
-		}
-	}
-
-	private async fetchMicrosoftAzureCatalog(): Promise<RemoteModelInfo[]> {
-		const cfg = this.settingsService.state.settingsOfProvider.microsoftAzure;
-		const resource = (cfg.project || '').trim(); // settings field is named `project` but holds the Azure resource name
-		const apiKey = (cfg.apiKey || '').trim();
-		const apiVersion = (cfg.azureApiVersion || '2024-04-01-preview').trim();
-		if (!resource || !apiKey) {
-			return [];
-		}
-		// Azure OpenAI lists *deployments* (user-deployed models) — that's what's actually callable.
-		// Returns { data: [{ id: deploymentId, model: underlyingModelId, ... }, ...] }.
-		const url = `https://${resource}.openai.azure.com/openai/deployments?api-version=${encodeURIComponent(apiVersion)}`;
-		const data = await this.getJson<{ data?: Array<{ id?: string; model?: string; status?: string }> }>(
-			url,
-			{ 'api-key': apiKey },
-			'azureDeployments',
-		);
-		const out: RemoteModelInfo[] = [];
-		for (const d of data.data || []) {
-			const id = String(d.id ?? '');
-			if (!id) {
-				continue;
-			}
-			const model = typeof d.model === 'string' ? d.model : undefined;
-			out.push({
-				id,
-				name: model ? `${id} (${model})` : id,
-				description: model,
-			});
-		}
-		return out;
 	}
 
 	async healthCheck(providerName: ProviderName, modelId: string): Promise<boolean> {

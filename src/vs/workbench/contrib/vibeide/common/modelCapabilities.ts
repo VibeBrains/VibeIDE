@@ -22,14 +22,17 @@ import { FeatureName, ModelSelectionOptions, OverridesOfModel, ProviderId, Provi
 import { effectiveCost, PriceTimeOfDay } from './modelPriceSchedule.js';
 import { effortWithinValues } from './reasoningEffortLevel.js';
 import type { VibeReasoningDialect } from './vibeProvidersFile.js';
+import { ProviderVendor, vendorOfProviderId } from './providerVendor.js';
 
 
 
 
 
 // Порядок ключей задаёт список провайдеров в настройках, вкладки знакомства и порядок «Авто»: сначала MiniMax, за ним DeepSeek,
-// потом OpenCode Zen и агрегаторы, облака по широте и качеству моделей для кода, локальные — последними
-// OpenCode Go отсюда убран: его подключает файл провайдера из общего набора (.vibe/providers/opencode-go.jsonc)
+// потом OpenCode Zen и агрегаторы, локальные — последними
+// Здесь только то, что остаётся встроенным. Anthropic, OpenAI, Gemini, xAI, Mistral, Groq, Pollinations, Vertex, Azure, Bedrock
+// и «Совместимо с OpenAI API» подключаются файлами общего набора (`.vibe/providers/*.jsonc`), а их таблицы моделей
+// живут ниже как профили вендоров (`vendorProfiles`)
 export const defaultProviderSettings = {
 	// Featured block (shown first in Settings UI). Order is significant:
 	// `providerNames` is `Object.keys(defaultProviderSettings)`, which is what the UI iterates.
@@ -55,47 +58,6 @@ export const defaultProviderSettings = {
 		endpoint: '',
 		apiKey: '',
 	},
-	// Cloud providers
-	gemini: {
-		apiKey: '',
-	},
-	groq: {
-		apiKey: '',
-	},
-	pollinations: {
-		apiKey: '',
-	},
-	anthropic: {
-		apiKey: '',
-	},
-	openAI: {
-		apiKey: '',
-	},
-	mistral: {
-		apiKey: '',
-	},
-	xAI: {
-		apiKey: '',
-	},
-	openAICompatible: {
-		endpoint: '',
-		apiKey: '',
-		headersJSON: '{}', // default to {}
-	},
-	googleVertex: { // google https://cloud.google.com/vertex-ai/generative-ai/docs/multimodal/call-vertex-using-openai-library
-		region: 'us-west2',
-		project: '',
-	},
-	microsoftAzure: { // microsoft Azure Foundry
-		project: '', // really 'resource'
-		apiKey: '',
-		azureApiVersion: '2024-05-01-preview',
-	},
-	awsBedrock: {
-		apiKey: '',
-		region: 'us-east-1', // add region setting
-		endpoint: '', // optionally allow overriding default
-	},
 	// Local providers
 	ollama: {
 		endpoint: 'http://127.0.0.1:11434',
@@ -114,10 +76,6 @@ export const defaultProviderSettings = {
 
 export const defaultModelsOfProvider = {
 	// Remote catalogs: lists come from IRemoteCatalogService (OpenAI-compatible /v1/models or provider APIs).
-	openAI: [],
-	anthropic: [],
-	xAI: [],
-	gemini: [],
 	deepseek: [],
 	// Local providers - models are autodetected dynamically
 	// Users can add custom model IDs that will be recognized via fallback logic
@@ -133,15 +91,8 @@ export const defaultModelsOfProvider = {
 	],
 
 	openRouter: [],
-	groq: [],
-	mistral: [],
-	openAICompatible: [], // fallback
-	googleVertex: [],
-	microsoftAzure: [],
-	awsBedrock: [],
 	liteLLM: [],
 	lmRoute: [],
-	pollinations: [],
 	openCodeZen: [],
 	// Empty like every other catalog-capable cloud provider: models come from
 	// RemoteCatalogService (/v1/models) after the key is entered. Seeding here
@@ -388,28 +339,32 @@ export const sdkNpmOfFileProtocol = (fileProtocol: string | undefined): string |
 };
 
 /**
- * The SDK a BUILT-IN provider speaks, when it has a wire of its own.
+ * Какой SDK говорит с провайдером, у которого есть свой провод.
  *
- * Built-ins are not left to the models.dev guess: Anthropic's API speaks Messages, Google's speaks Gemini,
- * local servers speak chat completions. OpenAI's own API is the one built-in with two endpoints — chat
- * completions by default, Responses where the model needs it, as declared by the provider file patching the
- * built-in (`protocol: "openai-responses"` on the model) or known to the catalogue (GPT-6). A file's plain
- * `openai` is not a downgrade here: for a file provider it means «OpenAI-compatible», for OpenAI itself it
- * would throw away the native serializer. `undefined` for every other provider — they keep the chain
- * file → models.dev → fallback. The user's own `apiProtocol` override is applied before this and wins.
+ * Провайдера не оставляют на догадку каталога models.dev: API Anthropic говорит Messages, API Google — Gemini,
+ * локальные серверы — chat completions. API OpenAI — единственный с двумя эндпоинтами: chat completions по умолчанию,
+ * Responses там, где модели нужен он — по объявлению файла (`protocol: "openai-responses"` у модели) или по каталогу (GPT-6).
+ * Простое `openai` в файле тут не понижение: для чужого провайдера оно значит «OpenAI-совместимый», а для самого OpenAI —
+ * потерю родного сериализатора.
+ *
+ * Вендор определяется по id и по адресу (`providerVendor`): провайдер Anthropic из файла набора и прежний встроенный
+ * ходят одним проводом. Для остальных `undefined` — у них прежняя цепочка: файл → models.dev → запасной вариант.
+ * Собственное переопределение пользователя `apiProtocol` применяется раньше и сильнее.
  */
 export function builtinWireSdkNpm(providerName: ProviderId, fileProtocol: string | undefined, catalogProtocol: ApiProtocolOverride | undefined): string | undefined {
 	switch (providerName) {
+		case 'ollama':
+		case 'vLLM':
+		case 'lmStudio':
+			return API_PROTOCOL_TO_SDK_NPM['openai-compat'];
+	}
+	switch (providerVendor(providerName)) {
 		case 'anthropic': return API_PROTOCOL_TO_SDK_NPM['anthropic'];
 		case 'gemini': return API_PROTOCOL_TO_SDK_NPM['google'];
 		case 'openAI':
 			return fileProtocol === 'openai-responses' || catalogProtocol === 'openai-responses'
 				? API_PROTOCOL_TO_SDK_NPM['openai-responses']
 				: API_PROTOCOL_TO_SDK_NPM['openai'];
-		case 'ollama':
-		case 'vLLM':
-		case 'lmStudio':
-			return API_PROTOCOL_TO_SDK_NPM['openai-compat'];
 		default: return undefined;
 	}
 }
@@ -439,7 +394,7 @@ export type ModelOverrides = Omit<Pick<
 // 1) Pollinations is free by design.
 // 2) `:free` suffix is the OpenRouter convention; LM Router preserves it when it proxies OpenRouter ids.
 export const isFreeModel = (providerName: ProviderId, modelName: string): boolean => {
-	if (providerName === 'pollinations') { return true; }
+	if (providerVendor(providerName) === 'pollinations') { return true; }
 	return modelName.toLowerCase().endsWith(':free');
 };
 
@@ -2494,34 +2449,41 @@ const minimaxSettings: VoidStaticProviderInfo = {
 // ---------------- model settings of everything above ----------------
 
 const modelSettingsOfProvider: { [providerName in ProviderName]: VoidStaticProviderInfo } = {
-	openAI: openAISettings,
-	anthropic: anthropicSettings,
-	xAI: xAISettings,
-	gemini: geminiSettings,
-
 	// open source models
 	deepseek: deepseekSettings,
-	groq: groqSettings,
 
 	// open source models + providers (mixture of everything)
 	openRouter: openRouterSettings,
 	vLLM: vLLMSettings,
 	ollama: ollamaSettings,
-	openAICompatible: openaiCompatible,
-	mistral: mistralSettings,
 
 	liteLLM: liteLLMSettings,
 	lmRoute: lmRouteSettings,
 	lmStudio: lmStudioSettings,
 
-	pollinations: pollinationsSettings,
 	openCodeZen: openCodeZenSettings,
 	minimax: minimaxSettings,
+} as const;
 
+/**
+ * Таблицы возможностей моделей по вендорам: что умеет Claude, GPT, Gemini, Grok и так далее — контекст, цена, рассуждение,
+ * формат инструментов. Эти вендоры больше не встроенные провайдеры, их подключает файл набора, но знание о моделях
+ * не зависит от способа подключения: файловый провайдер Anthropic берёт профили Claude отсюда.
+ * Провайдер выбирает таблицу по вендору (`providerVendor`): по своему id в любом написании или по родному адресу.
+ */
+const vendorProfiles: { readonly [vendor in ProviderVendor]: VoidStaticProviderInfo } = {
+	anthropic: anthropicSettings,
+	openAI: openAISettings,
+	gemini: geminiSettings,
+	xAI: xAISettings,
+	mistral: mistralSettings,
+	groq: groqSettings,
 	googleVertex: googleVertexSettings,
 	microsoftAzure: microsoftAzureSettings,
 	awsBedrock: awsBedrockSettings,
-} as const;
+	pollinations: pollinationsSettings,
+	openAICompatible: openaiCompatible,
+};
 
 
 // ---------------- runtime provider registry (built-in + external file/network providers) ----------------
@@ -2546,9 +2508,21 @@ export type ExternalProviderDescriptor = {
 	modelCapOverrides?: { [modelId: string]: Partial<VibeideStaticModelInfo> };
 	/** `openrouter`: reasoning goes as OpenRouter spells it, the built-in `openRouter`'s settings, not OpenAI's field */
 	reasoningDialect?: VibeReasoningDialect;
+	/**
+	 * Чей это провайдер: по id или по родному адресу (`vendorOfProvider`)
+	 * С вендором провайдер берёт таблицу моделей вендора (профили Claude, GPT, Gemini), без него — общую OpenAI-совместимую
+	 */
+	vendor?: ProviderVendor;
 };
 
-const _externalProviders = new Map<string, { info: VoidStaticProviderInfo; source: 'file' | 'network' }>();
+const _externalProviders = new Map<string, { info: VoidStaticProviderInfo; source: 'file' | 'network'; vendor: ProviderVendor | undefined }>();
+
+/**
+ * Вендор провайдера в этом процессе: из реестра файловых провайдеров (id и адрес), иначе по одному id
+ * Работает и до загрузки реестра — по id, как в тестах и в первые мгновения окна
+ */
+export const providerVendor = (providerName: ProviderId): ProviderVendor | undefined =>
+	_externalProviders.get(providerName)?.vendor ?? vendorOfProviderId(providerName);
 
 /**
  * What a provider file patching a BUILT-IN provider declares for its models: the vendor's price, the cache lifetime
@@ -2574,18 +2548,32 @@ function withHourCacheWrite(cost: ModelCost | undefined, ttl: '5m' | '1h' | unde
 	return { ...cost, cache_write: cost.cache_write_1h ?? cost.input * 2 };
 }
 
+/**
+ * Таблица возможностей файлового провайдера
+ * Без вендора — общая OpenAI-совместимая: модели узнаются по имени (`aggregatorOpenAIFallback`)
+ * С вендором — его таблица и её запасной разбор по имени; что вендорская таблица не узнала, дораспознаёт общий разбор,
+ * как у любого файлового провайдера, а не остаётся неизвестной моделью без инструментов
+ */
 const buildExternalProviderInfo = (d: ExternalProviderDescriptor): VoidStaticProviderInfo => {
-	const modelOptions: { [key: string]: VibeideStaticModelInfo } = {};
+	const base = d.vendor ? vendorProfiles[d.vendor] : undefined;
+	const fallback: VoidStaticProviderInfo['modelOptionsFallback'] = base
+		? (modelName, known) => base.modelOptionsFallback(modelName, known) ?? aggregatorOpenAIFallback(modelName, known)
+		: aggregatorOpenAIFallback;
+	const modelOptions: { [key: string]: VibeideStaticModelInfo } = { ...(base?.modelOptions ?? {}) };
 	for (const [modelId, partial] of Object.entries(d.modelCapOverrides ?? {})) {
 		// Recognized baseline for the exact id (vision/reasoning/tool-format/context), then the file's
 		// curated partial caps win on top.
-		const baseline: VibeideStaticModelInfo = aggregatorOpenAIFallback(modelId) ?? defaultModelOptions;
+		const baseline: VibeideStaticModelInfo = fallback(modelId) ?? defaultModelOptions;
 		modelOptions[modelId] = { ...baseline, ...partial };
 	}
+	const reasoningIO = d.reasoningDialect === 'openrouter'
+		? openRouterSettings.providerReasoningIOSettings
+		: (base?.providerReasoningIOSettings ?? openaiCompatible.providerReasoningIOSettings);
 	return {
-		providerReasoningIOSettings: d.reasoningDialect === 'openrouter' ? openRouterSettings.providerReasoningIOSettings : openaiCompatible.providerReasoningIOSettings,
+		providerReasoningIOSettings: reasoningIO,
 		modelOptions,
-		modelOptionsFallback: aggregatorOpenAIFallback,
+		modelOptionsFallback: fallback,
+		...(base?.wireProtocolOfModel ? { wireProtocolOfModel: base.wireProtocolOfModel } : {}),
 	};
 };
 
@@ -2593,7 +2581,8 @@ const buildExternalProviderInfo = (d: ExternalProviderDescriptor): VoidStaticPro
 export const setExternalProviders = (descriptors: readonly ExternalProviderDescriptor[]): void => {
 	_externalProviders.clear();
 	for (const d of descriptors) {
-		_externalProviders.set(d.id, { info: buildExternalProviderInfo(d), source: d.source });
+		const vendor = d.vendor ?? vendorOfProviderId(d.id);
+		_externalProviders.set(d.id, { info: buildExternalProviderInfo({ ...d, vendor }), source: d.source, vendor });
 	}
 };
 
@@ -2603,7 +2592,10 @@ export const resolveProvider = (providerName: string): { info: VoidStaticProvide
 		return { info: modelSettingsOfProvider[providerName as ProviderName], source: 'builtin' };
 	}
 	const ext = _externalProviders.get(providerName);
-	return ext ? { info: ext.info, source: ext.source } : undefined;
+	if (ext) { return { info: ext.info, source: ext.source }; }
+	// Реестр ещё не загружен (тест, первые мгновения окна, отправка до синхронизации): id вендора знает его таблицу и так
+	const vendor = vendorOfProviderId(providerName);
+	return vendor ? { info: vendorProfiles[vendor], source: 'file' } : undefined;
 };
 
 /** All provider ids with their source, for UI iteration/grouping (built-ins first, then externals). */
@@ -2761,7 +2753,7 @@ export const getProviderCapabilities = (providerName: ProviderId) => {
 	// Unified path: built-in OR external (.vibe/providers.json) provider. An external provider is
 	// registered as openai-compatible, so it carries the same reasoning IO settings; an unknown id
 	// still falls back to openAICompatible rather than destructuring undefined.
-	const info = resolveProvider(providerName)?.info ?? modelSettingsOfProvider['openAICompatible'];
+	const info = resolveProvider(providerName)?.info ?? openaiCompatible;
 	const { providerReasoningIOSettings, wireProtocolOfModel } = info;
 	return { providerReasoningIOSettings, wireProtocolOfModel };
 };

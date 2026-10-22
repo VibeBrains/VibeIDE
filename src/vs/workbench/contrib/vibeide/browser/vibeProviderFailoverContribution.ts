@@ -36,7 +36,7 @@ Registry.as<IConfigurationRegistry>(ConfigurationExtensions.Configuration).regis
 			type: 'array',
 			items: { type: 'string' },
 			default: [],
-			description: localize('vibeide.providers.failoverChain.description', "Упорядоченный список id провайдеров для авто-failover, когда текущий провайдер возвращает 3 подряд серверных ошибки. Оставьте пустым для отключения failover. Пример: [\"anthropic\",\"openai\",\"ollama\"]."),
+			description: localize('vibeide.providers.failoverChain.description', "Упорядоченный список id провайдеров для авто-failover, когда текущий провайдер возвращает 3 подряд серверных ошибки. Оставьте пустым для отключения failover. Пример: [\"anthropic\",\"openai\",\"ollama\"] (id провайдеров из файлов набора пишутся как в файле: openai, google-gemini)."),
 		},
 	},
 });
@@ -45,6 +45,7 @@ import { IVibeProviderStatusService, RequestOutcome } from '../common/vibeProvid
 import { IModelQuirksCatalogStatusService } from '../common/modelQuirksCatalogStatusService.js';
 import { IVibeideSettingsService } from '../common/vibeideSettingsService.js';
 import { reasoningLostOnSwitch } from '../common/reasoningContinuity.js';
+import { canonicalProviderId } from '../common/providerVendor.js';
 import {
 	processOutcome,
 	initFailoverState,
@@ -83,7 +84,8 @@ export class VibeProviderFailoverContribution extends Disposable implements IWor
 	}
 
 	private _onOutcome(event: { providerName: string; outcome: RequestOutcome }): void {
-		const chain = this._config.getValue<string[]>('vibeide.providers.failoverChain') ?? [];
+		// Цепочку люди писали прежними id встроенных (`openAI`, `gemini`): они находят провайдера из файла набора (`openai`, `google-gemini`)
+		const chain = (this._config.getValue<string[]>('vibeide.providers.failoverChain') ?? []).map(canonicalProviderId);
 		if (chain.length === 0) {
 			return; // failover not configured
 		}

@@ -3,6 +3,8 @@
  *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
 
+import { vendorOfProviderId } from '../providerVendor.js';
+
 
 /**
  * Coarse-grained classification of the upstream LLM family. Used as a single
@@ -19,8 +21,8 @@ export type SpecialToolFormat = 'openai-style' | 'anthropic-style' | 'gemini-sty
 
 /**
  * Resolve the model family from a (providerName, modelName, specialToolFormat)
- * triple. Direct cloud providers map by name. Aggregators (OpenCode Go, openRouter,
- * liteLLM, openCodeZen, lmRoute, openAICompatible, pollinations) fall back to
+ * triple. Direct cloud providers map by vendor (id in any spelling). Aggregators (OpenCode Go, openRouter,
+ * liteLLM, openCodeZen, lmRoute, «Совместимо с OpenAI API», pollinations) fall back to
  * a name-substring heuristic over `modelName`. If both fail, the `specialToolFormat`
  * acts as a last-resort hint.
  *
@@ -32,8 +34,8 @@ export const detectModelFamily = (
 	modelName: string | undefined,
 	specialToolFormat: SpecialToolFormat
 ): ModelFamily => {
-	// 1. Direct cloud providers — authoritative.
-	switch (providerName) {
+	// 1. Direct cloud providers — authoritative. Провайдеры из файлов набора узнаются по вендору: `google-gemini` и `gemini` — один
+	switch (providerName ? vendorOfProviderId(providerName) : undefined) {
 		case 'anthropic':
 		case 'awsBedrock':
 			return 'anthropic';

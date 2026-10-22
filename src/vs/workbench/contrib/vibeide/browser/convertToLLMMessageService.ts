@@ -62,7 +62,7 @@ function uint8ArrayToBase64(data: Uint8Array): string {
 		throw error;
 	}
 }
-import { getIsReasoningEnabledState, getReservedOutputTokenSpace, getModelCapabilities } from '../common/modelCapabilities.js';
+import { getIsReasoningEnabledState, getReservedOutputTokenSpace, getModelCapabilities, providerVendor } from '../common/modelCapabilities.js';
 import { reParsedToolXMLString, ModelIdentity, chat_systemMessage, chat_systemMessage_local, chat_turnContext, systemToolsXMLPrompt } from '../common/prompt/prompts.js';
 import { detectModelFamily } from '../common/prompt/modelFamily.js';
 import { computeLastExchangePinSet } from '../common/prompt/lastExchangePin.js';
@@ -107,6 +107,7 @@ import { IVibeContextGuardService } from './vibeContextGuardService.js';
 import { IRemoteCatalogService } from '../common/remoteCatalogService.js';
 import { buildResponseLanguageDirective } from '../common/vibeAgentResponseLanguageConfiguration.js';
 import { BREVITY_SETTING, brevityLevelOf } from '../common/prompt/brevity.js';
+import { canonicalProviderId } from '../common/providerVendor.js';
 
 export const EMPTY_MESSAGE = '(empty message)';
 
@@ -1465,7 +1466,7 @@ class ConvertToLLMMessageService extends Disposable implements IConvertToLLMMess
 		const providers = this.vibeideSettingsService.state.settingsOfProvider;
 		const slashIdx = modelId.indexOf('/');
 		if (slashIdx > 0) {
-			const providerName = modelId.slice(0, slashIdx);
+			const providerName = canonicalProviderId(modelId.slice(0, slashIdx));
 			const modelName = modelId.slice(slashIdx + 1);
 			return providers[providerName]?.models?.some(m => m.modelName === modelName && !m.isHidden) ? { providerName, modelName } : null;
 		}
@@ -1884,7 +1885,7 @@ class ConvertToLLMMessageService extends Disposable implements IConvertToLLMMess
 			supportsSystemMessage,
 			specialToolFormat,
 			// Any route on the Anthropic wire keeps its thinking blocks; which of them go back is the wire's call (thinkingBlockReplay)
-			supportsAnthropicReasoning: providerName === 'anthropic' || specialToolFormat === 'anthropic-style',
+			supportsAnthropicReasoning: providerVendor(providerName) === 'anthropic' || specialToolFormat === 'anthropic-style',
 			contextWindow: effectiveContextWindow,
 			reservedOutputTokenSpace: effectiveReservedOutput,
 			maxInputTokensSafety: this.configurationService.getValue<number>('vibeide.chat.maxInputTokensSafety') ?? 0,
@@ -2608,11 +2609,11 @@ class ConvertToLLMMessageService extends Disposable implements IConvertToLLMMess
 
 		// Thinking blocks bound to their prefix: in Sonnet 5.5's «off» mode (`between_tools`) the request cannot ask the vendor
 		// to drop a stale block, so blocks produced under a different prefix are stripped here — see common/reasoningPrefix.ts
-		const supportsAnthropicReasoning = validProviderName === 'anthropic' || specialToolFormat === 'anthropic-style';
+		const supportsAnthropicReasoning = providerVendor(validProviderName) === 'anthropic' || specialToolFormat === 'anthropic-style';
 		let reasoningPrefix: string | undefined;
 		if (supportsAnthropicReasoning) {
 			const offPayload = reasoningCapabilities ? reasoningCapabilities.reasoningOffPayload as { thinking?: { type?: unknown } } | undefined : undefined;
-			const unprotected = validProviderName === 'anthropic' && !isReasoningEnabled && offPayload?.thinking?.type === 'between_tools';
+			const unprotected = providerVendor(validProviderName) === 'anthropic' && !isReasoningEnabled && offPayload?.thinking?.type === 'between_tools';
 			const head = reasoningPrefixHeadOf({
 				model: modelName,
 				system: systemMessage,
