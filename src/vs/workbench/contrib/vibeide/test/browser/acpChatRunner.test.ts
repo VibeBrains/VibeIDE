@@ -30,6 +30,7 @@ class FakeSessions {
 	live = false;
 	busy = false;
 	turnStart = 0;
+	turnOrigin: string | undefined;
 	error: string | undefined;
 	lastStopReason: AcpStopReason | undefined;
 	resumeMode: AcpReconnectMode = 'resume';
@@ -62,6 +63,7 @@ class FakeSessions {
 			configuring: false,
 			commands: [],
 			turnStart: this.turnStart,
+			turnOrigin: this.turnOrigin,
 			promptCapabilities: { image: false, audio: false, embeddedContext: true },
 		}];
 	}
@@ -161,6 +163,86 @@ suite('AcpChatRunner — ход основного чата, который ве
 		await runner.send(request());
 		assert.deepStrictEqual(roles(messages), ['user', 'assistant:Смотрю', 'acp_tool', 'assistant:Всё чисто']);
 		assert.deepStrictEqual([bindings, sessions.calls, streamStates[streamStates.length - 1]], [[{ agentId: 'claude', agentName: 'Claude Agent', sessionId: 's1' }], ['start'], undefined]);
+	});
+
+	test('два автономных события после prompt идут в тред без дублей, человек продолжает после них', async () => {
+		const { runner, sessions, messages } = setup();
+		await runner.send(request());
+
+		sessions.turnOrigin = 'task-notification';
+		sessions.log.beginTurn();
+		sessions.log.appendText('Первое после prompt', false);
+		sessions.changed();
+		await new Promise(resolve => setTimeout(resolve, 120));
+		sessions.log.beginTurn();
+		sessions.log.appendText('Второе после prompt', false);
+		sessions.changed();
+		await new Promise(resolve => setTimeout(resolve, 120));
+		sessions.script = async () => { sessions.log.appendText('Ответ человеку', false); };
+		await runner.send(request('продолжи'));
+
+		assert.deepStrictEqual(roles(messages), [
+			'user',
+			'assistant:Агент продолжил сам: уведомление о фоновой задаче',
+			'assistant:Первое после prompt',
+			'assistant:Второе после prompt',
+			'user',
+			'assistant:Ответ человеку',
+		]);
+	});
+
+	test('повторное открытие переносит накопленный хвост один раз, закрытый тред не слушает сессию', async () => {
+		const { runner, sessions, messages } = setup();
+		await runner.send(request());
+		sessions.log.beginTurn();
+		sessions.log.appendText('До закрытия', false);
+		sessions.changed();
+		await runner.release('t1');
+		sessions.log.beginTurn();
+		sessions.log.appendText('Пока закрыт', false);
+		sessions.changed();
+		await new Promise(resolve => setTimeout(resolve, 120));
+
+		await runner.send(request('вернулся'));
+
+		assert.deepStrictEqual(roles(messages), [
+			'user',
+			'assistant:Агент продолжил сам',
+			'assistant:До закрытия',
+			'user',
+			'assistant:Пока закрыт',
+		]);
+	});
+
+	test('dispose отвязывает тред от событий сессии', async () => {
+		const { runner, sessions, messages } = setup();
+		await runner.send(request());
+		runner.dispose();
+		sessions.log.beginTurn();
+		sessions.log.appendText('После dispose', false);
+		sessions.changed();
+		await new Promise(resolve => setTimeout(resolve, 120));
+		assert.deepStrictEqual(roles(messages), ['user']);
+	});
+
+	test('автономный busy показывает работу и Stop использует cancel сессии', async () => {
+		const { runner, sessions, streamStates } = setup();
+		await runner.send(request());
+		sessions.busy = true;
+		sessions.log.beginTurn();
+		sessions.log.appendText('Автономная работа', false);
+		sessions.changed();
+		await new Promise(resolve => setTimeout(resolve, 120));
+		const running = streamStates[streamStates.length - 1];
+		const interrupt = await running?.interrupt;
+		if (typeof interrupt === 'function') { interrupt(); }
+		sessions.busy = false;
+		sessions.changed();
+		await new Promise(resolve => setTimeout(resolve, 120));
+
+		assert.deepStrictEqual(
+			[running?.isRunning, typeof interrupt, sessions.cancels, streamStates[streamStates.length - 1]],
+			['LLM', 'function', ['s1'], undefined]);
 	});
 
 	test('растущая реплика переписывается на месте, а не дописывается новым сообщением', async () => {

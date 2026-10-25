@@ -75,7 +75,7 @@ export type AcpEvent =
 	/** Агент взялся за инструмент: чем занят и что меняет. */
 	| { readonly kind: 'tool'; readonly sessionId: string; readonly toolCallId: string; readonly title: string; readonly name: string; readonly toolKind: string; readonly status: AcpToolStatus; readonly paths: readonly string[]; readonly diffs: readonly IAcpDiff[]; readonly output: string; readonly exitCode?: number }
 	/** Расход контекста и денег за ход. */
-	| { readonly kind: 'usage'; readonly sessionId: string; readonly used: number; readonly size: number; readonly costUsd?: number }
+	| { readonly kind: 'usage'; readonly sessionId: string; readonly used: number; readonly size: number; readonly costUsd?: number; readonly origin?: string }
 	/** Агент записал файл нашими руками — путь `fs/write_text_file`. */
 	| { readonly kind: 'wrote'; readonly sessionId: string; readonly path: string }
 	/**

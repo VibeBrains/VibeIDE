@@ -512,7 +512,7 @@ export class VibeAcpMainService extends Disposable implements IVibeAcpMain {
 				});
 				return;
 			case 'usage':
-				this._onEvent.fire({ kind: 'usage', sessionId, used: update.used, size: update.size, ...(update.costUsd === undefined ? {} : { costUsd: update.costUsd }) });
+				this._onEvent.fire({ kind: 'usage', sessionId, used: update.used, size: update.size, ...(update.costUsd === undefined ? {} : { costUsd: update.costUsd }), ...(update.origin === undefined ? {} : { origin: update.origin }) });
 				return;
 		}
 	}

@@ -229,10 +229,12 @@ suite('acpProtocol', () => {
 				[
 					parseSessionUpdate({ update: { sessionUpdate: 'usage_update', used: 30244, size: 1000000, cost: { amount: 0.18, currency: 'USD' } } }),
 					parseSessionUpdate({ update: { sessionUpdate: 'usage_update', used: 100, size: 200 } }),
+					parseSessionUpdate({ update: { sessionUpdate: 'usage_update', used: 100, size: 200, _meta: { '_claude/origin': { kind: 'task-notification' } } } }),
 				],
 				[
 					{ kind: 'usage', used: 30244, size: 1000000, costUsd: 0.18 },
 					{ kind: 'usage', used: 100, size: 200 },
+					{ kind: 'usage', used: 100, size: 200, origin: 'task-notification' },
 				]);
 		});
 

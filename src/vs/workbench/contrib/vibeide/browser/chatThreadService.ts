@@ -10128,6 +10128,7 @@ We only need to do it for files that were edited since `from`, ie files between 
 
 	switchToThread(threadId: string) {
 		// Switching to a thread also OPENS it as a tab (covers opening from history). Idempotent.
+		this._acpRunner.attach(threadId);
 		let openTabIds = this.state.openTabIds;
 		if (!openTabIds.includes(threadId)) {
 			openTabIds = this._capOpenTabs([...openTabIds, threadId], threadId);
