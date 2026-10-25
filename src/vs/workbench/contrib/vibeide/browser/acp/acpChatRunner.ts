@@ -17,7 +17,7 @@
 import { localize } from '../../../../../nls.js';
 import { VSBuffer, encodeBase64 } from '../../../../../base/common/buffer.js';
 import { RunOnceScheduler, raceTimeout } from '../../../../../base/common/async.js';
-import { Disposable } from '../../../../../base/common/lifecycle.js';
+import { Disposable, DisposableStore } from '../../../../../base/common/lifecycle.js';
 import { IConfigurationService } from '../../../../../platform/configuration/common/configuration.js';
 import { IFileService } from '../../../../../platform/files/common/files.js';
 import { IModelService } from '../../../../../editor/common/services/model.js';
@@ -77,10 +77,20 @@ interface IWrittenBlock {
 	sources: readonly AcpLogEntry[];
 }
 
+interface IThreadMirror {
+	readonly sessionId: string;
+	cursor: number;
+	readonly written: Map<string, IWrittenBlock>;
+	autonomousOpen: boolean;
+	phase: 'LLM' | 'awaiting_user' | undefined;
+	disposables: DisposableStore | undefined;
+}
+
 export class AcpChatRunner extends Disposable {
 
 	/** The turn in flight, by thread */
 	private readonly _turns = new Map<string, Promise<void>>();
+	private readonly _mirrors = new Map<string, IThreadMirror>();
 
 	constructor(
 		private readonly _port: IAcpThreadPort,
@@ -96,10 +106,48 @@ export class AcpChatRunner extends Disposable {
 		super();
 	}
 
+	/** Follows the session for as long as its thread is open, not only while a prompt is in flight */
+	attach(threadId: string): void {
+		const binding = this._port.getThread(threadId)?.acpAgent;
+		const view = this._viewOf(binding?.sessionId);
+		if (!binding || !view) { return; }
+		let mirror = this._mirrors.get(threadId);
+		if (!mirror || mirror.sessionId !== view.sessionId) {
+			mirror?.disposables?.dispose();
+			mirror = { sessionId: view.sessionId, cursor: view.log.entries.length, written: new Map(), autonomousOpen: false, phase: undefined, disposables: undefined };
+			this._mirrors.set(threadId, mirror);
+		}
+		if (!mirror.disposables) {
+			const disposables = mirror.disposables = new DisposableStore();
+			const scheduler = disposables.add(new RunOnceScheduler(() => this._syncThread(threadId), SYNC_DELAY_MS));
+			disposables.add(this._sessions.onDidChange(() => {
+				if (!scheduler.isScheduled()) { scheduler.schedule(); }
+			}));
+		}
+		this._syncThread(threadId);
+	}
+
+	private _detach(threadId: string): void {
+		const mirror = this._mirrors.get(threadId);
+		mirror?.disposables?.dispose();
+		if (mirror) {
+			mirror.disposables = undefined;
+			mirror.phase = undefined;
+		}
+	}
+
+	override dispose(): void {
+		for (const threadId of this._mirrors.keys()) { this._detach(threadId); }
+		this._mirrors.clear();
+		super.dispose();
+	}
+
 	/** The message goes to the agent; resolves when its turn is over. A turn still going is stopped first, as for a model */
 	async send(request: IAcpChatRequest): Promise<void> {
 		const { threadId } = request;
+		this.attach(threadId);
 		await this.stop(threadId);
+		this._syncThread(threadId);
 		this._settleLeftovers(threadId);
 		const content = withPdfText(request.text, request.pdfs);
 		this._port.addUserMessage(threadId, {
@@ -155,6 +203,9 @@ export class AcpChatRunner extends Disposable {
 	/** The chat no longer needs the agent process (the tab is closed, the thread is deleted); the thread keeps the session id to come back to */
 	async release(threadId: string): Promise<void> {
 		await this.stop(threadId);
+		this._syncThread(threadId);
+		this._detach(threadId);
+		this._port.setStreamState(threadId, undefined);
 		const sessionId = this._port.getThread(threadId)?.acpAgent?.sessionId;
 		if (sessionId && this._viewOf(sessionId)) {
 			await this._sessions.endSession(sessionId);
@@ -192,47 +243,25 @@ export class AcpChatRunner extends Disposable {
 			return;
 		}
 
-		const written = new Map<string, IWrittenBlock>();
-		let turnStart = 0;
-		let phase: 'LLM' | 'awaiting_user' | undefined;
-		const sync = () => {
-			const view = this._viewOf(sessionId);
-			if (!view) { return; }
-			this._mirror(threadId, view.log.entries, turnStart, written);
-			const next = view.pendingPermission ? 'awaiting_user' : 'LLM';
-			if (next !== phase) {
-				phase = next;
-				this._port.setStreamState(threadId, next === 'awaiting_user'
-					? { isRunning: 'awaiting_user' }
-					: { isRunning: 'LLM', llmInfo: { displayContentSoFar: '', reasoningSoFar: '', toolCallSoFar: null }, interrupt });
-			}
-		};
-		const scheduler = new RunOnceScheduler(sync, SYNC_DELAY_MS);
-		const listener = this._sessions.onDidChange(() => { if (!scheduler.isScheduled()) { scheduler.schedule(); } });
-
-		try {
-			await this._sessions.setPermissionMode(sessionId, binding.mode ?? DEFAULT_ACP_PERMISSION_MODE);
-			const view = this._viewOf(sessionId);
-			const canEmbed = view?.promptCapabilities.embeddedContext === true;
-			const context = await collectAcpEditorContext(
-				{ editorService: this._editorService, modelService: this._modelService, fileService: this._fileService, ignore: this._ignore },
-				request.selections,
-				{ canEmbed, maxChars: this._configuration.getValue<number>(ACP_EMBED_MAX_CHARS_KEY) ?? ACP_EMBED_MAX_CHARS_DEFAULT },
-			);
-			const images = (request.images ?? []).map(image => ({ data: encodeBase64(VSBuffer.wrap(image.data)), mimeType: image.mimeType }));
-			if (images.length > 0 && view?.promptCapabilities.image !== true) {
-				this._notice(threadId, localize('vibeide.acpChat.noImages', "Агент «{0}» не принимает изображения, поэтому вложения ему не отправлены.", binding.agentName));
-			}
-			const prompting = this._sessions.prompt(sessionId, { text: content, images, context });
-			// `prompt` marks where its turn begins before it first yields, so the mark is already there
-			turnStart = this._viewOf(sessionId)?.turnStart ?? 0;
-			sync();
-			await prompting;
-		} finally {
-			listener.dispose();
-			scheduler.dispose();
+		this.attach(threadId);
+		await this._sessions.setPermissionMode(sessionId, binding.mode ?? DEFAULT_ACP_PERMISSION_MODE);
+		const view = this._viewOf(sessionId);
+		const canEmbed = view?.promptCapabilities.embeddedContext === true;
+		const context = await collectAcpEditorContext(
+			{ editorService: this._editorService, modelService: this._modelService, fileService: this._fileService, ignore: this._ignore },
+			request.selections,
+			{ canEmbed, maxChars: this._configuration.getValue<number>(ACP_EMBED_MAX_CHARS_KEY) ?? ACP_EMBED_MAX_CHARS_DEFAULT },
+		);
+		const images = (request.images ?? []).map(image => ({ data: encodeBase64(VSBuffer.wrap(image.data)), mimeType: image.mimeType }));
+		if (images.length > 0 && view?.promptCapabilities.image !== true) {
+			this._notice(threadId, localize('vibeide.acpChat.noImages', "Агент «{0}» не принимает изображения, поэтому вложения ему не отправлены.", binding.agentName));
 		}
-		sync();
+		const mirror = this._mirrors.get(threadId);
+		if (mirror) { mirror.autonomousOpen = false; }
+		const prompting = this._sessions.prompt(sessionId, { text: content, images, context });
+		this._syncThread(threadId);
+		await prompting;
+		this._syncThread(threadId);
 		this._finish(threadId, sessionId, binding);
 	}
 
@@ -259,9 +288,43 @@ export class AcpChatRunner extends Disposable {
 		return remember((await this._sessions.startSession(agent)).sessionId);
 	}
 
-	/** Brings the thread in line with the log of the turn: a block seen first is added, a block that grew is rewritten in place */
-	private _mirror(threadId: string, entries: readonly AcpLogEntry[], turnStart: number, written: Map<string, IWrittenBlock>): void {
-		for (const block of mirrorAcpEntries(entries, turnStart)) {
+	private _syncThread(threadId: string): void {
+		const mirror = this._mirrors.get(threadId);
+		if (!mirror?.disposables) { return; }
+		const view = this._viewOf(mirror.sessionId);
+		if (!view) { return; }
+		const entries = view.log.entries;
+		const blocks = mirrorAcpEntries(entries, mirror.cursor);
+		const hasNew = blocks.some(block => !mirror.written.has(block.key));
+		if (hasNew && !this._turns.has(threadId) && !mirror.autonomousOpen) {
+			this._notice(threadId, autonomousTurnNotice(view.turnOrigin));
+			mirror.autonomousOpen = true;
+		}
+		this._mirror(threadId, blocks, mirror.written);
+		mirror.cursor = entries.length === 0 ? 0 : entries.length - 1;
+		const last = entries[entries.length - 1];
+		const previous = entries[entries.length - 2];
+		if (last?.kind === 'message' && !last.thought && previous?.kind === 'message' && previous.thought) {
+			mirror.cursor--;
+		}
+
+		const next = view.pendingPermission ? 'awaiting_user' : view.busy ? 'LLM' : undefined;
+		if (next) {
+			if (next !== mirror.phase) {
+				mirror.phase = next;
+				this._port.setStreamState(threadId, next === 'awaiting_user'
+					? { isRunning: 'awaiting_user' }
+					: { isRunning: 'LLM', llmInfo: { displayContentSoFar: '', reasoningSoFar: '', toolCallSoFar: null }, interrupt: Promise.resolve(() => { void this.stop(threadId); }) });
+			}
+		} else if (!this._turns.has(threadId) && mirror.phase) {
+			mirror.phase = undefined;
+			this._port.setStreamState(threadId, undefined);
+		}
+	}
+
+	/** Brings the thread in line with the log: a block seen first is added, a block that grew is rewritten in place */
+	private _mirror(threadId: string, blocks: ReturnType<typeof mirrorAcpEntries>, written: Map<string, IWrittenBlock>): void {
+		for (const block of blocks) {
 			const known = written.get(block.key);
 			if (!known) {
 				this._port.addMessage(threadId, block.message);
@@ -283,6 +346,8 @@ export class AcpChatRunner extends Disposable {
 
 	/** The end of a turn: the stream state, the reason it ended when it is not an ordinary end, and what it cost */
 	private _finish(threadId: string, sessionId: string, binding: AcpThreadBinding): void {
+		const mirror = this._mirrors.get(threadId);
+		if (mirror) { mirror.phase = undefined; }
 		const view = this._viewOf(sessionId);
 		if (!view) {
 			this._port.setStreamState(threadId, undefined);
@@ -311,6 +376,17 @@ export class AcpChatRunner extends Disposable {
 	/** A line of the IDE in the thread, not a word of the agent */
 	private _notice(threadId: string, text: string): void {
 		this._port.addMessage(threadId, { role: 'assistant', displayContent: text, reasoning: '', anthropicReasoning: null, notice: true });
+	}
+}
+
+function autonomousTurnNotice(origin: string | undefined): string {
+	switch (origin) {
+		case 'task-notification':
+			return localize('vibeide.acpChat.autonomous.task', "Агент продолжил сам: уведомление о фоновой задаче");
+		case 'scheduled':
+			return localize('vibeide.acpChat.autonomous.scheduled', "Агент продолжил сам: задача по таймеру");
+		default:
+			return localize('vibeide.acpChat.autonomous.unknown', "Агент продолжил сам");
 	}
 }
 

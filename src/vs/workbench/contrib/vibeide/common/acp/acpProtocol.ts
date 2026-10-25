@@ -463,7 +463,7 @@ export type AcpUpdate =
 	/** Вызов инструмента: чем занят агент и что именно меняет. */
 	| { readonly kind: 'tool'; readonly toolCallId: string; readonly title: string; readonly name: string; readonly toolKind: string; readonly status: AcpToolStatus; readonly paths: readonly string[]; readonly diffs: readonly IAcpDiff[]; readonly output: string; readonly exitCode?: number }
 	/** Расход контекста и денег за ход. */
-	| { readonly kind: 'usage'; readonly used: number; readonly size: number; readonly costUsd?: number }
+	| { readonly kind: 'usage'; readonly used: number; readonly size: number; readonly costUsd?: number; readonly origin?: string }
 	/** The agent changed the session's settings itself: the full list, as in a response */
 	| { readonly kind: 'config'; readonly options: readonly IAcpConfigOption[] }
 	/** The agent's own slash commands: the whole list, replacing the previous one */
@@ -513,7 +513,9 @@ export function parseSessionUpdate(params: JsonValue | undefined): AcpUpdate | u
 		const size = numberAt(update, 'size');
 		if (used === undefined || size === undefined) { return undefined; }
 		const costUsd = numberAt(objectAt(update, 'cost'), 'amount');
-		return { kind: 'usage', used, size, ...(costUsd === undefined ? {} : { costUsd }) };
+		const rawOrigin = objectAt(update, '_meta')?.['_claude/origin'];
+		const origin = typeof rawOrigin === 'string' ? rawOrigin : stringAt(asObject(rawOrigin), 'kind');
+		return { kind: 'usage', used, size, ...(costUsd === undefined ? {} : { costUsd }), ...(origin === undefined ? {} : { origin }) };
 	}
 
 	return undefined;

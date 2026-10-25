@@ -84,8 +84,10 @@ export interface IVibeAcpSessionView {
 	readonly configuring: boolean;
 	/** The agent's own slash commands; one runs by being the task's text, `/name arguments` */
 	readonly commands: readonly IAcpCommand[];
-	/** Where the current (or the last) turn begins in `log.entries`: whoever mirrors the log follows it from there */
+	/** Where the current (or the last) prompt began in `log.entries` */
 	readonly turnStart: number;
+	/** The origin the agent attached to its latest usage update, when it supplied one */
+	readonly turnOrigin?: string;
 	/** What the agent accepts in a prompt, as it declared in the greeting */
 	readonly promptCapabilities: IAcpPromptCapabilities;
 }
@@ -170,6 +172,7 @@ interface ISessionState {
 	/** What the agent accepts in a prompt, as it declared in the greeting */
 	promptCapabilities: IAcpPromptCapabilities;
 	turnStart: number;
+	turnOrigin?: string;
 	/** The entry of the editor's MCP server handed to this session; kept across a reconnection, withdrawn when the session ends */
 	ideMcp?: IIdeMcpIssued;
 	/** The «Краткие ответы» level the agent was last given; undefined — it has not been told anything */
@@ -227,6 +230,7 @@ export class VibeAcpSessionsService extends Disposable implements IVibeAcpSessio
 			configuring: state.configuring,
 			commands: state.commands,
 			turnStart: state.turnStart,
+			turnOrigin: state.turnOrigin,
 			promptCapabilities: state.promptCapabilities,
 		}));
 	}
@@ -305,6 +309,7 @@ export class VibeAcpSessionsService extends Disposable implements IVibeAcpSessio
 		state.busy = true;
 		state.error = undefined;
 		state.lastStopReason = undefined;
+		state.turnOrigin = undefined;
 		this._onDidChange.fire();
 		// The agent keeps its own history, so the style goes once and again only on a change of level
 		// An agent command runs only as the first word of the task: the note waits for the next ordinary task
@@ -517,10 +522,13 @@ export class VibeAcpSessionsService extends Disposable implements IVibeAcpSessio
 			case 'before':
 				if (this._sessions.has(event.sessionId)) { this._review.remember(event.sessionId, event.files); }
 				return;
-			case 'usage':
-				this._sessions.get(event.sessionId)?.log.applySpend(event.used, event.size, event.costUsd);
+			case 'usage': {
+				const state = this._sessions.get(event.sessionId);
+				state?.log.applySpend(event.used, event.size, event.costUsd);
+				if (state && event.origin) { state.turnOrigin = event.origin; }
 				this._onDidChange.fire();
 				return;
+			}
 			case 'permission':
 				void this._guard(event.request);
 				return;
