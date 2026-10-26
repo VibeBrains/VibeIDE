@@ -78,3 +78,8 @@
 | 20.10.2026 | `cse_01HQExsq6edtrmtCm9nYwBCS` | `DIGEST-1021` | разобрана |
 | 21.10.2026 | `cse_01LDvnZgCxCmx2PrhcmiNAqJ` | `DIGEST-1021` | разобрана; найдены пять пробелов (релизная M3.1 Flash, Gemini 4 Argon, текст отказа кредитов Anthropic, мост превью, сид про кредиты) |
 | 09–21.10.2026 | `digests/2026-10-09_2026-10-21-catchup.md` (VibeDigests, `bc65ef2`) | `DIGEST-1022` | разобрана 22.10.2026, почти всё дубль `DIGEST-1021`; новое: CVE-2026-104850 (SDK MCP поднят до 1.31.0), Gemini 3.7 и 3.5 Flash сняты с выбора, кредиты Max/Team в сид и мануал; смоук адаптера 0.94.0 пройден; VibeIDEA её разобрала раньше (хендофф `digest-1021-catchup-from-vibeidea`), выводы сверены |
+| 22.10.2026 | `digests/2026-10-22.md` (VibeDigests, `a201f45`) | `DIGEST-1026` | разобрана 26.10.2026 одним разбором с 23–26.10; найдено одно расхождение: ACP v1.25 (session notices, session compaction) |
+| 23.10.2026 | `digests/2026-10-23.md` (VibeDigests, `a201f45`) | `DIGEST-1026` | разобрана 26.10.2026; Provider-Verifier и OpenAgentCore: новое только тест порядка ключей схем и идея песочницы |
+| 24.10.2026 | `digests/2026-10-24.md` (VibeDigests, `a201f45`) | `DIGEST-1026` | разобрана 26.10.2026; Kimi K3.1 Pro уже в сиде (`04c69f726`), `mcode` есть в реестре ACP |
+| 25.10.2026 | `digests/2026-10-25.md` (VibeDigests, `a201f45`) | `DIGEST-1026` | разобрана 26.10.2026; Cursor `agent acp` уже в сиде, Nemotron Bolt — образец Ollama |
+| 26.10.2026 | `digests/2026-10-26.md` (VibeDigests, `a201f45`) | `DIGEST-1026` | разобрана 26.10.2026; нового для кода нет, паттерн Claude Security закрыт навыком `security-audit` |
