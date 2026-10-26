@@ -603,6 +603,26 @@ const openSourceModelOptions_assumingOAICompat = {
 		contextWindow: 1_000_000, reservedOutputTokenSpace: 32_768,
 		cost: { input: 1.40, output: 4.40 },
 	},
+	// Kimi K3.1 Pro (23.10.2026): the same parameter contract as K3 (always reasons, low/high/max, default max on the Open
+	// Platform and high on Kimi Code), 1M window, but its own price — a fifth cheaper on input and a third on output.
+	// HighSpeed is the same model 2-3x faster at twice the price (platform.kimi.ai/docs/pricing/chat, 26.10.2026).
+	// Falling through to the K3 profile gave it K3's price, which the router reads as a cost, not a saving
+	'kimiK3.1Pro': {
+		supportsFIM: false,
+		supportsSystemMessage: 'system-role',
+		specialToolFormat: 'openai-style',
+		reasoningCapabilities: { supportsReasoning: true, canTurnOffReasoning: false, canIOReasoning: true, reasoningSlider: { type: 'effort_slider', values: ['low', 'high', 'max'], default: 'high' } },
+		contextWindow: 1_048_576, reservedOutputTokenSpace: 32_768,
+		cost: { input: 2.00, cache_read: 0.20, output: 10.00 },
+	},
+	'kimiK3.1ProHighspeed': {
+		supportsFIM: false,
+		supportsSystemMessage: 'system-role',
+		specialToolFormat: 'openai-style',
+		reasoningCapabilities: { supportsReasoning: true, canTurnOffReasoning: false, canIOReasoning: true, reasoningSlider: { type: 'effort_slider', values: ['low', 'high', 'max'], default: 'high' } },
+		contextWindow: 1_048_576, reservedOutputTokenSpace: 32_768,
+		cost: { input: 4.00, cache_read: 0.20, output: 20.00 },
+	},
 	// Kimi K3: thinking always on, levels low/high/max; the vendor default is max on the Open Platform and high on Kimi Code,
 	// so the slider names one explicitly — high, the cheaper of the two (platform.kimi.ai/docs/guide/kimi-k3-quickstart,
 	// kimi.com/code/docs/en/kimi-code/models). Price: platform.kimi.ai/docs/pricing/chat, 30.09.2026
@@ -614,15 +634,43 @@ const openSourceModelOptions_assumingOAICompat = {
 		contextWindow: 1_048_576, reservedOutputTokenSpace: 32_768,
 		cost: { input: 3.00, cache_read: 0.30, output: 15.00 },
 	},
-	// `kimi-for-coding` on Kimi Code is K2.8 Preview: levels low/high/max, default max, and `none` turns thinking off
-	// (kimi.com/code/docs/en/kimi-code/models). A subscription model: the price is K2.5's, an approximation, not a zero
+	// `kimi-for-coding` on Kimi Code is K2.8 Preview: 1M window, levels low/high/max, default max, and `none` turns thinking off
+	// (kimi.com/code/docs/en/kimi-code/models, 26.10.2026). A subscription model: the price is K2.5's, an approximation, not a zero
 	'kimiForCoding': {
 		supportsFIM: false,
 		supportsSystemMessage: 'system-role',
 		specialToolFormat: 'openai-style',
 		reasoningCapabilities: { supportsReasoning: true, canTurnOffReasoning: true, canIOReasoning: true, reasoningOffPayload: { reasoning_effort: 'none' }, reasoningSlider: { type: 'effort_slider', values: ['low', 'high', 'max'], default: 'max' } },
-		contextWindow: 262_144, reservedOutputTokenSpace: 32_768,
+		contextWindow: 1_048_576, reservedOutputTokenSpace: 32_768,
 		cost: { input: 0.60, output: 2.50 },
+	},
+	// Kimi K2.7 Code: thinking is always on and takes only {"type":"enabled","keep":"all"}, `reasoning_effort` is not supported,
+	// so there is no «off» and no slider (platform.kimi.ai/docs/api/models-overview, 26.10.2026). Price: platform.kimi.ai/docs/pricing/chat.
+	// HighSpeed is the same model at twice the price; on Kimi Code `kimi-for-coding-highspeed` is this model
+	'kimiK2.7': {
+		supportsFIM: false,
+		supportsSystemMessage: 'system-role',
+		specialToolFormat: 'openai-style',
+		reasoningCapabilities: { supportsReasoning: true, canTurnOffReasoning: false, canIOReasoning: true },
+		contextWindow: 262_144, reservedOutputTokenSpace: 32_768,
+		cost: { input: 0.95, cache_read: 0.19, output: 4.00 },
+	},
+	'kimiK2.7Highspeed': {
+		supportsFIM: false,
+		supportsSystemMessage: 'system-role',
+		specialToolFormat: 'openai-style',
+		reasoningCapabilities: { supportsReasoning: true, canTurnOffReasoning: false, canIOReasoning: true },
+		contextWindow: 262_144, reservedOutputTokenSpace: 32_768,
+		cost: { input: 1.90, cache_read: 0.38, output: 8.00 },
+	},
+	// Kimi K2.6: thinking is on by default and `{"type":"disabled"}` turns it off; `reasoning_effort` is not supported
+	'kimiK2.6': {
+		supportsFIM: false,
+		supportsSystemMessage: 'system-role',
+		specialToolFormat: 'openai-style',
+		reasoningCapabilities: { supportsReasoning: true, canTurnOffReasoning: true, canIOReasoning: true, reasoningOffPayload: { thinking: { type: 'disabled' } } },
+		contextWindow: 262_144, reservedOutputTokenSpace: 32_768,
+		cost: { input: 0.95, cache_read: 0.16, output: 4.00 },
 	},
 	'kimiK2.5': {
 		supportsFIM: false,
@@ -760,9 +808,18 @@ const extensiveModelOptionsFallback: VoidStaticProviderInfo['modelOptionsFallbac
 	// that answers 400 and K3 a fifth of its price. Flash is left to the family profile: nothing says it cannot turn off
 	if (lower.includes('glm-5.3') && !lower.includes('flash')) { return toFallback(openSourceModelOptions_assumingOAICompat, 'glm5.3'); }
 	if (lower.includes('glm')) { return toFallback(openSourceModelOptions_assumingOAICompat, 'glm5'); }
+	// A newer generation gets its own branch: falling through to `kimi-k3` gave K3.1 Pro the old price. Kimi Code names it `k3.1-pro`,
+	// the Open Platform and aggregators `kimi-k3.1-pro`; HighSpeed is the same model at twice the price
+	if (lower.includes('kimi-k3.1') || /(^|\/)k3\.1-pro/.test(lower)) {
+		return toFallback(openSourceModelOptions_assumingOAICompat, lower.includes('highspeed') ? 'kimiK3.1ProHighspeed' : 'kimiK3.1Pro');
+	}
 	// Kimi Code names K3 `k3` and `k3-256k`; the Open Platform and aggregators `kimi-k3`
 	if (lower.includes('kimi-k3') || /(^|\/)k3($|-)/.test(lower)) { return toFallback(openSourceModelOptions_assumingOAICompat, 'kimiK3'); }
+	// `kimi-for-coding-highspeed` on Kimi Code is K2.7 Code HighSpeed, not K2.8 Preview: always reasons, 256K window
+	if (lower.includes('kimi-for-coding-highspeed')) { return toFallback(openSourceModelOptions_assumingOAICompat, 'kimiK2.7Highspeed'); }
 	if (lower.includes('kimi-for-coding')) { return toFallback(openSourceModelOptions_assumingOAICompat, 'kimiForCoding'); }
+	if (lower.includes('kimi-k2.7')) { return toFallback(openSourceModelOptions_assumingOAICompat, lower.includes('highspeed') ? 'kimiK2.7Highspeed' : 'kimiK2.7'); }
+	if (lower.includes('kimi-k2.6')) { return toFallback(openSourceModelOptions_assumingOAICompat, 'kimiK2.6'); }
 	if (lower.includes('kimi')) { return toFallback(openSourceModelOptions_assumingOAICompat, 'kimiK2.5'); }
 	if (lower.includes('phi4')) { return toFallback(openSourceModelOptions_assumingOAICompat, 'phi4'); }
 	if (lower.includes('codestral')) { return toFallback(openSourceModelOptions_assumingOAICompat, 'codestral'); }
