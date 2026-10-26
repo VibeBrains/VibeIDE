@@ -7263,9 +7263,10 @@ VibeIDEA разобрала те же сводки раньше (`docs/vibe/refe
 - [ ] **MiniMax Code (`mcode`) как гость ACP** — найдено 24.10.2026, польза низкая, трудоёмкость малая. Агент `minimax-code` уже есть в реестре ACP
   (`npx @minimax-ai/code@0.2.7 acp`), то есть «Каталог ACP-агентов» его подтянет без правок; npm-версия при этом 0.6.9, реестр отстаёт. Проверить импорт из каталога
   живьём и дописать в `agents.json` набора закомментированный образец с оговоркой про вход `mcode login --region global`
-- [ ] **Тест: порядок ключей в схемах инструментов не меняется** — найдено 23.10.2026, польза низкая, трудоёмкость малая. Provider-Verifier MiniMax ловит
-  провайдеров, сортирующих `parameters.properties` по алфавиту. В нашем коде явной сортировки схем нет (поиск по `src/vs/workbench/contrib/vibeide`: сортируются только ключи для
-  хеша `mcpToolPins.ts` и сравнение наборов в `aiSdkAdapter.ts:1268`), но путь через AI SDK и zod порядок не гарантирован. Закрепить тестом на собранном теле запроса
+- [x] **Тест: порядок ключей в схемах инструментов не меняется** — ✅ (2026-10-26, `attachments-1026-next`) добавлен regression-тест
+  `aiSdkAdapter.test.ts`: для OpenAI-compatible провода `parameters.properties` инструмента сохраняет порядок определения параметров (`zebra`, `apple`, `mango`).
+  Чувствительность доказана временной сортировкой `Object.keys(t.params).sort()` в `toolInputSchema` — тест упал с `[apple, mango, zebra]`, откат — зелёный.
+  `compile-check-ts-native`, `docs-graph-check`, `git diff --check` чисты. Подробности — [toolCalling.md](knowledge/architecture/toolCalling.md).
 - [ ] **Nemotron 3.5 Bolt 74B-A9B в образце Ollama** — найдено 25.10.2026, польза низкая, трудоёмкость малая. Тег `nemotron-3.5-bolt:74b-a9b-iq2`, около 25 ГБ, окно 256K,
   по Unsloth нужно около 32 ГБ памяти (страницы ollama.com и unsloth.ai, 26.10). Прежде чем давать образец, прогнать вызовы инструментов: у Nemotron 3 симптом
   «не умеет инструменты» оказался на стороне сервера, а не квирком

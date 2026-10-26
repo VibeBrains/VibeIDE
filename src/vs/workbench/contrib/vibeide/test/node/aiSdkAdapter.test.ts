@@ -22,6 +22,7 @@ import type { IMetricsService } from '../../common/metricsService.js';
 import type { LLMChatMessage } from '../../common/sendLLMMessageTypes.js';
 import { defaultSettingsOfProvider, SettingsOfProvider } from '../../common/vibeideSettingsTypes.js';
 import { setExternalProviders } from '../../common/modelCapabilities.js';
+import type { InternalToolInfo } from '../../common/prompt/prompts.js';
 import { skipInElectronRenderer } from './nodeOnly.js';
 
 /**
@@ -1015,5 +1016,37 @@ suite('aiSdkAdapter — провайдеры вендоров и встроен�
 			[requests.filter(r => r.path.startsWith('/v1beta/')).length, headers?.['retry-after'], outcome.error?.message, outcome.final],
 			[1, '58', 'Rate limit exceeded: Resource has been exhausted.', undefined],
 		);
+	});
+
+	test('провод OpenAI-compatible: порядок свойств в parameters.properties сохраняет порядок определения инструмента', async () => {
+		// Provider-Verifier MiniMax ловит провайдеров, сортирующих `parameters.properties` по алфавиту
+		// Здесь проверяется собранное тело запроса: порядок должен совпадать с порядком параметров в `InternalToolInfo`
+		// Вложенные схемы текущий публичный путь (`InternalToolInfo.params` — плоские строки) не поддерживает
+		setExternalProviders([{ id: 'test-order', source: 'file' }]);
+		const mcpTools: InternalToolInfo[] = [{
+			name: 'order_test',
+			description: 'Regression tool for property order.',
+			params: {
+				zebra: { description: 'Zebra param' },
+				apple: { description: 'Apple param' },
+				mango: { description: 'Mango param' },
+			},
+		}];
+		try {
+			await send({
+				providerName: 'test-order' as SendChatParams_Internal['providerName'],
+				modelName: 'order-model',
+				settingsOfProvider: settingsWith({ 'test-order': { baseURL: `http://127.0.0.1:${port}/compat/v1`, apiKey: 'k', protocol: 'openai' } }),
+				messages: [{ role: 'user', content: 'Привет' }],
+				mcpTools,
+			});
+		} finally {
+			setExternalProviders([]);
+		}
+		const request = requests.find(r => r.path === '/compat/v1/chat/completions');
+		const tools = (request?.body?.tools as { function: { name: string; parameters: { properties: Record<string, unknown> } } }[] | undefined) ?? [];
+		const tool = tools.find(t => t.function.name === 'order_test');
+		assert.ok(tool, 'order_test tool must be on the wire');
+		assert.deepStrictEqual(Object.keys(tool.function.parameters.properties), ['zebra', 'apple', 'mango']);
 	});
 });
