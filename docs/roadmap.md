@@ -7238,11 +7238,24 @@ VibeIDEA разобрала те же сводки раньше (`docs/vibe/refe
   совпадают ли они на установленной машине, не сверено
 
 **Заведено:**
-- [ ] **ACP-клиент: session notices и session compaction** — найдено 22.10.2026 (сводка 22.10), польза средняя, трудоёмкость средняя. Объявить в `initialize`
-  `session.notices` и `session.compaction`, разобрать кадры `notice` и `compaction_update` в `parseSessionUpdate`, показать в треде и записать в журнал сессии и
-  audit. Порядок строгий: сначала разбор и показ, потом capability (иначе уведомление пропадёт совсем). Нужно решение, как показывать (см. хендофф)
-- [ ] **Живой смоук адаптера Claude 0.95.0** — найдено 26.10.2026, польза средняя, трудоёмкость малая. `npx` без пина тянет `latest`: сейчас 0.95.0 на SDK 2.0.1
-  (прогон 22.10 был на 0.94.0 / SDK 2.0.0). Заодно закрыть «не проверено» из `acpSdk2Split.md`: `usage_update` в окне, `session/resume`, `session/load`
+- [x] **ACP-клиент: session notices и session compaction** — ✅ (2026-10-26, next, код незакоммичен в worktree `/Volumes/Storage/Caches/vibeide/digest-1026-next`) владелец
+  выбрал вариант А: notice — отдельной строкой в треде с info/warning/error, compaction — строкой «Контекст сжат» со сводкой по клику и с клавиатуры. Реализовано сквозное:
+  capability `session.notices`/`session.compaction` (объекты) в `initialize` — только вместе с разбором и показом; кадры `notice`, `compaction_update`, `compaction_summary_chunk`
+  в `parseSessionUpdate` (patch-семантика summary/error сверена со схемой ACP v1.26.0, тег `schema-v1.26.0`, и кодом адаптера 0.95.0); события через main-процесс
+  (replay `session/load` гасится как прочий повтор — воспроизведённая сущность идёт под новым id и дала бы дубль); журнал сходится по `compactionId` без дублей
+  (повторные терминальные кадры SDK — на месте); audit `acp_notice`/`acp_compaction` (текст гостя через редектор, терминальная граница одна); роли `acp_notice`/`acp_compaction`
+  в треде, React-строки с токеном `vibe-error`, экспорт в markdown. Проверки: 82 focused unit-теста, common-набор 4609 зелёный, `compile-check-ts-native` 0 ошибок,
+  `buildreact` успех, `git diff --check` чист. Ограничения и артефакты смоука — в следующем пункте и [acpNoticesAndCompaction.md](knowledge/agentCollaboration/acpNoticesAndCompaction.md)
+- [ ] **Живой смоук адаптера Claude 0.95.0** — частично проверено 26.10.2026 (стенд `/Volumes/Storage/Caches/vibeide/digest-1026-smoke/`): ровно 2 реальных
+  prompt-хода по подписке, агент закреплён `@0.95.0` только в smoke-workspace. Из исходного объёма проверено: **compaction** (`/compact` → строка
+  «Контекст сжат» со сводкой вместо legacy tool-card, capability объявлена и обработана; раскрытие кликом и с клавиатуры) и базовый диалог
+  (карточка «Read», русский ответ); persistence — после reload окна дублей нет. Остаток открыт: `usage_update` в окне, `session/resume`,
+  `session/load`, вопрос-карточка `AskUserQuestion`; **live notice** — НЕ подтверждён (штатный триггер за эти ходы не пришёл: режимы auto/plan/
+  bypass и fast-mode на уровне config notice не дают — проверено офлайн-пробой без расхода ходов), это не полный PASS; переход compaction
+  in_progress→completed не пойман (не логируется, финал — completed). Артефакты: `shots/01–09`, `logs/` (launch.json, code-log-acp-excerpt.log,
+  adapter-probe.log, smoke-summary.log). Побочно зафиксировано: `npm ci` на origin/next заблокирован рассинхроном package-lock
+  (`Missing: cpu-features@ from lock file`, предсуществующее) — ставилось `npm install` без изменения манифестов, оба lock восстановлены;
+  `react-typecheck` показывает 3 ошибки в незатронутом `vibeCustomCommandsService.ts` (`process` в его контексте) — к этой работе не относится
 - [ ] **Провайдер Inception Mercury 3 в наборе** — найдено 22.10.2026, польза низкая, трудоёмкость малая. `providers/inception.jsonc` в VibeBrains: OpenAI-протокол,
   `https://api.inceptionlabs.ai/v1`, модель `mercury-3` (окно 1M, вывод до 131 072, цена $0.10 / $0.35 по промо, $0.20 / $0.70 обычная, кэш $0.01 / $0.02,
   `reasoning_effort`: instant / low / medium / high, температура 0,5–1,0, вызов инструментов заявлен) и профиль цены в `modelCapabilities.ts`.
