@@ -22,10 +22,10 @@ import { InstantiationType, registerSingleton } from '../../../../../platform/in
 import { IConfigurationService } from '../../../../../platform/configuration/common/configuration.js';
 import { INotificationService } from '../../../../../platform/notification/common/notification.js';
 import { AcpEvent, IAcpAgentLaunch, IAcpPermissionRequest, IAcpReconnection, IAcpSession } from '../../common/acp/acpTypes.js';
-import { AcpReconnectMode, AcpStopReason, agentCommandOf, IAcpCommand, IAcpConfigOption, IAcpDiff, IAcpPromptCapabilities } from '../../common/acp/acpProtocol.js';
+import { AcpReconnectMode, AcpStopReason, agentCommandOf, IAcpCommand, IAcpConfigOption, IAcpDiff, IAcpPromptCapabilities, isCompactionSettled } from '../../common/acp/acpProtocol.js';
 import { ACP_EMBED_MAX_CHARS_DEFAULT, ACP_EMBED_MAX_CHARS_KEY, AcpContextItem, IAcpEditorState, buildAcpPromptBlocks } from '../../common/acp/acpPromptContext.js';
 import { AcpLogEntry, AcpSessionLog, IAcpSessionSnapshot } from '../../common/acp/acpSessionLog.js';
-import { buildAcpPermissionAudit, buildAcpSessionAudit, buildAcpToolCallAudit } from '../../common/acp/acpAudit.js';
+import { buildAcpCompactionAudit, buildAcpNoticeAudit, buildAcpPermissionAudit, buildAcpSessionAudit, buildAcpToolCallAudit } from '../../common/acp/acpAudit.js';
 import { AuditEvent, IAuditLogService } from '../../common/auditLogService.js';
 import { IVibeAcpService } from '../../common/acp/vibeAcpService.js';
 import { IVibeAcpIdeMcpService } from '../../common/acp/vibeAcpIdeMcpService.js';
@@ -540,6 +540,47 @@ export class VibeAcpSessionsService extends Disposable implements IVibeAcpSessio
 				if (state) {
 					state.commands = event.commands;
 					this._rememberCommands(state.agentId, event.commands);
+				}
+				this._onDidChange.fire();
+				return;
+			}
+			case 'notice': {
+				const state = this._sessions.get(event.sessionId);
+				if (!state) { return; }
+				state.log.appendAcpNotice({ severity: event.severity, title: event.title, ...(event.description === undefined ? {} : { description: event.description }) });
+				this._audit(buildAcpNoticeAudit({
+					agentId: state.agentId,
+					sessionId: state.sessionId,
+					severity: event.severity,
+					title: event.title,
+					description: event.description,
+				}, Date.now()));
+				this._onDidChange.fire();
+				return;
+			}
+			case 'compaction':
+			case 'compactionChunk': {
+				const state = this._sessions.get(event.sessionId);
+				if (!state) { return; }
+				if (event.kind === 'compactionChunk') {
+					state.log.applyCompactionChunk(event.compactionId, event.text);
+					this._onDidChange.fire();
+					return;
+				}
+				// Аудит — только на терминальной границе: кадров на сущность несколько, а запись
+				// жизни сжатия одна. До применения кадра смотрим, не была ли сущность уже терминальна
+				const before = state.log.snapshot.entries.find(entry => entry.kind === 'acpCompaction' && entry.id === event.compactionId);
+				const wasSettled = before?.kind === 'acpCompaction' && isCompactionSettled(before.status);
+				state.log.applyCompaction({ compactionId: event.compactionId, status: event.status, ...(event.summary === undefined ? {} : { summary: event.summary }), ...(event.error === undefined ? {} : { error: event.error }) });
+				if (!wasSettled && isCompactionSettled(event.status)) {
+					this._audit(buildAcpCompactionAudit({
+						agentId: state.agentId,
+						sessionId: state.sessionId,
+						compactionId: event.compactionId,
+						status: event.status,
+						summary: event.summary,
+						error: event.error,
+					}, Date.now()));
 				}
 				this._onDidChange.fire();
 				return;

@@ -51,7 +51,7 @@ registerAction2(class extends Action2 {
 	constructor() {
 		super({
 			id: 'vibeide.configGuard.showFindings',
-			title: localize2('vibeide.configGuard.showFindings', 'Config Guard — показать находки (.vibe/providers.json, mcp.json)'),
+			title: localize2('vibeide.configGuard.showFindings', 'Config Guard — показать находки (.vibe/providers/, providers.json, mcp.json)'),
 			category: VIBE_COMMAND_CATEGORY,
 			f1: true,
 		});
@@ -88,7 +88,7 @@ registerAction2(class extends Action2 {
 		}
 		out.push('---');
 		out.push('');
-		out.push(describeSource('.vibe/providers.json', providerFindings));
+		out.push(describeSource('.vibe/providers/ и providers.json', providerFindings));
 		out.push('');
 		out.push(describeSource('mcp.json', mcpFindings));
 

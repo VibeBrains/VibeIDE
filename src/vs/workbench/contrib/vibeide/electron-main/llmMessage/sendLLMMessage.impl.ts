@@ -15,7 +15,10 @@ import { fimComplete } from '@mistralai/mistralai/funcs/fimComplete.js';
 
 import { LLMRuntimeOptions, OllamaModelResponse } from '../../common/sendLLMMessageTypes.js';
 import { displayInfoOfProviderName, FeatureName, ProviderId, ProviderName, SettingsOfProvider } from '../../common/vibeideSettingsTypes.js';
-import { getModelCapabilities, defaultProviderSettings } from '../../common/modelCapabilities.js';
+import { getModelCapabilities, defaultProviderSettings, providerVendor } from '../../common/modelCapabilities.js';
+import { keyPlacement } from '../../common/vibeProvidersFile.js';
+import { providerSupportsFIM } from '../../common/providerFim.js';
+import type { DynProviderTransportConfig } from '../../common/vibeideSettingsService.js';
 import { isLocalAddress, isLocalProvider as isLocalProviderOf } from '../../common/isLocalProvider.js';
 import { hash } from '../../../../../base/common/hash.js';
 import { ensureSystemCADispatcher, resetSystemCADispatcher } from './systemCAFetch.js';
@@ -127,13 +130,16 @@ export const clearProviderClientCaches = (): void => {
 
 // ------------ OPENAI-COMPATIBLE (HELPERS) ------------
 
-const parseHeadersJSON = (s: string | undefined): Record<string, string | null | undefined> | undefined => {
-	if (!s) { return undefined; }
-	try {
-		return JSON.parse(s);
-	} catch (e) {
-		throw new Error(`Error parsing OpenAI-Compatible headers: ${s} is not a valid JSON.`);
-	}
+/** Адрес сервера провайдера: поле встроенного (`endpoint`) или базовый адрес провайдера из файла (`baseURL`). */
+const addressOfProvider = (settingsOfProvider: SettingsOfProvider, providerName: ProviderId): string | undefined => {
+	const settings = settingsOfProvider[providerName] as { endpoint?: string; baseURL?: string } | undefined;
+	return settings?.endpoint || settings?.baseURL;
+};
+
+/** Ключ провайдера из файла: введённый в карточке или из `.vibe/.env`, иначе из переменной окружения `apiKeyEnv`; серверу без ключа — ничего. */
+const transportKeyOf = (transport: DynProviderTransportConfig): string | undefined => {
+	if (transport.keyless) { return undefined; }
+	return transport.apiKey?.trim() || (transport.apiKeyEnv ? process.env[transport.apiKeyEnv]?.trim() : undefined) || undefined;
 };
 
 /**
@@ -174,14 +180,14 @@ const newOpenAICompatibleSDK = async ({ settingsOfProvider, providerName, includ
 	// The OpenAI SDK handles HTTP keep-alive and connection pooling internally
 
 	// Detect local providers: explicit local providers + localhost endpoints
-	const isLocalhostEndpoint = isLocalAddress(settingsOfProvider[providerName]?.endpoint);
+	const isLocalhostEndpoint = isLocalAddress(addressOfProvider(settingsOfProvider, providerName));
 	const isLocalProvider = isLocalProviderOf(providerName, settingsOfProvider);
 	// Aggregator providers: extra hop client→aggregator→upstream adds latency,
 	// reasoning models on big context can take 2–3 minutes to first byte.
 	const isAggregatorProvider = providerName === 'openRouter'
 		|| providerName === 'lmRoute'
 		|| providerName === 'liteLLM'
-		|| providerName === 'openAICompatible'; // user-configured aggregator endpoint
+		|| providerVendor(providerName) === 'openAICompatible'; // свой адрес человека — провайдер «Совместимо с OpenAI API» из файла
 
 	// Tunable timeouts (vibeide.llm.timeoutMs.*) with defensive fallbacks.
 	const tcfg = runtimeOptions?.timeoutMs;
@@ -208,7 +214,7 @@ const newOpenAICompatibleSDK = async ({ settingsOfProvider, providerName, includ
 		fetchOptions,
 		...includeInPayload,
 	};
-	// Only FIM (openAICompatible, openRouter, liteLLM, lmRoute) and model listing (vLLM, lmStudio) still
+	// Only FIM (openRouter, liteLLM, lmRoute and file providers) and model listing (vLLM, lmStudio) still
 	// talk through the OpenAI client; chat for every provider goes through the AI SDK adapter.
 	if (providerName === 'vLLM') {
 		const thisConfig = settingsOfProvider[providerName];
@@ -240,18 +246,31 @@ const newOpenAICompatibleSDK = async ({ settingsOfProvider, providerName, includ
 			...commonPayloadOpts,
 		});
 	}
-	else if (providerName === 'openAICompatible') {
-		const thisConfig = settingsOfProvider[providerName];
-		const headers = parseHeadersJSON(thisConfig.headersJSON);
-		if (headers) {
-			for (const [hName, hValue] of Object.entries(headers)) {
-				assertHttpHeaderSafe(`OpenAI-Compatible custom header name "${hName}"`, hName);
-				if (typeof hValue === 'string') {
-					assertHttpHeaderSafe(`OpenAI-Compatible custom header "${hName}" value`, hValue);
-				}
+	// Провайдер из файла (Mistral, «Совместимо с OpenAI API» и любой другой): адрес, заголовки и ключ — из его транспорта
+	const transport = settingsOfProvider[providerName] as unknown as DynProviderTransportConfig | undefined;
+	if (transport?.baseURL) {
+		const headers = transport.headers ?? {};
+		for (const [hName, hValue] of Object.entries(headers)) {
+			assertHttpHeaderSafe(`Dynamic provider "${providerName}" header name "${hName}"`, hName);
+			if (typeof hValue === 'string') {
+				assertHttpHeaderSafe(`Dynamic provider "${providerName}" header "${hName}" value`, hValue);
 			}
 		}
-		return new OpenAI({ baseURL: thisConfig.endpoint, apiKey: thisConfig.apiKey, defaultHeaders: headers, ...commonPayloadOpts });
+		const key = transportKeyOf(transport);
+		const placement = transport.keyless ? { headers: {}, query: {} } : keyPlacement(transport.auth, key, 'openai');
+		for (const hName of Object.keys(placement.headers)) {
+			assertHttpHeaderSafe(`Dynamic provider "${providerName}" key header name "${hName}"`, hName);
+		}
+		if (key) { assertHttpHeaderSafe(`Dynamic provider "${providerName}" API key`, key); }
+		return new OpenAI({
+			baseURL: transport.baseURL,
+			// Ключ кладёт `keyPlacement`: где велит файл (Bearer, свой заголовок). Клиент требует непустую строку,
+			// а его собственный Authorization с этой заглушкой снимается, если ключ ушёл не туда
+			apiKey: key || 'noop',
+			defaultHeaders: { ...(Object.hasOwn(placement.headers, 'Authorization') ? {} : { Authorization: null }), ...headers, ...placement.headers },
+			...(transport.query || Object.keys(placement.query).length > 0 ? { defaultQuery: { ...transport.query, ...placement.query } } : {}),
+			...commonPayloadOpts,
+		});
 	}
 	throw new Error(`VibeIDE: no OpenAI-compatible client for provider ${providerName} — its chat goes through the AI SDK adapter.`);
 };
@@ -267,7 +286,7 @@ const _sendOpenAICompatibleFIM = async ({ messages: { prefix, suffix, stopTokens
 	} = getModelCapabilities(providerName, modelName_, overridesOfModel);
 
 	// Detect if this is a local provider for streaming optimization
-	const isLocalhostEndpoint = isLocalAddress(settingsOfProvider[providerName]?.endpoint);
+	const isLocalhostEndpoint = isLocalAddress(addressOfProvider(settingsOfProvider, providerName));
 	const isLocalProvider = isLocalProviderOf(providerName, settingsOfProvider);
 
 	// Check FIM support - only allow if model explicitly supports it OR if it's a provider that supports FIM
@@ -278,8 +297,9 @@ const _sendOpenAICompatibleFIM = async ({ messages: { prefix, suffix, stopTokens
 	// Note: mistral and ollama have their own FIM implementations (not this function)
 	// Note: OpenAI's official API does NOT support suffix parameter (except gpt-3.5-turbo-instruct)
 	// Note: vLLM and lmStudio do NOT support suffix parameter
-	const providersWithFIMSupport = ['openRouter', 'openAICompatible', 'liteLLM', 'lmRoute'];
-	const hasFIMSupport = providersWithFIMSupport.includes(providerName) || isLocalhostEndpoint;
+	// «Совместимо с OpenAI API» — провайдер из файла, узнаётся по вендору (providerSupportsFIM); Mistral FIM делает своим путём
+	const providersWithFIMSupport = ['openRouter', 'liteLLM', 'lmRoute'];
+	const hasFIMSupport = providersWithFIMSupport.includes(providerName) || providerSupportsFIM(providerName) || isLocalhostEndpoint;
 
 	if (!supportsFIM && !hasFIMSupport) {
 		if (modelName === modelName_) { onError({ message: `Model ${modelName} does not support FIM. OpenAI's official API does not support FIM. Try Mistral (codestral) or local models (Ollama qwen2.5-coder).`, fullError: null }); }
@@ -413,10 +433,17 @@ const sendMistralFIM = ({ messages, onFinalMessage, onError, settingsOfProvider,
 		return;
 	}
 
-	assertHttpHeaderSafe(`${displayInfoOfProviderName('mistral').title} API key`, settingsOfProvider.mistral.apiKey);
+	// Ключ Mistral — провайдера из файла: введённый в карточке или переменная окружения, которую называет файл
+	const transport = settingsOfProvider[providerName] as unknown as DynProviderTransportConfig | undefined;
+	const apiKey = transport ? transportKeyOf(transport) : undefined;
+	if (!apiKey) {
+		onError({ message: `${displayInfoOfProviderName(providerName).title}: ключ API не задан.`, fullError: null });
+		return;
+	}
+	assertHttpHeaderSafe(`${displayInfoOfProviderName(providerName).title} API key`, apiKey);
 	// Install system-CA-aware global dispatcher (Mistral SDK uses Node global fetch)
 	ensureSystemCADispatcher();
-	const mistral = new MistralCore({ apiKey: settingsOfProvider.mistral.apiKey });
+	const mistral = new MistralCore({ apiKey });
 	fimComplete(mistral,
 		{
 			model: modelName,
@@ -541,49 +568,17 @@ export const dynamicProviderImplementation: {
 	list: ((params: AnyListParams_Internal) => void) | null;
 } = {
 	sendChat: (params) => sendViaAISdk(params),
-	sendFIM: null,
+	// Автодополнение для провайдеров из файлов: Mistral (Codestral) говорит своим FIM-методом, остальным нужен OpenAI-совместимый
+	// /completions с suffix. Дойдёт ли модель, решает фильтр модели (`fim: true` в файле, вендор или локальный адрес)
+	sendFIM: (params) => providerVendor(params.providerName) === 'mistral' ? sendMistralFIM(params) : _sendOpenAICompatibleFIM(params),
 	list: null,
 };
 
 export const sendLLMMessageToProviderImplementation = {
-	anthropic: {
-		sendChat: (params) => sendViaAISdk(params),
-		sendFIM: null,
-		list: null,
-	},
-	openAI: {
-		sendChat: (params) => sendViaAISdk(params),
-		sendFIM: null, // OpenAI's official API doesn't support suffix parameter for FIM
-		list: null,
-	},
-	xAI: {
-		sendChat: (params) => sendViaAISdk(params),
-		sendFIM: null, // xAI uses OpenAI-compatible API which doesn't support suffix parameter
-		list: null,
-	},
-	gemini: {
-		sendChat: (params) => sendViaAISdk(params),
-		sendFIM: null,
-		list: null,
-	},
-	mistral: {
-		sendChat: (params) => sendViaAISdk(params),
-		sendFIM: (params) => sendMistralFIM(params),
-		list: null,
-	},
 	ollama: {
 		sendChat: (params) => sendViaAISdk(params),
 		sendFIM: sendOllamaFIM,
 		list: ollamaList,
-	},
-	openAICompatible: {
-		// Stage 1 migration: aggregator providers go through Vercel AI SDK's
-		// @ai-sdk/openai-compatible adapter (normalizes provider-specific quirks
-		// in tool_call/reasoning streaming that our manual parser missed). FIM
-		// path is untouched.
-		sendChat: (params) => sendViaAISdk(params),
-		sendFIM: (params) => _sendOpenAICompatibleFIM(params),
-		list: null,
 	},
 	openRouter: {
 		sendChat: (params) => sendViaAISdk(params),
@@ -600,11 +595,6 @@ export const sendLLMMessageToProviderImplementation = {
 		sendFIM: null, // DeepSeek uses OpenAI-compatible API which doesn't support suffix parameter
 		list: null,
 	},
-	groq: {
-		sendChat: (params) => sendViaAISdk(params),
-		sendFIM: null,
-		list: null,
-	},
 
 	lmStudio: {
 		sendChat: (params) => sendViaAISdk(params),
@@ -619,26 +609,6 @@ export const sendLLMMessageToProviderImplementation = {
 	lmRoute: {
 		sendChat: (params) => sendViaAISdk(params),
 		sendFIM: (params) => _sendOpenAICompatibleFIM(params),
-		list: null,
-	},
-	googleVertex: {
-		sendChat: (params) => sendViaAISdk(params),
-		sendFIM: null,
-		list: null,
-	},
-	microsoftAzure: {
-		sendChat: (params) => sendViaAISdk(params),
-		sendFIM: null,
-		list: null,
-	},
-	awsBedrock: {
-		sendChat: (params) => sendViaAISdk(params),
-		sendFIM: null,
-		list: null,
-	},
-	pollinations: {
-		sendChat: (params) => sendViaAISdk(params),
-		sendFIM: null,
 		list: null,
 	},
 	openCodeZen: {

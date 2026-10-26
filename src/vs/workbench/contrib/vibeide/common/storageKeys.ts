@@ -33,7 +33,18 @@ export const OPT_OUT_KEY = 'vibeide.app.optOutAll';
 // overwrites it, so entries deleted from the files reconcile away instead of lingering as ghosts.
 export const VIBE_CONFIG_PROVIDERS_CACHE_KEY = 'vibeide.configProvidersCacheI';
 
-// OpenCode Go перестал быть встроенным провайдером, и его настройки переехали к провайдеру из файла набора.
-// Ключ хранит отчёт о переносе до тех пор, пока человеку не показано уведомление: перенос идёт при чтении настроек,
-// когда окна для уведомления ещё нет. Значение — JSON `OpenCodeGoMigrationReport`; после показа ключ удаляется.
-export const OPENCODE_GO_MIGRATION_NOTICE_KEY = 'vibeide.migration.openCodeGoNotice';
+// Вырезанные встроенные провайдеры (OpenCode Go, Anthropic, OpenAI, Gemini, xAI, Mistral, Groq, Pollinations, Vertex, Azure,
+// Bedrock, «Совместимо с OpenAI API») переехали к провайдерам из файлов общего набора, и настройки человека переехали вместе
+// с ними. Перенос идёт при чтении настроек, когда окна для уведомления ещё нет, поэтому отчёт ждёт в хранилище, пока
+// уведомление не показано. Значение — JSON `ProviderMigrationReport`; после показа ключ удаляется.
+export const PROVIDER_MIGRATION_NOTICE_KEY = 'vibeide.migration.providersNotice';
+
+// Файлы провайдеров, которых нет в наборе и которые надо создать при переносе (`MIGRATED_PROVIDER_FILES`).
+// Значение — JSON-массив id; запись удаляется, когда файл создан или уже существует.
+export const PROVIDER_FILES_MIGRATION_KEY = 'vibeide.migration.providerFiles';
+
+// Ключ уведомления прежнего вида — только об OpenCode Go. Новое уведомление его заменило, ключ при старте убирается.
+export const LEGACY_OPENCODE_GO_NOTICE_KEY = 'vibeide.migration.openCodeGoNotice';
+
+// Свёрнутость блока «Свои провайдеры» в настройках: булево значение, `true` — свёрнут; запоминается между запусками.
+export const CUSTOM_PROVIDERS_COLLAPSED_KEY = 'vibeide.settings.customProvidersCollapsed';

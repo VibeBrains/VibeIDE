@@ -94,7 +94,9 @@ suite('acpProtocol', () => {
 			const fs = (initializeParams() as Record<string, JsonValue>)['clientCapabilities'] as Record<string, JsonValue>;
 			assert.deepStrictEqual(fs['fs'], { readTextFile: true, writeTextFile: true });
 			// The card shows an on/off setting as a checkbox, so a boolean option is welcome
-			assert.deepStrictEqual(fs['session'], { configOptions: { boolean: {} } });
+			// Notices и compaction — объекты, не булевы: проверки поддержки у адаптера смотрят именно на
+			// объект (`clientSupportsNotices`/`clientSupportsCompactionUpdates` в @agentclientprotocol/claude-agent-acp)
+			assert.deepStrictEqual(fs['session'], { configOptions: { boolean: {} }, notices: {}, compaction: {} });
 			// The marker is what makes a guest send a command's output and exit code in the call's `_meta`
 			assert.deepStrictEqual(fs['_meta'], { terminal_output: true });
 		});
@@ -276,6 +278,67 @@ suite('acpProtocol', () => {
 					parseSessionUpdate(undefined),
 				],
 				[undefined, undefined, undefined]);
+		});
+
+		test('notice: тяжесть, заголовок и описание; без заголовка показывать нечего', () => {
+			// Форма кадра — по схеме ACP v1.26.0 (`Notice`): severity — открытое перечисление
+			// info/warning/error + зарезервированные значения; title обязателен, description — нет
+			assert.deepStrictEqual(
+				[
+					parseSessionUpdate({ update: { sessionUpdate: 'notice', severity: 'info', title: 'Задача запущена' } }),
+					parseSessionUpdate({ update: { sessionUpdate: 'notice', severity: 'warning', title: 'Задача остановлена', description: 'Человек остановил фоновую задачу.' } }),
+					parseSessionUpdate({ update: { sessionUpdate: 'notice', severity: 'error', title: 'Сломалось', description: null } }),
+					// Значение вне известных трёх — не притворяемся info, но и не роняем кадр
+					parseSessionUpdate({ update: { sessionUpdate: 'notice', severity: '_vendor', title: 'Своё' } }),
+					parseSessionUpdate({ update: { sessionUpdate: 'notice', severity: 'warning' } }),
+					parseSessionUpdate({ update: { sessionUpdate: 'notice', title: 'Без тяжести' } }),
+				],
+				[
+					{ kind: 'notice', severity: 'info', title: 'Задача запущена' },
+					{ kind: 'notice', severity: 'warning', title: 'Задача остановлена', description: 'Человек остановил фоновую задачу.' },
+					{ kind: 'notice', severity: 'error', title: 'Сломалось' },
+					{ kind: 'notice', severity: 'other', title: 'Своё' },
+					undefined,
+					undefined,
+				]);
+		});
+
+		test('compaction_update: статус, сводка текстовыми блоками, ошибка; поля со смыслом «не менять» пропускаются', () => {
+			// Форма кадра — по схеме ACP v1.26.0 (`CompactionUpdate`): compactionId и status обязательны,
+			// summary — список контент-блоков (patch-семантика: отсутствие = не трогать, null/[] = очистить)
+			const opened = parseSessionUpdate({ update: { sessionUpdate: 'compaction_update', compactionId: 'cmp-1', status: 'in_progress' } });
+			const finished = parseSessionUpdate({
+				update: {
+					sessionUpdate: 'compaction_update', compactionId: 'cmp-1', status: 'completed',
+					summary: [{ type: 'text', text: 'Обсудили сборку.' }, { type: 'text', text: 'Чиним тесты.' }],
+				},
+			});
+			const failed = parseSessionUpdate({ update: { sessionUpdate: 'compaction_update', compactionId: 'cmp-2', status: 'failed', error: 'модель недоступна' } });
+			const cleared = parseSessionUpdate({ update: { sessionUpdate: 'compaction_update', compactionId: 'cmp-1', status: 'completed', summary: null } });
+			const unknownStatus = parseSessionUpdate({ update: { sessionUpdate: 'compaction_update', compactionId: 'cmp-3', status: 'зависло' } });
+			assert.deepStrictEqual([opened, finished, failed, cleared, unknownStatus], [
+				{ kind: 'compaction', compactionId: 'cmp-1', status: 'in_progress' },
+				{ kind: 'compaction', compactionId: 'cmp-1', status: 'completed', summary: 'Обсудили сборку.\nЧиним тесты.' },
+				{ kind: 'compaction', compactionId: 'cmp-2', status: 'failed', error: 'модель недоступна' },
+				{ kind: 'compaction', compactionId: 'cmp-1', status: 'completed', summary: '' },
+				{ kind: 'compaction', compactionId: 'cmp-3', status: 'unknown' },
+			]);
+			// Без compactionId кадр бессмысленен: сущность нечего ни создать, ни поправить
+			assert.strictEqual(parseSessionUpdate({ update: { sessionUpdate: 'compaction_update', status: 'completed' } }), undefined);
+		});
+
+		test('compaction_summary_chunk: текст дописывается к сводке; не-текстовый блок пропускается', () => {
+			assert.deepStrictEqual(
+				[
+					parseSessionUpdate({ update: { sessionUpdate: 'compaction_summary_chunk', compactionId: 'cmp-1', content: { type: 'text', text: 'кусок сводки' } } }),
+					parseSessionUpdate({ update: { sessionUpdate: 'compaction_summary_chunk', compactionId: 'cmp-1', content: { type: 'image', data: '…', mimeType: 'image/png' } } }),
+					parseSessionUpdate({ update: { sessionUpdate: 'compaction_summary_chunk', content: { type: 'text', text: 'без id' } } }),
+				],
+				[
+					{ kind: 'compactionChunk', compactionId: 'cmp-1', text: 'кусок сводки' },
+					undefined,
+					undefined,
+				]);
 		});
 	});
 

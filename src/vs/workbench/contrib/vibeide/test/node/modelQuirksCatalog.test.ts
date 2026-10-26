@@ -50,6 +50,9 @@ suite('ModelQuirks — настоящий каталог resources/model-quirks.
 		['kimi-k2.6', { temperature: 1.0, topP: 0.95, mirrorReasoningContent: true }],
 		// K3 — preserved-thinking-history: наследует зеркалирование, а не общий пресет `kimi`.
 		['kimi-k3', { temperature: 1.0, topP: 0.95, mirrorReasoningContent: true }],
+		// K3.1 Pro (23.10.2026) тот же контракт, что у K3: id не должен упасть на общий пресет `kimi` без возврата рассуждения
+		['kimi-k3.1-pro', { temperature: 1.0, topP: 0.95, mirrorReasoningContent: true }],
+		['kimi-k3.1-pro-highspeed', { temperature: 1.0, topP: 0.95, mirrorReasoningContent: true }],
 		// K2.7 Code used to fall onto the legacy 'kimi-k2' rule (T=0.6, no mirror) because it is longer than 'kimi'.
 		['kimi-k2.7-code', { temperature: 1.0, topP: 0.95, mirrorReasoningContent: true }],
 		['kimi-k2.7-code-highspeed', { temperature: 1.0, topP: 0.95, mirrorReasoningContent: true }],
@@ -102,6 +105,16 @@ suite('ModelQuirks — настоящий каталог resources/model-quirks.
 			assert.notStrictEqual(withoutOpenCodeScope(model)?.forceToolCallFormat, 'auto', `${model}: правило OpenCode не должно срабатывать у чужого провайдера`);
 		}
 		assert.deepStrictEqual(catalog.rules.filter(rule => rule.provider && /go/i.test(rule.provider)).map(rule => rule.provider), [], 'правило привязано к id Go, которого больше нет');
+	});
+
+	// На Kimi Code K3.1 Pro зовётся `k3.1-pro`: правило привязано к провайдеру и ловит его по подстроке `k3`
+	test('Kimi Code: k3.1-pro и k3.1-pro-highspeed возвращают рассуждение обратно', () => {
+		for (const model of ['k3', 'k3-256k', 'k3.1-pro', 'k3.1-pro-highspeed']) {
+			const q = matchQuirks(catalog.rules, model, 'kimi-code');
+			assert.ok(q, `нет совпадения для ${model} у kimi-code`);
+			assert.strictEqual(q.mirrorReasoningContent, true, `${model}: рассуждение не возвращается`);
+		}
+		assert.strictEqual(matchQuirks(catalog.rules, 'k3.1-pro', 'someOtherProvider')?.mirrorReasoningContent, undefined, 'правило Kimi Code не должно срабатывать у чужого провайдера');
 	});
 
 	for (const [modelId, expected] of cases) {

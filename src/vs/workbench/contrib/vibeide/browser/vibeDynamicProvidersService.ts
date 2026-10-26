@@ -42,7 +42,10 @@ import { IVibeideSettingsService, VibeProviderActiveOverrides, ModelOption, DynP
 import type { BuiltinWireHints } from '../common/builtinWireHints.js';
 import { setExternalProviders, setBuiltinModelPatches, BuiltinModelPatch, ExternalProviderDescriptor, VibeideStaticModelInfo, ModelLongContext } from '../common/modelCapabilities.js';
 import { IRemoteCatalogService, DynamicKeyValidation } from '../common/remoteCatalogService.js';
-import { catalogRequestOf, VibeCatalogRequest, VibeProviderEntry, VibeProviderModelCost, VibeProviderModelEntry, isKeyless, isProviderCatalogueFile, mergeProviderEntry, mergeProviderLayers, parseAuth, parseProvidersFile, promptCacheTtlOf, reasoningDialectOf, VibeProviderLongContext, VibeProviderTimeOfDay } from '../common/vibeProvidersFile.js';
+import { catalogRequestOf, VibeCatalogRequest, VibeProviderEntry, VibeProviderModelCost, VibeProviderModelEntry, isKeyless, isProviderCatalogueFile, mergeProviderEntry, mergeProviderLayers, parseAuth, parseProvidersFile, promptCacheTtlOf, reasoningDialectOf, usesGoogleAdc, VibeProviderLongContext, VibeProviderTimeOfDay } from '../common/vibeProvidersFile.js';
+import { applyProviderParams, ProviderParamField } from '../common/vibeProviderParams.js';
+import { vendorOfProvider } from '../common/providerVendor.js';
+import { bundledProviderLayer } from '../common/bundledProviders.js';
 import { isLocalAddress, runsLocallyOf } from '../common/isLocalProvider.js';
 import { mergeModelRoutes, MODEL_ROUTES_SETTING, ModelRoutes, normalizeModelRoutes, ROUTES_LAYER_ORDER, RoutesSource } from '../common/modelRouteKeys.js';
 import { parseEnvFile } from '../common/vibeEnvFile.js';
@@ -99,6 +102,7 @@ export function dynamicTransportConfigOf(
 	const fetchSpec = entry.models?.fetch;
 	const modelProtocols = modelProtocolsOf(entry.models?.static);
 	const reasoningDialect = reasoningDialectOf(entry.reasoningDialect);
+	const vendor = vendorOfProvider(entry.id, entry.baseURL);
 	return {
 		baseURL: entry.baseURL,
 		// A keyless server gets no key to send, not a key the send path is trusted to drop.
@@ -117,6 +121,8 @@ export function dynamicTransportConfigOf(
 		...(modelProtocols ? { modelProtocols } : {}),
 		...(entry.promptCacheKey === true ? { promptCacheKey: true } : {}),
 		...(reasoningDialect && reasoningDialect !== 'invalid' ? { reasoningDialect } : {}),
+		// Чей это провайдер: главный процесс регистрирует его с таблицей моделей вендора (профили Claude, GPT, Gemini)
+		...(vendor ? { vendor } : {}),
 		...(Object.keys(modelCapOverrides).length ? { modelCapOverrides } : {}),
 	};
 }
@@ -317,8 +323,12 @@ export interface ResolvedProviderEntry {
 	readonly kind: ResolvedProviderKind;
 	/** For `extends-builtin`: the built-in id the base is cloned from (merged downstream). */
 	readonly extendsBuiltin?: string;
-	/** The entry with any FILE-entry `extends` already merged in. */
+	/** The entry with any FILE-entry `extends` already merged in, and the values of its `params` put in. */
 	readonly entry: VibeProviderEntry;
+	/** Поля карточки, объявленные `params` файла. */
+	readonly paramFields: readonly ProviderParamField[];
+	/** Обязательные параметры без значения: пока они пусты, провайдер не настроен. */
+	readonly paramsMissing: readonly string[];
 }
 
 /**
@@ -381,6 +391,11 @@ export interface IVibeDynamicProvidersService {
 	/** Active dynamic providers (resolvable key or OS-env key), flattened for the diagnostics modal. */
 	getDiagnosticsTargets(): ProviderDiagnosticsTarget[];
 	/**
+	 * Ключ провайдера из файла, каким его видит окно: введённый в карточке, по `apiKeyRef` или из `.vibe/.env`.
+	 * Ключ из переменной окружения ОС сюда не попадает — его значение остаётся в главном процессе.
+	 */
+	getResolvedApiKey(providerId: string): string | undefined;
+	/**
 	 * Logical model names (`@fast`): the `routes` blocks of every providers file, layered as VibeIDEA layers them,
 	 * and the `vibeide.model.routes` setting on top; `null` bans a name
 	 */
@@ -418,6 +433,13 @@ class VibeDynamicProvidersService extends Disposable implements IVibeDynamicProv
 	/** JSON of the last-seen per-model hide toggles — a change re-applies the overlay (re-gates the
 	 *  picker) WITHOUT a full reload/re-probe (the key didn't change, only which models are enabled). */
 	private _lastSeenHidden = '';
+	/** JSON последних значений параметров провайдеров: изменились — адреса пересобираются из уже прочитанных записей, без чтения файлов. */
+	private _lastSeenParams = '';
+	/** JSON последних своих моделей провайдеров: изменились — список моделей пересобирается без опроса каталога. */
+	private _lastSeenCustomModels = '';
+	/** Записи последней загрузки: пересборка при смене параметров идёт по ним, а не по диску. */
+	private _lastEntries: readonly VibeProviderEntry[] = [];
+	private _lastEntryWarnings: readonly string[] = [];
 	/** Last key-validation results, cached so a hide-toggle re-apply doesn't re-probe the network. */
 	private _lastValidation: Map<string, DynamicKeyValidation> | undefined = undefined;
 	/** The `routes` blocks of the providers files, merged; the setting is laid on top when asked (`getModelRoutes`) */
@@ -499,19 +521,34 @@ class VibeDynamicProvidersService extends Disposable implements IVibeDynamicProv
 		// event but don't touch dynamicProviderApiKeys) don't cause an infinite reload loop.
 		this._lastSeenUiKeys = JSON.stringify(this._settingsService.state.dynamicProviderApiKeys ?? {});
 		this._lastSeenHidden = JSON.stringify(this._settingsService.state.dynamicModelHidden ?? {});
+		this._lastSeenParams = JSON.stringify(this._settingsService.state.dynamicProviderParams ?? {});
+		this._lastSeenCustomModels = JSON.stringify(this._settingsService.state.dynamicCustomModels ?? {});
 		this._register(this._settingsService.onDidChangeState(() => {
 			const curKeys = JSON.stringify(this._settingsService.state.dynamicProviderApiKeys ?? {});
 			if (curKeys !== this._lastSeenUiKeys) {
 				// Key changed → full reload (re-resolve + re-probe validity).
 				this._lastSeenUiKeys = curKeys;
 				this._lastSeenHidden = JSON.stringify(this._settingsService.state.dynamicModelHidden ?? {});
+				this._lastSeenParams = JSON.stringify(this._settingsService.state.dynamicProviderParams ?? {});
+				this._lastSeenCustomModels = JSON.stringify(this._settingsService.state.dynamicCustomModels ?? {});
 				void this.reload();
 				return;
 			}
+			const curParams = JSON.stringify(this._settingsService.state.dynamicProviderParams ?? {});
+			if (curParams !== this._lastSeenParams) {
+				// Значение параметра сменило адрес провайдера → разбор заново по прочитанным записям и новый опрос каталога
+				this._lastSeenParams = curParams;
+				this._lastSeenHidden = JSON.stringify(this._settingsService.state.dynamicModelHidden ?? {});
+				this._lastSeenCustomModels = JSON.stringify(this._settingsService.state.dynamicCustomModels ?? {});
+				this._applyEntries(this._lastEntries, [...this._lastEntryWarnings], /*fromCache*/ false);
+				return;
+			}
 			const curHidden = JSON.stringify(this._settingsService.state.dynamicModelHidden ?? {});
-			if (curHidden !== this._lastSeenHidden) {
-				// Only a model hide-toggle changed → re-apply the overlay (re-gate picker), no re-probe.
+			const curCustom = JSON.stringify(this._settingsService.state.dynamicCustomModels ?? {});
+			if (curHidden !== this._lastSeenHidden || curCustom !== this._lastSeenCustomModels) {
+				// Only a model hide-toggle or an own model changed → re-apply the overlay (re-gate picker), no re-probe.
 				this._lastSeenHidden = curHidden;
+				this._lastSeenCustomModels = curCustom;
 				this._reapplyOverlay();
 			}
 		}));
@@ -637,10 +674,13 @@ class VibeDynamicProvidersService extends Disposable implements IVibeDynamicProv
 	private _restoreFromCache(): void {
 		try {
 			const raw = this._storageService.get(VIBE_CONFIG_PROVIDERS_CACHE_KEY, StorageScope.APPLICATION);
-			if (!raw) { return; }
-			const entries = JSON.parse(raw) as VibeProviderEntry[];
-			if (!Array.isArray(entries) || entries.length === 0) { return; }
-			vibeLog.debug('DynProviders', `cache: restored ${entries.length} provider entr(y/ies) before file read`);
+			const cached = raw ? JSON.parse(raw) as VibeProviderEntry[] : [];
+			if (!Array.isArray(cached)) { throw new Error('cache is not a list'); }
+			// Комплектные файлы стоят под кэшем: кэш, записанный до их появления (и первый запуск без кэша), всё равно даёт
+			// Anthropic, OpenAI, Gemini… сразу. Иначе выбор модели у такого провайдера до первого чтения файлов считался бы
+			// выбором пропавшего провайдера и сбрасывался
+			const entries = mergeProviderLayers([bundledProviderLayer(), cached]);
+			vibeLog.debug('DynProviders', `cache: restored ${entries.length} provider entr(y/ies) (из кэша ${cached.length}, комплектных ${bundledProviderLayer().length}) before file read`);
 			this._applyEntries(entries, [], /*fromCache*/ true);
 		} catch {
 			this._storageService.remove(VIBE_CONFIG_PROVIDERS_CACHE_KEY, StorageScope.APPLICATION);
@@ -684,13 +724,6 @@ class VibeDynamicProvidersService extends Disposable implements IVibeDynamicProv
 			this._readProvidersFileAt(wsUri),
 		]);
 
-		if (globalRaw === undefined && wsRaw === undefined && globalCatalogue.length === 0 && wsCatalogue.length === 0) {
-			vibeLog.debug('DynProviders', 'no providers.json and no providers/ catalogue (neither ~/.vibe nor workspace)');
-			this._fileRoutes = {};
-			this._writeCache([]);
-			this._setState(EMPTY_STATE);
-			return;
-		}
 
 		// Parse each file independently: a broken workspace file must not disable global providers
 		// (and vice versa) — the broken side contributes nothing plus a warning.
@@ -717,6 +750,8 @@ class VibeDynamicProvidersService extends Disposable implements IVibeDynamicProv
 			files.map(file => parseSide(file.raw, `${where}/providers/${file.name}`));
 
 		const layers: readonly (readonly VibeProviderEntry[])[] = [
+			// Комплектные файлы набора — слабейший слой: без папки и до засева у человека есть Anthropic, OpenAI, Gemini…
+			bundledProviderLayer(),
 			...parseCatalogue(globalCatalogue, '~/.vibe'),
 			...parseCatalogue(wsCatalogue, 'workspace'),
 			parseSide(globalRaw, '~/.vibe/providers.json'),
@@ -745,9 +780,12 @@ class VibeDynamicProvidersService extends Disposable implements IVibeDynamicProv
 
 	/** Resolve + guard + apply an entry set (shared by the file path and the cache-restore path). */
 	private _applyEntries(entries: readonly VibeProviderEntry[], initialWarnings: string[], fromCache: boolean): void {
+		this._lastEntries = entries;
+		this._lastEntryWarnings = initialWarnings;
 		const { providers, warnings } = this._resolve(entries, [...initialWarnings]);
 		// Config Guard: static-scan the user-authored entries for unsafe endpoints / hardcoded secrets.
-		const guard = this._runConfigGuard(entries);
+		// Сканируются записи с подставленными параметрами: адрес, который человек ввёл в карточке, — такой же адрес, как вписанный в файл
+		const guard = this._runConfigGuard(providers.map(p => p.entry));
 		const effectiveProviders = guard.blockedIds.size > 0 ? providers.filter(p => !guard.blockedIds.has(p.id)) : providers;
 		const allWarnings = [...warnings, ...guard.lines];
 		vibeLog.warn('DynProviders', `providers ${fromCache ? 'cache-restored' : 'loaded'}: ${effectiveProviders.length} provider(s), ${allWarnings.length} warning(s)`);
@@ -794,7 +832,7 @@ class VibeDynamicProvidersService extends Disposable implements IVibeDynamicProv
 		const signature = dueSoon.join('|');
 		if (dueSoon.length > 0 && signature !== this._lastPriceWarningSig) {
 			this._lastPriceWarningSig = signature;
-			this._notificationService.warn(`Скоро меняется цена: ${dueSoon.join('; ')}. Проверьте .vibe/providers.json.`);
+			this._notificationService.warn(`Скоро меняется цена: ${dueSoon.join('; ')}. Проверьте файлы .vibe/providers/.`);
 		} else if (dueSoon.length === 0) {
 			this._lastPriceWarningSig = '';
 		}
@@ -847,7 +885,7 @@ class VibeDynamicProvidersService extends Disposable implements IVibeDynamicProv
 		this._lastGuardSig = sig;
 		const crit = findings.filter(f => f.severity === 'critical').length;
 		const verb = block && crit > 0 ? 'заблокировал' : 'обнаружил';
-		this._notificationService.warn(`Config Guard ${verb} проблемы безопасности в .vibe/providers.json: ${findings.length} (критичных: ${crit}). Подробности — в логе VibeIDE.`);
+		this._notificationService.warn(`Config Guard ${verb} проблемы безопасности в файлах .vibe/providers/ и providers.json: ${findings.length} (критичных: ${crit}). Подробности — в логе VibeIDE.`);
 	}
 
 	private _resolve(entries: readonly VibeProviderEntry[], warnings: string[]): { providers: ResolvedProviderEntry[]; warnings: string[] } {
@@ -866,8 +904,12 @@ class VibeDynamicProvidersService extends Disposable implements IVibeDynamicProv
 			return mergeProviderEntry(resolvedBase, entry);
 		};
 
+		const paramValues = this._settingsService.state.dynamicProviderParams ?? {};
 		const providers: ResolvedProviderEntry[] = entries.map(entry => {
-			const resolved = resolveFileExtends(entry, new Set<string>());
+			// Значения параметров подставляются после слияния `extends`: клон наследует `params` основы и получает свои значения под своим id
+			const applied = applyProviderParams(resolveFileExtends(entry, new Set<string>()), paramValues[entry.id]);
+			const resolved = applied.entry;
+			warnings.push(...applied.warnings);
 			let kind: ResolvedProviderKind;
 			let extendsBuiltin: string | undefined;
 			// Ids from the shared seed set are lowercase-with-dashes (`openai`, `opencode-zen`) while
@@ -913,7 +955,7 @@ class VibeDynamicProvidersService extends Disposable implements IVibeDynamicProv
 					warnings.push(`«${entry.id}/${model.id}»: cost.timeOfDay не разобран (окна «ЧЧ:ММ-ЧЧ:ММ», дни mon…sun, offPeakFactor больше нуля) — цена считается по пиковой ставке`);
 				}
 			}
-			return { id: builtinSelf ?? entry.id, kind, extendsBuiltin, entry: resolved };
+			return { id: builtinSelf ?? entry.id, kind, extendsBuiltin, entry: resolved, paramFields: applied.fields, paramsMissing: applied.missing };
 		});
 
 		return { providers, warnings };
@@ -969,6 +1011,11 @@ class VibeDynamicProvidersService extends Disposable implements IVibeDynamicProv
 		return !!p.entry.apiKeyEnv && this._settingsService.getEnvApiKeyProviderIds().has(p.id);
 	}
 
+	getResolvedApiKey(providerId: string): string | undefined {
+		const p = this._state.providers.find(candidate => candidate.id === providerId);
+		return p ? this._resolveBrowserKey(p) : undefined;
+	}
+
 	getQuotaTargets(): QuotaTarget[] {
 		const out: QuotaTarget[] = [];
 		for (const p of this._state.providers) {
@@ -995,6 +1042,8 @@ class VibeDynamicProvidersService extends Disposable implements IVibeDynamicProv
 			// Overrides only patch a built-in (the built-in is diagnosed under its own entry); skip them.
 			if (p.kind === 'override') { continue; }
 			if (p.entry.active === false) { continue; }
+			// Провайдер на токене Google (Vertex) без введённого ключа и без параметров не проверить; проверка идёт при опросе каталога
+			if (usesGoogleAdc(p.entry) || p.paramsMissing.length > 0) { continue; }
 			const keySource = this._resolveKeySource(p);
 			const hasOsEnv = !!p.entry.apiKeyEnv;
 			const keyless = isKeyless(p.entry);
@@ -1030,8 +1079,8 @@ class VibeDynamicProvidersService extends Disposable implements IVibeDynamicProv
 		// `models.fetch: false` = static only, no probe. `true` / custom URL / omitted (default) → probe the
 		// models endpoint to BOTH validate the key (401/403 = invalid) and fetch the live model list.
 		const connected = providers.filter(p =>
-			p.kind !== 'override' && p.entry.active !== false && !!p.entry.baseURL
-			&& p.entry.models?.fetch !== false && (isKeyless(p.entry) || isLocalAddress(p.entry.baseURL) || !!this._resolveBrowserKey(p)));
+			p.kind !== 'override' && p.entry.active !== false && !!p.entry.baseURL && p.paramsMissing.length === 0
+			&& p.entry.models?.fetch !== false && (isKeyless(p.entry) || usesGoogleAdc(p.entry) || isLocalAddress(p.entry.baseURL) || !!this._resolveBrowserKey(p)));
 		if (connected.length === 0) { return; }
 
 		const validationByProvider = new Map<string, DynamicKeyValidation>();
@@ -1047,7 +1096,15 @@ class VibeDynamicProvidersService extends Disposable implements IVibeDynamicProv
 	}
 
 	/** One probe of a provider's models endpoint — with its key, or with none for a keyless server */
-	private _probe(p: ResolvedProviderEntry): Promise<DynamicKeyValidation> {
+	private async _probe(p: ResolvedProviderEntry): Promise<DynamicKeyValidation> {
+		if (usesGoogleAdc(p.entry)) {
+			// Токен Google берётся у главного процесса. Не вышло — учётные данные Google не настроены: это не сбой сети,
+			// и повторять опрос каждые десять секунд незачем (поиск учётных данных дорог); карточка говорит, что сделать
+			const token = await this._remoteCatalogService.getGoogleAccessToken();
+			return token
+				? this._remoteCatalogService.fetchDynamicWithStatus(this._catalogRequestOf(p, token))
+				: { status: 'unauthorized', models: [] };
+		}
 		const apiKey = isKeyless(p.entry) ? undefined : this._resolveBrowserKey(p);
 		return this._remoteCatalogService.fetchDynamicWithStatus(this._catalogRequestOf(p, apiKey));
 	}
@@ -1146,6 +1203,9 @@ class VibeDynamicProvidersService extends Disposable implements IVibeDynamicProv
 		for (const p of activeDynamic) {
 			const resolvedKey = this._resolveBrowserKey(p);
 			const keyless = isKeyless(p.entry);
+			// Токен Google (Vertex): вводить нечего, а решает ответ каталога на запрос с токеном — как у сервера без ключа
+			const googleAdc = usesGoogleAdc(p.entry);
+			const unconfigured = p.paramsMissing.length > 0;
 			const localAddress = isLocalAddress(p.entry.baseURL);
 
 			// Register this provider as openai-compatible; file `static` caps become per-model overrides on
@@ -1153,15 +1213,18 @@ class VibeDynamicProvidersService extends Disposable implements IVibeDynamicProv
 			const modelCapOverrides: { [id: string]: Partial<VibeideStaticModelInfo> } = {};
 			for (const m of (p.entry.models?.static ?? [])) { modelCapOverrides[m.id] = modelEntryToCaps(m); }
 			const reasoningDialect = reasoningDialectOf(p.entry.reasoningDialect);
+			const vendor = vendorOfProvider(p.id, p.entry.baseURL);
 			descriptors.push({
 				id: p.id, source: 'file',
 				...(Object.keys(modelCapOverrides).length ? { modelCapOverrides } : {}),
 				...(reasoningDialect && reasoningDialect !== 'invalid' ? { reasoningDialect } : {}),
+				...(vendor ? { vendor } : {}),
 			});
 
 			// Transport overlay — built regardless of UI key (apiKeyEnv may resolve in main at send time),
 			// only needs a baseURL. extends-builtin without baseURL inherits downstream (follow-up).
-			if (p.entry.baseURL) {
+			// Провайдеру без обязательных параметров транспорт не строится: адрес с невыполненной скобкой `{region}` — не адрес
+			if (p.entry.baseURL && !unconfigured) {
 				transportConfigs[p.id] = dynamicTransportConfigOf({ ...p.entry, baseURL: p.entry.baseURL }, resolvedKey, modelCapOverrides);
 			}
 
@@ -1185,16 +1248,31 @@ class VibeDynamicProvidersService extends Disposable implements IVibeDynamicProv
 			};
 			const pushStatic = () => { for (const m of sortStaticModels([...staticById.values()])) { pushModel(m.id, m.name || m.id, 'manual'); } };
 
+			// Свои модели человека (кнопка «Добавить модель»): каталог вендора и `static` файла их не знают
+			const ownModels = (this._settingsService.state.dynamicCustomModels ?? {})[p.id] ?? [];
+			const pushOwn = () => {
+				for (const name of ownModels) {
+					if (seedModels.some(m => m.modelName === name)) { continue; }
+					const hidden = hiddenOverrides?.[name] ?? false;
+					if (!hidden) {
+						dynamicModelOptions.push({ name: `${name} (${label})`, selection: { providerName: p.id, modelName: name }, fileNote: 'manual' });
+					}
+					seedModels.push({ modelName: name, type: 'custom', isHidden: hidden });
+				}
+			};
+
 			const validation = validationByProvider?.get(p.id);
 			const hasOsEnvKey = this._hasOsEnvKey(p);
-			const { keyStatus, offer } = dynamicKeyGate({
-				keyless,
+			const gate = dynamicKeyGate({
+				keyless: keyless || googleAdc,
 				localAddress,
 				hasBrowserKey: !!resolvedKey,
 				hasOsEnvKey,
 				staticOnly: p.entry.models?.fetch === false,
 				validation,
 			});
+			// Без обязательных параметров провайдер не настроен, как без ключа: моделей нет, пока поля не заполнены
+			const { keyStatus, offer } = unconfigured ? { keyStatus: 'none' as const, offer: 'none' as const } : gate;
 			if (offer === 'static') {
 				pushStatic();
 			} else if (offer === 'catalog' && validation && validation.models.length > 0) {
@@ -1209,6 +1287,8 @@ class VibeDynamicProvidersService extends Disposable implements IVibeDynamicProv
 			} else if (offer === 'catalog') {
 				pushStatic(); // the server answered with an empty catalog → fall back to the file's curated list
 			}
+			// Свои модели видны, когда провайдер настроен: до ключа и параметров предлагать нечего, как и каталожные модели
+			if (offer !== 'none') { pushOwn(); }
 
 			// First-class seed for the Settings UI. `apiKey` = the UI-typed key only (editable field value).
 			// `_didFillInProviderSettings` is true only when models are actually offered (valid / static).
@@ -1222,8 +1302,11 @@ class VibeDynamicProvidersService extends Disposable implements IVibeDynamicProv
 				keyStatus,
 				keySource,
 				runsLocally: runsLocallyOf(p.entry),
+				title: label,
+				...(p.paramFields.length > 0 ? { paramFields: p.paramFields } : {}),
+				...(unconfigured ? { paramsMissing: p.paramsMissing } : {}),
 				// The card says what the status is about: a server that takes no key, or one on this machine asked without a key
-				...(keyless ? { keyless: true } : !resolvedKey && !hasOsEnvKey && localAddress ? { localWithoutKey: true } : {}),
+				...(googleAdc ? { googleAdc: true as const } : keyless ? { keyless: true } : !resolvedKey && !hasOsEnvKey && localAddress ? { localWithoutKey: true } : {}),
 			};
 		}
 		// Register all active dynamic providers in the unified caps registry (replace-all each apply).

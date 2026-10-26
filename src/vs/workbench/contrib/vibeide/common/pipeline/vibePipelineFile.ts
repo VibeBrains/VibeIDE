@@ -6,6 +6,7 @@
 import { createIgnoreMatcher } from '../vibeIgnore.js';
 import { DENY_RULES_IGNORE_CASE } from '../agentPathResolution.js';
 import { routeKeyOf } from '../modelRouteKeys.js';
+import { canonicalProviderId } from '../providerVendor.js';
 
 /**
  * Pipelines — a sequence of agent steps where each step picks up what the previous one produced.
@@ -172,7 +173,8 @@ export function parseModelRef(ref: string | undefined): { readonly providerName:
 	if (slash <= 0 || slash === ref.length - 1) {
 		return undefined;
 	}
-	const providerName = ref.slice(0, slash).trim();
+	// Прежнее написание встроенного (`openAI/gpt-5`) находит провайдера из файла набора (`openai`)
+	const providerName = canonicalProviderId(ref.slice(0, slash).trim());
 	const modelName = ref.slice(slash + 1).trim();
 	return providerName && modelName ? { providerName, modelName } : undefined;
 }

@@ -109,13 +109,15 @@ const FadeIn = ({ children, className, delayMs = 0, durationMs, ...props }: { ch
 const tabLabelRu: Record<TabName, string> = onboardingS.tabLabel;
 
 // Data for cloud providers tab
-const cloudProviders: ProviderName[] = ['googleVertex', 'liteLLM', 'microsoftAzure', 'awsBedrock', 'openAICompatible'];
+// Здесь только встроенные: Anthropic, OpenAI, Gemini, Vertex, Azure, Bedrock и прочие провайдеры из файлов набора ключ вводят
+// в настройках, в блоке «Свои провайдеры» — на вкладке «Платно» об этом сказано
+const cloudProviders: ProviderName[] = ['liteLLM'];
 
 // Data structures for provider tabs
 const providerNamesOfTab: Record<TabName, ProviderName[]> = {
-	Free: ['openCodeZen', 'openRouter', 'gemini', 'pollinations'],
+	Free: ['openCodeZen', 'openRouter'],
 	Local: localProviderNames,
-	Paid: providerNames.filter(pn => !(['openCodeZen', 'gemini', 'openRouter', 'pollinations', ...localProviderNames, ...cloudProviders] as string[]).includes(pn)) as ProviderName[],
+	Paid: providerNames.filter(pn => !(['openCodeZen', 'openRouter', ...localProviderNames, ...cloudProviders] as string[]).includes(pn)) as ProviderName[],
 	'Cloud/Other': cloudProviders,
 };
 
@@ -214,7 +216,7 @@ const AddProvidersPage = ({ pageIndex, setPageIndex }: { pageIndex: number; setP
 								<div className="flex items-center justify-between mb-3">
 									<div className="text-xl font-medium text-vibe-fg-0 flex items-center gap-2">
 										{onboardingS.addProviderTitle(displayInfoOfProviderName(providerName).title)}
-										{(providerName === 'openCodeZen' || providerName === 'gemini' || providerName === 'openRouter' || providerName === 'pollinations') && (
+										{(providerName === 'openCodeZen' || providerName === 'openRouter') && (
 											<span
 												data-tooltip-id="vibe-tooltip-provider-info"
 												data-tooltip-place="right"
@@ -549,10 +551,10 @@ const VibeOnboardingContent = () => {
 
 	// Replace the single selectedProviderName with four separate states
 	// page 2 state - each tab gets its own state
-	const [selectedIntelligentProvider, setSelectedIntelligentProvider] = useState<ProviderName>('anthropic');
+	const [selectedIntelligentProvider, setSelectedIntelligentProvider] = useState<ProviderName>('minimax');
 	const [selectedPrivateProvider, setSelectedPrivateProvider] = useState<ProviderName>('ollama');
-	const [selectedAffordableProvider, setSelectedAffordableProvider] = useState<ProviderName>('gemini');
-	const [selectedAllProvider, setSelectedAllProvider] = useState<ProviderName>('anthropic');
+	const [selectedAffordableProvider, setSelectedAffordableProvider] = useState<ProviderName>('deepseek');
+	const [selectedAllProvider, setSelectedAllProvider] = useState<ProviderName>('minimax');
 
 	// Helper function to get the current selected provider based on active tab
 	const getSelectedProvider = (): ProviderName => {
@@ -575,9 +577,9 @@ const VibeOnboardingContent = () => {
 	};
 
 	const providerNamesOfWantToUseOption: { [wantToUseOption in WantToUseOption]: ProviderName[] } = {
-		smart: ['anthropic', 'openAI', 'gemini', 'openRouter', 'minimax'],
-		private: ['ollama', 'vLLM', 'openAICompatible', 'lmStudio'],
-		cheap: ['gemini', 'deepseek', 'openRouter', 'pollinations', 'ollama', 'vLLM'],
+		smart: ['minimax', 'openRouter'],
+		private: ['ollama', 'vLLM', 'lmStudio'],
+		cheap: ['deepseek', 'openRouter', 'ollama', 'vLLM'],
 		all: providerNames,
 	};
 

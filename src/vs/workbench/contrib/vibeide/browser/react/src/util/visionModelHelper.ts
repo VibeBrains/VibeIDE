@@ -8,21 +8,7 @@ import { vibeLog } from '../../../../common/vibeLog.js';
 import { SettingsOfProvider, ModelSelection, ProviderId, OverridesOfModel } from '../../../../common/vibeideSettingsTypes.js';
 import { isVisionByNameHeuristic } from '../../../../common/modelVisionHeuristics.js';
 import { getModelCapabilities } from '../../../../common/modelCapabilities.js';
-
-/**
- * Vision-capable providers that require API keys.
- * Note: aggregators like OpenRouter / openCodeZen / openAICompatible / liteLLM are NOT in this set
- * because vision support is per-model, not per-provider. Use catalog-driven `supportsVision`
- * overrides (set by RemoteCatalogService) to flag individual aggregator models.
- */
-const VISION_PROVIDERS: ProviderId[] = ['anthropic', 'openAI', 'gemini', 'pollinations'];
-
-/**
- * Aggregator providers — vision capability is per-model, decided by catalog override or model-name heuristic.
- */
-// `minimax` is the native (OpenAI-compatible) endpoint serving both text-only and multimodal
-// models, so vision is per-model — treat it like an aggregator and decide by name heuristic.
-const AGGREGATOR_PROVIDERS: ProviderId[] = ['openRouter', 'openCodeZen', 'openAICompatible', 'liteLLM', 'minimax'];
+import { isNativeVisionProvider, isProviderConnected, isVisionAggregatorProvider } from '../../../../common/visionProviders.js';
 
 const heuristicWarnedSet = new Set<string>();
 
@@ -58,30 +44,23 @@ export function hasVisionCapableApiKey(settingsOfProvider: SettingsOfProvider, c
 	if (currentModelSelection) {
 		const { providerName } = currentModelSelection;
 		// Skip "auto" - it's not a real provider, but we still want to check all providers below
-		if (providerName !== 'auto' && VISION_PROVIDERS.includes(providerName)) {
-			const providerSettings = settingsOfProvider[providerName];
-			if (providerSettings.apiKey && providerSettings.apiKey.length > 10) {
-				return true;
-			}
+		if (providerName !== 'auto' && isNativeVisionProvider(providerName) && isProviderConnected(providerName, settingsOfProvider[providerName])) {
+			return true;
 		}
 	}
 
-	// Check all native vision providers
-	for (const providerName of VISION_PROVIDERS) {
+	for (const providerName of Object.keys(settingsOfProvider)) {
 		const providerSettings = settingsOfProvider[providerName];
-		if (providerSettings.apiKey && providerSettings.apiKey.length > 10) {
-			// Check if provider has at least one enabled model
-			const hasEnabledModel = providerSettings.models.some(m => !m.isHidden);
-			if (hasEnabledModel) {
-				return true;
-			}
-		}
-	}
+		if (!isProviderConnected(providerName, providerSettings)) { continue; }
 
-	// Aggregators: vision is per-model — accept only when at least one enabled model is flagged or matches heuristic
-	for (const providerName of AGGREGATOR_PROVIDERS) {
-		const providerSettings = settingsOfProvider[providerName];
-		if (!providerSettings.apiKey || providerSettings.apiKey.length <= 10) { continue; }
+		// Native vision providers (Anthropic, OpenAI, Gemini, Pollinations): at least one enabled model
+		if (isNativeVisionProvider(providerName)) {
+			if (providerSettings.models.some(m => !m.isHidden)) { return true; }
+			continue;
+		}
+
+		// Aggregators: vision is per-model — accept only when at least one enabled model is flagged or matches heuristic
+		if (!isVisionAggregatorProvider(providerName)) { continue; }
 		const hasVisionModel = providerSettings.models.some(m => {
 			if (m.isHidden) { return false; }
 			const override = readSupportsVisionOverride(overridesOfModel, providerName, m.modelName);
@@ -166,9 +145,9 @@ export function isSelectedModelVisionCapable(currentModelSelection: ModelSelecti
 	if (typeof caps.supportsVision === 'boolean') { return caps.supportsVision; }
 
 	// Check if it's a vision-capable API provider with a valid key
-	if (VISION_PROVIDERS.includes(providerName)) {
+	if (isNativeVisionProvider(providerName)) {
 		const providerSettings = settingsOfProvider[providerName];
-		if (providerSettings.apiKey && providerSettings.apiKey.length > 10) {
+		if (isProviderConnected(providerName, providerSettings)) {
 			// Check if the selected model is actually available (not hidden)
 			const modelExists = providerSettings.models.some(m =>
 				m.modelName === modelName && !m.isHidden
@@ -180,9 +159,8 @@ export function isSelectedModelVisionCapable(currentModelSelection: ModelSelecti
 	}
 
 	// Aggregator providers: per-model heuristic on the model name (used when catalog hasn't been fetched yet).
-	if (AGGREGATOR_PROVIDERS.includes(providerName)) {
-		const providerSettings = settingsOfProvider[providerName];
-		if (providerSettings.apiKey && providerSettings.apiKey.length > 10) {
+	if (isVisionAggregatorProvider(providerName)) {
+		if (isProviderConnected(providerName, settingsOfProvider[providerName])) {
 			return aggregatorVisionHeuristic(providerName, modelName);
 		}
 	}

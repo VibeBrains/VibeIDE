@@ -57,6 +57,12 @@ export interface IRemoteCatalogService {
 	fetchDynamicWithStatus(request: VibeCatalogRequest): Promise<DynamicKeyValidation>;
 
 	/**
+	 * Токен Google OAuth из Application Default Credentials для провайдера с `"auth": "google-adc"` (Vertex AI)
+	 * `undefined` — учётные данные не настроены или токен не выдан: провайдеру нечем подписать запрос каталога
+	 */
+	getGoogleAccessToken(): Promise<string | undefined>;
+
+	/**
 	 * Fetch models from a remote provider's catalog
 	 */
 	fetchCatalog(providerName: ProviderName, forceRefresh?: boolean): Promise<RemoteModelInfo[]>;
@@ -85,27 +91,21 @@ export interface IRemoteCatalogService {
 	clearCache(providerName: ProviderName): void;
 }
 
+/**
+ * Встроенные провайдеры с каталогом моделей у вендора, который обновляет кнопка «Обновить каталог».
+ * Файловые провайдеры (Anthropic, OpenAI, Gemini… из набора) сюда не входят: их список моделей приезжает при
+ * опросе каталога сервисом файловых провайдеров, а кнопка у их карточки перечитывает его заново.
+ */
 export const remoteCatalogCapableProviderNames: readonly ProviderName[] = [
-	'openAI',
-	'anthropic',
-	'gemini',
-	'mistral',
-	'groq',
-	'xAI',
 	'deepseek',
 	'openRouter',
 	'openCodeZen',
 	'minimax',
 	'liteLLM',
 	'lmRoute',
-	'openAICompatible',
-	'pollinations',
 	'ollama',
 	'vLLM',
 	'lmStudio',
-	'googleVertex',
-	'microsoftAzure',
-	'awsBedrock',
 ];
 
 export const IRemoteCatalogService = createDecorator<IRemoteCatalogService>('RemoteCatalogService');

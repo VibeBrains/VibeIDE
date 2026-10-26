@@ -279,6 +279,10 @@ export class BrowserTitlebarPart extends Part implements ITitlebarPart {
 	private readonly actionToolBarDisposable = this._register(new DisposableStore());
 	private readonly editorActionsChangeDisposable = this._register(new DisposableStore());
 	private actionToolBarElement!: HTMLElement;
+	// VibeIDE (WINDOW-DRAG-1026): compact-режим правого тулбара — layout/global действия
+	// уходят в его же «...»: drag-зона сохраняется, действия не теряются
+	private actionToolBarCompact = false;
+	private static readonly ACTION_TOOL_BAR_COMPACT_WIDTH = 540; // CSS px; порог по замеру
 	private readonly centerAdjacentToolBarDisposable = this._register(new DisposableStore());
 	private centerAdjacentToolBarElement: HTMLElement | undefined;
 	private readonly updateToolBarDisposable = this._register(new DisposableStore());
@@ -755,21 +759,35 @@ export class BrowserTitlebarPart extends Part implements ITitlebarPart {
 
 			// --- Layout Actions
 			if (this.layoutToolbarMenu) {
+				// VibeIDE (WINDOW-DRAG-1026): в compact layout-действия уходят в «...»
+				const layoutActions = this.actionToolBarCompact
+					? { primary: [] as IAction[], secondary: [] as IAction[] }
+					: actions;
 				fillInActionBarActions(
 					this.layoutToolbarMenu.getActions(),
-					actions,
+					layoutActions,
 					(group) => group === 'navigation'
 				);
+				if (this.actionToolBarCompact) {
+					actions.secondary.push(...layoutActions.primary, ...layoutActions.secondary);
+				}
 			}
 
 			// --- Global Actions (after layout so e.g. notification bell appears to the right of layout controls).
 			// Filter out the leading group up front so it isn't duplicated into the overflow `secondary` bucket.
 			if (this.globalToolbarMenu) {
 				const trailingGroups = this.globalToolbarMenu.getActions().filter(([group]) => group !== TitleBarLeadingActionsGroup);
+				// VibeIDE (WINDOW-DRAG-1026): в compact trailing-global действия — туда же
+				const trailingActions = this.actionToolBarCompact
+					? { primary: [] as IAction[], secondary: [] as IAction[] }
+					: actions;
 				fillInActionBarActions(
 					trailingGroups,
-					actions
+					trailingActions
 				);
+				if (this.actionToolBarCompact) {
+					actions.secondary.push(...trailingActions.primary, ...trailingActions.secondary);
+				}
 			}
 
 			// --- Activity Actions (always at the end)
@@ -962,12 +980,34 @@ export class BrowserTitlebarPart extends Part implements ITitlebarPart {
 		this.updateToolBarElement?.classList.remove('overflowing');
 
 		if (this.rootContainer.scrollWidth <= this.rootContainer.clientWidth) {
+			this.updateActionToolBarCompact();
 			return;
 		}
 
 		centerAdjacentToolBarElement?.classList.add('overflowing');
 		if (this.rootContainer.scrollWidth > this.rootContainer.clientWidth) {
 			updateToolBarElement?.classList.add('overflowing');
+		}
+		this.updateActionToolBarCompact();
+	}
+
+	/**
+	 * VibeIDE (WINDOW-DRAG-1026): на узком титул-баре layout/global действия уходят
+	 * в overflow «...» тулбара — grabbable drag-зона не сжимается до нуля
+	 * Гистерезис 64px стабилизирует переключение при ресайзе
+	 * Триггер — ширина, а не scrollWidth: центр с min-width:0 вбирает всё сжатие,
+	 * scrollWidth > clientWidth не выполняется никогда (замер 400-560px)
+	 */
+	private updateActionToolBarCompact(): void {
+		if (!this.actionToolBar || !this.element) {
+			return;
+		}
+		const width = this.element.clientWidth;
+		const desired = width < BrowserTitlebarPart.ACTION_TOOL_BAR_COMPACT_WIDTH
+			|| (this.actionToolBarCompact && width < BrowserTitlebarPart.ACTION_TOOL_BAR_COMPACT_WIDTH + 64);
+		if (desired !== this.actionToolBarCompact) {
+			this.actionToolBarCompact = desired;
+			this.createActionToolBarMenus();
 		}
 	}
 

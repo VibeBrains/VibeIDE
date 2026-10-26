@@ -14,7 +14,7 @@
  * Слой чистый: ни React, ни IPC, ни агента — поэтому проверяется из `test/common/`.
  */
 
-import { AcpToolStatus, IAcpDiff, isToolOpen } from './acpProtocol.js';
+import { AcpCompactionStatus, AcpNoticeSeverity, AcpToolStatus, IAcpDiff, isCompactionSettled, isToolOpen } from './acpProtocol.js';
 
 export type AcpLogEntry =
 	/** Реплика агента: склеенные куски текста. Размышление отделено от ответа признаком. */
@@ -25,7 +25,17 @@ export type AcpLogEntry =
 	 * A note from the editor, not from the agent: what happened to the session itself, e.g. that the
 	 * connection came back and whether the agent still remembers the conversation above.
 	 */
-	| { readonly kind: 'notice'; readonly id: string; readonly text: string };
+	| { readonly kind: 'notice'; readonly id: string; readonly text: string }
+	/**
+	 * Живое уведомление самого агента (notice по ACP): не реплика и не пометка редактора — отдельная
+	 * строка с тяжестью. Одно на кадр, не растёт
+	 */
+	| { readonly kind: 'acpNotice'; readonly id: string; readonly severity: AcpNoticeSeverity; readonly title: string; readonly description?: string }
+	/**
+	 * Сущность «сжатие контекста» по compactionId: статус, сводка (накопленная чанками или присланная
+	 * целиком), ошибка неудачи. Кадры одного id дополняют запись на месте, а не плодят дубли
+	 */
+	| { readonly kind: 'acpCompaction'; readonly id: string; readonly status: AcpCompactionStatus; readonly summary: string; readonly error?: string };
 
 /**
  * Кадр вызова инструмента для карточки.
@@ -87,13 +97,70 @@ export class AcpSessionLog {
 	 * Stopping in the middle of a question leaves such cards, and «in progress» on them would never go away
 	 */
 	settleTurn(): void {
-		if (!this._entries.some(entry => entry.kind === 'tool' && isToolOpen(entry.status))) { return; }
-		this._entries = this._entries.map(entry => entry.kind === 'tool' && isToolOpen(entry.status) ? { ...entry, status: 'cancelled' } : entry);
+		if (this._entries.some(entry => entry.kind === 'tool' && isToolOpen(entry.status))) {
+			this._entries = this._entries.map(entry => entry.kind === 'tool' && isToolOpen(entry.status) ? { ...entry, status: 'cancelled' } : entry);
+		}
+		// Незакрытое сжатие оборвано вместе с ходом: терминальный кадр уже не придёт, а «в работе»
+		// висело бы вечно. Завершённые и проваленные не трогаем
+		if (this._entries.some(entry => entry.kind === 'acpCompaction' && !isCompactionSettled(entry.status))) {
+			this._entries = this._entries.map(entry => entry.kind === 'acpCompaction' && !isCompactionSettled(entry.status) ? { ...entry, status: 'cancelled' } : entry);
+		}
 	}
 
 	/** A note about the session itself; like a tool call, it breaks the gluing of the agent's text. */
 	appendNotice(text: string): void {
 		this._entries = [...this._entries, { kind: 'notice', id: `n${this._nextMessageId++}`, text }];
+	}
+
+	/** Живое уведомление агента: отдельная строка, склейку текста разрывает как и пометка */
+	appendAcpNotice(notice: { readonly severity: AcpNoticeSeverity; readonly title: string; readonly description?: string }): void {
+		this._entries = [...this._entries, {
+			kind: 'acpNotice',
+			id: `an${this._nextMessageId++}`,
+			severity: notice.severity,
+			title: notice.title,
+			...(notice.description ? { description: notice.description } : {}),
+		}];
+	}
+
+	/**
+	 * Кадр сущности «сжатие контекста»: одна запись на compactionId
+	 *
+	 * Повторный кадр того же id дополняет запись на месте (стадия — всегда; сводка и ошибка — только
+	 * если присланы: завершающий кадр без сводки не должен стирать то, что уже ушло чанками). Так
+	 * повторные терминальные кадры от SDK сходятся без дублей
+	 */
+	applyCompaction(frame: { readonly compactionId: string; readonly status: AcpCompactionStatus; readonly summary?: string; readonly error?: string }): void {
+		const index = this._entries.findIndex(entry => entry.kind === 'acpCompaction' && entry.id === frame.compactionId);
+		if (index === -1) {
+			this._entries = [...this._entries, {
+				kind: 'acpCompaction',
+				id: frame.compactionId,
+				status: frame.status,
+				summary: frame.summary ?? '',
+				...(frame.error === undefined ? {} : { error: frame.error }),
+			}];
+			return;
+		}
+		const known = this._entries[index] as Extract<AcpLogEntry, { kind: 'acpCompaction' }>;
+		this._entries = [...this._entries.slice(0, index), {
+			...known,
+			status: frame.status,
+			...(frame.summary === undefined ? {} : { summary: frame.summary }),
+			...(frame.error === undefined ? {} : { error: frame.error }),
+		}, ...this._entries.slice(index + 1)];
+	}
+
+	/** Кусок сводки сжатия: дописывается к сущности; первый увиденный id создаёт её в работе */
+	applyCompactionChunk(compactionId: string, text: string): void {
+		if (!text) { return; }
+		const index = this._entries.findIndex(entry => entry.kind === 'acpCompaction' && entry.id === compactionId);
+		if (index === -1) {
+			this._entries = [...this._entries, { kind: 'acpCompaction', id: compactionId, status: 'in_progress', summary: text }];
+			return;
+		}
+		const known = this._entries[index] as Extract<AcpLogEntry, { kind: 'acpCompaction' }>;
+		this._entries = [...this._entries.slice(0, index), { ...known, summary: known.summary + text }, ...this._entries.slice(index + 1)];
 	}
 
 	/**

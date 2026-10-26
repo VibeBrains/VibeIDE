@@ -17,8 +17,11 @@ import { vibeLog } from './vibeLog.js';
 import { defaultProviderSettings, getModelCapabilities, isFloatingModel, ModelOverrides, VibeideStaticModelInfo } from './modelCapabilities.js';
 import { retiredForAutoPick } from './modelDeprecation.js';
 import type { VibeProviderEntry, VibeReasoningDialect } from './vibeProvidersFile.js';
-import { OPENCODE_GO_MIGRATION_NOTICE_KEY, VOID_SETTINGS_STORAGE_KEY } from './storageKeys.js';
-import { migrateOpenCodeGoState, OpenCodeGoMigratableState, OpenCodeGoMigrationReport, openCodeGoMigrationWorthMentioning } from './openCodeGoMigration.js';
+import { PROVIDER_FILES_MIGRATION_KEY, PROVIDER_MIGRATION_NOTICE_KEY, VOID_SETTINGS_STORAGE_KEY } from './storageKeys.js';
+import { migrateLegacyProviders, ProviderMigratableState, ProviderMigrationReport, providerMigrationWorthMentioning } from './providerMigration.js';
+import { providerSupportsFIM } from './providerFim.js';
+import type { ProviderVendor } from './providerVendor.js';
+import type { ProviderParamField } from './vibeProviderParams.js';
 import type { BuiltinWireHints } from './builtinWireHints.js';
 import { withBuiltinFileModels, withoutFileModels } from './builtinFileModels.js';
 import { autoFallbackProviderIds, defaultSettingsOfProvider, FeatureName, isBuiltinProviderId, ProviderId, ProviderName, ModelSelectionOfFeature, SettingsOfProvider, SettingName, providerNames, ModelSelection, modelSelectionsEqual, featureNames, VibeideStatefulModelInfo, GlobalSettings, GlobalSettingName, defaultGlobalSettings, ModelSelectionOptions, OptionsOfModelSelection, ChatMode, OverridesOfModel, defaultOverridesOfModel, MCPUserStateOfName as MCPUserStateOfName, MCPUserState, MinimalismMode } from './vibeideSettingsTypes.js';
@@ -103,6 +106,19 @@ export type VibeideSettingsState = {
 	 *  file); the dynamic-providers service folds these back into key resolution + the seeded entry. */
 	readonly dynamicProviderApiKeys?: Record<string, string>;
 
+	/**
+	 * Значения параметров файловых провайдеров (`params` в файле): регион и проект Vertex, ресурс Azure, адрес шлюза.
+	 * Ключ — id провайдера, затем имя параметра. Лежат отдельно от файла по той же причине, что и ключи: засеянный файл
+	 * общий для всех проектов и своих значений нести не может. Сервис файловых провайдеров подставляет их в адрес и заголовки.
+	 */
+	readonly dynamicProviderParams?: Record<string, Record<string, string>>;
+
+	/**
+	 * Модели, которые человек добавил файловому провайдеру сам, — кнопкой «Добавить модель». Каталог вендора или `static`
+	 * файла их не знает (тонкая настройка `ft:…`, развёртывание Azure, модель шлюза Bedrock). Ключ — id провайдера.
+	 */
+	readonly dynamicCustomModels?: Record<string, string[]>;
+
 	/** Per-model hide toggles for models a provider FILE declares: DYNAMIC providers, and the `static` models a file adds to a
 	 *  built-in; keyed by provider id then model id. Explicit user overrides of the default (file `static` models default shown;
 	 *  catalog-only models of a dynamic provider default hidden). Persisted; applied by the dynamic-providers service to gate
@@ -147,6 +163,11 @@ export interface IVibeideSettingsService {
 	onDidChangeState: Event<void>;
 
 	setSettingOfProvider: SetSettingOfProviderFn;
+	/**
+	 * Значение параметра файлового провайдера из его карточки (`params` файла). Пустая строка убирает значение,
+	 * и параметр возвращается к умолчанию файла. Сервис файловых провайдеров перечитывает провайдера сам.
+	 */
+	setDynamicProviderParam(providerId: ProviderId, paramName: string, value: string): Promise<void>;
 	setModelSelectionOfFeature: SetModelSelectionOfFeatureFn;
 	/** VA.2 «модель на роль»: set/replace a role's model; `null` clears the mapping (inherit Chat). */
 	setModelSelectionOfRole(roleType: string, selection: ModelSelection | null): Promise<void>;
@@ -282,8 +303,8 @@ export const modelFilterOfFeatureName: {
 			// - liteLLM: May support FIM depending on backend
 			// Note: OpenAI's official API does NOT support suffix parameter (except gpt-3.5-turbo-instruct)
 			// Note: vLLM and lmStudio do NOT support suffix parameter
-			const providersWithFIMSupport: readonly ProviderId[] = ['mistral', 'ollama', 'openRouter', 'openAICompatible', 'liteLLM'];
-			if (providersWithFIMSupport.includes(o.providerName)) {
+			// Mistral и «Совместимо с OpenAI API» теперь провайдеры из файлов набора — узнаются по вендору, а не по id
+			if (providerSupportsFIM(o.providerName)) {
 				return true;
 			}
 
@@ -381,6 +402,11 @@ export interface DynProviderTransportConfig {
 	/** `openrouter` — see `VibeProviderEntry.reasoningDialect`; electron-main registers the provider with it */
 	readonly reasoningDialect?: VibeReasoningDialect;
 	/**
+	 * Чей это провайдер — по id или родному адресу (`vendorOfProvider`). Главный процесс регистрирует провайдера с этим вендором,
+	 * и модели узнаются по таблице вендора (профили Claude, GPT, Gemini), а не по общей OpenAI-совместимой
+	 */
+	readonly vendor?: ProviderVendor;
+	/**
 	 * Per-model caps from the file `static` list, for the send path's own caps registry (`syncExternalProvidersFromSettings`)
 	 * They ride here, not on the settings seed: at send time this config replaces the seed under the same id, and a field
 	 * left on the seed never reached electron-main
@@ -438,6 +464,14 @@ export type DynamicProviderSeed = {
 	localWithoutKey?: true;
 	/** The provider's models run on this machine (`runsLocallyOf`) — what `isLocalProvider` reads first */
 	runsLocally: boolean;
+	/** Имя из файла (`name`): карточка и подписи показывают его, а не сырой id. */
+	title?: string;
+	/** Поля карточки, объявленные `params` файла: регион, проект, ресурс, адрес шлюза. */
+	paramFields?: readonly ProviderParamField[];
+	/** Обязательные параметры без значения: пока они пусты, провайдер не настроен, модели не предлагаются. */
+	paramsMissing?: readonly string[];
+	/** `"auth": "google-adc"` — карточка не просит ключ, а говорит про вход через Google. */
+	googleAdc?: true;
 };
 
 /**
@@ -493,6 +527,18 @@ export function withBuiltinLocality<T extends object>(settingsOfProvider: T, loc
 	return (next ?? settingsOfProvider) as T;
 }
 
+/**
+ * Встроенные провайдеры и сиды файловых провайдеров — в порядке оверлея.
+ * Прежние сиды не остаются: их порядок задавал первый оверлей (при первом запуске — десять комплектных, а засеянные файлы
+ * дописывались в хвост, мимо `order`), а провайдер, удалённый из файлов, висел в списке до перезапуска.
+ * Новый оверлей собирается заново, и ключи идут так, как он их отсортировал.
+ */
+export function withFileProviderSeeds<T extends object>(settingsOfProvider: T, seeds: Readonly<Record<string, unknown>> | undefined): T {
+	const builtins = Object.fromEntries(Object.entries(settingsOfProvider).filter(([id]) => isBuiltinProviderId(id)));
+	const merged = { ...builtins, ...(seeds ?? {}) };
+	return merged as T;
+}
+
 const _validatedModelState = (state: Omit<VibeideSettingsState, '_modelOptions'>): VibeideSettingsState => {
 
 	let newSettingsOfProvider = state.settingsOfProvider;
@@ -519,8 +565,8 @@ const _validatedModelState = (state: Omit<VibeideSettingsState, '_modelOptions'>
 	// picker still sources them from `dynamicModelOptions` below, so the model-options loop
 	// deliberately stays built-in-only — no double counting. These entries are derived (reapplied
 	// each load), never written to the blob.
-	if (_providerActiveOverrides?.dynamicProviderSettings) {
-		newSettingsOfProvider = { ...newSettingsOfProvider, ..._providerActiveOverrides.dynamicProviderSettings };
+	if (_providerActiveOverrides) {
+		newSettingsOfProvider = withFileProviderSeeds(newSettingsOfProvider, _providerActiveOverrides.dynamicProviderSettings);
 	}
 
 	// A file's `runsLocally` on a built-in: set where declared, removed where the file no longer says it
@@ -632,6 +678,8 @@ const defaultState = () => {
 		_modelOptions: [], // computed later
 		mcpUserStateOfName: {},
 		dynamicProviderApiKeys: {},
+		dynamicProviderParams: {},
+		dynamicCustomModels: {},
 		dynamicModelHidden: {},
 		modelSelectionOfRole: {},
 		tokenBudgetOfRole: {},
@@ -756,7 +804,7 @@ export class VoidSettingsService extends Disposable implements IVibeideSettingsS
 
 	async readAndInitializeState() {
 		let readS: VibeideSettingsState;
-		let openCodeGoReport: OpenCodeGoMigrationReport | undefined;
+		let providerReport: ProviderMigrationReport | undefined;
 		try {
 			readS = await this._readState();
 			const rw = readS as unknown as LegacyMigrationState;
@@ -786,10 +834,11 @@ export class VoidSettingsService extends Disposable implements IVibeideSettingsS
 				delete rw.settingsOfProvider.openCode;
 			}
 
-			// OpenCode Go is no longer built in: key, selected models and model tweaks move to the provider from the
-			// shared set (`providers/opencode-go.jsonc`, id `opencode-go`). Runs after the rename above, which
-			// feeds it the legacy `openCode` data, and before the normalisation loop below, which no longer knows the id
-			openCodeGoReport = migrateOpenCodeGoState(rw as unknown as OpenCodeGoMigratableState);
+			// Вырезанные встроенные провайдеры (OpenCode Go, Anthropic, OpenAI, Gemini, xAI, Mistral, Groq, Pollinations, Vertex,
+			// Azure, Bedrock, «Совместимо с OpenAI API») переезжают к провайдерам из файлов набора: ключ, значения полей карточки,
+			// выбранные и включённые модели, параметры и правки моделей. Идёт после переименования выше, которое отдаёт ему
+			// данные прежнего `openCode`, и до цикла нормализации ниже, который прежних id уже не знает
+			providerReport = migrateLegacyProviders(rw as unknown as ProviderMigratableState);
 			readS = rw as unknown as VibeideSettingsState;
 		}
 		catch (e) {
@@ -837,7 +886,7 @@ export class VoidSettingsService extends Disposable implements IVibeideSettingsS
 				const modelsAtP: VibeideStatefulModelInfo[] = migr.settingsOfProvider[providerName].models as VibeideStatefulModelInfo[];
 				const autodetected = modelsAtP.filter((m): m is VibeideStatefulModelInfo & { type: 'autodetected' } => m.type === 'autodetected');
 				if (
-					(providerName === 'openRouter' || providerName === 'openAICompatible' || providerName === 'liteLLM')
+					(providerName === 'openRouter' || providerName === 'liteLLM')
 					&& autodetected.length >= 100
 					&& autodetected.every((m) => m.isHidden === false)
 				) {
@@ -848,11 +897,6 @@ export class VoidSettingsService extends Disposable implements IVibeideSettingsS
 						),
 					};
 					migr.settingsOfProvider[providerName] = healedProvider as unknown as LegacyProviderSettings;
-				}
-
-				// remove when enough people have had it run (default is now {})
-				if (providerName === 'openAICompatible' && !migr.settingsOfProvider[providerName].headersJSON) {
-					migr.settingsOfProvider[providerName].headersJSON = '{}';
 				}
 			}
 			readS = migr as unknown as VibeideSettingsState;
@@ -882,12 +926,15 @@ export class VoidSettingsService extends Disposable implements IVibeideSettingsS
 		this._resolver();
 		this._onDidChangeState.fire();
 
-		// The move must outlive this run: stored state still holds `openCodeGo` until the next write, and the notice
-		// is shown later, when the window exists (browser/openCodeGoMigrationNotice.ts)
-		if (openCodeGoReport) {
+		// Перенос должен пережить этот запуск: в сохранённом состоянии прежние записи лежат до следующей записи, а уведомление
+		// и создание файлов делаются позже, когда окно есть (browser/providerMigrationNotice.ts)
+		if (providerReport) {
 			await this._storeState();
-			if (openCodeGoMigrationWorthMentioning(openCodeGoReport)) {
-				this._storageService.store(OPENCODE_GO_MIGRATION_NOTICE_KEY, JSON.stringify(openCodeGoReport), StorageScope.APPLICATION, StorageTarget.USER);
+			if (providerMigrationWorthMentioning(providerReport)) {
+				this._storageService.store(PROVIDER_MIGRATION_NOTICE_KEY, JSON.stringify(providerReport), StorageScope.APPLICATION, StorageTarget.USER);
+			}
+			if (providerReport.filesToCreate.length > 0) {
+				this._storageService.store(PROVIDER_FILES_MIGRATION_KEY, JSON.stringify(providerReport.filesToCreate), StorageScope.APPLICATION, StorageTarget.USER);
 			}
 		}
 	}
@@ -967,6 +1014,19 @@ export class VoidSettingsService extends Disposable implements IVibeideSettingsS
 
 	};
 
+
+	setDynamicProviderParam = async (providerId: ProviderId, paramName: string, value: string): Promise<void> => {
+		const ofProvider = { ...(this.state.dynamicProviderParams?.[providerId] ?? {}) };
+		const trimmed = value.trim();
+		// Пустое значение — не «пустая строка в файле», а возврат к умолчанию файла: запись убирается
+		if (trimmed) { ofProvider[paramName] = value; } else { delete ofProvider[paramName]; }
+		const params = { ...(this.state.dynamicProviderParams ?? {}) };
+		if (Object.keys(ofProvider).length > 0) { params[providerId] = ofProvider; } else { delete params[providerId]; }
+		const newState: VibeideSettingsState = { ...this.state, dynamicProviderParams: params };
+		this.state = _validatedModelState(newState);
+		await this._storeState();
+		this._onDidChangeState.fire();
+	};
 
 	setModelSelectionOfRole = async (roleType: string, selection: ModelSelection | null): Promise<void> => {
 		const next: Record<string, ModelSelection | null> = { ...(this.state.modelSelectionOfRole ?? {}) };
@@ -1240,6 +1300,23 @@ export class VoidSettingsService extends Disposable implements IVibeideSettingsS
 
 	}
 	addModel(providerName: ProviderId, modelName: string) {
+		// Файловому провайдеру модель, которой нет ни в каталоге, ни в `static` файла, добавляется своим списком:
+		// производный список моделей пересобирается из файла при каждом чтении и своей записи не держит
+		if (!isBuiltinProviderId(providerName)) {
+			const own = this.state.dynamicCustomModels?.[providerName] ?? [];
+			if (own.includes(modelName)) { return; }
+			const newState: VibeideSettingsState = {
+				...this.state,
+				dynamicCustomModels: { ...(this.state.dynamicCustomModels ?? {}), [providerName]: [...own, modelName] },
+				// Только что добавленная модель сразу включена: человек добавил её, чтобы пользоваться
+				dynamicModelHidden: { ...(this.state.dynamicModelHidden ?? {}), [providerName]: { ...(this.state.dynamicModelHidden?.[providerName] ?? {}), [modelName]: false } },
+			};
+			this.state = _validatedModelState(newState);
+			void this._storeState();
+			this._onDidChangeState.fire();
+			this._metricsService.capture('Add Model', { providerName, modelName });
+			return;
+		}
 		const { models } = this.state.settingsOfProvider[providerName];
 		const existingIdx = models.findIndex(m => m.modelName === modelName);
 		if (existingIdx !== -1) { return; } // if exists, do nothing
@@ -1253,6 +1330,19 @@ export class VoidSettingsService extends Disposable implements IVibeideSettingsS
 
 	}
 	deleteModel(providerName: ProviderId, modelName: string): boolean {
+		if (!isBuiltinProviderId(providerName)) {
+			const own = this.state.dynamicCustomModels?.[providerName] ?? [];
+			if (!own.includes(modelName)) { return false; }
+			const rest = own.filter(name => name !== modelName);
+			const custom = { ...(this.state.dynamicCustomModels ?? {}) };
+			if (rest.length > 0) { custom[providerName] = rest; } else { delete custom[providerName]; }
+			const newState: VibeideSettingsState = { ...this.state, dynamicCustomModels: custom };
+			this.state = _validatedModelState(newState);
+			void this._storeState();
+			this._onDidChangeState.fire();
+			this._metricsService.capture('Delete Model', { providerName, modelName });
+			return true;
+		}
 		const { models } = this.state.settingsOfProvider[providerName];
 		const delIdx = models.findIndex(m => m.modelName === modelName);
 		if (delIdx === -1) { return false; }

@@ -5,7 +5,7 @@
 
 
 /**
- * Editing experience for `.vibe/providers.json` (user-defined LLM providers):
+ * Editing experience for `.vibe/providers/*.jsonc` and `.vibe/providers.json` (user-defined LLM providers):
  *   1) JSON Schema → IntelliSense (field autocomplete, value enums, hovers, validation).
  *   2) `files.associations` → the file opens as `jsonc`, so `//` comments are valid + highlighted.
  *
@@ -19,13 +19,15 @@ import { IJSONSchema } from '../../../../base/common/jsonSchema.js';
 import * as jsonContributionRegistry from '../../../../platform/jsonschemas/common/jsonContributionRegistry.js';
 import { IConfigurationRegistry, Extensions as ConfigurationExtensions } from '../../../../platform/configuration/common/configurationRegistry.js';
 import { providerNames } from '../common/vibeideSettingsTypes.js';
+import { BUNDLED_PROVIDER_IDS } from '../common/bundledProviders.js';
 
 const SCHEMA_ID = 'vscode://schemas/vibeide-providers';
-const FILE_GLOB = '**/.vibe/providers.json';
+/** Схема действует на оба вида файлов: каталог `providers/*.jsonc` (основной) и прежний одиночный `providers.json`. */
+const FILE_GLOBS = ['**/.vibe/providers.json', '**/.vibe/providers/*.json', '**/.vibe/providers/*.jsonc'];
 
-/** Built-in provider ids surfaced as autocomplete proposals for `id` / `extends` / `apiKeyRef`.
+/** Provider ids surfaced as autocomplete proposals for `id` / `extends` / `apiKeyRef`: built-ins and the set's bundled files.
  *  `examples` (not `enum`) so suggestions appear WITHOUT forbidding brand-new/custom ids. */
-const BUILTIN_PROVIDER_IDS: string[] = [...providerNames];
+const BUILTIN_PROVIDER_IDS: string[] = [...providerNames, ...BUNDLED_PROVIDER_IDS];
 
 /** `cost` and `costAfter` share one shape, the long-prompt surcharge included. */
 const costSchema = (description: string): IJSONSchema => ({
@@ -116,7 +118,7 @@ const providerSchema: IJSONSchema = {
 	required: ['id'],
 	additionalProperties: false,
 	properties: {
-		id: { type: 'string', examples: BUILTIN_PROVIDER_IDS, description: 'Уникальный ключ. Совпадение со встроенным id — патч встроенного; новый id — новый провайдер. Подсказки в списке — id встроенных.' },
+		id: { type: 'string', examples: BUILTIN_PROVIDER_IDS, description: 'Уникальный ключ. Совпадение с id встроенного провайдера или провайдера набора — патч его; новый id — новый провайдер. Подсказки в списке — id встроенных и комплектных.' },
 		extends: { type: 'string', examples: BUILTIN_PROVIDER_IDS, description: 'Унаследовать все поля от другого провайдера (built-in или из файла), затем переопределить ниже.' },
 		name: { type: 'string', description: 'Отображаемое имя.' },
 		active: { type: 'boolean', default: true, description: 'false — выключить провайдера и все его модели.' },
@@ -126,10 +128,10 @@ const providerSchema: IJSONSchema = {
 		protocol: { enum: ['openai', 'openai-responses', 'anthropic', 'gemini'], default: 'openai', description: 'Формат API провайдера по умолчанию. `openai-responses` — эндпоинт /v1/responses, это другой эндпоинт, а не диалект chat-completions.' },
 		baseURL: { type: 'string', description: 'Базовый URL API.' },
 		auth: {
-			description: 'Куда уходит ключ. Не указан — родной заголовок протокола запроса: Bearer у openai, x-api-key у anthropic, x-goog-api-key у gemini. "bearer" — Authorization: Bearer на любом протоколе; "none" — сервер без ключа (ключ не отправляется ни в каком виде, каталог запрашивается без него); объект header/query — заголовок или параметр с именем name.',
+			description: 'Куда уходит ключ. Не указан — родной заголовок протокола запроса: Bearer у openai, x-api-key у anthropic, x-goog-api-key у gemini. "bearer" — Authorization: Bearer на любом протоколе; "none" — сервер без ключа (ключ не отправляется ни в каком виде, каталог запрашивается без него); объект header/query — заголовок или параметр с именем name; "google-adc" — токен Google OAuth из Application Default Credentials вместо ключа (Vertex AI).',
 			oneOf: [
-				{ type: 'string', enum: ['bearer', 'none'] },
-				{ type: 'object', required: ['type'], additionalProperties: false, properties: { type: { enum: ['bearer', 'none', 'header', 'query'] }, name: { type: 'string', description: 'Имя заголовка/параметра для header/query. Без него: header — родной заголовок протокола (у openai — x-api-key), query — key.' } } },
+				{ type: 'string', enum: ['bearer', 'none', 'google-adc'] },
+				{ type: 'object', required: ['type'], additionalProperties: false, properties: { type: { enum: ['bearer', 'none', 'google-adc', 'header', 'query'] }, name: { type: 'string', description: 'Имя заголовка/параметра для header/query. Без него: header — родной заголовок протокола (у openai — x-api-key), query — key.' } } },
 			],
 		},
 		apiKeyEnv: { type: 'string', description: 'Ключ из переменной окружения (в файле НЕ хранится).' },
@@ -140,6 +142,20 @@ const providerSchema: IJSONSchema = {
 		timeoutMs: { type: 'number', description: 'Сколько ждать, пока сервер начнёт отвечать (мс). Сильнее vibeide.llm.timeoutMs.*; идущий ответ рвёт только тишина потока.' },
 		promptCacheKey: { type: 'boolean', description: 'Endpoint принимает `prompt_cache_key` (OpenAI, xAI): IDE шлёт ключ, постоянный в пределах разговора, и запросы попадают на сервер с их кэшем — иначе вход может быть оплачен по полной цене. Без объявления поле не отправляется: строгие OpenAI-совместимые вендоры отвечают 400 на незнакомое.' },
 		reasoningDialect: { enum: ['openrouter'], description: 'Как endpoint пишет рассуждение на проводе OpenAI. `openrouter` — объект `reasoning` (`effort`, `max_tokens`, «выключено» — `effort: "none"`) вместо `reasoning_effort`, как у OpenRouter.' },
+		params: {
+			type: 'object',
+			description: 'Значения, которые человек вводит в карточке провайдера (регион, проект, ресурс, адрес шлюза). `{имя}` в baseURL, строке models.fetch, значениях headers и query заменяется введённым значением. Без значения и без default обязательный параметр оставляет провайдера ненастроенным: моделей в списках нет.',
+			additionalProperties: {
+				type: 'object', additionalProperties: false,
+				properties: {
+					title: { type: 'string', description: 'Подпись поля в карточке. Без неё — имя параметра.' },
+					placeholder: { type: 'string', description: 'Подсказка в пустом поле.' },
+					default: { type: 'string', description: 'Значение, когда человек ничего не ввёл.' },
+					optional: { type: 'boolean', default: false, description: 'true — без значения провайдер работает: подстановка пустая, заголовок или параметр запроса с пустым значением не уходит.' },
+					as: { enum: ['headers'], description: '"headers" — значение есть JSON-объект заголовков ({"X-Team": "a"}), он вливается в headers провайдера.' },
+				},
+			},
+		},
 		docsUrl: { type: 'string' },
 		apiKeyUrl: { type: 'string' },
 		quota: {
@@ -164,7 +180,7 @@ const providersFileSchema: IJSONSchema = {
 	$id: SCHEMA_ID,
 	type: 'object',
 	additionalProperties: false,
-	description: 'VibeIDE — определения LLM-провайдеров и моделей (.vibe/providers.json).',
+	description: 'VibeIDE — определения LLM-провайдеров и моделей (.vibe/providers/*.jsonc и .vibe/providers.json).',
 	properties: {
 		version: { type: 'number', default: 1, description: 'Версия схемы.' },
 		providers: { type: 'array', description: 'Список провайдеров.', items: providerSchema },
@@ -185,8 +201,8 @@ Registry.as<jsonContributionRegistry.IJSONContributionRegistry>(jsonContribution
 Registry.as<IConfigurationRegistry>(ConfigurationExtensions.Configuration).registerDefaultConfigurations([
 	{
 		overrides: {
-			'files.associations': { [FILE_GLOB]: 'jsonc' },
-			'json.schemas': [{ fileMatch: [FILE_GLOB], url: SCHEMA_ID }],
+			'files.associations': Object.fromEntries(FILE_GLOBS.map(glob => [glob, 'jsonc'])),
+			'json.schemas': [{ fileMatch: FILE_GLOBS, url: SCHEMA_ID }],
 		},
 	},
 ]);

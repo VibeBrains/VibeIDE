@@ -26,7 +26,7 @@ export class VibeConfigGuardConfigurationContribution extends Disposable impleme
 				'vibeide.configGuard.enabled': {
 					type: 'boolean',
 					default: true,
-					description: localize('configGuard.enabled', 'Статически проверять файлы «.vibe/providers.json» и «mcp.json» на небезопасные настройки (незашифрованные endpoint-ы, секреты в открытом виде, запуск удалённых скриптов и обход sandbox) при их загрузке.'),
+					description: localize('configGuard.enabled', 'Статически проверять файлы провайдеров («.vibe/providers/*.jsonc», «.vibe/providers.json») и «mcp.json» на небезопасные настройки (незашифрованные endpoint-ы, секреты в открытом виде, запуск удалённых скриптов и обход sandbox) при их загрузке.'),
 					scope: ConfigurationScope.APPLICATION,
 				},
 				'vibeide.configGuard.mode': {

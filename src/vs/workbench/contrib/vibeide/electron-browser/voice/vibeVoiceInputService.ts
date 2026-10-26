@@ -55,7 +55,8 @@ import { resolveVoiceCloudMode, resolveVoiceCloudVocabulary, resolveVoiceEngine,
 /** What the window resolved for a cloud dictation session: key, transcript style, project terms. */
 type VoiceCloudPreparation = { readonly apiKey?: string; readonly cloudMode?: 'smart' | 'verbatim'; readonly vocabulary?: readonly string[] };
 import { IStorageService, StorageScope, StorageTarget } from '../../../../../platform/storage/common/storage.js';
-import { IVibeideSettingsService } from '../../common/vibeideSettingsService.js';
+import { IVibeDynamicProvidersService } from '../../browser/vibeDynamicProvidersService.js';
+import { CONFIG_ID_OF_VENDOR } from '../../common/providerVendor.js';
 
 /** Set once the person agreed to send dictation audio to Gemini. */
 const CLOUD_VOICE_CONSENT_KEY = 'vibeide.voice.cloudConsent';
@@ -431,7 +432,7 @@ class VibeVoiceInputService extends Disposable implements IVibeVoiceInputService
 		@IOpenerService private readonly openerService: IOpenerService,
 		@ILogService public readonly logService: ILogService,
 		@IStorageService private readonly storageService: IStorageService,
-		@IVibeideSettingsService private readonly vibeideSettingsService: IVibeideSettingsService,
+		@IVibeDynamicProvidersService private readonly dynamicProviders: IVibeDynamicProvidersService,
 		@IChatJournalService private readonly chatJournalService: IChatJournalService,
 	) {
 		super();
@@ -505,7 +506,9 @@ class VibeVoiceInputService extends Disposable implements IVibeVoiceInputService
 			this.storageService.store(CLOUD_VOICE_CONSENT_KEY, true, StorageScope.APPLICATION, StorageTarget.MACHINE);
 		}
 		// Settings are read in the window, where they live: the main process has no workspace configuration.
-		const apiKey = this.vibeideSettingsService.state.settingsOfProvider.gemini?.apiKey?.trim();
+		// Ключ Gemini — провайдера из файла набора: введённый в карточке или из `.vibe/.env`. Не нашёлся — главный процесс
+		// возьмёт переменную окружения GEMINI_API_KEY, и только потом откажет
+		const apiKey = this.dynamicProviders.getResolvedApiKey(CONFIG_ID_OF_VENDOR.gemini)?.trim();
 		const vocabulary = resolveVoiceCloudVocabulary(this.configurationService.getValue<unknown>(VOICE_CLOUD_VOCABULARY_KEY));
 		return {
 			ok: true,

@@ -148,7 +148,7 @@ suite('builtin model profiles — имя на проводе, профиль, п
 	 * которое вендор отвергает с 400, K3 — пятую часть своей цены, GPT-6.1 Sol — уровень `none`, которого у него нет,
 	 * а Sonnet 5.5 — профиль Sonnet 5 без своего «выключено»
 	 */
-	test('новые поколения по имени: Sonnet 5.5, Haiku 5.5, GPT-6.1 Sol, Kimi K3 и Kimi Code, GLM-5.3', () => {
+	test('новые поколения по имени: Sonnet 5.5, Haiku 5.5, GPT-6.1 Sol, Kimi K3, K3.1 Pro и Kimi Code, GLM-5.3', () => {
 		const card = (provider: 'anthropic' | 'openAI' | 'openRouter', modelName: string) => {
 			const caps = getModelCapabilities(provider, modelName, undefined);
 			const reasoning = caps.reasoningCapabilities || undefined;
@@ -171,6 +171,14 @@ suite('builtin model profiles — имя на проводе, профиль, п
 			card('openRouter', 'moonshotai/kimi-k3'),
 			card('openRouter', 'k3-256k'),
 			card('openRouter', 'kimi-for-coding'),
+			card('openRouter', 'moonshotai/kimi-k3.1-pro'),
+			card('openRouter', 'kimi-k3.1-pro-highspeed'),
+			card('openRouter', 'k3.1-pro'),
+			card('openRouter', 'k3.1-pro-highspeed'),
+			card('openRouter', 'kimi-for-coding-highspeed'),
+			card('openRouter', 'kimi-k2.7-code'),
+			card('openRouter', 'kimi-k2.7-code-highspeed'),
+			card('openRouter', 'kimi-k2.6'),
 			card('openRouter', 'z-ai/glm-5.3'),
 			card('openRouter', 'z-ai/glm-5.3-flash'),
 		], [
@@ -183,6 +191,15 @@ suite('builtin model profiles — имя на проводе, профиль, п
 			{ model: 'openRouter/moonshotai/kimi-k3 ← kimiK3', canTurnOff: false, off: undefined, levels: 'low/high/max', default: 'high', cost: '3/15/0.3' },
 			{ model: 'openRouter/k3-256k ← kimiK3', canTurnOff: false, off: undefined, levels: 'low/high/max', default: 'high', cost: '3/15/0.3' },
 			{ model: 'openRouter/kimi-for-coding ← kimiForCoding', canTurnOff: true, off: { reasoning_effort: 'none' }, levels: 'low/high/max', default: 'max', cost: '0.6/2.5/—' },
+			{ model: 'openRouter/moonshotai/kimi-k3.1-pro ← kimiK3.1Pro', canTurnOff: false, off: undefined, levels: 'low/high/max', default: 'high', cost: '2/10/0.2' },
+			{ model: 'openRouter/kimi-k3.1-pro-highspeed ← kimiK3.1ProHighspeed', canTurnOff: false, off: undefined, levels: 'low/high/max', default: 'high', cost: '4/20/0.2' },
+			{ model: 'openRouter/k3.1-pro ← kimiK3.1Pro', canTurnOff: false, off: undefined, levels: 'low/high/max', default: 'high', cost: '2/10/0.2' },
+			{ model: 'openRouter/k3.1-pro-highspeed ← kimiK3.1ProHighspeed', canTurnOff: false, off: undefined, levels: 'low/high/max', default: 'high', cost: '4/20/0.2' },
+			// На Kimi Code `kimi-for-coding-highspeed` — это K2.7 Code HighSpeed: рассуждает всегда, уровней нет
+			{ model: 'openRouter/kimi-for-coding-highspeed ← kimiK2.7Highspeed', canTurnOff: false, off: undefined, levels: undefined, default: undefined, cost: '1.9/8/0.38' },
+			{ model: 'openRouter/kimi-k2.7-code ← kimiK2.7', canTurnOff: false, off: undefined, levels: undefined, default: undefined, cost: '0.95/4/0.19' },
+			{ model: 'openRouter/kimi-k2.7-code-highspeed ← kimiK2.7Highspeed', canTurnOff: false, off: undefined, levels: undefined, default: undefined, cost: '1.9/8/0.38' },
+			{ model: 'openRouter/kimi-k2.6 ← kimiK2.6', canTurnOff: true, off: { thinking: { type: 'disabled' } }, levels: undefined, default: undefined, cost: '0.95/4/0.16' },
 			{ model: 'openRouter/z-ai/glm-5.3 ← glm5.3', canTurnOff: false, off: undefined, levels: 'low/high/max', default: 'high', cost: '1.4/4.4/—' },
 			{ model: 'openRouter/z-ai/glm-5.3-flash ← glm5', canTurnOff: true, off: undefined, levels: undefined, default: undefined, cost: '1/3.2/—' },
 		]);

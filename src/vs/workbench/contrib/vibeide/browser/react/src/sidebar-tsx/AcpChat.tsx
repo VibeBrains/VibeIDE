@@ -4,8 +4,9 @@
  *--------------------------------------------------------------------------------------------*/
 
 import { useCallback, useEffect, useState } from 'react';
-import { AcpToolMessage } from '../../../../common/chatThreadServiceTypes.js';
-import { IAcpCommand, IAcpConfigChoice, IAcpConfigOption, IAcpDiff } from '../../../../common/acp/acpProtocol.js';
+import { AlertTriangle, ChevronRight, Info } from 'lucide-react';
+import { AcpCompactionMessage, AcpNoticeMessage, AcpToolMessage } from '../../../../common/chatThreadServiceTypes.js';
+import { IAcpCommand, IAcpConfigChoice, IAcpConfigOption, IAcpDiff, isCompactionSettled } from '../../../../common/acp/acpProtocol.js';
 import { ACP_PERMISSION_MODES, AcpGrant, AcpPermissionMode, DEFAULT_ACP_PERMISSION_MODE, describeAsking, describeGrant, permissionOptionLabel } from '../../../../common/acp/acpPermissionPolicy.js';
 import { useAccessor, useChatThreadsState } from '../util/services.js';
 import { VibeCustomDropdownBox } from '../util/inputs.js';
@@ -91,6 +92,81 @@ export const AcpToolCard = ({ message, isCheckpointGhost }: { message: AcpToolMe
 				</div>
 			</ToolChildrenWrapper> : undefined}
 		</ToolHeaderWrapper>
+	</div>;
+};
+
+// ── Уведомления и сжатие контекста ────────────────────────────────────────────
+
+const NOTICE_SEVERITY_NAMES: Record<AcpNoticeMessage['severity'], string> = {
+	info: 'Сведение',
+	warning: 'Предупреждение',
+	error: 'Ошибка',
+	other: 'Сведение',
+};
+
+const noticeSeverityClass = (severity: AcpNoticeMessage['severity']): string => {
+	switch (severity) {
+		case 'warning': return 'text-vibe-warning';
+		case 'error': return 'text-vibe-error';
+		default: return 'text-vibe-fg-3';
+	}
+};
+
+/**
+ * Живое уведомление агента: отдельная строка в ленте, а не реплика — текст его же пера
+ * Строка стоит между репликами и не растёт: кадр notice самодостаточен
+ */
+export const AcpNoticeLine = ({ message, isCheckpointGhost }: { message: AcpNoticeMessage; isCheckpointGhost: boolean }) => {
+	return <div className={`flex items-start gap-1.5 px-1 py-0.5 text-xs ${isCheckpointGhost ? 'opacity-50' : ''}`} role='status'>
+		{message.severity === 'error'
+			? <AlertTriangle className={`mt-0.5 h-3.5 w-3.5 flex-shrink-0 ${noticeSeverityClass(message.severity)}`} />
+			: <Info className={`mt-0.5 h-3.5 w-3.5 flex-shrink-0 ${noticeSeverityClass(message.severity)}`} />}
+		<div className='min-w-0'>
+			<span className={`font-semibold ${noticeSeverityClass(message.severity)}`}>{NOTICE_SEVERITY_NAMES[message.severity]}</span>
+			<span className='text-vibe-fg-1'>: {message.title}</span>
+			{message.description && <div className='mt-0.5 whitespace-pre-wrap break-words text-vibe-fg-2'>{message.description}</div>}
+		</div>
+	</div>;
+};
+
+const COMPACTION_CAPTIONS: Record<AcpCompactionMessage['status'], string> = {
+	in_progress: 'Сжатие контекста…',
+	completed: 'Контекст сжат',
+	failed: 'Не удалось сжать контекст',
+	cancelled: 'Сжатие контекста отменено',
+	// Неизвестное значение схемы: не выдаём за завершённое
+	unknown: 'Сжатие контекста',
+};
+
+/**
+ * Сжатие контекста: строка «Контекст сжат» со сводкой по клику или с клавиатуры
+ * Раскрытие — настоящая кнопка с aria-expanded: без мыши строка доступна по Tab и открывается Enter/Space
+ */
+export const AcpCompactionLine = ({ message, isCheckpointGhost }: { message: AcpCompactionMessage; isCheckpointGhost: boolean }) => {
+	const [expanded, setExpanded] = useState(false);
+	const hasDetails = message.summary.length > 0 || !!message.error;
+
+	if (!hasDetails) {
+		return <div className={`px-1 py-0.5 text-xs ${isCheckpointGhost ? 'opacity-50' : ''}`} role='status'>
+			<span className='text-vibe-fg-3'>{COMPACTION_CAPTIONS[message.status]}</span>
+		</div>;
+	}
+
+	return <div className={isCheckpointGhost ? 'opacity-50' : ''}>
+		<button
+			type='button'
+			className='flex w-full items-center gap-1 px-1 py-0.5 text-left text-xs text-vibe-fg-3 transition-colors hover:text-vibe-fg-1 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-vibe-border-1'
+			aria-expanded={expanded}
+			onClick={() => setExpanded(value => !value)}
+		>
+			<ChevronRight className={`h-3.5 w-3.5 flex-shrink-0 transition-transform duration-100 ${expanded ? 'rotate-90' : ''}`} />
+			<span>{COMPACTION_CAPTIONS[message.status]}</span>
+			<span className='text-vibe-fg-4'>{expanded ? 'Свернуть' : 'Сводка'}</span>
+		</button>
+		{expanded && <div className='ml-5 mt-0.5 flex flex-col gap-1.5'>
+			{message.summary && <pre className='max-h-64 overflow-auto @@vibe-scroll whitespace-pre-wrap break-words rounded-md border border-vibe-border-4 bg-vibe-bg-1 px-2 py-1 font-mono text-xs text-vibe-fg-2'>{message.summary}</pre>}
+			{message.error && <div className={`text-xs ${message.status === 'failed' ? 'text-vibe-error' : 'text-vibe-fg-2'}`}>{message.error}</div>}
+		</div>}
 	</div>;
 };
 

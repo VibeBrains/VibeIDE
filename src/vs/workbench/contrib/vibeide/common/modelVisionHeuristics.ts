@@ -3,6 +3,8 @@
  *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
 
+import { providerVendorKey } from './providerVendor.js';
+
 
 /**
  * Single source of truth for name-based vision capability detection on aggregator providers
@@ -59,7 +61,7 @@ export function isModelVisionCapable(
 	}
 
 	const name = modelSelection.modelName.toLowerCase();
-	const provider = modelSelection.providerName.toLowerCase();
+	const provider = providerVendorKey(modelSelection.providerName);
 
 	if (provider === 'gemini') { return true; } // all Gemini models support vision
 	if (provider === 'anthropic') {

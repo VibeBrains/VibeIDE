@@ -1044,7 +1044,27 @@ export const modelsS = {
 } as const;
 
 export const providersS = {
-	dynamicProvidersTitle: 'Свои провайдеры (из .vibe/providers.json)',
+	/** Блок провайдеров из файлов `.vibe/providers/` (Anthropic, OpenAI, Gemini… из набора и заведённые самим человеком) */
+	dynamicProvidersTitle: 'Свои провайдеры',
+	dynamicProvidersHint: 'Провайдеры из файлов .vibe/providers/ проекта и ~/.vibe/providers/: Anthropic, OpenAI, Gemini и другие из набора, а также ваши. Значение ключа и поля карточки хранятся в IDE, а не в файле.',
+	dynamicProvidersCollapse: 'Свернуть блок «Свои провайдеры»',
+	dynamicProvidersExpand: 'Развернуть блок «Свои провайдеры»',
+	addProvider: 'Добавить провайдера',
+	addProviderTooltip: 'Копия образца набора в .vibe/providers/: впишите адрес и модели, ключ вводится в карточке',
+	addProviderNamePh: 'Название, например: Мой прокси',
+	addProviderCreate: 'Создать',
+	addProviderCancel: 'Отмена',
+	/** Подпись под полем, когда у провайдера есть обязательные поля без значения. */
+	paramsMissing: (names: string) => `Заполните поля: ${names} — без них адрес провайдера неизвестен, моделей в списках нет.`,
+	/** `"auth": "google-adc"`: ключа нет, запросы подписывает токен Google. Статус — ответ сервера на запрос с токеном. */
+	dynGoogleAdc: {
+		valid: 'Вход Google выполнен — сервер ответил',
+		invalid: 'Нет входа Google: выполните gcloud auth application-default login или задайте GOOGLE_APPLICATION_CREDENTIALS',
+		error: 'Не удалось проверить доступ (сеть или сервер)',
+		pending: 'Проверка доступа Google…',
+		unverified: 'Вход Google не проверен — модели из списка файла',
+		none: 'Заполните поля — затем проверим вход Google',
+	} satisfies Record<string, string>,
 	// Dynamic-provider key validation status (shown under the key field in the provider card).
 	dynKeyValid: 'Ключ действителен',
 	dynKeyInvalid: 'Ключ недействителен (ошибка авторизации)',
@@ -1305,8 +1325,7 @@ export const miscS = {
 	localProvBlurb:
 		'Любые модели на вашей машине. Локальные модели по умолчанию обнаруживаются автоматически.',
 	mainProvH2: 'Облачные провайдеры',
-	mainProvBlurb: 'Модели Anthropic, OpenAI, OpenRouter и других провайдеров.',
-	builtinProvidersToggle: (n: number) => `Встроенные провайдеры (${n})`,
+	mainProvBlurb: 'Встроенные провайдеры и блок «Свои провайдеры» — Anthropic, OpenAI, Gemini и другие из набора, а также ваши.',
 	featureOptH2: 'Функции',
 	generalH2: 'Общие',
 	mcpBlurb: 'Model Context Protocol — дополнительные инструменты для режима агента.',
@@ -1332,8 +1351,8 @@ export const modelDdS = {
 	addModel: 'Добавьте модель',
 	needProvider: 'Нужен провайдер',
 	// Provenance tooltips for dynamic-provider models (.vibe/providers.json), shown on the "✎" badge.
-	fileNoteOverride: 'Параметры модели заданы в .vibe/providers.json',
-	fileNoteManual: 'Модель добавлена в .vibe/providers.json (нет в каталоге провайдера)',
+	fileNoteOverride: 'Параметры модели заданы в файле провайдера (.vibe/providers/)',
+	fileNoteManual: 'Модель добавлена в файле провайдера или вручную (нет в каталоге провайдера)',
 } as const;
 
 /** Default skeleton for Workspace → «Цели» — insert button copies this verbatim. */

@@ -79,6 +79,7 @@
 	--vibe-fg-4: #4f5269;
 
 	--vibe-warning: var(--vibeide-warning);
+	--vibe-error: var(--vibeide-danger);
 
 	--vibe-border-1: var(--vibeide-border-strong);
 	--vibe-border-2: #24273a;

@@ -12,8 +12,9 @@
 import { vibeLog } from '../common/vibeLog.js';
 import { ChatImageAttachment } from '../common/chatThreadServiceTypes.js';
 import { imageQAPipeline, type ImageQAOptions, type QAResponse } from '../common/imageQA/index.js';
-import { ModelSelection, OverridesOfModel, ProviderId, SettingsOfProvider, VibeideStatefulModelInfo } from '../common/vibeideSettingsTypes.js';
+import { ModelSelection, OverridesOfModel, SettingsOfProvider, VibeideStatefulModelInfo } from '../common/vibeideSettingsTypes.js';
 import { getModelCapabilities } from '../common/modelCapabilities.js';
+import { isNativeVisionProvider, isProviderConnected, isVisionAggregatorProvider } from '../common/visionProviders.js';
 
 export interface ImageQAPreprocessedMessage {
 	shouldUsePipeline: boolean;
@@ -22,11 +23,6 @@ export interface ImageQAPreprocessedMessage {
 	images?: ChatImageAttachment[]; // Original images if still needed
 }
 
-// Providers whose chat models accept images natively (no local OCR needed)
-const VISION_PROVIDERS = new Set<ProviderId>(['anthropic', 'openAI', 'gemini', 'pollinations']);
-// Aggregator providers — vision is per-model; rely on catalog-driven `supportsVision` overrides
-// or model-name heuristics rather than blanket-trusting the provider.
-const AGGREGATOR_PROVIDERS = new Set(['openRouter', 'openCodeZen', 'openAICompatible', 'liteLLM']);
 const OLLAMA_VISION_KEYWORDS = ['llava', 'bakllava', 'llama-vision', 'qwen-vl'];
 const AGGREGATOR_VISION_SUBSTRINGS = ['vision', '-vl', 'vl-', 'llava', 'pixtral', 'claude-3', 'claude-4', 'claude-sonnet', 'claude-opus', 'gpt-4o', 'gpt-4.1', 'gpt-5', 'gemini'];
 
@@ -37,13 +33,11 @@ const AGGREGATOR_VISION_SUBSTRINGS = ['vision', '-vl', 'vl-', 'llava', 'pixtral'
  */
 function hasAnyVisionProviderConfigured(settingsOfProvider?: SettingsOfProvider): boolean {
 	if (!settingsOfProvider) { return false; }
-	for (const name of VISION_PROVIDERS) {
+	for (const name of Object.keys(settingsOfProvider)) {
+		if (!isNativeVisionProvider(name)) { continue; }
 		const s = settingsOfProvider[name];
-		if (!s) { continue; }
-		if (typeof s.apiKey === 'string' && s.apiKey.length > 10) {
-			const hasEnabledModel = Array.isArray(s.models) && s.models.some((m: VibeideStatefulModelInfo) => !m.isHidden);
-			if (hasEnabledModel) { return true; }
-		}
+		if (!isProviderConnected(name, s)) { continue; }
+		if (s.models.some((m: VibeideStatefulModelInfo) => !m.isHidden)) { return true; }
 	}
 	return false;
 }
@@ -65,8 +59,8 @@ function isModelVisionCapable(modelSelection: ModelSelection | null, settingsOfP
 	// falls through to the legacy provider-set heuristics.
 	const caps = getModelCapabilities(providerName, modelName, overridesOfModel);
 	if (typeof caps.supportsVision === 'boolean') { return caps.supportsVision; }
-	if (VISION_PROVIDERS.has(providerName)) { return true; }
-	if (AGGREGATOR_PROVIDERS.has(providerName)) {
+	if (isNativeVisionProvider(providerName)) { return true; }
+	if (isVisionAggregatorProvider(providerName)) {
 		const lower = (modelName || '').toLowerCase();
 		return AGGREGATOR_VISION_SUBSTRINGS.some(s => lower.includes(s));
 	}

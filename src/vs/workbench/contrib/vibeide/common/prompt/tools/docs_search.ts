@@ -11,7 +11,7 @@ export const DOCS_SEARCH_TOOL: ToolDef<'docs_search'> = {
 	description: `Searches VibeIDE's OWN documentation — the manuals and the feature catalogue shipped inside this build. Lexical and deterministic: no model call, no network, works offline, and describes the version actually installed rather than whatever the repository's main branch looks like today.
 
 Use it BEFORE guessing about anything VibeIDE-specific:
-- a config file the user asks you to create ('.vibe/servers.json', '.vibe/providers.json') — the format specs live here, with field tables and worked examples;
+- a config file the user asks you to create ('.vibe/servers.json', '.vibe/providers/<name>.jsonc', legacy '.vibe/providers.json') — the format specs live here, with field tables and worked examples;
 - how a feature is meant to be driven (design detector, Vibe Server stack, specs workflow, skills) — including preconditions that are easy to miss, like "the design detector needs an open preview";
 - what the product can do at all, when the user's request is vague.
 

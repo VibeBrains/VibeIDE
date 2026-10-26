@@ -14,9 +14,9 @@ import { createOpenAICompatible, type MetadataExtractor } from '@ai-sdk/openai-c
 import { createAnthropic } from '@ai-sdk/anthropic';
 import { createOpenAI } from '@ai-sdk/openai';
 import { createGoogleGenerativeAI } from '@ai-sdk/google';
-import { keyPlacement, VibeProviderEntry, VibeProviderProtocol, withQueryParams } from '../../common/vibeProvidersFile.js';
+import { keyPlacement, usesGoogleAdc, VibeProviderEntry, VibeProviderProtocol, withQueryParams } from '../../common/vibeProvidersFile.js';
 import type { DynProviderTransportConfig } from '../../common/vibeideSettingsService.js';
-import { API_PROTOCOL_TO_SDK_NPM, ApiProtocolOverride, builtinWireSdkNpm, getIsReasoningEnabledState, getModelCapabilities, getProviderCapabilities, getReservedOutputTokenSpace, getSendableReasoningInfo, sdkNpmOfFileProtocol } from '../../common/modelCapabilities.js';
+import { API_PROTOCOL_TO_SDK_NPM, ApiProtocolOverride, builtinWireSdkNpm, getIsReasoningEnabledState, getModelCapabilities, getProviderCapabilities, getReservedOutputTokenSpace, getSendableReasoningInfo, providerVendor, sdkNpmOfFileProtocol } from '../../common/modelCapabilities.js';
 
 // Module-level memo for SDK-selection diagnostic logs. Keys are
 // `${providerName}|${modelName}|${sdkNpm}|${source}` — log once per unique
@@ -50,6 +50,7 @@ import { readMiniMaxRefusal } from '../../common/minimaxBaseResp.js';
 import { getModelQuirks } from '../modelQuirks/modelQuirksService.js';
 import { withReasoningEffortInSystemPrompt } from '../../common/modelQuirks/modelQuirksTypes.js';
 import { providerNames, SettingsOfProvider } from '../../common/vibeideSettingsTypes.js';
+import type { ProviderVendor } from '../../common/providerVendor.js';
 import { ensureSystemCADispatcher } from './systemCAFetch.js';
 import { extractReasoningWrapper, extractTextToolCallsWrapper, extractXMLToolsWrapper, stripThinkTagsWrapper, stripStandaloneThinkDelimitersWrapper } from './extractGrammar.js';
 import type { SendChatParams_Internal } from './sendLLMMessage.internalTypes.js';
@@ -60,19 +61,33 @@ import { isOpencodeGatewayUrl, opencodeGatewayHeaders } from '../../common/openc
 // Every chat goes through this adapter: the built-ins by id, config providers (.vibe/providers) by
 // their transport overlay. FIM and model listing keep their own paths in sendLLMMessage.impl.ts.
 export type AiSdkProviderName =
-	| 'anthropic' | 'openAI' | 'gemini'
-	| 'openCodeZen' | 'openRouter' | 'minimax' | 'openAICompatible' | 'liteLLM' | 'lmRoute' | 'pollinations'
-	| 'deepseek' | 'mistral' | 'xAI' | 'groq' | 'awsBedrock' | 'googleVertex' | 'microsoftAzure'
+	| 'openCodeZen' | 'openRouter' | 'minimax' | 'liteLLM' | 'lmRoute'
+	| 'deepseek'
 	| 'ollama' | 'vLLM' | 'lmStudio';
+
+const BUILTIN_PROVIDERS: ReadonlySet<string> = new Set<string>(providerNames);
+const isBuiltinProvider = (providerName: string): boolean => BUILTIN_PROVIDERS.has(providerName);
 
 /**
  * Providers whose silence before the first visible token is bounded by `timeoutMs.aggregator`: the
  * extra hop client → aggregator → upstream adds latency. Config providers join them in `firstContentLimitMs`.
  */
-const AGGREGATOR_PROVIDERS: ReadonlySet<string> = new Set(['openCodeZen', 'openRouter', 'openAICompatible', 'liteLLM', 'lmRoute', 'pollinations']);
+const AGGREGATOR_PROVIDERS: ReadonlySet<string> = new Set(['openCodeZen', 'openRouter', 'liteLLM', 'lmRoute']);
 
-const BUILTIN_PROVIDERS: ReadonlySet<string> = new Set<string>(providerNames);
-const isBuiltinProvider = (providerName: string): boolean => BUILTIN_PROVIDERS.has(providerName);
+/**
+ * Вендоры из файлов набора, которые прежде были встроенными агрегаторами («Совместимо с OpenAI API», Pollinations): им
+ * по-прежнему даётся срок агрегатора. Остальные вендоры (Anthropic, OpenAI, Gemini…) ходят напрямую и берут срок облака.
+ */
+const AGGREGATOR_VENDORS: ReadonlySet<ProviderVendor> = new Set<ProviderVendor>(['openAICompatible', 'pollinations']);
+
+/** Провайдер от вендора, у которого прежде был встроенный аналог: id (`anthropic`) или родной адрес сказали, чей он. */
+const isAggregatorProvider = (providerName: string): boolean => {
+	if (AGGREGATOR_PROVIDERS.has(providerName)) { return true; }
+	if (isBuiltinProvider(providerName)) { return false; }
+	const vendor = providerVendor(providerName);
+	return vendor === undefined || AGGREGATOR_VENDORS.has(vendor);
+};
+
 
 /** An OpenAI refusal to stream for an organisation that has not passed verification (reasoning models). */
 const UNVERIFIED_ORG_STREAM_REFUSAL = /organization must be verified/i;
@@ -647,25 +662,6 @@ const cacheWriteTokensExtractor: MetadataExtractor = {
 	},
 };
 
-const parseHeadersJSON = (s: string | undefined): Record<string, string> | undefined => {
-	if (!s) { return undefined; }
-	try {
-		const obj: unknown = JSON.parse(s);
-		if (obj && typeof obj === 'object') {
-			const record = obj as Record<string, unknown>;
-			const out: Record<string, string> = {};
-			for (const k of Object.keys(record)) {
-				const v = record[k];
-				if (typeof v === 'string') { out[k] = v; }
-			}
-			return out;
-		}
-		return undefined;
-	} catch (e) {
-		throw new Error(`Error parsing OpenAI-Compatible headers: ${s} is not a valid JSON.`);
-	}
-};
-
 type ResolvedEndpoint = {
 	baseURL: string;
 	apiKey: string;
@@ -688,7 +684,6 @@ type ResolvedEndpoint = {
 
 const ANTHROPIC_DEFAULT_BASE_URL = 'https://api.anthropic.com/v1';
 const OPENAI_DEFAULT_BASE_URL = 'https://api.openai.com/v1';
-const GEMINI_DEFAULT_BASE_URL = 'https://generativelanguage.googleapis.com/v1beta';
 
 /**
  * Anthropic's base URL from `ANTHROPIC_BASE_URL`. The official SDK read that variable WITHOUT the version
@@ -712,6 +707,23 @@ function isAnthropicOwnApi(baseURL: string): boolean {
 	}
 }
 
+const sameBaseURL = (a: string | undefined, b: string): boolean => !!a && a.replace(/\/+$/, '') === b.replace(/\/+$/, '');
+
+/**
+ * Корпоративный шлюз, заданный переменной окружения вендора, — как это делали официальные клиенты, которые заменили маршруты
+ * Anthropic и OpenAI: `ANTHROPIC_BASE_URL`, `OPENAI_BASE_URL`. Действует, пока файл набора оставил адрес вендора по умолчанию:
+ * адрес, который человек переписал в файле сам, сильнее окружения.
+ */
+export function baseURLFromVendorEnv(vendor: ProviderVendor | undefined, fileBaseURL: string | undefined, env: Readonly<Record<string, string | undefined>>): string | undefined {
+	if (vendor === 'anthropic' && sameBaseURL(fileBaseURL, ANTHROPIC_DEFAULT_BASE_URL) && env.ANTHROPIC_BASE_URL?.trim()) {
+		return anthropicBaseURLOf(env.ANTHROPIC_BASE_URL);
+	}
+	if (vendor === 'openAI' && sameBaseURL(fileBaseURL, OPENAI_DEFAULT_BASE_URL) && env.OPENAI_BASE_URL?.trim()) {
+		return env.OPENAI_BASE_URL.trim().replace(/\/+$/, '');
+	}
+	return undefined;
+}
+
 // Resolve baseURL/apiKey/headers/queryParams per provider. The one place chat
 // endpoints live — any change here re-routes every request to that provider.
 const resolveEndpoint = async (
@@ -720,18 +732,6 @@ const resolveEndpoint = async (
 	settingsOfProvider: SettingsOfProvider,
 ): Promise<ResolvedEndpoint> => {
 	switch (providerName) {
-		// ---------- Vendors' own APIs ----------
-		// The base URLs honour the vendor SDKs' environment variables, as the official clients these routes
-		// replaced did: a corporate gateway configured that way keeps working.
-		case 'anthropic': {
-			return { baseURL: anthropicBaseURLOf(process.env.ANTHROPIC_BASE_URL), apiKey: settingsOfProvider.anthropic?.apiKey ?? '' };
-		}
-		case 'openAI': {
-			return { baseURL: (process.env.OPENAI_BASE_URL || OPENAI_DEFAULT_BASE_URL).replace(/\/+$/, ''), apiKey: settingsOfProvider.openAI?.apiKey ?? '' };
-		}
-		case 'gemini': {
-			return { baseURL: GEMINI_DEFAULT_BASE_URL, apiKey: settingsOfProvider.gemini?.apiKey ?? '' };
-		}
 		// ---------- Local servers ----------
 		case 'ollama':
 		case 'vLLM':
@@ -769,24 +769,6 @@ const resolveEndpoint = async (
 				},
 			};
 		}
-		case 'openAICompatible': {
-			const c = settingsOfProvider.openAICompatible;
-			const headers = parseHeadersJSON(c?.headersJSON) ?? {};
-			for (const [hName, hValue] of Object.entries(headers)) {
-				assertHttpHeaderSafe(`OpenAI-Compatible custom header name "${hName}"`, hName);
-				if (typeof hValue === 'string') {
-					assertHttpHeaderSafe(`OpenAI-Compatible custom header "${hName}" value`, hValue);
-				}
-			}
-			// Inject session affinity for aggregator routes. User-supplied headers
-			// win on collision (Object.assign order below) — they may already set
-			// their own affinity key for a private gateway.
-			return {
-				baseURL: c?.endpoint ?? '',
-				apiKey: c?.apiKey ?? '',
-				headers: { 'x-session-affinity': OPENCODE_PROCESS_SESSION_ID, ...headers },
-			};
-		}
 		case 'liteLLM': {
 			const c = settingsOfProvider.liteLLM;
 			const endpoint = (c?.endpoint ?? '').replace(/\/+$/, '');
@@ -805,14 +787,6 @@ const resolveEndpoint = async (
 				headers: { 'x-session-affinity': OPENCODE_PROCESS_SESSION_ID },
 			};
 		}
-		case 'pollinations': {
-			const c = settingsOfProvider.pollinations;
-			return {
-				baseURL: 'https://gen.pollinations.ai/v1',
-				apiKey: c?.apiKey ?? '',
-				headers: { 'x-session-affinity': OPENCODE_PROCESS_SESSION_ID },
-			};
-		}
 		// ---------- Direct cloud OpenAI-compat ----------
 		case 'deepseek': {
 			const c = settingsOfProvider.deepseek;
@@ -823,56 +797,13 @@ const resolveEndpoint = async (
 			const c = settingsOfProvider.minimax;
 			return { baseURL: 'https://api.minimax.io/v1', apiKey: c?.apiKey ?? '' };
 		}
-		case 'mistral': {
-			const c = settingsOfProvider.mistral;
-			return { baseURL: 'https://api.mistral.ai/v1', apiKey: c?.apiKey ?? '' };
-		}
-		case 'xAI': {
-			const c = settingsOfProvider.xAI;
-			return { baseURL: 'https://api.x.ai/v1', apiKey: c?.apiKey ?? '' };
-		}
-		case 'groq': {
-			const c = settingsOfProvider.groq;
-			return { baseURL: 'https://api.groq.com/openai/v1', apiKey: c?.apiKey ?? '' };
-		}
-		case 'awsBedrock': {
-			const c = settingsOfProvider.awsBedrock;
-			let baseURL = c?.endpoint || 'http://localhost:4000/v1';
-			if (!baseURL.endsWith('/v1')) { baseURL = baseURL.replace(/\/+$/, '') + '/v1'; }
-			return { baseURL, apiKey: c?.apiKey ?? '' };
-		}
-		case 'googleVertex': {
-			const c = settingsOfProvider.googleVertex;
-			const region = c?.region ?? '';
-			const project = c?.project ?? '';
-			const apiKey = await getGoogleApiKey();
-			assertHttpHeaderSafe('Google Vertex access token', apiKey);
-			return {
-				baseURL: `https://${region}-aiplatform.googleapis.com/v1/projects/${project}/locations/${region}/endpoints/openapi`,
-				apiKey,
-			};
-		}
-		case 'microsoftAzure': {
-			const c = settingsOfProvider.microsoftAzure;
-			const resource = c?.project ?? '';
-			const apiVersion = c?.azureApiVersion ?? '2024-04-01-preview';
-			const apiKey = typeof c?.apiKey === 'string' ? c.apiKey : '';
-			// Azure URL shape: /openai/deployments/<deployment>/chat/completions?api-version=X.
-			// AI SDK appends "/chat/completions" itself, so baseURL stops at the deployment.
-			return {
-				baseURL: `https://${resource}.openai.azure.com/openai/deployments/${modelName}`,
-				apiKey,
-				queryParams: { 'api-version': apiVersion },
-			};
-		}
-		// ---------- Dynamic providers (.vibe/providers.json) ----------
+		// ---------- Провайдеры из файлов (.vibe/providers/*.jsonc, .vibe/providers.json) ----------
 		default: {
-			// Not a built-in id. Its transient transport (baseURL/apiKey/apiKeyEnv/headers) was merged
-			// into `settingsOfProvider` on the send-site (2b-2 C overlay). apiKey was already resolved
-			// in the renderer from apiKeyRef/.vibe/.env; apiKeyEnv resolves HERE as the last fallback
-			// (electron-main has reliable process.env). Empty baseURL → caller's guard surfaces a clear
-			// error (PRODUCT invariant 3). Mirror of the openai-compatible fallthrough in
-			// `newOpenAICompatibleSDK` (sendLLMMessage.impl.ts), but for the AI-SDK path.
+			// Не встроенный id. Его транспорт (baseURL/apiKey/apiKeyEnv/headers) слит в `settingsOfProvider` на стороне
+			// отправки (оверлей 2b-2 C). apiKey уже разрешён в окне из apiKeyRef/.vibe/.env; apiKeyEnv разрешается ЗДЕСЬ
+			// последним запасным путём (в главном процессе process.env надёжен). Пустой baseURL → защита вызывающего
+			// даёт внятную ошибку (инвариант 3). Зеркало openai-compatible запасного пути в `newOpenAICompatibleSDK`
+			// (sendLLMMessage.impl.ts), но для пути AI SDK.
 			const cfg = (settingsOfProvider as unknown as Record<string, DynProviderTransportConfig | undefined>)[providerName as string];
 			const fileHeaders = (cfg?.headers && typeof cfg.headers === 'object') ? cfg.headers : undefined;
 			if (fileHeaders) {
@@ -881,16 +812,25 @@ const resolveEndpoint = async (
 					if (typeof hValue === 'string') { assertHttpHeaderSafe(`Dynamic provider "${providerName}" header "${hName}" value`, hValue); }
 				}
 			}
-			// A provider on the opencode.ai gateway (OpenCode Go from the shared set) is introduced to it the way the
-			// built-in Zen is — a file cannot carry per-request ids. Headers the file declares itself win
-			const headers = isOpencodeGatewayUrl(cfg?.baseURL)
-				? { ...opencodeGatewayHeaders({ project: OPENCODE_PROCESS_PROJECT_ID, session: OPENCODE_PROCESS_SESSION_ID, request: generateUuid() }), ...fileHeaders }
-				: fileHeaders;
-			// A keyless server gets no key; any other one gets the key it has, or nothing — never a placeholder
-			const key = cfg?.keyless ? undefined : cfg?.apiKey || (cfg?.apiKeyEnv ? process.env[cfg.apiKeyEnv] : undefined) || undefined;
-			if (key) { assertHttpHeaderSafe(`Dynamic provider "${providerName}" API key`, key); }
+			const vendor = cfg?.vendor ?? providerVendor(providerName as string);
+			// Провайдер на шлюзе opencode.ai (OpenCode Go из общего набора) представляется ему так же, как встроенный Zen:
+			// файл не может нести идентификаторы на каждый запрос. Заголовки, объявленные самим файлом, сильнее
+			const gatewayHeaders = isOpencodeGatewayUrl(cfg?.baseURL)
+				? opencodeGatewayHeaders({ project: OPENCODE_PROCESS_PROJECT_ID, session: OPENCODE_PROCESS_SESSION_ID, request: generateUuid() })
+				: undefined;
+			// Прежние встроенные агрегаторы («Совместимо с OpenAI API», Pollinations) слали подсказку липкой маршрутизации
+			const affinityHeaders = vendor && AGGREGATOR_VENDORS.has(vendor) ? { 'x-session-affinity': OPENCODE_PROCESS_SESSION_ID } : undefined;
+			const headers = gatewayHeaders || affinityHeaders ? { ...gatewayHeaders, ...affinityHeaders, ...fileHeaders } : fileHeaders;
+			// Провайдеру на токене Google (Vertex) вводить нечего: токен берётся у Application Default Credentials на каждом запросе —
+			// он живёт около часа, поэтому не кэшируется. Остальной: ключ из карточки/файла, иначе из окружения, иначе ничего —
+			// заглушки нет никогда, а сервер без ключа не получает ничего
+			const adc = usesGoogleAdc(cfg ?? {});
+			const key = adc
+				? await getGoogleApiKey()
+				: cfg?.keyless ? undefined : cfg?.apiKey || (cfg?.apiKeyEnv ? process.env[cfg.apiKeyEnv] : undefined) || undefined;
+			if (key) { assertHttpHeaderSafe(adc ? 'Google OAuth access token' : `Dynamic provider "${providerName}" API key`, key); }
 			return {
-				baseURL: cfg?.baseURL ?? '',
+				baseURL: baseURLFromVendorEnv(vendor, cfg?.baseURL, process.env) ?? cfg?.baseURL ?? '',
 				apiKey: FILE_KEY_MARKER,
 				headers,
 				fileKey: { auth: cfg?.auth, key, ...(cfg?.query ? { query: cfg.query } : {}) },
@@ -1601,11 +1541,15 @@ export const sendViaAISdk = async (params: SendChatParams_Internal): Promise<voi
 	const sdkSource = sdkNpmFromOverride ? 'override' : sdkNpmOfBuiltin ? 'builtin' : sdkNpmFromFile ? 'file' : (sdkNpm ? 'models.dev' : 'fallback');
 	const anthropicWire = sdkNpm === '@ai-sdk/anthropic';
 	const openAIWire = sdkNpm === '@ai-sdk/openai' || sdkNpm === '@ai-sdk/openai#responses';
+	// Чей это провайдер — по id или родному адресу: Anthropic, OpenAI и Gemini из файлов набора ходят теми же особыми путями,
+	// что и прежние встроенные, а шлюз на том же проводе (MiniMax по Messages) — общим
+	const vendor = providerVendor(providerName);
+	const isAnthropicVendor = vendor === 'anthropic';
 	// GPT-6 on the Responses wire: an effort change mid-thread goes as an update item, not as a new request-level effort
 	const effortByUpdate = sdkNpm === '@ai-sdk/openai#responses' && quirks.effortByUpdate === true;
 	// Claude on Anthropic's own API: the same change goes as an effort-only system message
 	// Another address on this wire never promised the field, and a field it refuses fails the whole turn
-	const effortBySystemMessage = anthropicWire && providerName === 'anthropic' && isAnthropicOwnApi(baseURL) && quirks.effortBySystemMessage === true;
+	const effortBySystemMessage = anthropicWire && isAnthropicVendor && isAnthropicOwnApi(baseURL) && quirks.effortBySystemMessage === true;
 	let effortPlan: EffortPlan | undefined;
 	const googleWire = sdkNpm === '@ai-sdk/google';
 	// The model refuses chat/completions outright: a request there is a sure 400, so it does not go, and the way out is named
@@ -1642,9 +1586,9 @@ export const sendViaAISdk = async (params: SendChatParams_Internal): Promise<voi
 	// Anthropic's own entries are the exception for «off»: they are written for this wire, and Sonnet 5.5's
 	// `between_tools` is a thinking mode the SDK does not know
 	const fileRoute = !isBuiltinProvider(providerName);
-	const offPayloadForWire = reasoningOff && (fileRoute || providerName === 'anthropic') ? reasoningCapabilities?.reasoningOffPayload : undefined;
+	const offPayloadForWire = reasoningOff && (fileRoute || isAnthropicVendor) ? reasoningCapabilities?.reasoningOffPayload : undefined;
 	// Cache diagnostics are Anthropic's own API only; `null` on the first turn asks for them with nothing to compare
-	const cacheDiagnostics = anthropicWire && providerName === 'anthropic';
+	const cacheDiagnostics = anthropicWire && isAnthropicVendor;
 	const anthropicBodyPatch = anthropicWire ? {
 		...(fileRoute ? additionalOpenAIPayload as Record<string, unknown> | undefined ?? {} : {}),
 		...(offPayloadForWire ?? {}),
@@ -1679,7 +1623,7 @@ export const sendViaAISdk = async (params: SendChatParams_Internal): Promise<voi
 			// Anthropic's own API gets no legacy beta flags: the SDK streams tool input eagerly on its own
 			// (`eager_input_streaming`), adaptive thinking interleaves without a header, and the vendor asks
 			// not to send the old tool-streaming flag next to the new field. Compatible upstreams keep them.
-			headers: providerName === 'anthropic' ? headers : {
+			headers: isAnthropicVendor ? headers : {
 				...headers,
 				// Anthropic-beta flags mirrored from opencode CLI (anomalyco/opencode
 				// provider/provider.ts:155-165 "anthropic" custom config). Without
@@ -1836,7 +1780,7 @@ export const sendViaAISdk = async (params: SendChatParams_Internal): Promise<voi
 	// The file's own `timeoutMs` is the author's word for this server and beats the defaults by kind
 	const firstContentLimitMs = resolved.timeoutMs ?? (isLocalProvider(providerName, settingsOfProvider)
 		? runtimeOptions?.timeoutMs?.local ?? 30_000
-		: AGGREGATOR_PROVIDERS.has(providerName) || !isBuiltinProvider(providerName)
+		: isAggregatorProvider(providerName)
 			? runtimeOptions?.timeoutMs?.aggregator ?? 180_000
 			: runtimeOptions?.timeoutMs?.cloud ?? 180_000);
 
@@ -2064,7 +2008,7 @@ export const sendViaAISdk = async (params: SendChatParams_Internal): Promise<voi
 	// The reasoning choice and the per-vendor extras, spelled for the wire this request takes. The
 	// OpenAI-compatible wire got its share in the body above (`openAICompatExtraBody`).
 	const providerOptions: Record<string, JSONObject> = {};
-	if (anthropicWire && providerName === 'anthropic') {
+	if (anthropicWire && isAnthropicVendor) {
 		// An «off» that names its own thinking mode (Sonnet 5.5's `between_tools`) refuses `block_binding`: the body replaces
 		// the thinking object anyway, and asking for the binding would only add its beta header
 		const thinkingOptions = claudeThinkingOptions(
@@ -2100,10 +2044,10 @@ export const sendViaAISdk = async (params: SendChatParams_Internal): Promise<voi
 			// Responses keeps every response on OpenAI's servers for 30 days unless told otherwise; chat
 			// completions, which OpenAI's own route used until now, never did. Nothing here reads a stored
 			// response back, so nothing is stored.
-			...(providerName === 'openAI' && sdkNpm === '@ai-sdk/openai#responses' ? { store: false } : {}),
+			...(vendor === 'openAI' && sdkNpm === '@ai-sdk/openai#responses' ? { store: false } : {}),
 		};
 	}
-	if (googleWire && providerName === 'gemini') {
+	if (googleWire && vendor === 'gemini') {
 		const thinkingConfig = googleThinkingConfig(reasoningInfo);
 		if (thinkingConfig) {
 			providerOptions.google = { thinkingConfig: { ...thinkingConfig } };
@@ -2111,7 +2055,7 @@ export const sendViaAISdk = async (params: SendChatParams_Internal): Promise<voi
 	}
 	// Anthropic requires `max_tokens`, and thinking spends it together with the answer: the catalogue's
 	// reserved output for this model and reasoning state. Other wires keep the vendor default, as before.
-	const maxOutputTokens = anthropicWire && providerName === 'anthropic'
+	const maxOutputTokens = anthropicWire && isAnthropicVendor
 		? getReservedOutputTokenSpace(providerName, modelName_, { isReasoningEnabled: !!reasoningInfo?.isReasoningEnabled, overridesOfModel }) ?? 4_096
 		: undefined;
 	const toolChoice = runtimeOptions?.forceToolUse && tools && !quirks.forcedToolChoiceUnsupported ? 'required' as const : (tools ? 'auto' as const : undefined);

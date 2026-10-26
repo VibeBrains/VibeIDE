@@ -393,6 +393,16 @@ prompts.ts       →  tools/index.ts, tools/_constants.ts
 
 ---
 
+## [architecture] Порядок свойств в `parameters.properties` сохраняется
+
+**Контекст:** Provider-Verifier MiniMax ловит провайдеров, сортирующих `parameters.properties` по алфавиту. В VibeIDE схема инструмента собирается в `toolInputSchema` (`aiSdkAdapter.ts`) из `Object.keys(t.params)`, то есть в порядке определения параметра.
+
+**Суть:** AI SDK получает объект схемы как есть; `JSON.stringify` и сериализатор OpenAI-compatible сохраняют порядок вставки для строковых ключей. Поэтому порядок на проводе совпадает с порядком в исходном `InternalToolInfo.params`. Сортировка ключей перед построением `properties` ломает этот порядок.
+
+**Применение:** регрессионный тест `aiSdkAdapter.test.ts` («провод OpenAI-compatible: порядок свойств в parameters.properties сохраняет порядок определения инструмента») проверяет `Object.keys(tool.function.parameters.properties)` на собранном теле запроса. Если очередная версия AI SDK или промежуточный слой начнёт сортировать свойства, тест упадёт. Вложённые схемы текущий публичный путь (`InternalToolInfo.params` — плоские строки) не поддерживает.
+
+---
+
 ## Связанные файлы
 
 - [aiSdkAdapter.ts](../../../src/vs/workbench/contrib/vibeide/electron-main/llmMessage/aiSdkAdapter.ts) — AI SDK путь, `convertToolsToAiSdkToolSet`, `experimental_repairToolCall`.

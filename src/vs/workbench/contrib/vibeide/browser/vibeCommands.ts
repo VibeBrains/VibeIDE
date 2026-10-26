@@ -960,7 +960,7 @@ registerAction2(class extends Action2 {
 			`createdAt: "${createdAt}"`,
 			`workspaceRootUri: "${wf.toString(true)}"`,
 			'# Optional: providerId/modelId for routing — not raw API keys.',
-			'# activeModel: { "providerId": "openAI", "modelName": "gpt-4o" }',
+			'# activeModel: { "providerId": "openai", "modelName": "gpt-4o" }',
 			'---',
 			'',
 			'# Plan',

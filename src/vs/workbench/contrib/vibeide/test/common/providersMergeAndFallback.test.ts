@@ -94,8 +94,8 @@ suite('Config providers — merged rights (global+workspace, auto-fallback)', ()
 	suite('isBuiltinProviderId', () => {
 		test('narrows built-ins and rejects config ids', () => {
 			assert.deepStrictEqual(
-				['anthropic', 'openAI', 'zai', 'corp-proxy', ''].map(isBuiltinProviderId),
-				[true, true, false, false, false],
+				['minimax', 'openRouter', 'zai', 'corp-proxy', 'anthropic', 'openAI', ''].map(isBuiltinProviderId),
+				[true, true, false, false, false, false, false],
 			);
 		});
 	});

@@ -34,13 +34,14 @@ suite('hour cache write price', () => {
 		);
 	});
 
+	// `deepseek` — встроенный провайдер: цену и срок кэша ему приносит файл набора, который его патчит
 	test('a file patching a built-in brings its models\' price and cache lifetime to the built-in', () => {
 		const patches = builtinModelPatchesOf([
 			{ id: 'claude-opus-5-5', cacheTtl: '1h', cost: { input: 5, output: 25, cacheRead: 0.5, cacheWrite: 6.25, cacheWrite1h: 8 } },
 			{ id: 'no-price-here', toolFormat: 'openai' },
 		]);
-		setBuiltinModelPatches({ anthropic: patches ?? {} });
-		const caps = getModelCapabilities('anthropic', 'claude-opus-5-5', undefined);
+		setBuiltinModelPatches({ deepseek: patches ?? {} });
+		const caps = getModelCapabilities('deepseek', 'claude-opus-5-5', undefined);
 		assert.deepStrictEqual(
 			{ patched: Object.keys(patches ?? {}), ttl: caps.promptCacheTtl, write: caps.cost?.cache_write, read: caps.cost?.cache_read },
 			{ patched: ['claude-opus-5-5'], ttl: '1h', write: 8, read: 0.5 },
@@ -50,9 +51,9 @@ suite('hour cache write price', () => {
 	/** Спека обещает `deprecation` и файлу, который правит встроенного провайдера: без переноса пометка молча терялась */
 	test('a file patching a built-in brings the retirement the vendor announced', () => {
 		const patches = builtinModelPatchesOf([{ id: 'openai/gpt-oss-20b', deprecation: { date: '2027-01-15', replacedBy: 'openai/gpt-oss-40b' } }]);
-		setBuiltinModelPatches({ groq: patches ?? {} });
+		setBuiltinModelPatches({ minimax: patches ?? {} });
 		assert.deepStrictEqual(
-			getModelCapabilities('groq', 'openai/gpt-oss-20b', undefined).deprecation,
+			getModelCapabilities('minimax', 'openai/gpt-oss-20b', undefined).deprecation,
 			{ date: '2027-01-15', replacedBy: 'openai/gpt-oss-40b' },
 		);
 	});

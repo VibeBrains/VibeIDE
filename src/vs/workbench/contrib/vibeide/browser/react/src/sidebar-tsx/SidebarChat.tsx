@@ -19,13 +19,14 @@ import { Schemas } from '../../../../../../../base/common/network.js';
 import { ChatMarkdownRender, ChatMessageLocation, getApplyBoxId } from '../markdown/ChatMarkdownRender.js';
 import { URI } from '../../../../../../../base/common/uri.js';
 import { VSBuffer } from '../../../../../../../base/common/buffer.js';
+import Severity from '../../../../../../../base/common/severity.js';
 import { threadToMarkdown } from '../../../../common/chatThreadToMarkdown.js';
 import { nudgeHeadlineOf } from '../../../../common/agentNudges.js';
 import { IDisposable } from '../../../../../../../base/common/lifecycle.js';
 import { ErrorDisplay } from './ErrorDisplay.js';
 import { BlockCode, TextAreaFns, VibeCustomDropdownBox, VibeInputBox2, VibeSlider, VibeSwitch, VibeDiffEditor } from '../util/inputs.js';
 import { ModelDropdown, } from '../vibe-settings-tsx/ModelDropdown.js';
-import { AcpModeControl, AcpPermissionCard, AcpToolCard, useAcpAgentCommands } from './AcpChat.js';
+import { AcpModeControl, AcpCompactionLine, AcpNoticeLine, AcpPermissionCard, AcpToolCard, useAcpAgentCommands } from './AcpChat.js';
 import { agentCommandOf } from '../../../../common/acp/acpProtocol.js';
 import { chatLeaderOf } from '../../../../common/chatLeader.js';
 import { PastThreadsList, ChatHistoryToolbarDropdown } from './SidebarThreadSelector.js';
@@ -62,6 +63,7 @@ import { VibeMcpAppHost, IVibeMcpAppData, MCP_APP_DEFAULT_HEIGHT } from '../../.
 import { trackRenderLoop } from '../util/renderLoopGuard.js';
 import type { ProviderRefusalDiagnostics } from '../../../../common/sendLLMMessageTypes.js';
 import { useImageAttachments } from '../util/useImageAttachments.js';
+import { routeAttachmentFiles, unsupportedAttachmentsMessage } from '../../../attachmentFileRouting.js';
 import { usePDFAttachments } from '../util/usePDFAttachments.js';
 import { PDFAttachmentList } from '../util/PDFAttachmentList.js';
 import { ImageAttachmentList } from '../util/ImageAttachmentList.js';
@@ -1574,6 +1576,15 @@ export const VibeChatArea: React.FC<VibeideChatAreaProps> = ({
 	// An external agent leads this thread: the chat's own knobs — route, scout, context meter, reasoning — steer nothing there
 	const composerThreads = useChatThreadsState();
 	const ledByAgent = featureName === 'Chat' && !!composerThreads.allThreads[composerThreads.currentThreadId]?.acpAgent;
+	const accessor = useAccessor();
+	// ATTACHMENTS-1026: неподдержанные внешние файлы (drop/скрепка) получают видимую ошибку, а не молчание
+	const notifyUnsupportedFiles = React.useCallback((files: File[]) => {
+		if (files.length === 0) { return; }
+		accessor.get('INotificationService').notify({
+			severity: Severity.Error,
+			message: unsupportedAttachmentsMessage(files),
+		});
+	}, [accessor]);
 
 	// Paste of files (images / PDFs) is handled directly on the textarea via onPaste prop in VibeInputBox2 —
 	// container-level paste listener was removed because it duplicated processing in bubble phase.
@@ -1594,7 +1605,7 @@ export const VibeChatArea: React.FC<VibeideChatAreaProps> = ({
 		lastDragOverTimeRef.current = now;
 
 		const hasFiles = Array.from(e.dataTransfer.items).some(item =>
-			item.type.startsWith('image/') || item.type === 'application/pdf'
+			item.kind === 'file' && (item.type.startsWith('image/') || item.type === 'application/pdf' || item.type === '')
 		);
 		if (hasFiles) {
 			setIsDragOver(true);
@@ -1612,18 +1623,16 @@ export const VibeChatArea: React.FC<VibeideChatAreaProps> = ({
 		e.stopPropagation();
 		setIsDragOver(false);
 
-		const imageFiles = Array.from(e.dataTransfer.files).filter(file =>
-			file.type.startsWith('image/')
-		);
-		const pdfFiles = Array.from(e.dataTransfer.files).filter(file =>
-			file.type === 'application/pdf'
-		);
-
-		if (imageFiles.length > 0 && onImageDrop) {
-			onImageDrop(imageFiles);
+		// Общий seam со скрепкой: роутинг по типу, fallback по расширению, ошибка вместо молчания
+		const routed = routeAttachmentFiles(Array.from(e.dataTransfer.files));
+		if (routed.images.length > 0 && onImageDrop) {
+			onImageDrop(routed.images);
 		}
-		if (pdfFiles.length > 0 && onPDFDrop) {
-			onPDFDrop(pdfFiles);
+		if (routed.pdfs.length > 0 && onPDFDrop) {
+			onPDFDrop(routed.pdfs);
+		}
+		if (routed.unsupported.length > 0) {
+			notifyUnsupportedFiles(routed.unsupported);
 		}
 	};
 
@@ -1631,11 +1640,11 @@ export const VibeChatArea: React.FC<VibeideChatAreaProps> = ({
 	// There's no meaningful difference to the user between «attach image» and «attach PDF».
 	const handleAttachUploadClick = () => { attachInputRef.current?.click(); };
 	const handleAttachInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-		const all = Array.from(e.target.files || []);
-		const images = all.filter(f => f.type.startsWith('image/'));
-		const pdfs = all.filter(f => f.type === 'application/pdf');
-		if (images.length > 0 && onImageDrop) { onImageDrop(images); }
-		if (pdfs.length > 0 && onPDFDrop) { onPDFDrop(pdfs); }
+		// Тот же routeAttachmentFiles, что и в drop — поведение обоих входов не расходится
+		const routed = routeAttachmentFiles(Array.from(e.target.files || []));
+		if (routed.images.length > 0 && onImageDrop) { onImageDrop(routed.images); }
+		if (routed.pdfs.length > 0 && onPDFDrop) { onPDFDrop(routed.pdfs); }
+		if (routed.unsupported.length > 0) { notifyUnsupportedFiles(routed.unsupported); }
 		e.target.value = '';
 	};
 
@@ -1672,7 +1681,7 @@ export const VibeChatArea: React.FC<VibeideChatAreaProps> = ({
 			<input
 				ref={attachInputRef}
 				type="file"
-				accept="image/png,image/jpeg,image/webp,image/gif,image/svg+xml,application/pdf"
+				accept="image/png,image/jpeg,image/webp,image/gif,image/svg+xml,application/pdf,.png,.jpg,.jpeg,.webp,.gif,.svg,.pdf"
 				multiple
 				className="hidden"
 				onChange={handleAttachInputChange}
@@ -5206,6 +5215,14 @@ const _ChatBubble = React.memo(({ threadId, chatMessage, currCheckpointIdx, isCo
 
 	else if (role === 'acp_tool') {
 		return <AcpToolCard message={chatMessage} isCheckpointGhost={isCheckpointGhost} />;
+	}
+
+	else if (role === 'acp_notice') {
+		return <AcpNoticeLine message={chatMessage} isCheckpointGhost={isCheckpointGhost} />;
+	}
+
+	else if (role === 'acp_compaction') {
+		return <AcpCompactionLine message={chatMessage} isCheckpointGhost={isCheckpointGhost} />;
 	}
 
 	// Unknown role: render nothing rather than `undefined`, which React treats as an error.

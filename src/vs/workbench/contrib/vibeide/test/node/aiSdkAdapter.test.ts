@@ -22,6 +22,7 @@ import type { IMetricsService } from '../../common/metricsService.js';
 import type { LLMChatMessage } from '../../common/sendLLMMessageTypes.js';
 import { defaultSettingsOfProvider, SettingsOfProvider } from '../../common/vibeideSettingsTypes.js';
 import { setExternalProviders } from '../../common/modelCapabilities.js';
+import type { InternalToolInfo } from '../../common/prompt/prompts.js';
 import { skipInElectronRenderer } from './nodeOnly.js';
 
 /**
@@ -202,7 +203,7 @@ function respond(path: string, body: WireBody | undefined, res: ServerResponse):
 	}
 }
 
-suite('aiSdkAdapter — встроенные провайдеры против настоящих потоков вендоров', () => {
+suite('aiSdkAdapter — провайдеры вендоров и встроенные против настоящих потоков', () => {
 
 	ensureNoDisposablesAreLeakedInTestSuite();
 
@@ -249,10 +250,18 @@ suite('aiSdkAdapter — встроенные провайдеры против �
 
 	setup(() => { requests.length = 0; });
 
+	// Anthropic и OpenAI — провайдеры из файлов набора, а не встроенные: транспорт у них такой, каким его собирает сервис
+	// файловых провайдеров из `providers/anthropic.jsonc` и `providers/openai.jsonc`. Адрес — вендорский по умолчанию, и на локальный
+	// сервер его переводят переменные окружения вендора (ANTHROPIC_BASE_URL, OPENAI_BASE_URL), как у прежних встроенных
+	const FILE_PROVIDER_DEFAULTS: Record<string, object> = {
+		anthropic: { baseURL: 'https://api.anthropic.com/v1', protocol: 'anthropic', auth: { type: 'header', name: 'x-api-key' }, vendor: 'anthropic', runsLocally: false },
+		openai: { baseURL: 'https://api.openai.com/v1', protocol: 'openai', auth: 'bearer', vendor: 'openAI', runsLocally: false },
+	};
+
 	const settingsWith = (patch: Record<string, unknown>): SettingsOfProvider => {
 		const settings = deepClone(defaultSettingsOfProvider) as unknown as Record<string, unknown>;
 		for (const [id, value] of Object.entries(patch)) {
-			settings[id] = { ...(settings[id] as object | undefined), ...(value as object) };
+			settings[id] = { ...(FILE_PROVIDER_DEFAULTS[id] ?? settings[id] as object | undefined), ...(value as object) };
 		}
 		return settings as unknown as SettingsOfProvider;
 	};
@@ -443,9 +452,9 @@ suite('aiSdkAdapter — встроенные провайдеры против �
 	});
 
 	test('OpenAI: GPT-6 уходит в Responses — усилие, «выключено» как none, store:false, ключ кэша', async () => {
-		const settings = settingsWith({ openAI: { apiKey: 'sk-test', promptCacheKey: true } });
-		const on = await send({ providerName: 'openAI', modelName: 'gpt-6-luna', settingsOfProvider: settings, modelSelectionOptions: { reasoningEnabled: true }, messages: [{ role: 'user', content: 'Сделай' }], runtimeOptions: { promptCacheKey: 'vibe-abc' } });
-		const off = await send({ providerName: 'openAI', modelName: 'gpt-6-luna', settingsOfProvider: settings, modelSelectionOptions: { reasoningEnabled: false }, messages: [{ role: 'user', content: 'Сделай' }] });
+		const settings = settingsWith({ openai: { apiKey: 'sk-test', promptCacheKey: true } });
+		const on = await send({ providerName: 'openai', modelName: 'gpt-6-luna', settingsOfProvider: settings, modelSelectionOptions: { reasoningEnabled: true }, messages: [{ role: 'user', content: 'Сделай' }], runtimeOptions: { promptCacheKey: 'vibe-abc' } });
+		const off = await send({ providerName: 'openai', modelName: 'gpt-6-luna', settingsOfProvider: settings, modelSelectionOptions: { reasoningEnabled: false }, messages: [{ role: 'user', content: 'Сделай' }] });
 		const [first, second] = requests.filter(r => r.path === '/v1/responses');
 		assert.deepStrictEqual({
 			paths: requests.map(r => r.path),
@@ -471,13 +480,13 @@ suite('aiSdkAdapter — встроенные провайдеры против �
 		quirks.__setCatalogForTests({ version: 1, rules: [{ match: 'gpt-6', effortByUpdate: true }] });
 		try {
 			const outcome = await send({
-				providerName: 'openAI',
+				providerName: 'openai',
 				modelName: 'gpt-6-luna',
-				settingsOfProvider: settingsWith({ openAI: { apiKey: 'sk-test' } }),
+				settingsOfProvider: settingsWith({ openai: { apiKey: 'sk-test' } }),
 				modelSelectionOptions: { reasoningEnabled: true, reasoningEffort: 'high' },
 				messages: [
 					{ role: 'user', content: 'Первый вопрос' },
-					{ role: 'assistant', content: 'Первый ответ', effortMark: 'openAI/gpt-6-luna#low' } as unknown as LLMChatMessage,
+					{ role: 'assistant', content: 'Первый ответ', effortMark: 'openai/gpt-6-luna#low' } as unknown as LLMChatMessage,
 					{ role: 'user', content: 'Второй вопрос' },
 				],
 			});
@@ -491,7 +500,7 @@ suite('aiSdkAdapter — встроенные провайдеры против �
 				// The cached prefix keeps the thread's first effort; the change goes before the question it is for
 				reasoning: { effort: 'low' },
 				input: ['developer', 'user', 'assistant', { type: 'configuration_update', reasoning: { effort: 'high' } }, 'user'],
-				mark: 'openAI/gpt-6-luna#high',
+				mark: 'openai/gpt-6-luna#high',
 			});
 		} finally {
 			quirks.__resetForTests();
@@ -500,9 +509,9 @@ suite('aiSdkAdapter — встроенные провайдеры против �
 
 	test('OpenAI: организации без верификации поток запрещён — тот же запрос уходит ещё раз целиком', async () => {
 		const outcome = await send({
-			providerName: 'openAI',
+			providerName: 'openai',
 			modelName: 'o3',
-			settingsOfProvider: settingsWith({ openAI: { apiKey: 'sk-test' } }),
+			settingsOfProvider: settingsWith({ openai: { apiKey: 'sk-test' } }),
 			modelSelectionOptions: { reasoningEnabled: true, reasoningEffort: 'high' },
 			messages: [{ role: 'user', content: 'Сделай' }],
 		});
@@ -843,9 +852,9 @@ suite('aiSdkAdapter — встроенные провайдеры против �
 	test('рассуждение своим полем доходит до итога и у профиля с разбором <think> (R1)', async () => {
 		const outcome = await send({
 			// A self-hosted endpoint serving R1: its profile parses `<think>` out of the text
-			providerName: 'openAICompatible',
+			providerName: 'openai-compatible',
 			modelName: 'deepseek-r1',
-			settingsOfProvider: settingsWith({ openAICompatible: { endpoint: `http://127.0.0.1:${port}/reasoning/v1`, apiKey: 'k' } }),
+			settingsOfProvider: settingsWith({ 'openai-compatible': { baseURL: `http://127.0.0.1:${port}/reasoning/v1`, apiKey: 'k', protocol: 'openai', vendor: 'openAICompatible' } }),
 			messages: [{ role: 'user', content: 'Какая ветка?' }],
 		});
 		assert.deepStrictEqual({
@@ -1007,5 +1016,37 @@ suite('aiSdkAdapter — встроенные провайдеры против �
 			[requests.filter(r => r.path.startsWith('/v1beta/')).length, headers?.['retry-after'], outcome.error?.message, outcome.final],
 			[1, '58', 'Rate limit exceeded: Resource has been exhausted.', undefined],
 		);
+	});
+
+	test('провод OpenAI-compatible: порядок свойств в parameters.properties сохраняет порядок определения инструмента', async () => {
+		// Provider-Verifier MiniMax ловит провайдеров, сортирующих `parameters.properties` по алфавиту
+		// Здесь проверяется собранное тело запроса: порядок должен совпадать с порядком параметров в `InternalToolInfo`
+		// Вложенные схемы текущий публичный путь (`InternalToolInfo.params` — плоские строки) не поддерживает
+		setExternalProviders([{ id: 'test-order', source: 'file' }]);
+		const mcpTools: InternalToolInfo[] = [{
+			name: 'order_test',
+			description: 'Regression tool for property order.',
+			params: {
+				zebra: { description: 'Zebra param' },
+				apple: { description: 'Apple param' },
+				mango: { description: 'Mango param' },
+			},
+		}];
+		try {
+			await send({
+				providerName: 'test-order' as SendChatParams_Internal['providerName'],
+				modelName: 'order-model',
+				settingsOfProvider: settingsWith({ 'test-order': { baseURL: `http://127.0.0.1:${port}/compat/v1`, apiKey: 'k', protocol: 'openai' } }),
+				messages: [{ role: 'user', content: 'Привет' }],
+				mcpTools,
+			});
+		} finally {
+			setExternalProviders([]);
+		}
+		const request = requests.find(r => r.path === '/compat/v1/chat/completions');
+		const tools = (request?.body?.tools as { function: { name: string; parameters: { properties: Record<string, unknown> } } }[] | undefined) ?? [];
+		const tool = tools.find(t => t.function.name === 'order_test');
+		assert.ok(tool, 'order_test tool must be on the wire');
+		assert.deepStrictEqual(Object.keys(tool.function.parameters.properties), ['zebra', 'apple', 'mango']);
 	});
 });

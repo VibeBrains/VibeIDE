@@ -81,4 +81,36 @@ suite('acpThreadMirror', () => {
 		tool(log, 't1', 'in_progress');
 		assert.deepStrictEqual(mirrorAcpEntries(log.snapshot.entries, 0).map(block => [block.key, block.message.role]), [['m1', 'assistant'], ['tool:t1', 'acp_tool']]);
 	});
+
+	test('notice агента — отдельное сообщение с тяжестью, не путается с пометкой редактора', () => {
+		const log = new AcpSessionLog();
+		log.appendAcpNotice({ severity: 'error', title: 'Сломалось', description: 'подробности' });
+		log.appendNotice('Связь восстановлена');
+		assert.deepStrictEqual(mirrorAcpEntries(log.snapshot.entries, 0).map(block => [block.key, block.message]), [
+			['notice:an1', { role: 'acp_notice', severity: 'error', title: 'Сломалось', description: 'подробности' }],
+			['n2', { role: 'assistant', displayContent: 'Связь восстановлена', reasoning: '', anthropicReasoning: null, notice: true }],
+		]);
+	});
+
+	test('compaction — сообщение со статусом и сводкой, растёт на месте по compactionId', () => {
+		const log = new AcpSessionLog();
+		log.applyCompaction({ compactionId: 'cmp-1', status: 'in_progress' });
+		const opened = mirrorAcpEntries(log.snapshot.entries, 0);
+		log.applyCompactionChunk('cmp-1', 'Итог разговора');
+		log.applyCompaction({ compactionId: 'cmp-1', status: 'completed' });
+		const done = mirrorAcpEntries(log.snapshot.entries, 0);
+		assert.deepStrictEqual([opened.length, done.length], [1, 1]);
+		assert.deepStrictEqual(opened[0].message, { role: 'acp_compaction', compactionId: 'cmp-1', status: 'in_progress', summary: '' });
+		assert.deepStrictEqual(done[0].message, { role: 'acp_compaction', compactionId: 'cmp-1', status: 'completed', summary: 'Итог разговора' });
+		// Ключ стабилен — раннер перепишет сообщение на месте, а не добавит второе
+		assert.strictEqual(opened[0].key, done[0].key);
+	});
+
+	test('compaction с ошибкой несёт её в сообщение', () => {
+		const log = new AcpSessionLog();
+		log.applyCompaction({ compactionId: 'cmp-2', status: 'failed', error: 'модель недоступна' });
+		assert.deepStrictEqual(mirrorAcpEntries(log.snapshot.entries, 0)[0].message, {
+			role: 'acp_compaction', compactionId: 'cmp-2', status: 'failed', summary: '', error: 'модель недоступна',
+		});
+	});
 });

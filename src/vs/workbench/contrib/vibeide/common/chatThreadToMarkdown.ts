@@ -116,6 +116,22 @@ export function threadToMarkdown(messages: readonly ChatMessage[], opts: ThreadT
 				out.push('');
 				break;
 			}
+			case 'acp_notice': {
+				const label = { info: 'Сведение', warning: 'Предупреждение', error: 'Ошибка', other: 'Сведение' }[m.severity];
+				out.push(`> 📣 ${label}: **${m.title}**${m.description ? ` — ${m.description}` : ''}`, '');
+				break;
+			}
+			case 'acp_compaction': {
+				const caption = { in_progress: 'Сжатие контекста…', completed: 'Контекст сжат', failed: 'Не удалось сжать контекст', cancelled: 'Сжатие контекста отменено', unknown: 'Сжатие контекста' }[m.status];
+				out.push(`> 🗜️ ${caption}`, '');
+				if (m.summary) {
+					out.push('<details><summary>Сводка сжатия</summary>', '');
+					out.push(...fence(m.summary));
+					out.push('', '</details>', '');
+				}
+				if (m.error) { out.push(`**Ошибка сжатия:** ${m.error}`, ''); }
+				break;
+			}
 		}
 	}
 

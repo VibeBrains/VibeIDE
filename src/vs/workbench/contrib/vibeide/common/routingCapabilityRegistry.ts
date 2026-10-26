@@ -6,6 +6,7 @@
 
 import { ModelSelection, OverridesOfModel } from './vibeideSettingsTypes.js';
 import { getModelCapabilities, VibeideStaticModelInfo } from './modelCapabilities.js';
+import { providerVendorKey } from './providerVendor.js';
 
 /**
  * Normalized capability profile for a model
@@ -104,7 +105,7 @@ export class ModelCapabilityRegistry {
 		capabilities: VibeideStaticModelInfo
 	): ModelCapabilityProfile {
 		const name = modelSelection.modelName.toLowerCase();
-		const provider = modelSelection.providerName.toLowerCase();
+		const provider = providerVendorKey(modelSelection.providerName);
 		// Explicit local names only — this registry has no settings access, so endpoint-based
 		// locality (config providers, localhost aggregators) is not detectable here. Callers that
 		// need precise locality use isLocalProvider(providerName, settingsOfProvider) instead.

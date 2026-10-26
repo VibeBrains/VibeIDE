@@ -10,6 +10,7 @@ import { IMetricsService } from '../../common/metricsService.js';
 import { displayInfoOfProviderName, FeatureName, providerNames } from '../../common/vibeideSettingsTypes.js';
 import { setExternalProviders, setBuiltinModelPatches, BuiltinModelPatch, ExternalProviderDescriptor, VibeideStaticModelInfo } from '../../common/modelCapabilities.js';
 import type { VibeReasoningDialect } from '../../common/vibeProvidersFile.js';
+import type { ProviderVendor } from '../../common/providerVendor.js';
 import { traceSendEvent } from '../../common/llmSendTrace.js';
 import { sendLLMMessageToProviderImplementation, dynamicProviderImplementation } from './sendLLMMessage.impl.js';
 import { setLLMProxyConfig } from './systemCAFetch.js';
@@ -27,7 +28,7 @@ import { isLocalProvider } from '../../common/isLocalProvider.js';
 const _builtinProviderSet = new Set<string>(providerNames as readonly string[]);
 const syncExternalProvidersFromSettings = (settingsOfProvider: SendLLMMessageParams['settingsOfProvider']): void => {
 	const descriptors: ExternalProviderDescriptor[] = [];
-	const entries = settingsOfProvider as unknown as Record<string, { modelCapOverrides?: { [modelId: string]: Partial<VibeideStaticModelInfo> }; reasoningDialect?: VibeReasoningDialect } | undefined>;
+	const entries = settingsOfProvider as unknown as Record<string, { modelCapOverrides?: { [modelId: string]: Partial<VibeideStaticModelInfo> }; reasoningDialect?: VibeReasoningDialect; vendor?: ProviderVendor } | undefined>;
 	for (const id of Object.keys(entries)) {
 		if (_builtinProviderSet.has(id)) { continue; }
 		const entry = entries[id];
@@ -36,6 +37,7 @@ const syncExternalProvidersFromSettings = (settingsOfProvider: SendLLMMessagePar
 			id, source: 'file',
 			...(entry.modelCapOverrides ? { modelCapOverrides: entry.modelCapOverrides } : {}),
 			...(entry.reasoningDialect === 'openrouter' ? { reasoningDialect: entry.reasoningDialect } : {}),
+			...(entry.vendor ? { vendor: entry.vendor } : {}),
 		});
 	}
 	setExternalProviders(descriptors);
