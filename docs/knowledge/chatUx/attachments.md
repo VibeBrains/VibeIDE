@@ -53,3 +53,17 @@ Paste файлов, vision-capability gate (двойной), скрытый dead
 - Защитный механизм для пользователя — **UI override** через Settings: `setOverridesOfModel(provider, model, { supportsVision: false })`. Запись локальна для пользователя, легко снять, не требует пересборки.
 - Substring-эвристика в [modelVisionHeuristics.ts](../../../src/vs/workbench/contrib/vibeide/common/modelVisionHeuristics.ts) — **не добавлять общие токены** (`omni`, `multimodal`, etc.). Many "omni" модели advertise мультимодальность, но text-only на free-tier — общий токен сразу даёт false-positive. Только узкие per-family маркеры (`-vl`, `vision`, `claude-3/4`, `gpt-4o/4.1/5`, `gemini`, конкретные имена типа `phi-3.5-vision`).
 - Console.warn `[VibeIDE] vision capability for X resolved by name heuristic` в `aggregatorVisionHeuristic` — диагностический сигнал. Если пользователь жалуется на проблемы с картинками И этот warn срабатывает — подозревать false-positive heuristic ИЛИ catalog-lying upstream, рекомендовать UI override на конкретную модель.
+
+---
+
+## [баг] Молчаливая фильтрация по MIME гасила внешний DnD и скрепку (ATTACHMENTS-1026)
+
+**Контекст:** внешний файл из Finder через drag-and-drop не прикреплялся, из дерева проекта — работал; скрепка молча не работала. Воспроизведено изолированным стендом: synthetic drop с `File.type=''` и реальный файл с неизвестным расширением через input (Chromium даёт `application/octet-stream`).
+
+**Суть:** оба входа композера (`handleDrop`, `handleAttachInputChange` в `SidebarChat.tsx`) фильтровали строго по `File.type` (`startsWith('image/')`, `=== 'application/pdf'`) без fallback на расширение и без ошибки — файл с пустым или чужим MIME исчезал молча. Это вилка маршрутизации, а не валидации: типизированный, но неподдержанный `image/tiff` доходил до `validateImageFile` и давал видимую ошибку, а empty-type умирал раньше неё. Скрепка страдала тем же фильтром в `change`-обработчике, а не нативным диалогом.
+
+**Применение:**
+- Общий seam обоих входов — `routeAttachmentFiles` (`browser/attachmentFileRouting.ts`): пустой/`octet-stream` MIME восстанавливается по расширению из закрытой таблицы (только поддерживаемые типы, без расширения поддержки по запросу); File пересоздаётся с восстановленным MIME (`new File([file], name, {type})`), чтобы вся цепочка ниже (validate/process/submit) видела тип; остальное — в `unsupported` → видимая русская ошибка через `INotificationService`.
+- Не принимать пустой `File.type` за факт без прогона: реальный drag может дать и нормальный MIME — финальную проверку делает владелец на живом Finder-drag (HITL); synthetic-замер механизма не выдаём за живой жест.
+- `react/**` исключён из `src/tsconfig.json`: модули, нужные юнит-раннеру (`test/browser`), кладутся в `browser/`, а не в react-слой; react-слой собирается только `npm run buildreact`, типы — `npm run react-typecheck` (baseline: 3 ошибки `process` в `vibeCustomCommandsService.ts` — чужие, не этого гейта).
+- `accept` input держит и MIME, и расширения — иначе ОС-пикер отфильтрует файлы, у которых MIME пустой; повторный выбор того же файла держится на сбросе `e.target.value=''`.
