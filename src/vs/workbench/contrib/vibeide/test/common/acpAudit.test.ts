@@ -5,7 +5,7 @@
 
 import assert from 'assert';
 import { ensureNoDisposablesAreLeakedInTestSuite } from '../../../../../base/test/common/utils.js';
-import { buildAcpPermissionAudit, buildAcpSessionAudit, buildAcpToolCallAudit, permissionOutcomeOf } from '../../common/acp/acpAudit.js';
+import { buildAcpCompactionAudit, buildAcpNoticeAudit, buildAcpPermissionAudit, buildAcpSessionAudit, buildAcpToolCallAudit, permissionOutcomeOf } from '../../common/acp/acpAudit.js';
 
 suite('acpAudit — гостевой агент в журнале аудита', () => {
 
@@ -96,6 +96,28 @@ suite('acpAudit — гостевой агент в журнале аудита',
 			{ ts: 1, actor: 'human', action: 'acp_session', traceId: 's-1', ok: true, meta: { phase: 'started', agentId: 'claude' } },
 			{ ts: 2, actor: 'human', action: 'acp_session', traceId: 's-1', ok: true, meta: { phase: 'reconnected', agentId: 'claude', reconnectMode: 'resume' } },
 			{ ts: 3, actor: 'guest', actorId: 'claude', action: 'acp_session', traceId: 's-1', ok: false, meta: { phase: 'failed', error: 'процесс агента завершился с кодом 1' } },
+		]);
+	});
+
+	test('notice гостя: текст его же пера — через редектор и потолок, как заголовок вызова', () => {
+		assert.deepStrictEqual([
+			buildAcpNoticeAudit({ ...scope, severity: 'warning', title: 'Задача остановлена' }, 1),
+			buildAcpNoticeAudit({ ...scope, severity: 'error', title: `Fetch с Authorization: Bearer ${'abc'}`, description: 'x '.repeat(150) }, 2),
+		], [
+			{ ts: 1, actor: 'guest', actorId: 'claude', action: 'acp_notice', traceId: 's-1', ok: true, meta: { severity: 'warning', title: 'Задача остановлена' } },
+			{ ts: 2, actor: 'guest', actorId: 'claude', action: 'acp_notice', traceId: 's-1', ok: true, meta: { severity: 'error', title: '[REDACTED LINE]', description: `${'x '.repeat(100)}…` } },
+		]);
+	});
+
+	test('сжатие контекста: граница одна, сводка в журнал не кладётся', () => {
+		assert.deepStrictEqual([
+			buildAcpCompactionAudit({ ...scope, compactionId: 'cmp-1', status: 'completed', summary: 'Итог разговора' }, 1),
+			buildAcpCompactionAudit({ ...scope, compactionId: 'cmp-2', status: 'failed', error: 'модель недоступна' }, 2),
+			buildAcpCompactionAudit({ ...scope, compactionId: 'cmp-3', status: 'cancelled' }, 3),
+		], [
+			{ ts: 1, actor: 'guest', actorId: 'claude', action: 'acp_compaction', traceId: 's-1', toolCallId: 'cmp-1', ok: true, meta: { status: 'completed' } },
+			{ ts: 2, actor: 'guest', actorId: 'claude', action: 'acp_compaction', traceId: 's-1', toolCallId: 'cmp-2', ok: false, meta: { status: 'failed', error: 'модель недоступна' } },
+			{ ts: 3, actor: 'guest', actorId: 'claude', action: 'acp_compaction', traceId: 's-1', toolCallId: 'cmp-3', ok: true, meta: { status: 'cancelled' } },
 		]);
 	});
 });

@@ -5,7 +5,7 @@
 
 import { AcpMcpServer } from './acpMcpExport.js';
 import { Event } from '../../../../../base/common/event.js';
-import { AcpContentBlock, AcpReconnectMode, AcpStopReason, AcpToolStatus, IAcpAuthMethod, IAcpCommand, IAcpConfigOption, IAcpDiff, IAcpPromptCapabilities } from './acpProtocol.js';
+import { AcpCompactionStatus, AcpContentBlock, AcpNoticeSeverity, AcpReconnectMode, AcpStopReason, AcpToolStatus, IAcpAuthMethod, IAcpCommand, IAcpConfigOption, IAcpDiff, IAcpPromptCapabilities } from './acpProtocol.js';
 import { AcpFileBefore } from './acpEditBaseline.js';
 
 /**
@@ -91,6 +91,19 @@ export type AcpEvent =
 	| { readonly kind: 'config'; readonly sessionId: string; readonly options: readonly IAcpConfigOption[] }
 	/** The agent's own slash commands, the whole list; it may come again at any time */
 	| { readonly kind: 'commands'; readonly sessionId: string; readonly commands: readonly IAcpCommand[] }
+	/**
+	 * Живое уведомление агента вне истории диалога (notice по ACP): остановка задачи, смена
+	 * режима. Одно событие — одна строка в треде, дублирования и склейки не требуют
+	 */
+	| { readonly kind: 'notice'; readonly sessionId: string; readonly severity: AcpNoticeSeverity; readonly title: string; readonly description?: string }
+	/**
+	 * Кадр сущности «сжатие контекста» (compaction_update): открытие, patch или завершение
+	 * Кадры одного compactionId журнал сходит на месте; `summary`/`error` присланы — заменить,
+	 * отсутствуют — не трогать
+	 */
+	| { readonly kind: 'compaction'; readonly sessionId: string; readonly compactionId: string; readonly status: AcpCompactionStatus; readonly summary?: string; readonly error?: string }
+	/** Кусок сводки сжатия (compaction_summary_chunk), дописывается к сущности */
+	| { readonly kind: 'compactionChunk'; readonly sessionId: string; readonly compactionId: string; readonly text: string }
 	/** Связь с агентом оборвалась. */
 	| { readonly kind: 'failed'; readonly sessionId?: string; readonly error: string };
 

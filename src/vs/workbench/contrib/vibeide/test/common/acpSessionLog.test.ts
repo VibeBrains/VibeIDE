@@ -123,10 +123,80 @@ suite('acpSessionLog', () => {
 		log.appendText('до обрыва', false);
 		log.appendNotice('Связь восстановлена');
 		log.appendText('после', false);
-		assert.deepStrictEqual(log.snapshot.entries.map(entry => entry.kind === 'tool' ? entry.title : `${entry.kind}:${entry.text}`), [
+		assert.deepStrictEqual(log.snapshot.entries.map(entry => entry.kind === 'message' || entry.kind === 'notice' ? `${entry.kind}:${entry.text}` : entry.kind), [
 			'message:до обрыва',
 			'notice:Связь восстановлена',
 			'message:после',
 		]);
+	});
+
+	test('notice агента — своя строка рядом с пометкой редактора, семантика пометки не меняется', () => {
+		const log = new AcpSessionLog();
+		log.appendText('работаю', false);
+		log.appendAcpNotice({ severity: 'warning', title: 'Задача остановлена', description: 'Человек остановил фоновую задачу.' });
+		log.appendNotice('Связь восстановлена');
+		assert.deepStrictEqual(log.snapshot.entries.map(entry => entry.kind === 'acpNotice'
+			? [entry.kind, entry.severity, entry.title, entry.description]
+			: entry.kind === 'message' || entry.kind === 'notice' ? `${entry.kind}:${entry.text}` : entry.kind), [
+			'message:работаю',
+			['acpNotice', 'warning', 'Задача остановлена', 'Человек остановил фоновую задачу.'],
+			'notice:Связь восстановлена',
+		]);
+	});
+
+	test('compaction: кадры одного compactionId сходятся в одну запись, а не плодят дубли', () => {
+		// Живой порядок адаптера: открытие, поток chunk'ов, завершение со сводкой
+		const log = new AcpSessionLog();
+		log.applyCompaction({ compactionId: 'cmp-1', status: 'in_progress' });
+		log.applyCompactionChunk('cmp-1', 'Обсудили сборку.');
+		log.applyCompactionChunk('cmp-1', 'Чиним тесты.');
+		log.applyCompaction({ compactionId: 'cmp-1', status: 'completed', summary: 'Обсудили сборку.\nЧиним тесты.' });
+		assert.deepStrictEqual(log.snapshot.entries, [{
+			kind: 'acpCompaction',
+			id: 'cmp-1',
+			status: 'completed',
+			summary: 'Обсудили сборку.\nЧиним тесты.',
+		}]);
+	});
+
+	test('compaction: завершающий кадр без сводки не стирает накопленные chunk\'и', () => {
+		// Адаптер не дублирует сводку в завершении, если она уже ушла чанками: отсутствие поля — «не менять»
+		const log = new AcpSessionLog();
+		log.applyCompaction({ compactionId: 'cmp-1', status: 'in_progress' });
+		log.applyCompactionChunk('cmp-1', 'Сводка по частям');
+		log.applyCompaction({ compactionId: 'cmp-1', status: 'completed' });
+		assert.deepStrictEqual(log.snapshot.entries, [{ kind: 'acpCompaction', id: 'cmp-1', status: 'completed', summary: 'Сводка по частям' }]);
+	});
+
+	test('compaction: явная пустая сводка очищает, ошибка доживает до пустого кадра', () => {
+		const log = new AcpSessionLog();
+		log.applyCompaction({ compactionId: 'cmp-1', status: 'in_progress' });
+		log.applyCompactionChunk('cmp-1', 'будет стёрто');
+		log.applyCompaction({ compactionId: 'cmp-1', status: 'completed', summary: '' });
+		log.applyCompaction({ compactionId: 'cmp-2', status: 'failed', error: 'модель недоступна' });
+		log.applyCompaction({ compactionId: 'cmp-2', status: 'failed' });
+		assert.deepStrictEqual(log.snapshot.entries, [
+			{ kind: 'acpCompaction', id: 'cmp-1', status: 'completed', summary: '' },
+			{ kind: 'acpCompaction', id: 'cmp-2', status: 'failed', summary: '', error: 'модель недоступна' },
+		]);
+	});
+
+	test('compaction: chunk первым создаёт сущность в работе, конец хода гасит незавершённую', () => {
+		// По схеме первый увиденный id создаёт сущность; по семантике адаптера открытый на границе
+		// хода compaction закрывается отменой — завершённый и проваленный не трогаем
+		const log = new AcpSessionLog();
+		log.applyCompactionChunk('cmp-1', 'появился из ниоткуда');
+		log.applyCompaction({ compactionId: 'cmp-2', status: 'in_progress' });
+		log.applyCompaction({ compactionId: 'cmp-3', status: 'completed' });
+		log.settleTurn();
+		assert.deepStrictEqual(log.snapshot.entries.map(entry => (entry as { status: string }).status), ['cancelled', 'cancelled', 'completed']);
+	});
+
+	test('compaction: повтор завершённого кадра не дублирует запись', () => {
+		// SDK умеет слать терминальные compact_result дважды — схождение по compactionId это гасит
+		const log = new AcpSessionLog();
+		log.applyCompaction({ compactionId: 'cmp-1', status: 'completed', summary: 'Итог' });
+		log.applyCompaction({ compactionId: 'cmp-1', status: 'completed', summary: 'Итог' });
+		assert.deepStrictEqual(log.snapshot.entries, [{ kind: 'acpCompaction', id: 'cmp-1', status: 'completed', summary: 'Итог' }]);
 	});
 });

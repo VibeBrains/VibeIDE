@@ -25,7 +25,7 @@ import { IDisposable } from '../../../../../../../base/common/lifecycle.js';
 import { ErrorDisplay } from './ErrorDisplay.js';
 import { BlockCode, TextAreaFns, VibeCustomDropdownBox, VibeInputBox2, VibeSlider, VibeSwitch, VibeDiffEditor } from '../util/inputs.js';
 import { ModelDropdown, } from '../vibe-settings-tsx/ModelDropdown.js';
-import { AcpModeControl, AcpPermissionCard, AcpToolCard, useAcpAgentCommands } from './AcpChat.js';
+import { AcpModeControl, AcpCompactionLine, AcpNoticeLine, AcpPermissionCard, AcpToolCard, useAcpAgentCommands } from './AcpChat.js';
 import { agentCommandOf } from '../../../../common/acp/acpProtocol.js';
 import { chatLeaderOf } from '../../../../common/chatLeader.js';
 import { PastThreadsList, ChatHistoryToolbarDropdown } from './SidebarThreadSelector.js';
@@ -5206,6 +5206,14 @@ const _ChatBubble = React.memo(({ threadId, chatMessage, currCheckpointIdx, isCo
 
 	else if (role === 'acp_tool') {
 		return <AcpToolCard message={chatMessage} isCheckpointGhost={isCheckpointGhost} />;
+	}
+
+	else if (role === 'acp_notice') {
+		return <AcpNoticeLine message={chatMessage} isCheckpointGhost={isCheckpointGhost} />;
+	}
+
+	else if (role === 'acp_compaction') {
+		return <AcpCompactionLine message={chatMessage} isCheckpointGhost={isCheckpointGhost} />;
 	}
 
 	// Unknown role: render nothing rather than `undefined`, which React treats as an error.

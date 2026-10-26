@@ -61,4 +61,18 @@ suite('chatThreadToMarkdown', () => {
 		const md = threadToMarkdown([]);
 		assert.ok(md.startsWith('# '));
 	});
+
+	test('ACP notice and compaction survive the export', () => {
+		const notice: ChatMessage = { role: 'acp_notice', severity: 'warning', title: 'Задача остановлена', description: 'по команде человека' };
+		const compaction: ChatMessage = { role: 'acp_compaction', compactionId: 'cmp-1', status: 'completed', summary: 'Обсудили сборку.' };
+		const failed: ChatMessage = { role: 'acp_compaction', compactionId: 'cmp-2', status: 'failed', summary: '', error: 'модель недоступна' };
+		const md = threadToMarkdown([notice, compaction, failed]);
+		assert.ok(md.includes('📣 Предупреждение: **Задача остановлена**'));
+		assert.ok(md.includes('по команде человека'));
+		assert.ok(md.includes('🗜️ Контекст сжат'));
+		assert.ok(md.includes('Сводка сжатия'));
+		assert.ok(md.includes('Обсудили сборку.'));
+		assert.ok(md.includes('🗜️ Не удалось сжать контекст'));
+		assert.ok(md.includes('модель недоступна'));
+	});
 });

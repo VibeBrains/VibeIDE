@@ -126,6 +126,9 @@ interface IAgentProcess {
 	/**
 	 * Set while `session/load` replays the conversation. The replay is history the person already sees
 	 * in the feed; passing it on would show every message and every edit twice, and journal them twice.
+	 * Кадры compaction уходят вместе со всеми прочими: воспроизведённая сущность приезжает под НОВЫМ
+	 * id (uuid сообщения со сводкой, а не живой compaction id), слить их не выйдет, а пересылка лишь
+	 * продублировала бы строку «Контекст сжат», которая уже есть в треде
 	 */
 	replaying?: boolean;
 	/** Files whose state before the edit has been read this turn: the first touch is the baseline, later frames do not reread */
@@ -513,6 +516,15 @@ export class VibeAcpMainService extends Disposable implements IVibeAcpMain {
 				return;
 			case 'usage':
 				this._onEvent.fire({ kind: 'usage', sessionId, used: update.used, size: update.size, ...(update.costUsd === undefined ? {} : { costUsd: update.costUsd }), ...(update.origin === undefined ? {} : { origin: update.origin }) });
+				return;
+			case 'notice':
+				this._onEvent.fire({ kind: 'notice', sessionId, severity: update.severity, title: update.title, ...(update.description === undefined ? {} : { description: update.description }) });
+				return;
+			case 'compaction':
+				this._onEvent.fire({ kind: 'compaction', sessionId, compactionId: update.compactionId, status: update.status, ...(update.summary === undefined ? {} : { summary: update.summary }), ...(update.error === undefined ? {} : { error: update.error }) });
+				return;
+			case 'compactionChunk':
+				this._onEvent.fire({ kind: 'compactionChunk', sessionId, compactionId: update.compactionId, text: update.text });
 				return;
 		}
 	}

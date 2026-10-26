@@ -535,7 +535,11 @@ export class VibeTelegramBridgeContribution extends Disposable implements IWorkb
 				? (entry.thought ? '' : entry.text)
 				: entry.kind === 'notice'
 					? `— ${entry.text}`
-					: `▸ ${entry.title || 'действие'}`)
+					: entry.kind === 'acpNotice'
+						? `— ${entry.title}`
+						: entry.kind === 'acpCompaction'
+							? ''
+							: `▸ ${entry.title || 'действие'}`)
 			.filter(Boolean)
 			.join('\n')
 			.trim();

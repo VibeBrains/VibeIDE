@@ -171,8 +171,10 @@ export const initializeParams = (): JsonValue => ({
 	clientCapabilities: {
 		fs: { readTextFile: true, writeTextFile: true },
 		terminal: false,
-		// The session header shows an on/off option as a checkbox: without this an agent must not send one
-		session: { configOptions: { boolean: {} } },
+		// Шапка сессии показывает булеву настройку флажком: без этого объявления агент её не пришлёт
+		// Notices и compaction — объекты, а не булевы: проверки поддержки у адаптера смотрят именно на
+		// объект. Оба кадра разобраны и показаны ниже, поэтому объявление capability ничего не теряет
+		session: { configOptions: { boolean: {} }, notices: {}, compaction: {} },
 		// A command's output comes in `_meta.terminal_output` and its exit code in `_meta.terminal_exit` of the call
 		// Without the marker an agent folds the output into a text block, and the exit code is lost
 		_meta: { terminal_output: true },
@@ -467,7 +469,52 @@ export type AcpUpdate =
 	/** The agent changed the session's settings itself: the full list, as in a response */
 	| { readonly kind: 'config'; readonly options: readonly IAcpConfigOption[] }
 	/** The agent's own slash commands: the whole list, replacing the previous one */
-	| { readonly kind: 'commands'; readonly commands: readonly IAcpCommand[] };
+	| { readonly kind: 'commands'; readonly commands: readonly IAcpCommand[] }
+	/**
+	 * Живое уведомление агента вне истории диалога (стабильно в ACP v1.25+): остановка задачи,
+	 * смена режима, сбой. Показывается отдельной строкой с тяжестью; `other` — значение вне
+	 * известных трёх, зарезервированное схемой, показывается нейтрально
+	 */
+	| { readonly kind: 'notice'; readonly severity: AcpNoticeSeverity; readonly title: string; readonly description?: string }
+	/**
+	 * Сущность «сжатие контекста»: открытие, patch-поля и завершение. `summary`/`error` со
+	 * смыслом «поле прислано» — заменяют накопленное (пустая строка стирает); отсутствие поля —
+	 * «не менять». Кадры одного `compactionId` сходятся в одну запись журнала
+	 */
+	| { readonly kind: 'compaction'; readonly compactionId: string; readonly status: AcpCompactionStatus; readonly summary?: string; readonly error?: string }
+	/** Кусок сводки сжатия, дописываемый к сущности; первый увиденный id создаёт её в работе */
+	| { readonly kind: 'compactionChunk'; readonly compactionId: string; readonly text: string };
+
+/**
+ * Тяжесть notice. Схема (ACP v1.26.0, `NoticeSeverity`) называет info/warning/error и оставляет
+ * прочие строки «для будущих тяжестей»: неизвестное не притворяется info, но и кадр не роняется
+ */
+export type AcpNoticeSeverity = 'info' | 'warning' | 'error' | 'other';
+
+export function noticeSeverityOf(raw: JsonValue | undefined): AcpNoticeSeverity {
+	return raw === 'info' || raw === 'warning' || raw === 'error' ? raw : 'other';
+}
+
+/**
+ * Стадия сжатия контекста. Схема (`CompactionStatus`) называет четыре значения; `unknown` — всё
+ * прочее, то есть «не сказано, чем кончилось», и терминальным не считается
+ */
+export type AcpCompactionStatus = 'in_progress' | 'completed' | 'failed' | 'cancelled' | 'unknown';
+
+export function compactionStatusOf(raw: JsonValue | undefined): AcpCompactionStatus {
+	switch (raw) {
+		case 'in_progress': return 'in_progress';
+		case 'completed': return 'completed';
+		case 'failed': return 'failed';
+		case 'cancelled': return 'cancelled';
+		default: return 'unknown';
+	}
+}
+
+/** Сжатие закончилось — успехом или нет */
+export function isCompactionSettled(status: AcpCompactionStatus): boolean {
+	return status === 'completed' || status === 'failed' || status === 'cancelled';
+}
 
 /** Разбор уведомления `session/update`. `undefined` — кадр, который нам нечего показать. */
 export function parseSessionUpdate(params: JsonValue | undefined): AcpUpdate | undefined {
@@ -518,7 +565,58 @@ export function parseSessionUpdate(params: JsonValue | undefined): AcpUpdate | u
 		return { kind: 'usage', used, size, ...(costUsd === undefined ? {} : { costUsd }), ...(origin === undefined ? {} : { origin }) };
 	}
 
+	if (kind === 'notice') {
+		const title = stringAt(update, 'title');
+		// Оба поля обязательны по схеме (`Notice`): без заголовка или тяжести показывать нечего
+		const severity = update['severity'];
+		if (!title || typeof severity !== 'string' || !severity) { return undefined; }
+		// В схеме description необязателен и null равен отсутствию
+		const description = stringAt(update, 'description');
+		return { kind: 'notice', severity: noticeSeverityOf(severity), title, ...(description ? { description } : {}) };
+	}
+
+	if (kind === 'compaction_update') {
+		const compactionId = stringAt(update, 'compactionId');
+		if (!compactionId) { return undefined; }
+		return { kind: 'compaction', compactionId, status: compactionStatusOf(update['status']), ...compactionPatchOf(update) };
+	}
+
+	if (kind === 'compaction_summary_chunk') {
+		const compactionId = stringAt(update, 'compactionId');
+		const text = stringAt(objectAt(update, 'content'), 'text');
+		if (!compactionId || !text) { return undefined; }
+		return { kind: 'compactionChunk', compactionId, text };
+	}
+
 	return undefined;
+}
+
+/**
+ * Patch-поля `compaction_update`: отсутствие поля значит «не менять», null и пустой список —
+ * «очистить», конкретное значение — «заменить». `summary` — список контент-блоков; читаем
+ * текстовые, остальные (картинки в сводке) пропускаем: показывать их нечем, терять текст
+ * из-за них — глупо
+ */
+function compactionPatchOf(update: Record<string, JsonValue>): { readonly summary?: string; readonly error?: string } {
+	const patch: { summary?: string; error?: string } = {};
+	if ('summary' in update) {
+		const raw = update['summary'];
+		if (raw === null) {
+			patch.summary = '';
+		} else if (Array.isArray(raw)) {
+			const parts: string[] = [];
+			for (const entry of raw) {
+				const text = stringAt(asObject(entry), 'text');
+				if (text) { parts.push(text); }
+			}
+			patch.summary = parts.join('\n');
+		}
+	}
+	if ('error' in update) {
+		const error = update['error'];
+		if (typeof error === 'string') { patch.error = error; }
+	}
+	return patch;
 }
 
 /**

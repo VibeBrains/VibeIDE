@@ -20,7 +20,7 @@
 
 import { AuditEvent } from '../auditLogService.js';
 import { redactStreamForAudit } from '../commandsAuditPrivacy.js';
-import { AcpReconnectMode, AcpToolStatus, IAcpDiff } from './acpProtocol.js';
+import { AcpCompactionStatus, AcpNoticeSeverity, AcpReconnectMode, AcpToolStatus, IAcpDiff } from './acpProtocol.js';
 
 /** Longest guest-written text kept. Beyond this a title is a payload, not a label. */
 const MAX_TEXT_LEN = 200;
@@ -77,6 +77,21 @@ export type AcpSessionPhase = 'started' | 'ended' | 'failed' | 'reconnected';
 export interface IAcpSessionAuditInput extends IAcpAuditScope {
 	readonly phase: AcpSessionPhase;
 	readonly reconnectMode?: AcpReconnectMode;
+	readonly error?: string;
+}
+
+/** Живое уведомление гостя: текст его же пера, поэтому через тот же редектор и тот же потолок */
+export interface IAcpNoticeAuditInput extends IAcpAuditScope {
+	readonly severity: AcpNoticeSeverity;
+	readonly title: string;
+	readonly description?: string;
+}
+
+/** Жизненная граница сжатия контекста: пишется один раз — на терминальном кадре сущности */
+export interface IAcpCompactionAuditInput extends IAcpAuditScope {
+	readonly compactionId: string;
+	readonly status: AcpCompactionStatus;
+	readonly summary?: string;
 	readonly error?: string;
 }
 
@@ -168,6 +183,43 @@ export function permissionOutcomeOf(optionKind: string | undefined): AcpPermissi
 		return 'rejected';
 	}
 	return 'selected';
+}
+
+/** Живое уведомление гостя: fire-and-forget по протоколу, поэтому записывается как факт, без ok/not-ok */
+export function buildAcpNoticeAudit(input: IAcpNoticeAuditInput, ts: number): AuditEvent {
+	return {
+		ts,
+		actor: 'guest',
+		actorId: input.agentId,
+		action: 'acp_notice',
+		traceId: input.sessionId,
+		ok: true,
+		meta: {
+			severity: input.severity,
+			title: capText(input.title),
+			...(input.description ? { description: capText(input.description) } : {}),
+		},
+	};
+}
+
+/**
+ * Терминальная граница сжатия контекста. Сам факт сжатия — `ok`; неудача видна по `status` и
+ * `error`. Сводка в журнал не кладётся: это содержимое разговора, а аудит — кто и что сделал
+ */
+export function buildAcpCompactionAudit(input: IAcpCompactionAuditInput, ts: number): AuditEvent {
+	return {
+		ts,
+		actor: 'guest',
+		actorId: input.agentId,
+		action: 'acp_compaction',
+		traceId: input.sessionId,
+		toolCallId: input.compactionId,
+		ok: input.status !== 'failed',
+		meta: {
+			status: input.status,
+			...(input.error ? { error: capText(input.error) } : {}),
+		},
+	};
 }
 
 /** Lines removed and added per file, as the editor journal already counts them. */

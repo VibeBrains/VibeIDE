@@ -66,6 +66,31 @@ export function mirrorAcpEntries(entries: readonly AcpLogEntry[], from: number):
 			case 'notice':
 				blocks.push({ key: entry.id, sources: [entry], message: assistantMessage(entry.text, '', true) });
 				break;
+			case 'acpNotice':
+				blocks.push({
+					key: `notice:${entry.id}`,
+					sources: [entry],
+					message: {
+						role: 'acp_notice',
+						severity: entry.severity,
+						title: entry.title,
+						...(entry.description === undefined ? {} : { description: entry.description }),
+					},
+				});
+				break;
+			case 'acpCompaction':
+				blocks.push({
+					key: `compaction:${entry.id}`,
+					sources: [entry],
+					message: {
+						role: 'acp_compaction',
+						compactionId: entry.id,
+						status: entry.status,
+						summary: entry.summary,
+						...(entry.error === undefined ? {} : { error: entry.error }),
+					},
+				});
+				break;
 		}
 	}
 	return blocks;

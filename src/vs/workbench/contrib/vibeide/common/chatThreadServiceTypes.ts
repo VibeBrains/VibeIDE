@@ -186,6 +186,32 @@ export type AcpToolMessage = {
 	createdAt?: number;
 };
 
+/**
+ * Живое уведомление внешнего агента (notice по ACP): не реплика и не пометка редактора — строка
+ * с тяжестью. Текст пишет сам агент, поэтому при показе вне чата он не отвечает на вопрос
+ * «что агент ответил»
+ */
+export type AcpNoticeMessage = {
+	role: 'acp_notice';
+	severity: 'info' | 'warning' | 'error' | 'other';
+	title: string;
+	description?: string;
+	createdAt?: number;
+};
+
+/**
+ * Сжатие контекста внешним агентом: строка «Контекст сжат» со стадией и раскрываемой сводкой
+ * `summary` — то, что агент сохранил из разговора; пуста, пока агент её не прислал
+ */
+export type AcpCompactionMessage = {
+	role: 'acp_compaction';
+	compactionId: string;
+	status: 'in_progress' | 'completed' | 'failed' | 'cancelled' | 'unknown';
+	summary: string;
+	error?: string;
+	createdAt?: number;
+};
+
 // Image attachment type for chat messages
 export type ChatImageAttachment = {
 	id: string; // unique identifier for this image
@@ -355,7 +381,9 @@ export type ChatMessage =
 	| PlanMessage
 	| ReviewMessage
 	| ScoutMessage
-	| AcpToolMessage;
+	| AcpToolMessage
+	| AcpNoticeMessage
+	| AcpCompactionMessage;
 
 
 // one of the square items that indicates a selection in a chat bubble

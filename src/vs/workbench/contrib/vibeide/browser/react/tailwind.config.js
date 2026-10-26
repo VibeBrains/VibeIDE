@@ -67,6 +67,7 @@ export default {
 				'vibe-fg-4': 'var(--vibe-fg-4)',
 
 				'vibe-warning': 'var(--vibe-warning)',
+				'vibe-error': 'var(--vibe-error)',
 
 				'vibe-border-1': 'var(--vibe-border-1)',
 				'vibe-border-2': 'var(--vibe-border-2)',

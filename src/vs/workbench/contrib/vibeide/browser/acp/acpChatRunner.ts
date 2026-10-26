@@ -26,7 +26,7 @@ import type { ThreadStreamState, ThreadType } from '../chatThreadService.js';
 import { IChatJournalService } from '../chatJournalService.js';
 import { IVibeIgnoreService } from '../vibeIgnoreService.js';
 import { ChatImageAttachment, ChatMessage, ChatPDFAttachment, StagingSelectionItem } from '../../common/chatThreadServiceTypes.js';
-import { AcpStopReason, isToolOpen } from '../../common/acp/acpProtocol.js';
+import { AcpStopReason, isCompactionSettled, isToolOpen } from '../../common/acp/acpProtocol.js';
 import { DEFAULT_ACP_PERMISSION_MODE } from '../../common/acp/acpPermissionPolicy.js';
 import { ACP_EMBED_MAX_CHARS_DEFAULT, ACP_EMBED_MAX_CHARS_KEY } from '../../common/acp/acpPromptContext.js';
 import { mirrorAcpEntries } from '../../common/acp/acpThreadMirror.js';
@@ -174,6 +174,11 @@ export class AcpChatRunner extends Disposable {
 		const messages = this._port.getThread(threadId)?.messages ?? [];
 		messages.forEach((message, idx) => {
 			if (message.role === 'acp_tool' && isToolOpen(message.status)) {
+				this._port.editMessage(threadId, idx, { ...message, status: 'cancelled' });
+			}
+			// Сжатие, оставшееся «в работе» закрытой IDE, терминального кадра не дождётся:
+			// «Сжатие контекста…» висело бы вечно, поэтому конец хода фиксируется отменой, как в журнале сессии
+			if (message.role === 'acp_compaction' && !isCompactionSettled(message.status)) {
 				this._port.editMessage(threadId, idx, { ...message, status: 'cancelled' });
 			}
 		});
