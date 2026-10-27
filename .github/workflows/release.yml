@@ -213,19 +213,26 @@ jobs:
         run: node node_modules/gulp/bin/gulp.js vscode-darwin-x64
         timeout-minutes: 45
 
-      - name: Create Universal Binary (.dmg)
+      # Manual lipo of the main executable is not enough: vscode-universal-bundler merges
+      # ALL Mach-O (helpers, dylibs, .node) from ../VibeIDE-darwin-{x64,arm64} and the real
+      # node_modules trees (both node_modules and node_modules.asar.unpacked are covered).
+      - name: Create Universal Binary
+        env:
+          VSCODE_ARCH: arm64
+        run: npx tsx build/darwin/create-universal-app.ts ..
+        timeout-minutes: 20
+
+      - name: Verify universal Mach-O binaries
+        env:
+          APP_PATH: ../VibeIDE-darwin-arm64/VibeIDE.app
+        run: npx tsx build/darwin/verify-macho.ts universal
+        timeout-minutes: 10
+
+      - name: Create .dmg
         env:
           VSCODE_ARCH: arm64
           VSCODE_QUALITY: stable
         run: |
-          set -e
-          # lipo the app executable from both arch builds (gulp places them next to the repo).
-          lipo -create \
-            "../VibeIDE-darwin-arm64/VibeIDE.app/Contents/MacOS/VibeIDE" \
-            "../VibeIDE-darwin-x64/VibeIDE.app/Contents/MacOS/VibeIDE" \
-            -output "../VibeIDE-darwin-arm64/VibeIDE.app/Contents/MacOS/VibeIDE.universal"
-          mv "../VibeIDE-darwin-arm64/VibeIDE.app/Contents/MacOS/VibeIDE.universal" \
-            "../VibeIDE-darwin-arm64/VibeIDE.app/Contents/MacOS/VibeIDE"
           # No vscode-darwin-*-dmg gulp task exists; build/darwin/create-dmg.ts expects the
           # parent dir of VibeIDE-darwin-<arch> and writes VibeIDE-darwin-<arch>.dmg to outDir.
           npx tsx build/darwin/create-dmg.ts .. .build/darwin-arm64

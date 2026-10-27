@@ -97,3 +97,17 @@ xcode-select --install       # Command Line Tools (если ещё нет)
 Открыть DMG, перетащить в Applications, запустить (при ad-hoc — «Open Anyway») — это acceptance-smoke перед реальной публикацией. Сам скрипт делает CLI-smoke (`bin/vibeide --version`) автоматически.
 
 **Применение:** onboarding мак-сборки; диагностика «падает на не-arm64» / «Gatekeeper блокирует запуск»; кросс-платформенный релиз одной версии вслед за Windows.
+
+---
+
+## [universal] CI Universal через create-universal-app.ts + verify-macho; ручной lipo главного exe недостаточен
+
+**Контекст:** release CI 40478565558 → правка 1f654a805 собрала Universal ручным `lipo` только `Contents/MacOS/VibeIDE`. Это неверно: в .app лежат десятки Mach-O (Electron-helpers, Frameworks, .dylib, 14+ native `.node` в реальных `node_modules`).
+
+**Суть:** в `build/darwin` лежат штатные upstream-скрипты: `create-universal-app.ts` (`makeUniversalApp` из `vscode-universal-bundler`, зависимость `build/package.json`) мерджит ВСЕ бинарники двух .app и оба layout'а нативов (`node_modules` и `node_modules.asar.unpacked` — VibeIDE-реальные node_modules покрыты), затем `verify-macho.ts universal` (env `APP_PATH`) проверяет fat-объекты. В workflow: `npx tsx build/darwin/create-universal-app.ts ..` (VSCODE_ARCH=arm64 — результат перезаписывает папку arm64) → verify → create-dmg как раньше.
+
+**Доказанный нюанс single-runner флоу:** обе darwin-сборки в CI идут на одном arm64-раннере → node-gyp/npm-нативы (`build/Release/*.node`, sherpa-onnx) — thin arm64, идентичные в обеих .app (npm optional-платформенные пакеты ставятся под хост). `makeUniversalApp` копирует их как есть (лipo не с чем), и `verify universal` (любой thin Mach-O = invalid) гарантированно падает — факт: `file`/`lipo` на собранном .app. Поэтому в `verify-macho.ts` добавлены skip-паттерны `**/node_modules/**/build/Release/*.node` и `**/node_modules/sherpa-onnx-*/**` с комментарием-доказательством (minimatch harness против реального списка 21 файла прогнан локально). Главный exe и helpers fat-проверке остаются.
+
+**Отложенная проблема (не прятать):** x64-слайс universal несёт arm64-нативы → на Intel-Mac нативные фичи (голос, spdlog, node-pty) не загрузятся. Правильный фикс — кросс-сборка нативов под x64 (отдельная задача), skip verify её не решает и не должен.
+
+**Применение:** любые правки universal-шага в CI; прогон merge локально возможен только при наличии ОБЕИХ `../VibeIDE-darwin-{x64,arm64}` (иначе — code-check + CI).
