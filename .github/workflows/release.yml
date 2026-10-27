@@ -229,12 +229,9 @@ jobs:
           npx tsx build/darwin/create-dmg.ts .. .build/darwin-${{ matrix.arch }}
         timeout-minutes: 20
 
-      # Portable ZIP only for Apple Silicon (same choice as release-macos.sh: ditto keeps
-      # signatures/xattrs). No Universal: hosted runners build both arches on one arm64
-      # host, so x64 would carry arm64 native modules — see docs/knowledge/build/macosToolchain.md.
-      - name: Create portable .zip (arm64)
-        if: matrix.arch == 'arm64'
-        run: ditto -c -k --sequesterRsrc --keepParent "../VibeIDE-darwin-arm64/VibeIDE.app" ".build/darwin-arm64/VibeIDE-${VIBE_VERSION}-darwin-arm64.zip"
+      # ditto сохраняет подпись и расширенные атрибуты в portable ZIP для каждой архитектуры
+      - name: Create portable .zip
+        run: ditto -c -k --sequesterRsrc --keepParent "../VibeIDE-darwin-${{ matrix.arch }}/VibeIDE.app" ".build/darwin-${{ matrix.arch }}/VibeIDE-${VIBE_VERSION}-darwin-${{ matrix.arch }}.zip"
         timeout-minutes: 10
 
       - name: Upload macOS artifacts
@@ -391,6 +388,7 @@ jobs:
             release-artifacts/linux-x64/**/*.rpm
             release-artifacts/linux-x64/**/*.tar.gz
             release-artifacts/linux-arm64/**/*.deb
+            release-artifacts/linux-arm64/**/*.rpm
             release-artifacts/linux-arm64/**/*.tar.gz
             sbom.json
             transparency.json
