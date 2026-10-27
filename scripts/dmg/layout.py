@@ -16,20 +16,57 @@ all. The alias alone is resolved.
 `write` lays the window out on the read-write image; `check` reads the image
 that ships and fails unless it carries exactly that layout.
 
-Needs `ds_store` and `mac_alias`; the release pipeline keeps them in a pinned
-venv outside this repo (see `scripts/build-dmg-macos.sh`).
+Needs `ds_store` and `mac_alias`; `scripts/build-dmg-macos.sh` bootstraps a
+pinned repo-local venv for them (see `scripts/dmg/requirements.txt`).
 """
 
 import argparse
+import datetime
 import os
 import sys
 
 import ds_store.store
 from ds_store import DSStore
 from mac_alias import Alias
+from mac_alias.alias import ALIAS_FIXED_DISK, ALIAS_KIND_FILE, VolumeInfo, TargetInfo
 
 BACKGROUND_FOLDER = ".background"
 BACKGROUND = os.path.join(BACKGROUND_FOLDER, "background.tiff")
+
+# Fixed values so the .DS_Store is byte-identical on every build.  Finder resolves
+# the alias by POSIX path when the CNIDs do not match the recipient's volume.
+_FIXED_EPOCH = datetime.datetime(2000, 1, 1, 0, 0, 0, tzinfo=datetime.timezone.utc)
+
+
+def _mac_epoch_seconds(dt):
+    from mac_alias.utils import mac_epoch
+    return int((dt - mac_epoch).total_seconds())
+
+
+def make_background_alias(background):
+    alias = Alias()
+    alias.target = TargetInfo(
+        kind=ALIAS_KIND_FILE,
+        filename=os.path.basename(background).encode("utf-8"),
+        folder_cnid=2,
+        cnid=3,
+        creation_date=_FIXED_EPOCH,
+        creator_code=b"\0\0\0\0",
+        type_code=b"\0\0\0\0",
+        folder_name=BACKGROUND_FOLDER.encode("utf-8"),
+        posix_path=b"/" + BACKGROUND.encode("utf-8"),
+        carbon_path=b"VibeIDE:" + BACKGROUND.encode("utf-8").replace(b"/", b":"),
+    )
+    alias.volume = VolumeInfo(
+        name=b"VibeIDE",
+        creation_date=_FIXED_EPOCH,
+        fs_type=b"H+",
+        disk_type=ALIAS_FIXED_DISK,
+        attribute_flags=0,
+        fs_id=b"\0\0",
+        posix_path=b"/Volumes/VibeIDE",
+    )
+    return alias.to_bytes()
 
 # What Finder writes for "icon view, not arranged, labels under the icons";
 # the icon size and the background are added per image.
@@ -67,12 +104,14 @@ def point(text):
 
 def window_bounds(args):
     """`bwsp` keeps the window in Cocoa screen space: the origin is its
-    bottom-left corner, counted from the bottom of the main screen, and the
-    height includes the title bar."""
-    height = args.window_height + args.title_bar
-    bottom = args.screen_height - args.window_top - height
+    bottom-left corner, and the height includes the title bar.
 
-    return "{{%d, %d}, {%d, %d}}" % (args.window_left, bottom, args.window_width, height)
+    The anchor is fixed so the layout is deterministic across machines and
+    never depends on the builder's screen size. x=100, y=100 leaves the window
+    well inside a 1200 pt screen: the top of the 380 pt window is at y=480."""
+    height = args.window_height + args.title_bar
+
+    return "{{%d, %d}, {%d, %d}}" % (100, 100, args.window_width, height)
 
 
 def write(args):
@@ -86,7 +125,7 @@ def write(args):
         store["."]["icvp"] = dict(
             ICON_VIEW,
             iconSize=float(args.icon_size),
-            backgroundImageAlias=Alias.for_file(background).to_bytes(),
+            backgroundImageAlias=make_background_alias(background),
         )
         store["."]["vSrn"] = ("long", 1)
         store[args.app]["Iloc"] = args.app_position
@@ -150,12 +189,9 @@ def main():
     parser.add_argument("mode", choices=["write", "check"])
     parser.add_argument("mount")
     parser.add_argument("--app", required=True, help="the bundle's name, NAME.app")
-    parser.add_argument("--window-left", type=int, required=True)
-    parser.add_argument("--window-top", type=int, required=True)
     parser.add_argument("--window-width", type=int, required=True)
     parser.add_argument("--window-height", type=int, required=True, help="content, without the title bar")
     parser.add_argument("--title-bar", type=int, required=True)
-    parser.add_argument("--screen-height", type=int, required=True, help="main screen, in points")
     parser.add_argument("--icon-size", type=int, required=True)
     parser.add_argument("--app-position", type=point, required=True, help="X,Y of the icon's centre")
     parser.add_argument("--applications-position", type=point, required=True)
