@@ -74,7 +74,7 @@ function getReleaseManifestPlatformKey(): string | null {
 		return process.arch === 'arm64' ? 'win32-arm64' : 'win32-x64';
 	}
 	if (isMacintosh) {
-		return 'darwin-universal';
+		return process.arch === 'arm64' ? 'darwin-arm64' : 'darwin-x64';
 	}
 	if (isLinux) {
 		return process.arch === 'arm64' ? 'linux-arm64' : 'linux-x64';

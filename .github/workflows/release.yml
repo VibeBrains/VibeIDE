@@ -197,6 +197,7 @@ jobs:
     runs-on: ${{ matrix.runner }}
     needs: compile
     strategy:
+      fail-fast: false
       matrix:
         include:
           - arch: x64
@@ -324,9 +325,10 @@ jobs:
         with:
           name: linux-${{ matrix.arch }}
           path: |
-            .build/linux-${{ matrix.arch }}/deb/*.deb
-            .build/linux-${{ matrix.arch }}/rpm/*.rpm
+            .build/linux/deb/**/*.deb
+            .build/linux/rpm/**/*.rpm
             .build/linux-${{ matrix.arch }}/archive/*.tar.gz
+          if-no-files-found: error
 
   # ─────────────────────────────────────────────────────────────────
   # Create GitHub Release

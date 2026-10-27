@@ -92,13 +92,15 @@ async function listUnder(sub) {
 
 const winX64 = await listUnder('windows-x64');
 const winArm = await listUnder('windows-arm64');
-const mac = await listUnder('macos-universal');
+const macX64 = await listUnder('macos-x64');
+const macArm = await listUnder('macos-arm64');
 const lnxX64 = await listUnder('linux-x64');
 const lnxArm = await listUnder('linux-arm64');
 
 const w64 = pickFirst(winX64, (f) => /\.exe$/i.test(f) && /setup/i.test(basename(f)));
 const wa64 = pickFirst(winArm, (f) => /\.exe$/i.test(f) && /setup/i.test(basename(f)));
-const dmg = pickFirst(mac, (f) => f.endsWith('.dmg'));
+const dmgX64 = pickFirst(macX64, (f) => f.endsWith('.dmg'));
+const dmgArm = pickFirst(macArm, (f) => f.endsWith('.dmg'));
 const lxDeb = pickFirst(lnxX64, (f) => f.endsWith('.deb'));
 const laDeb = pickFirst(lnxArm, (f) => f.endsWith('.deb'));
 
@@ -110,8 +112,11 @@ if (w64) {
 if (wa64) {
 	picks.push(['win32-arm64', wa64]);
 }
-if (dmg) {
-	picks.push(['darwin-universal', dmg]);
+if (dmgX64) {
+	picks.push(['darwin-x64', dmgX64]);
+}
+if (dmgArm) {
+	picks.push(['darwin-arm64', dmgArm]);
 }
 if (lxDeb) {
 	picks.push(['linux-x64', lxDeb]);
@@ -132,7 +137,7 @@ for (const e of extras) {
 	} catch { /* skip */ }
 }
 
-const allForChecksum = [...new Set([...winX64, ...winArm, ...mac, ...lnxX64, ...lnxArm, ...extraAbs])];
+const allForChecksum = [...new Set([...winX64, ...winArm, ...macX64, ...macArm, ...lnxX64, ...lnxArm, ...extraAbs])];
 
 /** @type {Record<string, { basename: string, sha256: string }>} */
 const assetEntries = {};
