@@ -176,8 +176,9 @@ jobs:
         with:
           name: windows-${{ matrix.arch }}
           path: |
-            .build/win32-${{ matrix.arch }}/system-setup/VibeIDESetup-*.exe
+            .build/win32-${{ matrix.arch }}/system-setup/VibeIDESetup.exe
             .build/win32-${{ matrix.arch }}/archive/VibeIDE-*.zip
+          if-no-files-found: error
 
   # ─────────────────────────────────────────────────────────────────
   # macOS — отдельные .dmg и portable .zip для Apple Silicon и Intel
