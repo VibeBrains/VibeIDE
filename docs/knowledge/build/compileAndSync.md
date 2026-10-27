@@ -122,3 +122,13 @@
 **Суть:** `npm ci` сверяет `overrides` из `package.json` с lock-файлом строже, чем `npm install` — override заставляет резолвер требовать разрешённый пакет в lock, и при его отсутствии установка отказывается ехать до чего бы то ни было. Здесь override поставили «от греха» для ssh2, но lock обновляли нештатно, и запись так и не появилась. Апстрим VS Code этот override уже удалил — после синка форка наш остался сиротой и сломал чистую установку.
 
 **Применение:** чинить штатно — удалить невалидный override (ничего больше в `overrides` не трогать: там живут форковые пины `shell-quote`, `postcss`) и `npm install --package-lock-only`. Дифф lock при этом должен быть только про целевой пакет и его новые опциональные зависимости (здесь: `+node_modules/cpu-features@0.0.10`, `+node_modules/buildcheck@0.0.7`); если npm начал перегенерировать lock массово — стоп и разбираться, а не коммитить. Проверка чистоты: полный `npm ci` (install-scripts гасятся проектным `allowScripts` из `package.json` — `cpu-features: false` и т.п., `.npmrc` держит `ignore-scripts=false`, менять ничего не надо). После синка апстрима — сверять `overrides` с upstream, сироты удалять сразу.
+
+---
+
+## [tests] `node test/unit/node/index.js --build` подменяет NLS-placeholders и даёт ложные failures
+
+**Контекст:** при merge 1.29.0 запуск unit-тестов на production `out-build` давал 28+1 failures, тогда как dev `out` показывал 4700 common + 24 aiSdkAdapter green (2026-10-27).
+
+**Суть:** флаг `--build` отправляет runner в `out-build`, где NLS-строки уже подменены на локализованные placeholders (`{0}`, `{1}` и т.п.) вместо исходных английских ключей. Текстовые ассерты, которые сверяют поведение/UI-строки, начинают падать не из-за кода, а из-за несовпадения placeholder-формата.
+
+**Применение:** для behavior/UI-string тестов использовать dev `out`, собранный через `npm run transpile-client`, и runner **без `--build`**: `node test/unit/node/index.js`. Флаг `--build` оставить для проверок, которые не зависят от точного текста NLS-строк.
