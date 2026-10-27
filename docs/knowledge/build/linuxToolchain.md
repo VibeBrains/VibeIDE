@@ -102,3 +102,13 @@ sudo chmod +x /usr/local/bin/appimagetool
 **Проверено фактом (harness на fixture с реальными natives):** старый код возвращал `[]` на VibeIDE layout; новый находит `.node` и бросает на пустом. Прогон: `cd build && npm test` — 253 pass.
 
 **Применение:** любое изменение упаковки node_modules (возврат к ASAR, смена layout) — держать оба пути в генераторе; пустой Depends/Requires = повод искать молчаливый early-return, а не содержимое dep-lists.
+
+---
+
+## [пакетирование] Логи CI job 40517776993 содержат только `New:` для `.deb`; `.rpm` не доходил до проверки
+
+**Контекст:** release CI run 40517776993, обе Linux jobs падают на шаге `Prepare .deb package` с `The dependencies list has changed`. Задача — обновить `referenceGeneratedDeps` в `build/linux/debian/dep-lists.ts` и `build/linux/rpm/dep-lists.ts` по полным `New:` массивам из job logs.
+
+**Суть:** `prepare-deb` падает раньше `prepare-rpm`, поэтому в логах есть только один `New:` блок на job — и это Debian-список. RPM-генератор (`/usr/lib/rpm/find-requires`) не вызывался, поэтому точных RPM `New:` массивов в этих логах нет. Механически обновить `build/linux/rpm/dep-lists.ts` по этим же логам невозможно: форматы зависимостей разные (`dpkg-shlibdeps` vs `find-requires`), а конвертация deb-строк в rpm-строки — не механическая операция.
+
+**Применение:** если CI падает на `.deb`, обновлять только Debian baselines; для RPM нужен либо отдельный успешный/упавший `.rpm` лог, либо локальный Linux-build с запуском `prepare-rpm`. Не пытаться угадать RPM-список по Debian-списку — получится неточный baseline и следующий же `prepare-rpm` упадёт с другим diff.
