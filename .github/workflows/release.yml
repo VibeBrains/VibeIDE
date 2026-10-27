@@ -123,6 +123,22 @@ jobs:
         run: choco install innosetup -y
         shell: powershell
 
+      # patchWin32DependenciesTask calls signtool.exe from PATH. Locate the x64 signtool in
+      # the Windows SDK (same glob as scripts/sign-windows.ps1) and expose its directory,
+      # so the pinned SDK version on the image does not matter. Hard fail if absent.
+      - name: Locate Windows SDK signtool
+        shell: pwsh
+        run: |
+          $candidates = Get-ChildItem 'C:\Program Files (x86)\Windows Kits\10\bin\*\x64\signtool.exe' -ErrorAction SilentlyContinue |
+            Sort-Object FullName -Descending
+          if (-not $candidates) {
+            Write-Error 'signtool.exe not found under C:\Program Files (x86)\Windows Kits\10\bin\*\x64'
+            exit 1
+          }
+          $signtool = $candidates[0]
+          Write-Host "signtool: $($signtool.FullName)"
+          Add-Content -Path $env:GITHUB_PATH -Value $signtool.DirectoryName
+
       - name: Build Windows app
         run: node node_modules/gulp/bin/gulp.js vscode-win32-${{ matrix.arch }}
         timeout-minutes: 45
@@ -150,6 +166,11 @@ jobs:
     name: Build macOS (Universal)
     runs-on: macos-latest
     needs: compile
+    env:
+      # runEsbuildBundle spawns a child node (build/next/index.ts bundle) that inherits
+      # NODE_OPTIONS — without a raised heap the bundle step dies on the hosted runner
+      # (same ceiling release-macos.sh sets via BUILD_HEAP_MB).
+      NODE_OPTIONS: --max-old-space-size=8192
 
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
@@ -231,12 +252,20 @@ jobs:
         run: node node_modules/gulp/bin/gulp.js vscode-linux-${{ matrix.arch }}
         timeout-minutes: 45
 
+      - name: Prepare .deb package
+        run: node node_modules/gulp/bin/gulp.js vscode-linux-${{ matrix.arch }}-prepare-deb
+        timeout-minutes: 10
+
       - name: Build .deb package
-        run: node node_modules/gulp/bin/gulp.js vscode-linux-${{ matrix.arch }}-prepare-deb vscode-linux-${{ matrix.arch }}-build-deb
+        run: node node_modules/gulp/bin/gulp.js vscode-linux-${{ matrix.arch }}-build-deb
         timeout-minutes: 15
 
+      - name: Prepare .rpm package
+        run: node node_modules/gulp/bin/gulp.js vscode-linux-${{ matrix.arch }}-prepare-rpm
+        timeout-minutes: 10
+
       - name: Build .rpm package
-        run: node node_modules/gulp/bin/gulp.js vscode-linux-${{ matrix.arch }}-prepare-rpm vscode-linux-${{ matrix.arch }}-build-rpm
+        run: node node_modules/gulp/bin/gulp.js vscode-linux-${{ matrix.arch }}-build-rpm
         timeout-minutes: 15
 
       - name: Build .tar.gz (portable)
