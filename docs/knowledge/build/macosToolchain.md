@@ -2,15 +2,17 @@
 
 ← [Knowledge Index](../README.md)
 
-Пайплайн `scripts/release-macos.sh`: `.app` → `.dmg` + `.zip` для arm64, двухфазный флоу, подпись (ad-hoc / Developer ID). Notarization — см. [distribution-signing-runbook](../../references-v1/distribution-signing-runbook.md) (раздел «macOS: Notarization»).
+Пайплайн `scripts/release-macos.sh`: `.app` → `.dmg` + `.zip`, двухфазный флоу, подпись (ad-hoc / Developer ID). Notarization — см. [distribution-signing-runbook](../../references-v1/distribution-signing-runbook.md) (раздел «macOS: Notarization»).
 
 ---
 
-## [сборка] Формат: DMG + ZIP, пока только arm64
+## [сборка] Формат: DMG + ZIP для arm64 и x64
 
-Под macOS собирается **`.dmg`** (образ для установки drag-to-Applications) и **`.zip`** (portable). Оба — из одного `VibeIDE.app`. Universal Binary (arm64 + x64 через `lipo`) отложён — `scripts/build-macos-universal.sh` пока skeleton; текущий пайплайн собирает **только arm64** (`release-macos.sh` падает на не-arm64 хосте намеренно).
+Под macOS собирается **`.dmg`** (образ для установки drag-to-Applications) и **`.zip`** (portable). Оба — из одного `VibeIDE.app`. Universal Binary (arm64 + x64 через `lipo`) отложен — `scripts/build-macos-universal.sh` пока skeleton. Локальный `release-macos.sh` собирает нативную архитектуру хоста; hosted release CI собирает arm64 и x64 на отдельных раннерах.
 
-Реальный gulp-таргет: `vscode-darwin-arm64` → пакует `../VibeIDE-darwin-arm64/VibeIDE.app`. DMG собирается через `hdiutil` (zero-dep), ZIP — через `ditto` (сохраняет подпись/xattrs). Скрипт `build/darwin/create-dmg.ts` не используется — ему нужен Python ≥3.10, которого на build-машине нет; `hdiutil` его заменяет.
+Реальные gulp-таргеты: `vscode-darwin-arm64` / `vscode-darwin-x64` → `../VibeIDE-darwin-<arch>/VibeIDE.app`. В `release-macos.sh` DMG собирается через `hdiutil` (zero-dep), ZIP — через `ditto` (сохраняет подпись/xattrs). В hosted CI используется `build/darwin/create-dmg.ts`.
+
+С релиза 1.29.0 `scripts/vibe-release-manifest.mjs` читает `macos-x64` и `macos-arm64`, создаёт ключи `darwin-x64` / `darwin-arm64` и включает обе DMG в checksums. `vibeideUpdateMainService` выбирает ключ по `process.arch`; ключа `darwin-universal` у раздельных пакетов нет.
 
 ---
 

@@ -112,3 +112,13 @@ sudo chmod +x /usr/local/bin/appimagetool
 **Суть:** `prepare-deb` падает раньше `prepare-rpm`, поэтому в логах есть только один `New:` блок на job — и это Debian-список. RPM-генератор (`/usr/lib/rpm/find-requires`) не вызывался, поэтому точных RPM `New:` массивов в этих логах нет. Механически обновить `build/linux/rpm/dep-lists.ts` по этим же логам невозможно: форматы зависимостей разные (`dpkg-shlibdeps` vs `find-requires`), а конвертация deb-строк в rpm-строки — не механическая операция.
 
 **Применение:** если CI падает на `.deb`, обновлять только Debian baselines; для RPM нужен либо отдельный успешный/упавший `.rpm` лог, либо локальный Linux-build с запуском `prepare-rpm`. Не пытаться угадать RPM-список по Debian-списку — получится неточный baseline и следующий же `prepare-rpm` упадёт с другим diff.
+
+---
+
+## [релиз CI] Пути upload-artifact проверять по фактическим outputs, а не по имени matrix
+
+**Контекст:** релиз 1.29.0, hosted CI `40582896172`. До полного review workflow успешно собирал пакеты, но не забирал их в артефакты; Windows installer молча пропадал из-за glob с дефисом, а выдуманной задачи `vscode-linux-*-archive` не существовало.
+
+**Суть:** DEB создаётся в `.build/linux/deb/{amd64,arm64}/deb/`, RPM — в `.build/linux/rpm/{x86_64,aarch64}/`; это не `.build/linux-<matrix.arch>`. Portable TAR.GZ собирается прямым `tar` из `../VibeIDE-linux-<arch>`. Windows производит `VibeIDESetup.exe` для обеих архитектур, поэтому ARM64 перед upload переименовывается в `VibeIDESetup-arm64.exe` — GitHub не принимает одинаковые имена assets. `if-no-files-found: error` обязателен: иначе потеря файла выглядит как успешный job. `fail-fast: false` сохраняет артефакты и логи соседней архитектуры при одиночном сбое.
+
+**Применение:** после изменения packaging сверять glob с кодом/логом результата и скачивать артефакт перед публикацией. Лог завершённого job доступен даже пока идёт весь run: `gh api --allow-escape-sequences repos/<owner>/<repo>/actions/jobs/<job-id>/logs`.
