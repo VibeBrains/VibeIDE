@@ -100,14 +100,12 @@ xcode-select --install       # Command Line Tools (если ещё нет)
 
 ---
 
-## [universal] CI Universal через create-universal-app.ts + verify-macho; ручной lipo главного exe недостаточен
+## [universal] Universal не заявляется: hosted same-arch natives не дают честного Universal
 
-**Контекст:** release CI 40478565558 → правка 1f654a805 собрала Universal ручным `lipo` только `Contents/MacOS/VibeIDE`. Это неверно: в .app лежат десятки Mach-O (Electron-helpers, Frameworks, .dylib, 14+ native `.node` в реальных `node_modules`).
+**Контекст:** release CI 40478565558 → правки 1f654a805/8adfd2d69 пытались собрать Universal (lipo, затем штатный `create-universal-app.ts` + `verify-macho.ts universal` со skip thin-arm64 нативов). Обе отвергнуты: один lipo главного exe не покрывает остальные Mach-O, а thin universal со skip в verify — нечестная проверка.
 
-**Суть:** в `build/darwin` лежат штатные upstream-скрипты: `create-universal-app.ts` (`makeUniversalApp` из `vscode-universal-bundler`, зависимость `build/package.json`) мерджит ВСЕ бинарники двух .app и оба layout'а нативов (`node_modules` и `node_modules.asar.unpacked` — VibeIDE-реальные node_modules покрыты), затем `verify-macho.ts universal` (env `APP_PATH`) проверяет fat-объекты. В workflow: `npx tsx build/darwin/create-universal-app.ts ..` (VSCODE_ARCH=arm64 — результат перезаписывает папку arm64) → verify → create-dmg как раньше.
+**Суть (причина отказа):** честный Universal требует, чтобы каждая arch-половина несла свои нативы. GitHub-hosted раннер — один (arm64) на обе сборки: `npm ci` ставит/собирает нативы под хост, поэтому x64 `.app` получает arm64 `.node` (доказано `file`/`lipo`: все `build/Release/*.node` и sherpa-onnx — thin arm64, байт-в-байт одинаковы в обеих сборках). `makeUniversalApp` такие файлы лишь копирует — lipo не с чем; `verify-macho.ts universal` (любой thin Mach-O = invalid) гарантированно красный, а skip'ать его = прятать дефект. Единственный честный путь — кросс-сборка нативов под x64 (отдельный npm ci/toolchain под x64, node-gyp cross), что существенно больше правки workflow.
 
-**Доказанный нюанс single-runner флоу:** обе darwin-сборки в CI идут на одном arm64-раннере → node-gyp/npm-нативы (`build/Release/*.node`, sherpa-onnx) — thin arm64, идентичные в обеих .app (npm optional-платформенные пакеты ставятся под хост). `makeUniversalApp` копирует их как есть (лipo не с чем), и `verify universal` (любой thin Mach-O = invalid) гарантированно падает — факт: `file`/`lipo` на собранном .app. Поэтому в `verify-macho.ts` добавлены skip-паттерны `**/node_modules/**/build/Release/*.node` и `**/node_modules/sherpa-onnx-*/**` с комментарием-доказательством (minimatch harness против реального списка 21 файла прогнан локально). Главный exe и helpers fat-проверке остаются.
+**Решение (main efd75d869..):** job build-macos — matrix `arch: [x64, arm64]`, каждая собирает свой `gulp vscode-darwin-<arch>` + `create-dmg.ts` (`VibeIDE-darwin-<arch>.dmg`), arm64 дополнительно portable ZIP через `ditto` (как release-macos.sh). Upload `macos-<arch>`. Universal нигде не заявляется; x64 DMG работает через Rosetta для JS-слоя, но нативные фичи в нём — ограничение, для настоящей x64-сборки нужна кросс-сборка нативов (отдельная задача, если Intel-аудитория важна).
 
-**Отложенная проблема (не прятать):** x64-слайс universal несёт arm64-нативы → на Intel-Mac нативные фичи (голос, spdlog, node-pty) не загрузятся. Правильный фикс — кросс-сборка нативов под x64 (отдельная задача), skip verify её не решает и не должен.
-
-**Применение:** любые правки universal-шага в CI; прогон merge локально возможен только при наличии ОБЕИХ `../VibeIDE-darwin-{x64,arm64}` (иначе — code-check + CI).
+**Применение:** не пытаться resurrect Universal в hosted CI без кросс-нативов; любой PR с `verify-macho` skip — стоп и возврат сюда.

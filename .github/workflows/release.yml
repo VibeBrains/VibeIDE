@@ -177,9 +177,12 @@ jobs:
   # macOS — .dmg (Universal Binary: ARM + Intel)
   # ─────────────────────────────────────────────────────────────────
   build-macos:
-    name: Build macOS (Universal)
+    name: Build macOS (${{ matrix.arch }})
     runs-on: macos-latest
     needs: compile
+    strategy:
+      matrix:
+        arch: [x64, arm64]
     env:
       # runEsbuildBundle spawns a child node (build/next/index.ts bundle) that inherits
       # NODE_OPTIONS — without a raised heap the bundle step dies on the hosted runner
@@ -187,7 +190,7 @@ jobs:
       NODE_OPTIONS: --max-old-space-size=8192
 
     steps:
-      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551e30e30af803 # v6.1.0
 
       - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
         with:
@@ -205,44 +208,35 @@ jobs:
           PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: '1'
           npm_config_foreground_scripts: 'true'
 
-      - name: Build macOS ARM64
-        run: node node_modules/gulp/bin/gulp.js vscode-darwin-arm64
+      - name: Build macOS app
+        run: node node_modules/gulp/bin/gulp.js vscode-darwin-${{ matrix.arch }}
         timeout-minutes: 45
-
-      - name: Build macOS x64
-        run: node node_modules/gulp/bin/gulp.js vscode-darwin-x64
-        timeout-minutes: 45
-
-      # Manual lipo of the main executable is not enough: vscode-universal-bundler merges
-      # ALL Mach-O (helpers, dylibs, .node) from ../VibeIDE-darwin-{x64,arm64} and the real
-      # node_modules trees (both node_modules and node_modules.asar.unpacked are covered).
-      - name: Create Universal Binary
-        env:
-          VSCODE_ARCH: arm64
-        run: npx tsx build/darwin/create-universal-app.ts ..
-        timeout-minutes: 20
-
-      - name: Verify universal Mach-O binaries
-        env:
-          APP_PATH: ../VibeIDE-darwin-arm64/VibeIDE.app
-        run: npx tsx build/darwin/verify-macho.ts universal
-        timeout-minutes: 10
 
       - name: Create .dmg
         env:
-          VSCODE_ARCH: arm64
+          VSCODE_ARCH: ${{ matrix.arch }}
           VSCODE_QUALITY: stable
         run: |
           # No vscode-darwin-*-dmg gulp task exists; build/darwin/create-dmg.ts expects the
           # parent dir of VibeIDE-darwin-<arch> and writes VibeIDE-darwin-<arch>.dmg to outDir.
-          npx tsx build/darwin/create-dmg.ts .. .build/darwin-arm64
+          npx tsx build/darwin/create-dmg.ts .. .build/darwin-${{ matrix.arch }}
         timeout-minutes: 20
 
+      # Portable ZIP only for Apple Silicon (same choice as release-macos.sh: ditto keeps
+      # signatures/xattrs). No Universal: hosted runners build both arches on one arm64
+      # host, so x64 would carry arm64 native modules — see docs/knowledge/build/macosToolchain.md.
+      - name: Create portable .zip (arm64)
+        if: matrix.arch == 'arm64'
+        run: ditto -c -k --sequesterRsrc --keepParent "../VibeIDE-darwin-arm64/VibeIDE.app" ".build/darwin-arm64/VibeIDE-${VIBE_VERSION}-darwin-arm64.zip"
+        timeout-minutes: 10
+
       - name: Upload macOS artifacts
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@043fb46d1a93c77aae6567e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: macos-universal
-          path: .build/darwin-arm64/VibeIDE-*.dmg
+          name: macos-${{ matrix.arch }}
+          path: |
+            .build/darwin-${{ matrix.arch }}/VibeIDE-*.dmg
+            .build/darwin-${{ matrix.arch }}/VibeIDE-*.zip
 
   # ─────────────────────────────────────────────────────────────────
   # Linux — .deb, .rpm, .tar.gz + ARM64
