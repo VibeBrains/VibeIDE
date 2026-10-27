@@ -86,6 +86,7 @@ jobs:
           path: |
             out/
             extensions/*/out/
+            src/vs/workbench/contrib/vibeide/browser/react/out/
           retention-days: 1
 
   # ─────────────────────────────────────────────────────────────────

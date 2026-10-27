@@ -174,3 +174,13 @@ VS C++ Build Tools, MSB8040 Spectre, native modules, ripgrep, `@vscode/vsce-sign
 **Причина, а не заплатка (долг):** чинить сам смоук-чек в `scripts/release-windows.ps1` — запускать с таймаутом и гарантированно завершать порождённый процесс (`Wait-Process -Timeout` + `Stop-Process`), либо проверять сборку способом, не поднимающим GUI. Пока не сделано — обход выше обязателен.
 
 **Применение:** любой прогон Фаза 1 → Фаза 2 на Windows; диагностика `EBUSY` на `clean-vibeide-win32-x64`. Родственный `EBUSY` по `node_modules` — запись про MSB8040 выше.
+
+---
+
+## [toolchain] VS2026 ставится в папку `18` — preinstall ломал `npm ci` на машинах только с новой студией
+
+**Контекст:** platform CI 40464390750, Windows x64 job: `npm ci` упал в `build/npm/preinstall.ts` с «Invalid C/C++ Compiler Toolchain», хотя node-gyp чуть раньше успешно нашёл VS2026 18.11 Enterprise.
+
+**Суть:** VS2026 инсталлируется в `Microsoft Visual Studio/18` (мажорная версия), а не в `…/2026` (год). Список `supportedVersions` в `hasSupportedVisualStudioVersion()` был `['2022', '2019']` — год использовался и как имя папки, поэтому детект VS2026 невозможен. Фикс формы upstream: `{ year, folder }` — `2026 → folder '18'`, env-override `vs2026_install`; 2025 не добавлял (в upstream нет). После правки функция байт-в-байт идентична upstream.
+
+**Применение:** на машинах/раннерах с единственной VS2026 `npm ci` теперь проходит; при добавлении следующей версии студии сверять с `build/vs_toolchain.py` и с upstream, а не писать год в папку по аналогии. Проверка типов: `cd build && npm run typecheck`.
