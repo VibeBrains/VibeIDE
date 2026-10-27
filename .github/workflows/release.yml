@@ -61,6 +61,15 @@ jobs:
         run: npm run compile-build
         timeout-minutes: 90
 
+      # react/out bundles are gitignored and neither compile-build task builds them (unlike
+      # `compile`/`core-ci`, which run build-vibeide-browser-react first). GitHub-hosted runners
+      # are clean machines — build React explicitly, same as release-macos.sh does. The
+      # self-hosted runner keeps its own tree; do not touch that path.
+      - name: Build React bundles (GitHub-hosted only)
+        if: vars.USE_GITHUB_RUNNER == 'true'
+        run: npm run buildreact
+        timeout-minutes: 15
+
       - name: Compile TypeScript (without mangling, GitHub-hosted)
         if: vars.USE_GITHUB_RUNNER == 'true'
         run: npm run gulp compile-build-without-mangling
