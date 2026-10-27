@@ -3,6 +3,7 @@
  *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
 import { spawnSync } from 'child_process';
+import fs from 'fs';
 import path from 'path';
 import { getChromiumSysroot, getVSCodeSysroot } from './debian/install-sysroot.ts';
 import { generatePackageDeps as generatePackageDepsDebian } from './debian/calculate-deps.ts';
@@ -43,16 +44,7 @@ export async function getDependencies(packageType: 'deb' | 'rpm', buildDir: stri
 		throw new Error('Invalid RPM arch string ' + arch);
 	}
 
-	const appPath = path.join(buildDir, applicationName);
-	// Add the native modules
-	const files = findNativeModuleFiles(buildDir);
-	// Add the tunnel binary.
-	files.push(path.join(buildDir, 'bin', product.tunnelApplicationName));
-	// Add the main executable.
-	files.push(appPath);
-	// Add chrome sandbox and crashpad handler.
-	files.push(path.join(buildDir, 'chrome-sandbox'));
-	files.push(path.join(buildDir, 'chrome_crashpad_handler'));
+	const files = getFilesToAnalyze(buildDir, applicationName);
 
 	// Generate the dependencies.
 	let dependencies: Set<string>[];
@@ -87,6 +79,25 @@ export async function getDependencies(packageType: 'deb' | 'rpm', buildDir: stri
 	}
 
 	return sortedDependencies;
+}
+
+// Get the files for which we want to find dependencies. The tunnel binary is
+// optional: VibeIDE does not ship it on every platform, so only include it when
+// it is actually present in the build output.
+export function getFilesToAnalyze(buildDir: string, applicationName: string): string[] {
+	// Add the native modules
+	const files = findNativeModuleFiles(buildDir);
+	// Add the tunnel binary if it is shipped.
+	const tunnelPath = path.join(buildDir, 'bin', product.tunnelApplicationName);
+	if (fs.existsSync(tunnelPath)) {
+		files.push(tunnelPath);
+	}
+	// Add the main executable.
+	files.push(path.join(buildDir, applicationName));
+	// Add chrome sandbox and crashpad handler.
+	files.push(path.join(buildDir, 'chrome-sandbox'));
+	files.push(path.join(buildDir, 'chrome_crashpad_handler'));
+	return files;
 }
 
 // Get the files for which we want to find dependencies.

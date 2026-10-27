@@ -8,7 +8,8 @@ import { suite, test } from 'node:test';
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
-import { findNativeModuleFiles } from './dependencies-generator.ts';
+import { findNativeModuleFiles, getFilesToAnalyze } from './dependencies-generator.ts';
+import product from '../../product.json' with { type: 'json' };
 
 function makeBuildDir(): string {
 	return fs.mkdtempSync(path.join(os.tmpdir(), 'deps-generator-'));
@@ -20,6 +21,41 @@ function writeNative(buildDir: string, ...segments: string[]): string {
 	fs.writeFileSync(file, 'native');
 	return file;
 }
+
+suite('getFilesToAnalyze', () => {
+	test('accepts a build without the tunnel binary', () => {
+		const buildDir = makeBuildDir();
+		try {
+			const native = writeNative(buildDir, 'node_modules', 'native-keymap', 'build', 'Release', 'keymap.node');
+			const files = getFilesToAnalyze(buildDir, 'vibeide');
+			const tunnel = path.join(buildDir, 'bin', product.tunnelApplicationName);
+
+			assert.ok(files.includes(native));
+			assert.ok(files.includes(path.join(buildDir, 'vibeide')));
+			assert.ok(files.includes(path.join(buildDir, 'chrome-sandbox')));
+			assert.ok(files.includes(path.join(buildDir, 'chrome_crashpad_handler')));
+			assert.ok(!files.includes(tunnel));
+		} finally {
+			fs.rmSync(buildDir, { recursive: true, force: true });
+		}
+	});
+
+	test('includes the tunnel binary when it is present', () => {
+		const buildDir = makeBuildDir();
+		try {
+			writeNative(buildDir, 'node_modules', 'native-keymap', 'build', 'Release', 'keymap.node');
+			const tunnel = path.join(buildDir, 'bin', product.tunnelApplicationName);
+			fs.mkdirSync(path.dirname(tunnel), { recursive: true });
+			fs.writeFileSync(tunnel, 'tunnel');
+
+			const files = getFilesToAnalyze(buildDir, 'vibeide');
+
+			assert.ok(files.includes(tunnel));
+		} finally {
+			fs.rmSync(buildDir, { recursive: true, force: true });
+		}
+	});
+});
 
 suite('findNativeModuleFiles', () => {
 	test('upstream layout: node_modules.asar.unpacked wins', () => {
