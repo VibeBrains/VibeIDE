@@ -174,7 +174,7 @@ jobs:
             .build/win32-${{ matrix.arch }}/archive/VibeIDE-*.zip
 
   # ─────────────────────────────────────────────────────────────────
-  # macOS — .dmg (Universal Binary: ARM + Intel)
+  # macOS — отдельные .dmg и portable .zip для Apple Silicon и Intel
   # ─────────────────────────────────────────────────────────────────
   build-macos:
     name: Build macOS (${{ matrix.arch }})
@@ -383,7 +383,10 @@ jobs:
             release-artifacts/windows-x64/**/*.zip
             release-artifacts/windows-arm64/**/*.exe
             release-artifacts/windows-arm64/**/*.zip
-            release-artifacts/macos-universal/**/*.dmg
+            release-artifacts/macos-x64/**/*.dmg
+            release-artifacts/macos-x64/**/*.zip
+            release-artifacts/macos-arm64/**/*.dmg
+            release-artifacts/macos-arm64/**/*.zip
             release-artifacts/linux-x64/**/*.deb
             release-artifacts/linux-x64/**/*.rpm
             release-artifacts/linux-x64/**/*.tar.gz
