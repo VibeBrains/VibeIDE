@@ -309,7 +309,9 @@ jobs:
         timeout-minutes: 15
 
       - name: Build .tar.gz (portable)
-        run: node node_modules/gulp/bin/gulp.js vscode-linux-${{ matrix.arch }}-archive
+        run: |
+          mkdir -p ".build/linux-${{ matrix.arch }}/archive"
+          tar -czf ".build/linux-${{ matrix.arch }}/archive/VibeIDE-${VIBE_VERSION}-linux-${{ matrix.arch }}.tar.gz" -C .. "VibeIDE-linux-${{ matrix.arch }}"
         timeout-minutes: 10
 
       - name: Upload Linux artifacts
