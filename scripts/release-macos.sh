@@ -23,7 +23,7 @@
 #                                              # redo ONLY gulp package + sign + DMG/ZIP + smoke
 #
 # Artifacts: .build/darwin-arm64/VibeIDE-<ver>-darwin-arm64.dmg + .zip (DMG via scripts/build-dmg-macos.sh —
-# hdiutil + Finder layout, zero-dep; build/darwin/create-dmg.ts needs Python ≥3.10 and dmgbuild).
+# hdiutil + headless ds_store/mac_alias layout, Python venv auto-bootstrapped; build/darwin/create-dmg.ts needs Python ≥3.10 and dmgbuild).
 # Signing: ad-hoc by default (Gatekeeper will require «Open Anyway» on first launch). When
 # VIBE_MAC_SIGNING_IDENTITY is set, signs Developer ID + hardened runtime instead; notarization
 # stays manual via scripts/notarize-macos.sh until Apple Developer credentials exist.
