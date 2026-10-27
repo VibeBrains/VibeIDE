@@ -17,10 +17,11 @@
 # live in the volume's .DS_Store. Laid out on a read-only volume the layout is lost without an error,
 # and the image opens as a list on the recipient's machine.
 #
-# Beyond the system (hdiutil, osascript, ditto, tiffutil, PlistBuddy) it needs two tools: rsvg-convert
+# Beyond the system (hdiutil, ditto, tiffutil, PlistBuddy) it needs two tools: rsvg-convert
 # (brew install librsvg), which draws the background with the build's version, and a pinned Python
-# venv with ds_store/mac_alias (kept outside this repo) that writes the .DS_Store headlessly. The
-# upstream create-dmg.ts path needs Python ≥3.10 and a dmgbuild checkout; this script is what the
+# venv with ds_store/mac_alias that writes the .DS_Store headlessly. The venv is bootstrapped
+# automatically from scripts/dmg/requirements.txt; set VIBE_DMG_LAYOUT_VENV to use an existing venv.
+# The upstream create-dmg.ts path needs Python ≥3.10 and a dmgbuild checkout; this script is what the
 # macOS release actually runs.
 #
 # The shared mechanics come from the `dmg-installer` skill; the look is VibeIDE's own.
@@ -41,8 +42,6 @@ BACKGROUND_SVG="$ROOT/build/darwin/dmg-background.svg"
 # without the other and the arrow points at nothing.
 WINDOW_WIDTH=480          # content width, = SVG width
 WINDOW_HEIGHT=352         # content height, = SVG height
-WINDOW_LEFT=200
-WINDOW_TOP=140
 TITLE_BAR=28              # Finder bounds include the title bar; the visible content does not
 ICON_SIZE=80
 TEXT_SIZE=12
@@ -56,6 +55,17 @@ BACKGROUND_FOLDER_Y=$((WINDOW_HEIGHT + 150))
 [[ -d "$APP" ]] || { echo "build-dmg-macos: app not found: $APP" >&2; exit 1; }
 [[ -f "$BACKGROUND_SVG" ]] || { echo "build-dmg-macos: background not found: $BACKGROUND_SVG" >&2; exit 1; }
 command -v rsvg-convert > /dev/null 2>&1 || { echo "build-dmg-macos: rsvg-convert not found (brew install librsvg) — it draws the background" >&2; exit 1; }
+command -v python3 > /dev/null 2>&1 || { echo "build-dmg-macos: python3 not found — required to bootstrap the layout venv" >&2; exit 1; }
+
+VIBE_DMG_LAYOUT_VENV="${VIBE_DMG_LAYOUT_VENV:-$ROOT/.build/dmg-layout-venv}"
+LAYOUT_PYTHON="$VIBE_DMG_LAYOUT_VENV/bin/python"
+
+ensure_layout_venv() {
+    [[ -x "$LAYOUT_PYTHON" ]] && return 0
+    echo "build-dmg-macos: creating layout venv at $VIBE_DMG_LAYOUT_VENV..."
+    python3 -m venv "$VIBE_DMG_LAYOUT_VENV"
+    "$VIBE_DMG_LAYOUT_VENV/bin/pip" install --quiet -r "$ROOT/scripts/dmg/requirements.txt"
+}
 
 STAGE="$(mktemp -d)"
 RENDER="$(mktemp -d)"
@@ -103,19 +113,13 @@ MOUNT_POINT="$(hdiutil attach "$RW_DMG" -readwrite -nobrowse -noverify -noautoop
 
 # Headless layout writer: ds_store + mac_alias write the same records Finder would, without
 # scripting Finder. See scripts/dmg/layout.py and the dmg-installer skill.
-LAYOUT_PYTHON="/Volumes/Storage/Caches/vibeide/dmg-layout-venv/bin/python"
-[[ -x "$LAYOUT_PYTHON" ]] || { echo "build-dmg-macos: layout venv missing: $LAYOUT_PYTHON" >&2; exit 1; }
-SCREEN_HEIGHT="$(osascript -l JavaScript -e 'ObjC.import("AppKit"); $.NSScreen.mainScreen.frame.size.height' 2>/dev/null || true)"
-[[ "$SCREEN_HEIGHT" =~ ^[0-9]+$ ]] || { echo "build-dmg-macos: could not read main screen height" >&2; exit 1; }
+ensure_layout_venv
 
 "$LAYOUT_PYTHON" "$ROOT/scripts/dmg/layout.py" write "$MOUNT_POINT" \
 	--app "$APP_NAME" \
-	--window-left "$WINDOW_LEFT" \
-	--window-top "$WINDOW_TOP" \
 	--window-width "$WINDOW_WIDTH" \
 	--window-height "$WINDOW_HEIGHT" \
 	--title-bar "$TITLE_BAR" \
-	--screen-height "$SCREEN_HEIGHT" \
 	--icon-size "$ICON_SIZE" \
 	--app-position "$APP_X,$APP_Y" \
 	--applications-position "$APPS_X,$APPS_Y" \
@@ -155,12 +159,9 @@ if [[ ! -f "$MOUNT_POINT/.DS_Store" ]]; then
 fi
 "$LAYOUT_PYTHON" "$ROOT/scripts/dmg/layout.py" check "$MOUNT_POINT" \
 	--app "$APP_NAME" \
-	--window-left "$WINDOW_LEFT" \
-	--window-top "$WINDOW_TOP" \
 	--window-width "$WINDOW_WIDTH" \
 	--window-height "$WINDOW_HEIGHT" \
 	--title-bar "$TITLE_BAR" \
-	--screen-height "$SCREEN_HEIGHT" \
 	--icon-size "$ICON_SIZE" \
 	--app-position "$APP_X,$APP_Y" \
 	--applications-position "$APPS_X,$APPS_Y" \
