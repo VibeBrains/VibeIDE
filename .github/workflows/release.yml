@@ -51,8 +51,19 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: '1'
 
-      - name: Compile TypeScript
+      # Self-hosted (default): full pipeline with identifier mangling.
+      # GitHub-hosted ubuntu-latest (vars.USE_GITHUB_RUNNER='true'): the mangler worker peaks
+      # past the runner's RAM and the process gets Killed (run 40461427681) — use the same
+      # without-mangling task as release-macos.sh on low-RAM machines. esbuild minification
+      # still runs; only identifier shortening is skipped.
+      - name: Compile TypeScript (with mangling, self-hosted)
+        if: vars.USE_GITHUB_RUNNER != 'true'
         run: npm run compile-build
+        timeout-minutes: 90
+
+      - name: Compile TypeScript (without mangling, GitHub-hosted)
+        if: vars.USE_GITHUB_RUNNER == 'true'
+        run: npm run gulp compile-build-without-mangling
         timeout-minutes: 90
 
       - name: Compile extensions

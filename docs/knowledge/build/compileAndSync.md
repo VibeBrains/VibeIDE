@@ -132,3 +132,15 @@
 **Суть:** флаг `--build` отправляет runner в `out-build`, где NLS-строки уже подменены на локализованные placeholders (`{0}`, `{1}` и т.п.) вместо исходных английских ключей. Текстовые ассерты, которые сверяют поведение/UI-строки, начинают падать не из-за кода, а из-за несовпадения placeholder-формата.
 
 **Применение:** для behavior/UI-string тестов использовать dev `out`, собранный через `npm run transpile-client`, и runner **без `--build`**: `node test/unit/node/index.js`. Флаг `--build` оставить для проверок, которые не зависят от точного текста NLS-строк.
+
+---
+
+## [ci] Release compile на ubuntu-latest: Killed после mangler/tsc — без манглинга как fallback
+
+**Контекст:** release CI run 40461427681, job compile на `ubuntu-latest` (`vars.USE_GITHUB_RUNNER='true'`): `npm ci` — PASS, далее `npm run compile-build` (gulp с `node --max-old-space-size=8192`) — после прохождения mangler/tsc процесс получил `Killed`, TS-ошибок в логе нет. Ручной cancel и конкурентные джобы исключены. Тот же ref на self-hosted собирался нормально.
+
+**Суть (границы факта):** `Killed` + невыполнение лимитов подтверждены логом; классический OOM-killer как причина — **гипотеза, не измеренная** (dmesg/journal раннера не сняты). Что известно точно: пик памяти при идентификаторном манглинге на большом дереве (тысячи классов/экспортов) исторически упирается в физическую RAM — см. замеры в `scripts/release-macos.sh` (8192 → SIGKILL у OS, 5120 → ineffective mark-compacts, 4096 → worker OOM: «окна» между лимитом V8 и машиной нет). GitHub-hosted `ubuntu-latest` даёт ~16 ГБ — суффициентно для полного пайплайна только впритык, и поведение плавает от деревa/parallels.
+
+**Фикс (conditional, не лимит):** в `.github/workflows/release.yml` job compile раздвоён: `vars.USE_GITHUB_RUNNER == 'true'` → `npm run gulp compile-build-without-mangling` (тот же без-манглинга таск, что release-macos.sh на low-RAM машинах; esbuild-minification остаётся, пропущен только сокращатель идентификаторов), иначе прежний `npm run compile-build`. Не «понижение лимита наугад»: флаги heap не тронуты. Важно: npm-скрипта `compile-build-without-mangling` в `package.json` нет и в upstream нет — это gulp-таск, вызов идёт через существующий `npm run gulp <task>` (паттерн репозитория).
+
+**Применение:** любой «OOM-подобный» kill GitHub-hosted раннера — сначала сверить пик RSS/доступную RAM (dmesg), потом решать; без измерения не утверждать OOM. Low-RAM пути сборки переиспользовать из `release-macos.sh`, а не изобретать второй режим.
