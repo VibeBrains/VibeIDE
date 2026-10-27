@@ -100,12 +100,12 @@ xcode-select --install       # Command Line Tools (если ещё нет)
 
 ---
 
-## [universal] Universal не заявляется: hosted same-arch natives не дают честного Universal
+## [universal] Universal не заявляется: каждая arch собирается на своём железе (macos-15-intel / macos-latest)
 
-**Контекст:** release CI 40478565558 → правки 1f654a805/8adfd2d69 пытались собрать Universal (lipo, затем штатный `create-universal-app.ts` + `verify-macho.ts universal` со skip thin-arm64 нативов). Обе отвергнуты: один lipo главного exe не покрывает остальные Mach-O, а thin universal со skip в verify — нечестная проверка.
+**Контекст:** release CI 40478565558 → попытки Universal (lipo главного exe 1f654a805; затем create-universal-app + verify-macho со skip thin-arm64 нативов 8adfd2d69) отвергнуты: один lipo не покрывает десятки Mach-O, а thin universal с skip в verify нечестен.
 
-**Суть (причина отказа):** честный Universal требует, чтобы каждая arch-половина несла свои нативы. GitHub-hosted раннер — один (arm64) на обе сборки: `npm ci` ставит/собирает нативы под хост, поэтому x64 `.app` получает arm64 `.node` (доказано `file`/`lipo`: все `build/Release/*.node` и sherpa-onnx — thin arm64, байт-в-байт одинаковы в обеих сборках). `makeUniversalApp` такие файлы лишь копирует — lipo не с чем; `verify-macho.ts universal` (любой thin Mach-O = invalid) гарантированно красный, а skip'ать его = прятать дефект. Единственный честный путь — кросс-сборка нативов под x64 (отдельный npm ci/toolchain под x64, node-gyp cross), что существенно больше правки workflow.
+**Причина, почему same-runner флоу был обречён:** npm/node-gyp ставят нативы под хост. Сборка обеих arch на одном arm64-хосте даёт x64 `.app` с arm64 `.node` (доказано `file`/`lipo` на собранном .app: все `build/Release/*.node` и sherpa-onnx — thin arm64, байт-в-байт одинаковы) — честный Universal так не собрать, а прятать это skip'ом verify нельзя.
 
-**Решение (main efd75d869..):** job build-macos — matrix `arch: [x64, arm64]`, каждая собирает свой `gulp vscode-darwin-<arch>` + `create-dmg.ts` (`VibeIDE-darwin-<arch>.dmg`), arm64 дополнительно portable ZIP через `ditto` (как release-macos.sh). Upload `macos-<arch>`. Universal нигде не заявляется; x64 DMG работает через Rosetta для JS-слоя, но нативные фичи в нём — ограничение, для настоящей x64-сборки нужна кросс-сборка нативов (отдельная задача, если Intel-аудитория важна).
+**Решение (main, текущая схема):** job build-macos — matrix include: x64 → раннер `macos-15-intel` (Intel x86_64), arm64 → `macos-latest` (Apple Silicon). Каждая arch собирается на родном железе → нативы совпадают с платформой; отдельные `VibeIDE-darwin-{x64,arm64}.dmg` (create-dmg.ts), arm64 + portable ZIP через ditto (как release-macos.sh). Universal не нужен и не заявляется. Факт-справка: `macos-13` удалён GitHub 2025-12-04 (changelog), для standard-раннеров Intel — лейбл `macos-15-intel` (runner-images README, таблица Available Images: macOS 15 → x64 → macos-15-large / macos-15-intel). Intel-архитектура целиком deprecated у GitHub (поддержка до retirement macos-15 image, ~Fall 2027) — мониторить.
 
-**Применение:** не пытаться resurrect Universal в hosted CI без кросс-нативов; любой PR с `verify-macho` skip — стоп и возврат сюда.
+**Применение:** не resurrect Universal в hosted CI; при смене лейблов раннеров сверяться с runner-images README (таблица arch × label); x64-сборка macOS умрёт вместе с Intel-раннерами — решение о поддержке Intel принимать ближе к 2027.

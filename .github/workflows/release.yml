@@ -178,11 +178,18 @@ jobs:
   # ─────────────────────────────────────────────────────────────────
   build-macos:
     name: Build macOS (${{ matrix.arch }})
-    runs-on: macos-latest
+    # Each arch builds on its own hardware so native modules match the target
+    # (npm/node-gyp install for the host). macos-13 was retired 2025-12-04;
+    # macos-15-intel is the current standard-runner Intel label (runner-images README).
+    runs-on: ${{ matrix.runner }}
     needs: compile
     strategy:
       matrix:
-        arch: [x64, arm64]
+        include:
+          - arch: x64
+            runner: macos-15-intel
+          - arch: arm64
+            runner: macos-latest
     env:
       # runEsbuildBundle spawns a child node (build/next/index.ts bundle) that inherits
       # NODE_OPTIONS — without a raised heap the bundle step dies on the hosted runner
