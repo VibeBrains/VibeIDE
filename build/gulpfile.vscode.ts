@@ -30,6 +30,7 @@ import { compileBuildWithoutManglingTask, compileBuildWithManglingTask } from '.
 import { compileNonNativeExtensionsBuildTask, compileNativeExtensionsBuildTask, compileAllExtensionsBuildTask, compileExtensionMediaBuildTask, cleanExtensionsBuildTask } from './gulpfile.extensions.ts';
 import { copyCodiconsTask } from './lib/compilation.ts';
 import { ensureOSProxyResolverPlatformPackage, getOSProxyResolverExcludeFilter, getOSProxyResolverPlatformFiles } from './lib/osProxyResolver.ts';
+import { getSherpaOnnxExcludeFilter } from './lib/sherpaOnnx.ts';
 import { useEsbuildTranspile } from './buildConfig.ts';
 import { promisify } from 'util';
 import globCallback from 'glob';
@@ -352,6 +353,7 @@ function packageTask(platform: string, arch: string, sourceFolderName: string, d
 		const deps = es.merge(cleanedDeps, osProxyResolverPlatformPackage)
 			.pipe(filter(getRipgrepExcludeFilter(platform, arch)))
 			.pipe(filter(getOSProxyResolverExcludeFilter(platform, arch)))
+			.pipe(filter(getSherpaOnnxExcludeFilter(platform, arch)))
 			.pipe(jsFilter)
 			.pipe(util.rewriteSourceMappingURL(sourceMappingURLBase))
 			.pipe(jsFilter.restore)
@@ -382,7 +384,9 @@ function packageTask(platform: string, arch: string, sourceFolderName: string, d
 				// the .node (its LC_RPATH is @loader_path; Windows resolves DLLs the same way).
 				'**/sherpa-onnx-darwin-arm64/**',
 				'**/sherpa-onnx-darwin-x64/**',
+				'**/sherpa-onnx-win-ia32/**',
 				'**/sherpa-onnx-win-x64/**',
+				'**/sherpa-onnx-linux-arm64/**',
 				'**/sherpa-onnx-linux-x64/**',
 			], [
 				'**/*.mk',
