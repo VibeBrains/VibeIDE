@@ -88,3 +88,17 @@ sudo chmod +x /usr/local/bin/appimagetool
 Затем поставить получившийся `.deb`/`.AppImage` на чистой Ubuntu/Fedora VM — это и есть acceptance-smoke перед первой реальной публикацией.
 
 **Применение:** onboarding Linux-сборки; диагностика «скрипт пропустил arm64/rpm»; кросс-сборка Linux с Windows или Mac.
+
+---
+
+## [пакетирование] Пустой Depends/Requires: генератор зависимостей искал только asar.unpacked layout
+
+**Контекст:** release CI 40478565558, Linux x64: `.deb` собрался с пустым `Depends`, `.rpm` упал с `Empty tag Requires`. До этого же job падал иначе — параллельный запуск `prepare-deb build-deb` в одном вызове gulp (разнесено в последовательные шаги, см. git log 40467992342).
+
+**Суть:** `build/linux/dependencies-generator.ts` искал native-модули только в `resources/app/node_modules.asar.unpacked` (upstream layout). VibeIDE держит зависимости реальными файлами в `resources/app/node_modules` — main process ESM, резолвер Node не лезет в ASAR (см. комментарий в `gulpfile.vscode.ts` у упаковки `node_modules.asar`). `find` по несуществующему каталогу возвращал status≠0 → код молча возвращал `[]` → Depends/Requires пустые, и дело доходило до reference-check только в rpm-варианте.
+
+**Фикс:** `findNativeModuleFiles()` — fallback-поиск: `node_modules.asar.unpacked` → `node_modules`; если ни в одном layout нет ни одного `*.node` — throw (пустой список больше не уходит молча). Поведение upstream для его layout сохранено (asar.unpacked приоритет), дубли исключаются отдачей первого непустого layout + Set-мерж в `mergePackageDeps` как раньше. Regression test `build/linux/dependencies-generator.test.ts` (оба layout'а, пустой asar.unpacked, отсутствие natives; seam расширен: glob тестов build/ — `{lib,next,linux}/**/*.test.ts`).
+
+**Проверено фактом (harness на fixture с реальными natives):** старый код возвращал `[]` на VibeIDE layout; новый находит `.node` и бросает на пустом. Прогон: `cd build && npm test` — 253 pass.
+
+**Применение:** любое изменение упаковки node_modules (возврат к ASAR, смена layout) — держать оба пути в генераторе; пустой Depends/Requires = повод искать молчаливый early-return, а не содержимое dep-lists.

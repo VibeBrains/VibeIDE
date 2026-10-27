@@ -43,19 +43,9 @@ export async function getDependencies(packageType: 'deb' | 'rpm', buildDir: stri
 		throw new Error('Invalid RPM arch string ' + arch);
 	}
 
-	// Get the files for which we want to find dependencies.
-	// Native modules are unpacked next to the ASAR archive in `node_modules.asar.unpacked`.
-	const nativeModulesPath = path.join(buildDir, 'resources', 'app', 'node_modules.asar.unpacked');
-	const findResult = spawnSync('find', [nativeModulesPath, '-name', '*.node']);
-	if (findResult.status) {
-		console.error('Error finding files:');
-		console.error(findResult.stderr.toString());
-		return [];
-	}
-
 	const appPath = path.join(buildDir, applicationName);
 	// Add the native modules
-	const files = findResult.stdout.toString().trimEnd().split('\n');
+	const files = findNativeModuleFiles(buildDir);
 	// Add the tunnel binary.
 	files.push(path.join(buildDir, 'bin', product.tunnelApplicationName));
 	// Add the main executable.
@@ -97,6 +87,30 @@ export async function getDependencies(packageType: 'deb' | 'rpm', buildDir: stri
 	}
 
 	return sortedDependencies;
+}
+
+// Get the files for which we want to find dependencies.
+// Native modules are unpacked next to the ASAR archive in `node_modules.asar.unpacked`
+// (upstream VS Code layout). VibeIDE keeps dependencies as real files under
+// `resources/app/node_modules` (the ESM main process cannot resolve through an ASAR),
+// so fall back to that layout. An empty result must fail loudly: a missing native
+// list silently produces deb/rpm packages with empty Depends/Requires.
+export function findNativeModuleFiles(buildDir: string): string[] {
+	const candidates = [
+		path.join(buildDir, 'resources', 'app', 'node_modules.asar.unpacked'),
+		path.join(buildDir, 'resources', 'app', 'node_modules'),
+	];
+	for (const nativeModulesPath of candidates) {
+		const findResult = spawnSync('find', [nativeModulesPath, '-name', '*.node']);
+		if (findResult.status) {
+			continue;
+		}
+		const files = findResult.stdout.toString().trimEnd().split('\n').filter(file => file.length > 0);
+		if (files.length > 0) {
+			return files;
+		}
+	}
+	throw new Error('No native .node modules found under resources/app/node_modules.asar.unpacked or resources/app/node_modules — refusing to generate an empty Depends/Requires list.');
 }
 
 
