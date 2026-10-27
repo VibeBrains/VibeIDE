@@ -97,6 +97,7 @@ jobs:
     runs-on: windows-latest
     needs: compile
     strategy:
+      fail-fast: false
       matrix:
         arch: [x64, arm64]
 
@@ -261,6 +262,7 @@ jobs:
     runs-on: ubuntu-24.04
     needs: compile
     strategy:
+      fail-fast: false
       matrix:
         arch: [x64, arm64]
 
