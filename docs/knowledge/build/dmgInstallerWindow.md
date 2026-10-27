@@ -93,3 +93,37 @@
 **Проверено:** стенд на пустом `.app` с настоящими `Info.plist` и иконкой — сборка, монтирование сжатого
 образа, снимок окна; сборка с подменённой версией 9.9.9 показала на фоне 9.9.9. Полная релизная сборка
 с этим скриптом не прогонялась.
+
+---
+
+## [правило] Headless deterministic layout: убрать osascript и фиксировать anchor (2026-10-27)
+
+**Контекст:** коммит `8bcf5b177` перешёл на headless-раскладку через `ds_store`/`mac_alias`, но layout
+всё ещё читал высоту экрана через `osascript`/`NSScreen` и передавал её в `layout.py`. Это делало
+`.DS_Store` зависимым от машины сборщика: разные экраны — разный `bwsp`, разные байты образа.
+
+**Что сделано:**
+- `scripts/dmg/layout.py` больше не принимает `--screen-height`, `--window-left`, `--window-top`.
+  `bwsp` пишется с фиксированным bottom-left anchor `x=100, y=100` и размером окна
+  `480 × (352 + 28)` = `480 × 380` (высота включает title bar). На экране 1200 pt верх окна
+  оказывается на 480 pt от низа — внутри разумных границ.
+- `scripts/build-dmg-macos.sh` больше не вызывает `osascript` и не использует абсолютный/соседний путь
+  к venv. Вместо этого:
+  - `VIBE_DMG_LAYOUT_VENV` — внешний venv, если задан;
+  - иначе repo-local `.build/dmg-layout-venv` (`.build/` уже в `.gitignore`);
+  - при отсутствии venv скрипт сам создаёт его через `python3 -m venv` и ставит pinned
+    `scripts/dmg/requirements.txt` (`ds-store==1.3.0`, `mac-alias==2.2.0`).
+- `scripts/release-macos.sh` и `docs/knowledge/build/dmgInstallerWindow.md` обновлены: DMG-путь теперь
+  описывается как «headless `ds_store`/`mac_alias` layout, Python venv auto-bootstrapped», а не
+  «zero-dep».
+
+**Применение:**
+- Для воспроизводимости `.DS_Store` должен быть байт-в-байт одинаковым на любой машине. Проверка —
+  два прогона `build-dmg-macos.sh` из одного `.app` и сравнение sha256 `.DS_Store` внутри сжатого DMG.
+- Если на сборщике уже есть подготовленный venv, передайте его через `VIBE_DMG_LAYOUT_VENV`, чтобы не
+  пересоздавать его каждый раз.
+- Никакие параметры layout не должны зависеть от `NSScreen` или других свойств хоста.
+
+**Проверено:** два последовательных прогона из одного `VibeIDE.app` дали идентичный sha256 `.DS_Store`,
+`layout.py check` прошёл на сжатом образе, `codesign --verify --deep` OK, версия внутри DMG совпала с
+числом на фоне, остаточных mount'ов не осталось.
