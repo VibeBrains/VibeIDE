@@ -31,6 +31,7 @@ import { compileNonNativeExtensionsBuildTask, compileNativeExtensionsBuildTask, 
 import { copyCodiconsTask } from './lib/compilation.ts';
 import { ensureOSProxyResolverPlatformPackage, getOSProxyResolverExcludeFilter, getOSProxyResolverPlatformFiles } from './lib/osProxyResolver.ts';
 import { getSherpaOnnxExcludeFilter } from './lib/sherpaOnnx.ts';
+import { getElfArchExcludeFilter } from './lib/elfArch.ts';
 import { useEsbuildTranspile } from './buildConfig.ts';
 import { promisify } from 'util';
 import globCallback from 'glob';
@@ -280,7 +281,10 @@ function packageTask(platform: string, arch: string, sourceFolderName: string, d
 			? ['**', '!**/*.{js,css}.map']
 			: ['**'];
 		const sources = es.merge(src, extensions)
-			.pipe(filter(sourceFilterPattern, { dot: true }));
+			.pipe(filter(sourceFilterPattern, { dot: true }))
+			// Built-in extensions may also carry host-built native modules; keep only ELF
+			// binaries matching the package architecture so RPM does not pick up x86 deps.
+			.pipe(filter(getElfArchExcludeFilter(platform, arch)));
 
 		let version = packageJson.version;
 		const quality = (product as { quality?: string }).quality;
@@ -354,6 +358,7 @@ function packageTask(platform: string, arch: string, sourceFolderName: string, d
 			.pipe(filter(getRipgrepExcludeFilter(platform, arch)))
 			.pipe(filter(getOSProxyResolverExcludeFilter(platform, arch)))
 			.pipe(filter(getSherpaOnnxExcludeFilter(platform, arch)))
+			.pipe(filter(getElfArchExcludeFilter(platform, arch)))
 			.pipe(jsFilter)
 			.pipe(util.rewriteSourceMappingURL(sourceMappingURLBase))
 			.pipe(jsFilter.restore)
