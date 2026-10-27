@@ -143,6 +143,12 @@ jobs:
         run: node node_modules/gulp/bin/gulp.js vscode-win32-${{ matrix.arch }}
         timeout-minutes: 45
 
+      # inno-updater task stages tools/inno_updater.exe + vcruntime140.dll into the app
+      # folder; code.iss references tools/*, so it must run before the installer build.
+      - name: Build Windows inno-updater
+        run: node node_modules/gulp/bin/gulp.js vscode-win32-${{ matrix.arch }}-inno-updater
+        timeout-minutes: 5
+
       - name: Build Windows installer (.exe)
         run: node node_modules/gulp/bin/gulp.js vscode-win32-${{ matrix.arch }}-system-setup
         timeout-minutes: 20
@@ -226,6 +232,7 @@ jobs:
         run: |
           # No vscode-darwin-*-dmg gulp task exists; build/darwin/create-dmg.ts expects the
           # parent dir of VibeIDE-darwin-<arch> and writes VibeIDE-darwin-<arch>.dmg to outDir.
+          mkdir -p .build/darwin-${{ matrix.arch }}
           npx tsx build/darwin/create-dmg.ts .. .build/darwin-${{ matrix.arch }}
         timeout-minutes: 20
 
@@ -247,7 +254,10 @@ jobs:
   # ─────────────────────────────────────────────────────────────────
   build-linux:
     name: Build Linux (${{ matrix.arch }})
-    runs-on: ubuntu-latest
+    # ubuntu-latest now resolves to 26.04, where dpkg-shlibdeps aborts with a
+    # Perl Dpkg/Shlibs/SymbolFile.pm error and breaks the .deb build (run 40493134071).
+    # Pin to 24.04 until that toolchain bug is resolved.
+    runs-on: ubuntu-24.04
     needs: compile
     strategy:
       matrix:
