@@ -154,6 +154,11 @@ jobs:
         run: node node_modules/gulp/bin/gulp.js vscode-win32-${{ matrix.arch }}-system-setup
         timeout-minutes: 20
 
+      - name: Name Windows ARM64 installer
+        if: matrix.arch == 'arm64'
+        shell: pwsh
+        run: Move-Item -Force ".build/win32-arm64/system-setup/VibeIDESetup.exe" ".build/win32-arm64/system-setup/VibeIDESetup-arm64.exe"
+
       # No gulp archive task for win32 — pack the folder the build produced
       # (same as scripts/release-windows.ps1: Compress-Archive from ../VibeIDE-win32-<arch>).
       - name: Build Windows portable (.zip)
@@ -177,7 +182,7 @@ jobs:
         with:
           name: windows-${{ matrix.arch }}
           path: |
-            .build/win32-${{ matrix.arch }}/system-setup/VibeIDESetup.exe
+            .build/win32-${{ matrix.arch }}/system-setup/VibeIDESetup*.exe
             .build/win32-${{ matrix.arch }}/archive/VibeIDE-*.zip
           if-no-files-found: error
 
