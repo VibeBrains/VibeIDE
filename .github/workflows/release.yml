@@ -144,11 +144,25 @@ jobs:
         timeout-minutes: 45
 
       - name: Build Windows installer (.exe)
-        run: node node_modules/gulp/bin/gulp.js vscode-win32-${{ matrix.arch }}-setup
+        run: node node_modules/gulp/bin/gulp.js vscode-win32-${{ matrix.arch }}-system-setup
         timeout-minutes: 20
 
+      # No gulp archive task for win32 — pack the folder the build produced
+      # (same as scripts/release-windows.ps1: Compress-Archive from ../VibeIDE-win32-<arch>).
       - name: Build Windows portable (.zip)
-        run: node node_modules/gulp/bin/gulp.js vscode-win32-${{ matrix.arch }}-archive
+        shell: pwsh
+        run: |
+          $appDir = "../VibeIDE-win32-${{ matrix.arch }}"
+          if (-not (Test-Path $appDir)) {
+            Write-Error "Packaged app folder not found: $appDir"
+            exit 1
+          }
+          $archiveDir = ".build/win32-${{ matrix.arch }}/archive"
+          New-Item -ItemType Directory -Force -Path $archiveDir | Out-Null
+          Get-ChildItem "$archiveDir/VibeIDE-*-win32-${{ matrix.arch }}.zip" -ErrorAction SilentlyContinue |
+            Remove-Item -Force -ErrorAction SilentlyContinue
+          Compress-Archive -Path "$appDir/*" -DestinationPath "$archiveDir/VibeIDE-${env:VIBE_VERSION}-win32-${{ matrix.arch }}.zip" -Force
+          Get-ChildItem "$archiveDir/VibeIDE-${env:VIBE_VERSION}-win32-${{ matrix.arch }}.zip" | Select-Object -ExpandProperty FullName
         timeout-minutes: 10
 
       - name: Upload Windows artifacts
@@ -200,13 +214,21 @@ jobs:
         timeout-minutes: 45
 
       - name: Create Universal Binary (.dmg)
+        env:
+          VSCODE_ARCH: arm64
+          VSCODE_QUALITY: stable
         run: |
-          # Combine ARM64 + x64 into Universal Binary
+          set -e
+          # lipo the app executable from both arch builds (gulp places them next to the repo).
           lipo -create \
-            ".build/darwin-arm64/VibeIDE.app/Contents/MacOS/Electron" \
-            ".build/darwin-x64/VibeIDE.app/Contents/MacOS/Electron" \
-            -output ".build/darwin-arm64/VibeIDE.app/Contents/MacOS/Electron"
-          node node_modules/gulp/bin/gulp.js vscode-darwin-arm64-dmg
+            "../VibeIDE-darwin-arm64/VibeIDE.app/Contents/MacOS/VibeIDE" \
+            "../VibeIDE-darwin-x64/VibeIDE.app/Contents/MacOS/VibeIDE" \
+            -output "../VibeIDE-darwin-arm64/VibeIDE.app/Contents/MacOS/VibeIDE.universal"
+          mv "../VibeIDE-darwin-arm64/VibeIDE.app/Contents/MacOS/VibeIDE.universal" \
+            "../VibeIDE-darwin-arm64/VibeIDE.app/Contents/MacOS/VibeIDE"
+          # No vscode-darwin-*-dmg gulp task exists; build/darwin/create-dmg.ts expects the
+          # parent dir of VibeIDE-darwin-<arch> and writes VibeIDE-darwin-<arch>.dmg to outDir.
+          npx tsx build/darwin/create-dmg.ts .. .build/darwin-arm64
         timeout-minutes: 20
 
       - name: Upload macOS artifacts
