@@ -47,15 +47,6 @@ const FILES_TO_SKIP = [
 	// includes both arm64 and x64 trees regardless of host arch.
 	'**/node_modules/@microsoft/mxc-sdk/bin/**',
 	'**/node_modules.asar.unpacked/@microsoft/mxc-sdk/bin/**',
-	// VibeIDE single-runner build: both darwin-{x64,arm64} apps are packaged on one
-	// arm64-hosted runner, so node-gyp/npm-built native modules (build/Release/*.node)
-	// and sherpa-onnx host packages are identical thin arm64 files in BOTH builds —
-	// makeUniversalApp copies them as-is, and there is no x64 counterpart to lipo with.
-	// Verified fact (file/lipo on the packaged app): kerberos.node etc. are thin arm64.
-	// This does NOT cover the main executable/helpers — those stay fat-verified.
-	'**/node_modules/**/build/Release/*.node',
-	'**/node_modules/sherpa-onnx-*/**',
-	'**/node_modules.asar.unpacked/sherpa-onnx-*/**',
 	// Copilot SDK tgrep prebuilds: single-arch binaries in per-platform directories
 	'**/node_modules/@github/copilot/tgrep/bin/darwin-*/**',
 	'**/node_modules.asar.unpacked/@github/copilot/tgrep/bin/darwin-*/**',
