@@ -122,3 +122,13 @@ sudo chmod +x /usr/local/bin/appimagetool
 **Суть:** DEB создаётся в `.build/linux/deb/{amd64,arm64}/deb/`, RPM — в `.build/linux/rpm/{x86_64,aarch64}/`; это не `.build/linux-<matrix.arch>`. Portable TAR.GZ собирается прямым `tar` из `../VibeIDE-linux-<arch>`. Windows производит `VibeIDESetup.exe` для обеих архитектур, поэтому ARM64 перед upload переименовывается в `VibeIDESetup-arm64.exe` — GitHub не принимает одинаковые имена assets. `if-no-files-found: error` обязателен: иначе потеря файла выглядит как успешный job. `fail-fast: false` сохраняет артефакты и логи соседней архитектуры при одиночном сбое.
 
 **Применение:** после изменения packaging сверять glob с кодом/логом результата и скачивать артефакт перед публикацией. Лог завершённого job доступен даже пока идёт весь run: `gh api --allow-escape-sequences repos/<owner>/<repo>/actions/jobs/<job-id>/logs`.
+
+---
+
+## [пакетирование] Версия DEB/RPM — `product.vibeVersion`, не версия базового VS Code
+
+**Контекст:** релиз 1.29.0 сначала опубликовал `vibeide_1.133.0-…deb` и `vibeide-1.133.0-…rpm`: пользователь увидел чужую версию в именах assets.
+
+**Суть:** `build/gulpfile.vscode.linux.ts` подставлял `packageJson.version` (`1.133.0`, база VS Code) в `@@VERSION@@` обоих шаблонов — Debian control и RPM spec. `dpkg-deb`/`rpmbuild` берут имя файла из этих метаданных, поэтому ручное переименование результата не исправляет пакет. Исправление: общий `getLinuxPackageVersion()` возвращает `product.json.vibeVersion`, fallback на базовую версию нужен только для unbranded-сборок.
+
+**Применение:** проверять не только имя asset, но и `Version` внутри DEB/RPM. Регрессия — `build/linux/package-version.test.ts`; запуск `cd build && node --test 'linux/**/*.test.ts'`.
