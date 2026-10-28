@@ -171,10 +171,12 @@ jobs:
           }
           $archiveDir = ".build/win32-${{ matrix.arch }}/archive"
           New-Item -ItemType Directory -Force -Path $archiveDir | Out-Null
+          # В имени файла версия без ведущей «v», как у локальных скриптов (тег остаётся vX.Y.Z)
+          $fileVersion = $env:VIBE_VERSION -replace '^v', ''
           Get-ChildItem "$archiveDir/VibeIDE-*-win32-${{ matrix.arch }}.zip" -ErrorAction SilentlyContinue |
             Remove-Item -Force -ErrorAction SilentlyContinue
-          Compress-Archive -Path "$appDir/*" -DestinationPath "$archiveDir/VibeIDE-${env:VIBE_VERSION}-win32-${{ matrix.arch }}.zip" -Force
-          Get-ChildItem "$archiveDir/VibeIDE-${env:VIBE_VERSION}-win32-${{ matrix.arch }}.zip" | Select-Object -ExpandProperty FullName
+          Compress-Archive -Path "$appDir/*" -DestinationPath "$archiveDir/VibeIDE-$fileVersion-win32-${{ matrix.arch }}.zip" -Force
+          Get-ChildItem "$archiveDir/VibeIDE-$fileVersion-win32-${{ matrix.arch }}.zip" | Select-Object -ExpandProperty FullName
         timeout-minutes: 10
 
       - name: Upload Windows artifacts
@@ -248,12 +250,12 @@ jobs:
         run: |
           brew install librsvg
           mkdir -p .build/darwin-${{ matrix.arch }}
-          scripts/build-dmg-macos.sh "../VibeIDE-darwin-${{ matrix.arch }}/VibeIDE.app" ".build/darwin-${{ matrix.arch }}/VibeIDE-${VIBE_VERSION}-darwin-${{ matrix.arch }}.dmg"
+          scripts/build-dmg-macos.sh "../VibeIDE-darwin-${{ matrix.arch }}/VibeIDE.app" ".build/darwin-${{ matrix.arch }}/VibeIDE-${VIBE_VERSION#v}-darwin-${{ matrix.arch }}.dmg"
         timeout-minutes: 20
 
       # ditto сохраняет подпись и расширенные атрибуты в portable ZIP для каждой архитектуры
       - name: Create portable .zip
-        run: ditto -c -k --sequesterRsrc --keepParent "../VibeIDE-darwin-${{ matrix.arch }}/VibeIDE.app" ".build/darwin-${{ matrix.arch }}/VibeIDE-${VIBE_VERSION}-darwin-${{ matrix.arch }}.zip"
+        run: ditto -c -k --sequesterRsrc --keepParent "../VibeIDE-darwin-${{ matrix.arch }}/VibeIDE.app" ".build/darwin-${{ matrix.arch }}/VibeIDE-${VIBE_VERSION#v}-darwin-${{ matrix.arch }}.zip"
         timeout-minutes: 10
 
       - name: Upload macOS artifacts
@@ -330,7 +332,7 @@ jobs:
       - name: Build .tar.gz (portable)
         run: |
           mkdir -p ".build/linux-${{ matrix.arch }}/archive"
-          tar -czf ".build/linux-${{ matrix.arch }}/archive/VibeIDE-${VIBE_VERSION}-linux-${{ matrix.arch }}.tar.gz" -C .. "VibeIDE-linux-${{ matrix.arch }}"
+          tar -czf ".build/linux-${{ matrix.arch }}/archive/VibeIDE-${VIBE_VERSION#v}-linux-${{ matrix.arch }}.tar.gz" -C .. "VibeIDE-linux-${{ matrix.arch }}"
         timeout-minutes: 10
 
       - name: Upload Linux artifacts
