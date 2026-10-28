@@ -20,82 +20,11 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
         with:
-          node-version: '22'
+          node-version-file: .nvmrc
 
-      - name: Install dependencies (ignore scripts)
-        run: npm install --ignore-scripts
-
-      - name: Generate npm SBOM (CycloneDX)
-        run: |
-          npx @cyclonedx/cyclonedx-npm --ignore-npm-errors --output-file sbom-npm.json --output-format JSON || \
-          npx cyclonedx-npm --ignore-npm-errors --output-file sbom-npm.json --output-format JSON || \
-          echo '{"bomFormat":"CycloneDX","specVersion":"1.4","metadata":{"component":{"name":"vibeide"}},"components":[]}' > sbom-npm.json
-          echo "NPM SBOM generated"
-
-      - name: Add AI models to SBOM
-        run: |
-          python3 << 'EOF'
-          import json, datetime
-
-          # Load generated npm SBOM
-          with open('sbom-npm.json') as f:
-              sbom = json.load(f)
-
-          # Add VibeIDE metadata
-          sbom['metadata'] = sbom.get('metadata', {})
-          sbom['metadata']['timestamp'] = datetime.datetime.utcnow().isoformat() + 'Z'
-          sbom['metadata']['component'] = {
-              'type': 'application',
-              'name': 'VibeIDE',
-              'version': '${{ github.ref_name }}',
-              'description': 'Open-source AI IDE — transparency and control',
-              'licenses': [{'license': {'id': 'MIT'}}]
-          }
-
-          # Add AI models section (Phase 1: placeholder, will be populated from registry)
-          ai_models = [
-              {
-                  'type': 'machine-learning-model',
-                  'name': 'claude-3-5-sonnet (via API)',
-                  'supplier': {'name': 'Anthropic'},
-                  'licenses': [{'license': {'name': 'Commercial API — see Anthropic ToS'}}],
-                  'properties': [{'name': 'trainingPolicy', 'value': 'opt-out-available'}]
-              },
-              {
-                  'type': 'machine-learning-model',
-                  'name': 'gpt-4o (via API)',
-                  'supplier': {'name': 'OpenAI'},
-                  'licenses': [{'license': {'name': 'Commercial API — see OpenAI ToS'}}],
-                  'properties': [{'name': 'trainingPolicy', 'value': 'opt-out-available'}]
-              },
-              {
-                  'type': 'machine-learning-model',
-                  'name': 'Ollama local models',
-                  'supplier': {'name': 'Various (open-source)'},
-                  'description': 'Local models via Ollama — see individual model licenses',
-                  'properties': [{'name': 'trainingPolicy', 'value': 'none'}]
-              }
-          ]
-
-          sbom['components'] = sbom.get('components', []) + ai_models
-
-          # Add bundled extensions section
-          bundled_extensions = [
-              {
-                  'type': 'library',
-                  'name': 'vscode-project-manager',
-                  'version': 'latest',
-                  'licenses': [{'license': {'id': 'GPL-3.0-only'}}],
-                  'description': 'Bundled as pre-installed extension (independent license)',
-                  'properties': [{'name': 'bundleType', 'value': 'pre-installed-vsix'}]
-              }
-          ]
-          sbom['components'] = sbom.get('components', []) + bundled_extensions
-
-          with open('sbom.json', 'w') as f:
-              json.dump(sbom, f, indent=2)
-          print(f"SBOM generated with {len(sbom.get('components', []))} components")
-          EOF
+      # Тот же генератор, что и в release.yml: иначе два workflow пишут один sbom.json по-разному
+      - name: Generate SBOM
+        run: node scripts/vibe-sbom.mts --version "${{ github.ref_name }}" --output sbom.json
 
       - name: Attach SBOM to release
         if: github.event_name == 'release'

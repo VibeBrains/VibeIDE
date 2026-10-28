@@ -233,15 +233,22 @@ jobs:
         run: node node_modules/gulp/bin/gulp.js vscode-darwin-${{ matrix.arch }}
         timeout-minutes: 45
 
+      # Версия в Info.plist, строка про микрофон и подпись — тем же скриптом, что и у release-macos.sh:
+      # Без перепаковки подписи собранное gulp приложение на Apple Silicon не запускается
+      - name: Guard — one DMG path
+        run: node scripts/dmg-single-path.test.mts
+
+      - name: Finish app (version, microphone string, signature)
+        run: scripts/finish-macos-app.sh "../VibeIDE-darwin-${{ matrix.arch }}/VibeIDE.app" "${VIBE_VERSION#v}"
+        timeout-minutes: 10
+
+      # Образ собирает наш scripts/build-dmg-macos.sh — тот же, что у release-macos.sh: свой фон, раскладка, том «VibeIDE».
+      # Апстримовый build/darwin/create-dmg.ts не используется: он даёт фон VS Code и том «VS Code»
       - name: Create .dmg
-        env:
-          VSCODE_ARCH: ${{ matrix.arch }}
-          VSCODE_QUALITY: stable
         run: |
-          # No vscode-darwin-*-dmg gulp task exists; build/darwin/create-dmg.ts expects the
-          # parent dir of VibeIDE-darwin-<arch> and writes VibeIDE-darwin-<arch>.dmg to outDir.
+          brew install librsvg
           mkdir -p .build/darwin-${{ matrix.arch }}
-          npx tsx build/darwin/create-dmg.ts .. .build/darwin-${{ matrix.arch }}
+          scripts/build-dmg-macos.sh "../VibeIDE-darwin-${{ matrix.arch }}/VibeIDE.app" ".build/darwin-${{ matrix.arch }}/VibeIDE-${VIBE_VERSION}-darwin-${{ matrix.arch }}.dmg"
         timeout-minutes: 20
 
       # ditto сохраняет подпись и расширенные атрибуты в portable ZIP для каждой архитектуры
@@ -345,6 +352,11 @@ jobs:
         with:
           fetch-depth: 0
 
+      # Скрипты .mts запускаются самим node (вырезание типов), версия — из .nvmrc
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
+        with:
+          node-version-file: .nvmrc
+
       - name: Download all artifacts
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
@@ -363,20 +375,9 @@ jobs:
       - name: Generate transparency report
         run: node scripts/vibe-transparency-dashboard.js --output transparency.json
 
+      # Один генератор с sbom.yml: зависимости из package-lock.json, пустой список — провал шага
       - name: Generate SBOM
-        run: |
-          node -e "
-            const fs = require('fs');
-            const product = JSON.parse(fs.readFileSync('product.json', 'utf8'));
-            const sbom = {
-              bomFormat: 'CycloneDX',
-              specVersion: '1.4',
-              version: process.env.VIBE_VERSION,
-              metadata: { component: { name: 'vibeide', version: product.vibeVersion } },
-              components: []
-            };
-            fs.writeFileSync('sbom.json', JSON.stringify(sbom, null, 2));
-          "
+        run: node scripts/vibe-sbom.mts --version "${VIBE_VERSION}" --output sbom.json
         env:
           VIBE_VERSION: ${{ env.VIBE_VERSION }}
 

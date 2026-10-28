@@ -23,7 +23,8 @@
 #                                              # redo ONLY gulp package + sign + DMG/ZIP + smoke
 #
 # Artifacts: .build/darwin-arm64/VibeIDE-<ver>-darwin-arm64.dmg + .zip (DMG via scripts/build-dmg-macos.sh —
-# hdiutil + headless ds_store/mac_alias layout, Python venv auto-bootstrapped; build/darwin/create-dmg.ts needs Python ≥3.10 and dmgbuild).
+# hdiutil + headless ds_store/mac_alias layout, Python venv auto-bootstrapped). The same script builds the DMG
+# in CI (release.yml); the upstream build/darwin/create-dmg.ts is not used (VS Code background, volume «VS Code»).
 # Signing: ad-hoc by default (Gatekeeper will require «Open Anyway» on first launch). When
 # VIBE_MAC_SIGNING_IDENTITY is set, signs Developer ID + hardened runtime instead; notarization
 # stays manual via scripts/notarize-macos.sh until Apple Developer credentials exist.
@@ -260,40 +261,8 @@ if [[ "$SKIP_COMPILE" != '1' || "$PACKAGE_ONLY" == '1' ]]; then
 	done
 	ok "Bundle integrity: ${#REQUIRED_WORKERS[@]} required worker(s) present"
 
-	# Finder/Get Info must show the VibeIDE product version, not the VS Code codebase
-	# version. gulp-electron force-overwrites its productVersion option from the app's
-	# package.json (1.118.x) and the option is deprecated, so patch the plist here —
-	# BEFORE codesign, otherwise the signature would be invalidated. The runtime version
-	# (package.json / vscode.version API) intentionally stays 1.118.x for extension compat.
-	step "Patching Info.plist versions to $NEW_VIBE..."
-	/usr/libexec/PlistBuddy \
-		-c "Set :CFBundleShortVersionString $NEW_VIBE" \
-		-c "Set :CFBundleVersion $NEW_VIBE" \
-		"$APP/Contents/Info.plist"
-	ok "Info.plist: CFBundleShortVersionString/CFBundleVersion = $NEW_VIBE"
-
-	# Voice input (dictation) asks for the mic — replace Electron's generic English
-	# usage string with a product-specific Russian one (shown in the macOS TCC prompt).
-	# NOTE for future hardened-runtime/notarization: add the
-	# com.apple.security.device.audio-input entitlement alongside this.
-	step 'Patching NSMicrophoneUsageDescription...'
-	MIC_USAGE='Микрофон нужен для голосового ввода (диктовки). Распознавание речи выполняется локально, звук никуда не отправляется.'
-	/usr/libexec/PlistBuddy -c "Set :NSMicrophoneUsageDescription $MIC_USAGE" "$APP/Contents/Info.plist" 2>/dev/null \
-		|| /usr/libexec/PlistBuddy -c "Add :NSMicrophoneUsageDescription string $MIC_USAGE" "$APP/Contents/Info.plist"
-	ok 'Info.plist: NSMicrophoneUsageDescription (ru)'
-
-	# Apple Silicon refuses to launch binaries with an invalid signature, and gulp's
-	# post-processing breaks Electron's original ad-hoc one — always re-sign.
-	if [[ -n "${VIBE_MAC_SIGNING_IDENTITY:-}" ]]; then
-		step "Codesigning with Developer ID: $VIBE_MAC_SIGNING_IDENTITY"
-		codesign --force --deep --options runtime --timestamp --sign "$VIBE_MAC_SIGNING_IDENTITY" "$APP"
-		echo '  (notarization is a separate manual step: scripts/notarize-macos.sh)'
-	else
-		step 'Codesigning ad-hoc (no VIBE_MAC_SIGNING_IDENTITY — Gatekeeper will require «Open Anyway»)...'
-		codesign --force --deep --sign - "$APP"
-	fi
-	codesign --verify --deep "$APP" || die 'codesign verification failed'
-	ok 'Signed'
+	# Version in Info.plist, microphone string and signature: one script with the CI job
+	"$ROOT/scripts/finish-macos-app.sh" "$APP" "$NEW_VIBE" || die 'finishing the app failed'
 
 	mkdir -p "$ARTIFACT_DIR"
 	rm -f "$ARTIFACT_DIR"/VibeIDE-*-darwin-arm64.dmg "$ARTIFACT_DIR"/VibeIDE-*-darwin-arm64.zip
