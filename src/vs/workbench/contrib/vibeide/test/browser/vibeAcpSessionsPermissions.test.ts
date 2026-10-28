@@ -65,12 +65,15 @@ suite('VibeAcpSessionsService — кто отвечает на вопрос вн
 	const request = (overrides: Partial<IAcpPermissionRequest>): AcpEvent => ({
 		kind: 'permission',
 		request: {
-			requestId: 'r1', sessionId: 's1', toolCallId: 'c1', title: 'Edit a.ts', name: 'Edit', toolKind: 'edit', command: '',
+			requestId: 'r1', sessionId: 's1', requestSessionId: 's1', toolCallId: 'c1', title: 'Edit a.ts', name: 'Edit', toolKind: 'edit', command: '',
 			detail: '', paths: ['/ws/app/src/a.ts'], diffs: [], options, ...overrides,
 		},
 	});
 	const settle = () => new Promise(resolve => setTimeout(resolve, 0));
-	const pendingOf = (service: VibeAcpSessionsService) => service.sessions[0].pendingPermission;
+	const pendingOf = (service: VibeAcpSessionsService) => service.sessions[0].pendingPermissions[0]?.request;
+	const pendingIds = (service: VibeAcpSessionsService) => service.sessions[0].pendingPermissions.map(pending => pending.request.requestId);
+	const pendingReasonOf = (service: VibeAcpSessionsService) => service.sessions[0].pendingPermissions[0]?.reason;
+	const offersOf = (service: VibeAcpSessionsService) => service.sessions[0].pendingPermissions[0]?.grantOffers ?? [];
 
 	test('вручную вопрос идёт человеку, и чекпоинт уже снят', async () => {
 		const { service, events, answers, snapshots } = setup();
@@ -98,7 +101,7 @@ suite('VibeAcpSessionsService — кто отвечает на вопрос вн
 		await service.setPermissionMode('s1', 'auto');
 		events.fire(request({ title: 'rm -rf ~/work', name: 'Bash', toolKind: 'execute', command: 'rm -rf ~/work', paths: [] }));
 		await settle();
-		assert.deepStrictEqual([pendingOf(service)?.requestId, service.sessions[0].pendingReason, answers], ['r1', 'irreversible', []]);
+		assert.deepStrictEqual([pendingOf(service)?.requestId, pendingReasonOf(service), answers], ['r1', 'irreversible', []]);
 	});
 
 	test('автопилот сам отвечает на удаление временной папки и папки проекта, а удаление вне них идёт человеку', async () => {
@@ -110,7 +113,7 @@ suite('VibeAcpSessionsService — кто отвечает на вопрос вн
 		run('r2', 'rm -rf build');
 		run('r3', 'rm -rf /Users/me/Documents');
 		await settle();
-		assert.deepStrictEqual([answers.map(a => a.requestId), pendingOf(service)?.requestId, service.sessions[0].pendingReason], [['r1', 'r2'], 'r3', 'irreversible']);
+		assert.deepStrictEqual([answers.map(a => a.requestId), pendingOf(service)?.requestId, pendingReasonOf(service)], [['r1', 'r2'], 'r3', 'irreversible']);
 	});
 
 	test('автопилот отвечает на обычную команду сам; запрос без разрешающего варианта всё равно идёт человеку', async () => {
@@ -128,13 +131,13 @@ suite('VibeAcpSessionsService — кто отвечает на вопрос вн
 		await service.startSession(agent);
 		events.fire(request({ requestId: 'r1', title: 'npm test', name: 'Bash', toolKind: 'execute', command: 'npm test', paths: [] }));
 		await settle();
-		const offers = service.sessions[0].pendingGrantOffers;
-		await service.answerPermission('s1', 'allow', { kind: 'command', prefix: 'npm' });
+		const offers = offersOf(service);
+		await service.answerPermission('s1', 'r1', 'allow', { kind: 'command', prefix: 'npm' });
 		assert.deepStrictEqual([offers, service.sessions[0].grants, answers.length], [[{ kind: 'command', prefix: 'npm test' }], [], 1]);
 
 		events.fire(request({ requestId: 'r2', title: 'npm test', name: 'Bash', toolKind: 'execute', command: 'npm test', paths: [] }));
 		await settle();
-		await service.answerPermission('s1', 'allow', offers[0]);
+		await service.answerPermission('s1', 'r2', 'allow', offers[0]);
 		events.fire(request({ requestId: 'r3', title: 'npm test', name: 'Bash', toolKind: 'execute', command: 'npm test', paths: [] }));
 		await settle();
 		assert.deepStrictEqual([service.sessions[0].grants, answers.map(a => a.requestId), pendingOf(service)], [[{ kind: 'command', prefix: 'npm test' }], ['r1', 'r2', 'r3'], undefined]);
@@ -145,7 +148,7 @@ suite('VibeAcpSessionsService — кто отвечает на вопрос вн
 		await service.startSession(agent);
 		events.fire(request({ requestId: 'r1', title: 'npm test', name: 'Bash', toolKind: 'execute', command: 'npm test', paths: [] }));
 		await settle();
-		await service.answerPermission('s1', 'allow', service.sessions[0].pendingGrantOffers[0]);
+		await service.answerPermission('s1', 'r1', 'allow', offersOf(service)[0]);
 		service.clearGrants('s1');
 		events.fire(request({ requestId: 'r2', title: 'npm test', name: 'Bash', toolKind: 'execute', command: 'npm test', paths: [] }));
 		await settle();
@@ -157,8 +160,54 @@ suite('VibeAcpSessionsService — кто отвечает на вопрос вн
 		await service.startSession(agent);
 		events.fire(request({}));
 		await settle();
-		await service.answerPermission('s1', 'reject');
+		await service.answerPermission('s1', 'r1', 'reject');
 		assert.deepStrictEqual(snapshots.discarded, ['snap1']);
+	});
+
+	test('несколько запросов хода открыты одновременно: ответ закрывает только свой, дочерняя сессия остаётся в чате', async () => {
+		const { service, events, answers } = setup();
+		await service.startSession(agent);
+		const reads = ['components.css', 'mocksWeb.css', 'mocksMobile.css', 'mocks.css'];
+		reads.forEach((name, index) => events.fire(request({
+			requestId: `r${index + 1}`,
+			toolCallId: `c${index + 1}`,
+			title: `Read ${name}`,
+			name: 'Read',
+			toolKind: 'read',
+			paths: [`/outside/${name}`],
+			// У субагента свой sessionId, но вопрос принадлежит чату, который его позвал
+			requestSessionId: index === 1 ? 'child-session' : 's1',
+		})));
+		await settle();
+		assert.deepStrictEqual(pendingIds(service), ['r1', 'r2', 'r3', 'r4']);
+
+		await service.answerPermission('s1', 'r2', 'allow');
+		assert.deepStrictEqual([pendingIds(service), answers], [['r1', 'r3', 'r4'], [{ requestId: 'r2', optionId: 'allow' }]]);
+	});
+
+	test('«Разрешить все» отвечает на каждый открытый вопрос разовым «да», не выдавая разрешений на сессию', async () => {
+		const { service, events, answers } = setup();
+		await service.startSession(agent);
+		for (const id of ['r1', 'r2', 'r3']) {
+			events.fire(request({ requestId: id, toolCallId: `c-${id}`, title: `Read ${id}.css`, name: 'Read', toolKind: 'read', paths: [`/outside/${id}.css`] }));
+		}
+		await settle();
+		const answered = await service.allowAllPermissions('s1');
+		assert.deepStrictEqual([answered, pendingIds(service), answers.map(answer => answer.requestId), service.sessions[0].grants], [3, [], ['r1', 'r2', 'r3'], []]);
+	});
+
+	test('прерывание хода закрывает все открытые карточки и отбрасывает их чекпоинты', async () => {
+		const { service, events, snapshots } = setup();
+		await service.startSession(agent);
+		for (const id of ['r1', 'r2', 'r3']) {
+			events.fire(request({ requestId: id, toolCallId: `c-${id}`, paths: [`/ws/app/src/${id}.ts`] }));
+		}
+		await settle();
+		for (const id of ['r1', 'r2', 'r3']) {
+			events.fire({ kind: 'permissionWithdrawn', sessionId: 's1', requestId: id });
+		}
+		await settle();
+		assert.deepStrictEqual([pendingIds(service), snapshots.discarded], [[], ['snap1', 'snap2', 'snap3']]);
 	});
 
 	test('команды, которые агент объявил, помнятся после конца сессии: меню «/» нового разговора не пустеет', async () => {

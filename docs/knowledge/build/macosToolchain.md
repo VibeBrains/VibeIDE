@@ -2,15 +2,17 @@
 
 ← [Knowledge Index](../README.md)
 
-Пайплайн `scripts/release-macos.sh`: `.app` → `.dmg` + `.zip` для arm64, двухфазный флоу, подпись (ad-hoc / Developer ID). Notarization — см. [distribution-signing-runbook](../../references-v1/distribution-signing-runbook.md) (раздел «macOS: Notarization»).
+Пайплайн `scripts/release-macos.sh`: `.app` → `.dmg` + `.zip`, двухфазный флоу, подпись (ad-hoc / Developer ID). Notarization — см. [distribution-signing-runbook](../../references-v1/distribution-signing-runbook.md) (раздел «macOS: Notarization»).
 
 ---
 
-## [сборка] Формат: DMG + ZIP, пока только arm64
+## [сборка] Формат: DMG + ZIP для arm64 и x64
 
-Под macOS собирается **`.dmg`** (образ для установки drag-to-Applications) и **`.zip`** (portable). Оба — из одного `VibeIDE.app`. Universal Binary (arm64 + x64 через `lipo`) отложён — `scripts/build-macos-universal.sh` пока skeleton; текущий пайплайн собирает **только arm64** (`release-macos.sh` падает на не-arm64 хосте намеренно).
+Под macOS собирается **`.dmg`** (образ для установки drag-to-Applications) и **`.zip`** (portable). Оба — из одного `VibeIDE.app`. Universal Binary (arm64 + x64 через `lipo`) отложен — `scripts/build-macos-universal.sh` пока skeleton. Локальный `release-macos.sh` собирает нативную архитектуру хоста; hosted release CI собирает arm64 и x64 на отдельных раннерах.
 
-Реальный gulp-таргет: `vscode-darwin-arm64` → пакует `../VibeIDE-darwin-arm64/VibeIDE.app`. DMG собирается через `hdiutil` (zero-dep), ZIP — через `ditto` (сохраняет подпись/xattrs). Скрипт `build/darwin/create-dmg.ts` не используется — ему нужен Python ≥3.10, которого на build-машине нет; `hdiutil` его заменяет.
+Реальные gulp-таргеты: `vscode-darwin-arm64` / `vscode-darwin-x64` → `../VibeIDE-darwin-<arch>/VibeIDE.app`. В `release-macos.sh` DMG собирается через `hdiutil` (zero-dep), ZIP — через `ditto` (сохраняет подпись/xattrs). В hosted CI используется `build/darwin/create-dmg.ts`.
+
+С релиза 1.29.0 `scripts/vibe-release-manifest.mjs` читает `macos-x64` и `macos-arm64`, создаёт ключи `darwin-x64` / `darwin-arm64` и включает обе DMG в checksums. `vibeideUpdateMainService` выбирает ключ по `process.arch`; ключа `darwin-universal` у раздельных пакетов нет.
 
 ---
 
@@ -97,3 +99,15 @@ xcode-select --install       # Command Line Tools (если ещё нет)
 Открыть DMG, перетащить в Applications, запустить (при ad-hoc — «Open Anyway») — это acceptance-smoke перед реальной публикацией. Сам скрипт делает CLI-smoke (`bin/vibeide --version`) автоматически.
 
 **Применение:** onboarding мак-сборки; диагностика «падает на не-arm64» / «Gatekeeper блокирует запуск»; кросс-платформенный релиз одной версии вслед за Windows.
+
+---
+
+## [universal] Universal не заявляется: каждая arch собирается на своём железе (macos-15-intel / macos-latest)
+
+**Контекст:** release CI 40478565558 → попытки Universal (lipo главного exe 1f654a805; затем create-universal-app + verify-macho со skip thin-arm64 нативов 8adfd2d69) отвергнуты: один lipo не покрывает десятки Mach-O, а thin universal с skip в verify нечестен.
+
+**Причина, почему same-runner флоу был обречён:** npm/node-gyp ставят нативы под хост. Сборка обеих arch на одном arm64-хосте даёт x64 `.app` с arm64 `.node` (доказано `file`/`lipo` на собранном .app: все `build/Release/*.node` и sherpa-onnx — thin arm64, байт-в-байт одинаковы) — честный Universal так не собрать, а прятать это skip'ом verify нельзя.
+
+**Решение (main, текущая схема):** job build-macos — matrix include: x64 → раннер `macos-15-intel` (Intel x86_64), arm64 → `macos-latest` (Apple Silicon). Каждая arch собирается на родном железе → нативы совпадают с платформой; отдельные `VibeIDE-darwin-{x64,arm64}.dmg` (create-dmg.ts), arm64 + portable ZIP через ditto (как release-macos.sh). Universal не нужен и не заявляется. Факт-справка: `macos-13` удалён GitHub 2025-12-04 (changelog), для standard-раннеров Intel — лейбл `macos-15-intel` (runner-images README, таблица Available Images: macOS 15 → x64 → macos-15-large / macos-15-intel). Intel-архитектура целиком deprecated у GitHub (поддержка до retirement macos-15 image, ~Fall 2027) — мониторить.
+
+**Применение:** не resurrect Universal в hosted CI; при смене лейблов раннеров сверяться с runner-images README (таблица arch × label); x64-сборка macOS умрёт вместе с Intel-раннерами — решение о поддержке Intel принимать ближе к 2027.

@@ -88,3 +88,47 @@ sudo chmod +x /usr/local/bin/appimagetool
 Затем поставить получившийся `.deb`/`.AppImage` на чистой Ubuntu/Fedora VM — это и есть acceptance-smoke перед первой реальной публикацией.
 
 **Применение:** onboarding Linux-сборки; диагностика «скрипт пропустил arm64/rpm»; кросс-сборка Linux с Windows или Mac.
+
+---
+
+## [пакетирование] Пустой Depends/Requires: генератор зависимостей искал только asar.unpacked layout
+
+**Контекст:** release CI 40478565558, Linux x64: `.deb` собрался с пустым `Depends`, `.rpm` упал с `Empty tag Requires`. До этого же job падал иначе — параллельный запуск `prepare-deb build-deb` в одном вызове gulp (разнесено в последовательные шаги, см. git log 40467992342).
+
+**Суть:** `build/linux/dependencies-generator.ts` искал native-модули только в `resources/app/node_modules.asar.unpacked` (upstream layout). VibeIDE держит зависимости реальными файлами в `resources/app/node_modules` — main process ESM, резолвер Node не лезет в ASAR (см. комментарий в `gulpfile.vscode.ts` у упаковки `node_modules.asar`). `find` по несуществующему каталогу возвращал status≠0 → код молча возвращал `[]` → Depends/Requires пустые, и дело доходило до reference-check только в rpm-варианте.
+
+**Фикс:** `findNativeModuleFiles()` — fallback-поиск: `node_modules.asar.unpacked` → `node_modules`; если ни в одном layout нет ни одного `*.node` — throw (пустой список больше не уходит молча). Поведение upstream для его layout сохранено (asar.unpacked приоритет), дубли исключаются отдачей первого непустого layout + Set-мерж в `mergePackageDeps` как раньше. Regression test `build/linux/dependencies-generator.test.ts` (оба layout'а, пустой asar.unpacked, отсутствие natives; seam расширен: glob тестов build/ — `{lib,next,linux}/**/*.test.ts`).
+
+**Проверено фактом (harness на fixture с реальными natives):** старый код возвращал `[]` на VibeIDE layout; новый находит `.node` и бросает на пустом. Прогон: `cd build && npm test` — 253 pass.
+
+**Применение:** любое изменение упаковки node_modules (возврат к ASAR, смена layout) — держать оба пути в генераторе; пустой Depends/Requires = повод искать молчаливый early-return, а не содержимое dep-lists.
+
+---
+
+## [пакетирование] Логи CI job 40517776993 содержат только `New:` для `.deb`; `.rpm` не доходил до проверки
+
+**Контекст:** release CI run 40517776993, обе Linux jobs падают на шаге `Prepare .deb package` с `The dependencies list has changed`. Задача — обновить `referenceGeneratedDeps` в `build/linux/debian/dep-lists.ts` и `build/linux/rpm/dep-lists.ts` по полным `New:` массивам из job logs.
+
+**Суть:** `prepare-deb` падает раньше `prepare-rpm`, поэтому в логах есть только один `New:` блок на job — и это Debian-список. RPM-генератор (`/usr/lib/rpm/find-requires`) не вызывался, поэтому точных RPM `New:` массивов в этих логах нет. Механически обновить `build/linux/rpm/dep-lists.ts` по этим же логам невозможно: форматы зависимостей разные (`dpkg-shlibdeps` vs `find-requires`), а конвертация deb-строк в rpm-строки — не механическая операция.
+
+**Применение:** если CI падает на `.deb`, обновлять только Debian baselines; для RPM нужен либо отдельный успешный/упавший `.rpm` лог, либо локальный Linux-build с запуском `prepare-rpm`. Не пытаться угадать RPM-список по Debian-списку — получится неточный baseline и следующий же `prepare-rpm` упадёт с другим diff.
+
+---
+
+## [релиз CI] Пути upload-artifact проверять по фактическим outputs, а не по имени matrix
+
+**Контекст:** релиз 1.29.0, hosted CI `40582896172`. До полного review workflow успешно собирал пакеты, но не забирал их в артефакты; Windows installer молча пропадал из-за glob с дефисом, а выдуманной задачи `vscode-linux-*-archive` не существовало.
+
+**Суть:** DEB создаётся в `.build/linux/deb/{amd64,arm64}/deb/`, RPM — в `.build/linux/rpm/{x86_64,aarch64}/`; это не `.build/linux-<matrix.arch>`. Portable TAR.GZ собирается прямым `tar` из `../VibeIDE-linux-<arch>`. Windows производит `VibeIDESetup.exe` для обеих архитектур, поэтому ARM64 перед upload переименовывается в `VibeIDESetup-arm64.exe` — GitHub не принимает одинаковые имена assets. `if-no-files-found: error` обязателен: иначе потеря файла выглядит как успешный job. `fail-fast: false` сохраняет артефакты и логи соседней архитектуры при одиночном сбое.
+
+**Применение:** после изменения packaging сверять glob с кодом/логом результата и скачивать артефакт перед публикацией. Лог завершённого job доступен даже пока идёт весь run: `gh api --allow-escape-sequences repos/<owner>/<repo>/actions/jobs/<job-id>/logs`.
+
+---
+
+## [пакетирование] Версия DEB/RPM — `product.vibeVersion`, не версия базового VS Code
+
+**Контекст:** релиз 1.29.0 сначала опубликовал `vibeide_1.133.0-…deb` и `vibeide-1.133.0-…rpm`: пользователь увидел чужую версию в именах assets.
+
+**Суть:** `build/gulpfile.vscode.linux.ts` подставлял `packageJson.version` (`1.133.0`, база VS Code) в `@@VERSION@@` обоих шаблонов — Debian control и RPM spec. `dpkg-deb`/`rpmbuild` берут имя файла из этих метаданных, поэтому ручное переименование результата не исправляет пакет. Исправление: общий `getLinuxPackageVersion()` возвращает `product.json.vibeVersion`, fallback на базовую версию нужен только для unbranded-сборок.
+
+**Применение:** проверять не только имя asset, но и `Version` внутри DEB/RPM. Регрессия — `build/linux/package-version.test.ts`; запуск `cd build && node --test 'linux/**/*.test.ts'`.

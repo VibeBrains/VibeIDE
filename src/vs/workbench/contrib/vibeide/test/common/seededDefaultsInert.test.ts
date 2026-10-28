@@ -61,7 +61,7 @@ suite('засеянное окружение .vibe: что включено, а 
 	 * Off here means «listed as available, body not injected» — the same state the settings panel labels «по запросу».
 	 */
 	test('правило «бригадир» засевается выключенным: в списке доступных, но не в промпте', () => {
-		const parsed = parseRuleFrontmatter(seed('rules/brigadir-ekonomiya-tokenov.mdc'));
+		const parsed = parseRuleFrontmatter(seed('rules/brigadier.mdc'));
 		const meta = { alwaysApply: parseAlwaysApply(parsed.frontmatter), triggers: parseTriggers(parsed.frontmatter), globs: parseGlobs(parsed.frontmatter) };
 		assert.deepStrictEqual({ meta, activation: decideRuleActivation(meta, { userText: 'бригадир, экономим токены' }) }, {
 			meta: { alwaysApply: false, triggers: [], globs: [] },

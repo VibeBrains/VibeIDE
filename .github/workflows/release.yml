@@ -51,8 +51,28 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: '1'
 
-      - name: Compile TypeScript
+      # Self-hosted (default): full pipeline with identifier mangling.
+      # GitHub-hosted ubuntu-latest (vars.USE_GITHUB_RUNNER='true'): the mangler worker peaks
+      # past the runner's RAM and the process gets Killed (run 40461427681) — use the same
+      # without-mangling task as release-macos.sh on low-RAM machines. esbuild minification
+      # still runs; only identifier shortening is skipped.
+      - name: Compile TypeScript (with mangling, self-hosted)
+        if: vars.USE_GITHUB_RUNNER != 'true'
         run: npm run compile-build
+        timeout-minutes: 90
+
+      # react/out bundles are gitignored and neither compile-build task builds them (unlike
+      # `compile`/`core-ci`, which run build-vibeide-browser-react first). GitHub-hosted runners
+      # are clean machines — build React explicitly, same as release-macos.sh does. The
+      # self-hosted runner keeps its own tree; do not touch that path.
+      - name: Build React bundles (GitHub-hosted only)
+        if: vars.USE_GITHUB_RUNNER == 'true'
+        run: npm run buildreact
+        timeout-minutes: 15
+
+      - name: Compile TypeScript (without mangling, GitHub-hosted)
+        if: vars.USE_GITHUB_RUNNER == 'true'
+        run: npm run gulp compile-build-without-mangling
         timeout-minutes: 90
 
       - name: Compile extensions
@@ -66,6 +86,7 @@ jobs:
           path: |
             out/
             extensions/*/out/
+            src/vs/workbench/contrib/vibeide/browser/react/out/
           retention-days: 1
 
   # ─────────────────────────────────────────────────────────────────
@@ -76,6 +97,7 @@ jobs:
     runs-on: windows-latest
     needs: compile
     strategy:
+      fail-fast: false
       matrix:
         arch: [x64, arm64]
 
@@ -102,16 +124,57 @@ jobs:
         run: choco install innosetup -y
         shell: powershell
 
+      # patchWin32DependenciesTask calls signtool.exe from PATH. Locate the x64 signtool in
+      # the Windows SDK (same glob as scripts/sign-windows.ps1) and expose its directory,
+      # so the pinned SDK version on the image does not matter. Hard fail if absent.
+      - name: Locate Windows SDK signtool
+        shell: pwsh
+        run: |
+          $candidates = Get-ChildItem 'C:\Program Files (x86)\Windows Kits\10\bin\*\x64\signtool.exe' -ErrorAction SilentlyContinue |
+            Sort-Object FullName -Descending
+          if (-not $candidates) {
+            Write-Error 'signtool.exe not found under C:\Program Files (x86)\Windows Kits\10\bin\*\x64'
+            exit 1
+          }
+          $signtool = $candidates[0]
+          Write-Host "signtool: $($signtool.FullName)"
+          Add-Content -Path $env:GITHUB_PATH -Value $signtool.DirectoryName
+
       - name: Build Windows app
         run: node node_modules/gulp/bin/gulp.js vscode-win32-${{ matrix.arch }}
         timeout-minutes: 45
 
+      # inno-updater task stages tools/inno_updater.exe + vcruntime140.dll into the app
+      # folder; code.iss references tools/*, so it must run before the installer build.
+      - name: Build Windows inno-updater
+        run: node node_modules/gulp/bin/gulp.js vscode-win32-${{ matrix.arch }}-inno-updater
+        timeout-minutes: 5
+
       - name: Build Windows installer (.exe)
-        run: node node_modules/gulp/bin/gulp.js vscode-win32-${{ matrix.arch }}-setup
+        run: node node_modules/gulp/bin/gulp.js vscode-win32-${{ matrix.arch }}-system-setup
         timeout-minutes: 20
 
+      - name: Name Windows ARM64 installer
+        if: matrix.arch == 'arm64'
+        shell: pwsh
+        run: Move-Item -Force ".build/win32-arm64/system-setup/VibeIDESetup.exe" ".build/win32-arm64/system-setup/VibeIDESetup-arm64.exe"
+
+      # No gulp archive task for win32 — pack the folder the build produced
+      # (same as scripts/release-windows.ps1: Compress-Archive from ../VibeIDE-win32-<arch>).
       - name: Build Windows portable (.zip)
-        run: node node_modules/gulp/bin/gulp.js vscode-win32-${{ matrix.arch }}-archive
+        shell: pwsh
+        run: |
+          $appDir = "../VibeIDE-win32-${{ matrix.arch }}"
+          if (-not (Test-Path $appDir)) {
+            Write-Error "Packaged app folder not found: $appDir"
+            exit 1
+          }
+          $archiveDir = ".build/win32-${{ matrix.arch }}/archive"
+          New-Item -ItemType Directory -Force -Path $archiveDir | Out-Null
+          Get-ChildItem "$archiveDir/VibeIDE-*-win32-${{ matrix.arch }}.zip" -ErrorAction SilentlyContinue |
+            Remove-Item -Force -ErrorAction SilentlyContinue
+          Compress-Archive -Path "$appDir/*" -DestinationPath "$archiveDir/VibeIDE-${env:VIBE_VERSION}-win32-${{ matrix.arch }}.zip" -Force
+          Get-ChildItem "$archiveDir/VibeIDE-${env:VIBE_VERSION}-win32-${{ matrix.arch }}.zip" | Select-Object -ExpandProperty FullName
         timeout-minutes: 10
 
       - name: Upload Windows artifacts
@@ -119,16 +182,33 @@ jobs:
         with:
           name: windows-${{ matrix.arch }}
           path: |
-            .build/win32-${{ matrix.arch }}/system-setup/VibeIDESetup-*.exe
+            .build/win32-${{ matrix.arch }}/system-setup/VibeIDESetup*.exe
             .build/win32-${{ matrix.arch }}/archive/VibeIDE-*.zip
+          if-no-files-found: error
 
   # ─────────────────────────────────────────────────────────────────
-  # macOS — .dmg (Universal Binary: ARM + Intel)
+  # macOS — отдельные .dmg и portable .zip для Apple Silicon и Intel
   # ─────────────────────────────────────────────────────────────────
   build-macos:
-    name: Build macOS (Universal)
-    runs-on: macos-latest
+    name: Build macOS (${{ matrix.arch }})
+    # Each arch builds on its own hardware so native modules match the target
+    # (npm/node-gyp install for the host). macos-13 was retired 2025-12-04;
+    # macos-15-intel is the current standard-runner Intel label (runner-images README).
+    runs-on: ${{ matrix.runner }}
     needs: compile
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: x64
+            runner: macos-15-intel
+          - arch: arm64
+            runner: macos-latest
+    env:
+      # runEsbuildBundle spawns a child node (build/next/index.ts bundle) that inherits
+      # NODE_OPTIONS — without a raised heap the bundle step dies on the hosted runner
+      # (same ceiling release-macos.sh sets via BUILD_HEAP_MB).
+      NODE_OPTIONS: --max-old-space-size=8192
 
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
@@ -149,38 +229,46 @@ jobs:
           PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: '1'
           npm_config_foreground_scripts: 'true'
 
-      - name: Build macOS ARM64
-        run: node node_modules/gulp/bin/gulp.js vscode-darwin-arm64
+      - name: Build macOS app
+        run: node node_modules/gulp/bin/gulp.js vscode-darwin-${{ matrix.arch }}
         timeout-minutes: 45
 
-      - name: Build macOS x64
-        run: node node_modules/gulp/bin/gulp.js vscode-darwin-x64
-        timeout-minutes: 45
-
-      - name: Create Universal Binary (.dmg)
+      - name: Create .dmg
+        env:
+          VSCODE_ARCH: ${{ matrix.arch }}
+          VSCODE_QUALITY: stable
         run: |
-          # Combine ARM64 + x64 into Universal Binary
-          lipo -create \
-            ".build/darwin-arm64/VibeIDE.app/Contents/MacOS/Electron" \
-            ".build/darwin-x64/VibeIDE.app/Contents/MacOS/Electron" \
-            -output ".build/darwin-arm64/VibeIDE.app/Contents/MacOS/Electron"
-          node node_modules/gulp/bin/gulp.js vscode-darwin-arm64-dmg
+          # No vscode-darwin-*-dmg gulp task exists; build/darwin/create-dmg.ts expects the
+          # parent dir of VibeIDE-darwin-<arch> and writes VibeIDE-darwin-<arch>.dmg to outDir.
+          mkdir -p .build/darwin-${{ matrix.arch }}
+          npx tsx build/darwin/create-dmg.ts .. .build/darwin-${{ matrix.arch }}
         timeout-minutes: 20
+
+      # ditto сохраняет подпись и расширенные атрибуты в portable ZIP для каждой архитектуры
+      - name: Create portable .zip
+        run: ditto -c -k --sequesterRsrc --keepParent "../VibeIDE-darwin-${{ matrix.arch }}/VibeIDE.app" ".build/darwin-${{ matrix.arch }}/VibeIDE-${VIBE_VERSION}-darwin-${{ matrix.arch }}.zip"
+        timeout-minutes: 10
 
       - name: Upload macOS artifacts
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: macos-universal
-          path: .build/darwin-arm64/VibeIDE-*.dmg
+          name: macos-${{ matrix.arch }}
+          path: |
+            .build/darwin-${{ matrix.arch }}/VibeIDE-*.dmg
+            .build/darwin-${{ matrix.arch }}/VibeIDE-*.zip
 
   # ─────────────────────────────────────────────────────────────────
   # Linux — .deb, .rpm, .tar.gz + ARM64
   # ─────────────────────────────────────────────────────────────────
   build-linux:
     name: Build Linux (${{ matrix.arch }})
-    runs-on: ubuntu-latest
+    # ubuntu-latest now resolves to 26.04, where dpkg-shlibdeps aborts with a
+    # Perl Dpkg/Shlibs/SymbolFile.pm error and breaks the .deb build (run 40493134071).
+    # Pin to 24.04 until that toolchain bug is resolved.
+    runs-on: ubuntu-24.04
     needs: compile
     strategy:
+      fail-fast: false
       matrix:
         arch: [x64, arm64]
 
@@ -210,16 +298,26 @@ jobs:
         run: node node_modules/gulp/bin/gulp.js vscode-linux-${{ matrix.arch }}
         timeout-minutes: 45
 
+      - name: Prepare .deb package
+        run: node node_modules/gulp/bin/gulp.js vscode-linux-${{ matrix.arch }}-prepare-deb
+        timeout-minutes: 10
+
       - name: Build .deb package
-        run: node node_modules/gulp/bin/gulp.js vscode-linux-${{ matrix.arch }}-prepare-deb vscode-linux-${{ matrix.arch }}-build-deb
+        run: node node_modules/gulp/bin/gulp.js vscode-linux-${{ matrix.arch }}-build-deb
         timeout-minutes: 15
 
+      - name: Prepare .rpm package
+        run: node node_modules/gulp/bin/gulp.js vscode-linux-${{ matrix.arch }}-prepare-rpm
+        timeout-minutes: 10
+
       - name: Build .rpm package
-        run: node node_modules/gulp/bin/gulp.js vscode-linux-${{ matrix.arch }}-prepare-rpm vscode-linux-${{ matrix.arch }}-build-rpm
+        run: node node_modules/gulp/bin/gulp.js vscode-linux-${{ matrix.arch }}-build-rpm
         timeout-minutes: 15
 
       - name: Build .tar.gz (portable)
-        run: node node_modules/gulp/bin/gulp.js vscode-linux-${{ matrix.arch }}-archive
+        run: |
+          mkdir -p ".build/linux-${{ matrix.arch }}/archive"
+          tar -czf ".build/linux-${{ matrix.arch }}/archive/VibeIDE-${VIBE_VERSION}-linux-${{ matrix.arch }}.tar.gz" -C .. "VibeIDE-linux-${{ matrix.arch }}"
         timeout-minutes: 10
 
       - name: Upload Linux artifacts
@@ -227,9 +325,10 @@ jobs:
         with:
           name: linux-${{ matrix.arch }}
           path: |
-            .build/linux-${{ matrix.arch }}/deb/*.deb
-            .build/linux-${{ matrix.arch }}/rpm/*.rpm
+            .build/linux/deb/**/*.deb
+            .build/linux/rpm/**/*.rpm
             .build/linux-${{ matrix.arch }}/archive/*.tar.gz
+          if-no-files-found: error
 
   # ─────────────────────────────────────────────────────────────────
   # Create GitHub Release
@@ -303,11 +402,15 @@ jobs:
             release-artifacts/windows-x64/**/*.zip
             release-artifacts/windows-arm64/**/*.exe
             release-artifacts/windows-arm64/**/*.zip
-            release-artifacts/macos-universal/**/*.dmg
+            release-artifacts/macos-x64/**/*.dmg
+            release-artifacts/macos-x64/**/*.zip
+            release-artifacts/macos-arm64/**/*.dmg
+            release-artifacts/macos-arm64/**/*.zip
             release-artifacts/linux-x64/**/*.deb
             release-artifacts/linux-x64/**/*.rpm
             release-artifacts/linux-x64/**/*.tar.gz
             release-artifacts/linux-arm64/**/*.deb
+            release-artifacts/linux-arm64/**/*.rpm
             release-artifacts/linux-arm64/**/*.tar.gz
             sbom.json
             transparency.json

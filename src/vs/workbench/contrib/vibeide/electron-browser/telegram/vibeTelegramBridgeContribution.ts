@@ -115,7 +115,7 @@ export class VibeTelegramBridgeContribution extends Disposable implements IWorkb
 	/** Выбранный агент реестра по чатам; пусто — берётся единственный активный. */
 	private readonly _acpAgentOf = new Map<number, string>();
 	/** Вопросы внешнего агента, показанные в чате: токен кнопки → сессия, которая ждёт ответа. */
-	private readonly _acpApprovals = new Map<string, { sessionId: string; chatId: number; messageId?: number }>();
+	private readonly _acpApprovals = new Map<string, { sessionId: string; requestId: string; chatId: number; messageId?: number }>();
 	/** Чаты, чьё следующее сообщение — правка отклонённого действия внешнего агента. */
 	private readonly _acpAmendOf = new Set<number>();
 	/** О чём в пределах хода уже сказано в чат: лента повторяет состояние на каждое событие. */
@@ -486,7 +486,7 @@ export class VibeTelegramBridgeContribution extends Disposable implements IWorkb
 	 */
 	private async _mirrorAcpPermission(chatId: number, session: IVibeAcpSessionView): Promise<void> {
 		const shown = [...this._acpApprovals].find(([, pending]) => pending.sessionId === session.sessionId);
-		const pending = session.pendingPermission;
+		const pending = session.pendingPermissions[0]?.request;
 
 		if (!pending) {
 			if (shown) {
@@ -515,7 +515,7 @@ export class VibeTelegramBridgeContribution extends Disposable implements IWorkb
 		});
 		// Таймера нет намеренно, как и у `/cc`: ход стоит, пока человек не ответит. Отказ по
 		// времени означал бы, что агент пошёл другим путём, пока владелец был за рулём.
-		this._acpApprovals.set(token, { sessionId: session.sessionId, chatId, messageId: delivered.messageId });
+		this._acpApprovals.set(token, { sessionId: session.sessionId, requestId: pending.requestId, chatId, messageId: delivered.messageId });
 	}
 
 	/**
@@ -989,7 +989,7 @@ export class VibeTelegramBridgeContribution extends Disposable implements IWorkb
 			if (chatId !== undefined && chatId !== acpPending.chatId) { return; }
 			this._acpApprovals.delete(token);
 			const session = this._acp.sessions.find(view => view.sessionId === acpPending.sessionId);
-			const request = session?.pendingPermission;
+			const request = session?.pendingPermissions.find(pending => pending.request.requestId === acpPending.requestId)?.request;
 			if (!request) {
 				await this._reply(acpPending.chatId, 'Этот вопрос уже решён.');
 				return;
@@ -997,7 +997,7 @@ export class VibeTelegramBridgeContribution extends Disposable implements IWorkb
 			if (decision === 'amend') {
 				// Отказ уходит сразу, а указание — следующим сообщением: без него агент пошёл бы
 				// гадать, что делать вместо отклонённого действия.
-				await this._acp.answerPermission(acpPending.sessionId, undefined);
+				await this._acp.answerPermission(acpPending.sessionId, acpPending.requestId, undefined);
 				this._acpAmendOf.add(acpPending.chatId);
 				await this._reply(acpPending.chatId, '✏️ Отклонено. Напиши или наговори, что сделать вместо этого.');
 				return;
@@ -1005,7 +1005,7 @@ export class VibeTelegramBridgeContribution extends Disposable implements IWorkb
 			// Разрешение — это ВАРИАНТ АГЕНТА, отказ — отмена: какой из чужих вариантов означает
 			// «нет», угадывать нельзя.
 			const optionId = decision === 'approve' ? allowOptionOf(request.options) : undefined;
-			await this._acp.answerPermission(acpPending.sessionId, optionId);
+			await this._acp.answerPermission(acpPending.sessionId, acpPending.requestId, optionId);
 			await this._reply(acpPending.chatId, decision === 'approve'
 				? (optionId ? '✅ Разрешено.' : '⚠️ Агент не предложил варианта «разрешить один раз» — действие отменено.')
 				: '⛔️ Отклонено.');

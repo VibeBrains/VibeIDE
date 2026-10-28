@@ -398,9 +398,6 @@
     "serialize-javascript": "^7.0.3",
     "yauzl": "^3.3.1",
     "shell-quote": "^1.8.4",
-    "ssh2": {
-      "cpu-features": "0.0.0"
-    },
     "postcss": "8.5.13"
   },
   "repository": {

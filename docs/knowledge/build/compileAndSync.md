@@ -112,3 +112,43 @@
 **Грабль:** `git show HEAD:file` применяет smudge-фильтры текущих `.gitattributes` — для точной проверки сырого блоба использовать `git cat-file -p HEAD:file`. Проверка «чисто ли LF»: `grep -c '\r\n' <манифест>` (0 = ок).
 
 **Применение:** любой генератор, встраивающий байты файлов в исходник, обязан нормализовать переносы строк — иначе артефакт недетерминирован между платформами.
+
+---
+
+## [npm] `npm ci` падает «Missing X from lock file», когда overrides расходятся с lock
+
+**Контекст:** релиз CI 1.29.0 (run 40456651342) умер на `npm ci` с `Missing: cpu-features@0.0.0 from lock file` (2026-10-27). В `package.json` был форковый `overrides.ssh2.cpu-features = "0.0.0"`, а в `package-lock.json` записи `node_modules/cpu-features` не существовало.
+
+**Суть:** `npm ci` сверяет `overrides` из `package.json` с lock-файлом строже, чем `npm install` — override заставляет резолвер требовать разрешённый пакет в lock, и при его отсутствии установка отказывается ехать до чего бы то ни было. Здесь override поставили «от греха» для ssh2, но lock обновляли нештатно, и запись так и не появилась. Апстрим VS Code этот override уже удалил — после синка форка наш остался сиротой и сломал чистую установку.
+
+**Применение:** чинить штатно — удалить невалидный override (ничего больше в `overrides` не трогать: там живут форковые пины `shell-quote`, `postcss`) и `npm install --package-lock-only`. Дифф lock при этом должен быть только про целевой пакет и его новые опциональные зависимости (здесь: `+node_modules/cpu-features@0.0.10`, `+node_modules/buildcheck@0.0.7`); если npm начал перегенерировать lock массово — стоп и разбираться, а не коммитить. Проверка чистоты: полный `npm ci` (install-scripts гасятся проектным `allowScripts` из `package.json` — `cpu-features: false` и т.п., `.npmrc` держит `ignore-scripts=false`, менять ничего не надо). После синка апстрима — сверять `overrides` с upstream, сироты удалять сразу.
+
+---
+
+## [tests] `node test/unit/node/index.js --build` подменяет NLS-placeholders и даёт ложные failures
+
+**Контекст:** при merge 1.29.0 запуск unit-тестов на production `out-build` давал 28+1 failures, тогда как dev `out` показывал 4700 common + 24 aiSdkAdapter green (2026-10-27).
+
+**Суть:** флаг `--build` отправляет runner в `out-build`, где NLS-строки уже подменены на локализованные placeholders (`{0}`, `{1}` и т.п.) вместо исходных английских ключей. Текстовые ассерты, которые сверяют поведение/UI-строки, начинают падать не из-за кода, а из-за несовпадения placeholder-формата.
+
+**Применение:** для behavior/UI-string тестов использовать dev `out`, собранный через `npm run transpile-client`, и runner **без `--build`**: `node test/unit/node/index.js`. Флаг `--build` оставить для проверок, которые не зависят от точного текста NLS-строк.
+
+---
+
+## [ci] Release compile на ubuntu-latest: Killed после mangler/tsc — без манглинга как fallback
+
+**Контекст:** release CI run 40461427681, job compile на `ubuntu-latest` (`vars.USE_GITHUB_RUNNER='true'`): `npm ci` — PASS, далее `npm run compile-build` (gulp с `node --max-old-space-size=8192`) — после прохождения mangler/tsc процесс получил `Killed`, TS-ошибок в логе нет. Ручной cancel и конкурентные джобы исключены. Тот же ref на self-hosted собирался нормально.
+
+**Суть (границы факта):** `Killed` + невыполнение лимитов подтверждены логом; классический OOM-killer как причина — **гипотеза, не измеренная** (dmesg/journal раннера не сняты). Что известно точно: пик памяти при идентификаторном манглинге на большом дереве (тысячи классов/экспортов) исторически упирается в физическую RAM — см. замеры в `scripts/release-macos.sh` (8192 → SIGKILL у OS, 5120 → ineffective mark-compacts, 4096 → worker OOM: «окна» между лимитом V8 и машиной нет). GitHub-hosted `ubuntu-latest` даёт ~16 ГБ — суффициентно для полного пайплайна только впритык, и поведение плавает от деревa/parallels.
+
+**Фикс (conditional, не лимит):** в `.github/workflows/release.yml` job compile раздвоён: `vars.USE_GITHUB_RUNNER == 'true'` → `npm run gulp compile-build-without-mangling` (тот же без-манглинга таск, что release-macos.sh на low-RAM машинах; esbuild-minification остаётся, пропущен только сокращатель идентификаторов), иначе прежний `npm run compile-build`. Не «понижение лимита наугад»: флаги heap не тронуты. Важно: npm-скрипта `compile-build-without-mangling` в `package.json` нет и в upstream нет — это gulp-таск, вызов идёт через существующий `npm run gulp <task>` (паттерн репозитория).
+
+**Применение:** любой «OOM-подобный» kill GitHub-hosted раннера — сначала сверить пик RSS/доступную RAM (dmesg), потом решать; без измерения не утверждать OOM. Low-RAM пути сборки переиспользовать из `release-macos.sh`, а не изобретать второй режим.
+
+**Дополнение (run 40463000548):** без-манглинга путь дошёл дальше и упал точнее — отсутствуют `react/out/*/index.js` (provider-diagnostics, sidebar и др.). Причина по коду: ни `compile-build-with-mangling`, ни `compile-build-without-mangling` React не строят — оба это `copyCodicons → rimraf → compileTask` (`build/gulpfile.compile.ts`); React-бандлы строит только `build-vibeide-browser-react`, встроенный в `compile` (`build/gulpfile.ts`) и `core-ci` (`build/gulpfile.vscode.ts`). `react/out` в git отсутствует, и self-hosted раннер проходил лишь потому, что у него грязное дерево с прошлых сборок. Фикс: в hosted-ветку job compile добавлен отдельный step `npm run buildreact` (тот же скрипт, что зовёт `release-macos.sh`) перед compile; self-hosted путь не тронут. Проверено фактом: `rm -rf react/out && npm run buildreact` восстанавливает все 13 `out/*/index.js`.
+
+**Дополнение (run 40464390750):** buildreact в CI прошёл, но платформенные job'ы упали — `compiled-output` artifact не включал `src/vs/workbench/contrib/vibeide/browser/react/out/`: compile копирует бандлы в `out-build`, а Phase 2 читает их из src-дерева (self-hosted опять прикрывала грязная копия). Путь добавлен в `upload-artifact` job compile.
+
+**Дополнение (run 40467992342):** три первопричины, все в workflow, продукт не тронут. 1) Linux: `gulp prepare-deb build-deb` одним вызовом давал race — build стартовал до готового cwd и падал ENOENT; разнесено в последовательные шаги, как штатный `scripts/release-linux.sh` (отдельные `gulp_task`). 2) macOS: `runEsbuildBundle` спавнит дочерний node (`cp.spawn(process.execPath, build/next/index.ts bundle)`), heap которого не покрывал вызов `node …gulp.js` без флага — на job build-macos добавлен `NODE_OPTIONS: --max-old-space-size=8192` (дочерний процесс наследует env; тот же потолок, что `BUILD_HEAP_MB` в release-macos.sh). 3) Windows: `patchWin32DependenciesTask` зовёт signtool из PATH; на hosted-образе SDK в PATH нет — перед «Build Windows app» step ищет x64 signtool глобусом `Windows Kits\10\bin\*\x64` (тот же приём, что `scripts/sign-windows.ps1`, без хардкода версии из azure-пайплайна) и кладёт каталог в GITHUB_PATH, fail если не найден.
+
+**Дополнение (run 40478565558, платформенные job'ы):** ещё две точные ошибки, фикс только в workflow. 1) Windows: таск `vscode-win32-*-setup` не существует — штатный `vscode-win32-{arch}-system-setup` (gulpfile.vscode.win32.ts:134), вывод в `.build/win32-{arch}/system-setup/`. Archive-таск для win32 нет вовсе — portable собирается pwsh `Compress-Archive` из `../VibeIDE-win32-{arch}` (схема release-windows.ps1:311-338, имя `VibeIDE-{VIBE_VERSION}-win32-{arch}.zip`). 2) macOS Universal: gulp кладёт сборки в `../VibeIDE-darwin-{arm64,x64}` (родитель репо), lipo — по `Contents/MacOS/VibeIDE` (не `.build/…/Electron`); таск `vscode-darwin-arm64-dmg` несуществующий — DMG через `npx tsx build/darwin/create-dmg.ts .. .build/darwin-arm64` (сигнатура: buildDir=родитель `VibeIDE-darwin-{arch}`, outDir; требует `VSCODE_ARCH`/`VSCODE_QUALITY`, фон `dmg-background-{quality}.tiff` должен существовать). Локально проверено: путь бинаря фактический (lipo -info arm64); pwsh/python 3.12+ на машине нет — полный прогон двух шагов = CI.

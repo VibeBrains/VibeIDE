@@ -9,9 +9,9 @@ import vfs from 'vinyl-fs';
 import { rimraf } from './lib/util.ts';
 import { getVersion } from './lib/getVersion.ts';
 import * as task from './lib/gulp/task.ts';
-import packageJson from '../package.json' with { type: 'json' };
 import product from '../product.json' with { type: 'json' };
 import { getDependencies } from './linux/dependencies-generator.ts';
+import { getLinuxDebPackageVersion, getLinuxPackageVersion } from './linux/package-version.ts';
 import { recommendedDeps as debianRecommendedDependencies } from './linux/debian/dep-lists.ts';
 import { recommendedDeps as rpmRecommendedDependencies } from './linux/rpm/dep-lists.ts';
 import * as path from 'path';
@@ -87,7 +87,7 @@ function prepareDebPackage(arch: string) {
 				const that = this;
 				gulp.src('resources/linux/debian/control.template', { base: '.' })
 					.pipe(replace('@@NAME@@', product.applicationName))
-					.pipe(replace('@@VERSION@@', packageJson.version + '-' + linuxPackageRevision))
+					.pipe(replace('@@VERSION@@', getLinuxDebPackageVersion(linuxPackageRevision)))
 					.pipe(replace('@@ARCHITECTURE@@', debArch))
 					.pipe(replace('@@DEPENDS@@', dependencies.join(', ')))
 					.pipe(replace('@@RECOMMENDS@@', debianRecommendedDependencies.join(', ')))
@@ -194,7 +194,7 @@ function prepareRpmPackage(arch: string) {
 			.pipe(replace('@@NAME@@', product.applicationName))
 			.pipe(replace('@@NAME_LONG@@', product.nameLong))
 			.pipe(replace('@@ICON@@', product.linuxIconName))
-			.pipe(replace('@@VERSION@@', packageJson.version))
+			.pipe(replace('@@VERSION@@', getLinuxPackageVersion()))
 			.pipe(replace('@@RELEASE@@', linuxPackageRevision.toString()))
 			.pipe(replace('@@ARCHITECTURE@@', rpmArch))
 			.pipe(replace('@@LICENSE@@', product.licenseName))
