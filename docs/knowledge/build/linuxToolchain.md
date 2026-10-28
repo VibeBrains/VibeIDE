@@ -132,3 +132,15 @@ sudo chmod +x /usr/local/bin/appimagetool
 **Суть:** `build/gulpfile.vscode.linux.ts` подставлял `packageJson.version` (`1.133.0`, база VS Code) в `@@VERSION@@` обоих шаблонов — Debian control и RPM spec. `dpkg-deb`/`rpmbuild` берут имя файла из этих метаданных, поэтому ручное переименование результата не исправляет пакет. Исправление: общий `getLinuxPackageVersion()` возвращает `product.json.vibeVersion`, fallback на базовую версию нужен только для unbranded-сборок.
 
 **Применение:** проверять не только имя asset, но и `Version` внутри DEB/RPM. Регрессия — `build/linux/package-version.test.ts`; запуск `cd build && node --test 'linux/**/*.test.ts'`.
+
+---
+
+## [сборка из исходников] Свежий npm на rolling-дистрибутивах не проходит `preinstall`
+
+**Контекст:** issue #4 — пользователь собирал на CachyOS и в своём скрипте вырезал `throw` из `build/npm/preinstall.ts`.
+
+**Суть:** проверка версии Node снимается переменной `VSCODE_SKIP_NODE_VERSION_CHECK=1`, правка файла ради неё не нужна.
+А запрет npm 12 и выше переменной не снимается: на Arch, CachyOS и других rolling-дистрибутивах системный npm уже новее, и `npm install` падает сразу.
+Обход для такой машины — Node 24 с его npm через `fnm` или `nvm` по `.nvmrc`, а не правка `preinstall.ts`.
+
+**Применение:** пользователю, который собирает сам, советовать `fnm use` по `.nvmrc`; на Arch-подобных системах вообще ставить готовый `tar.gz` из релиза.
