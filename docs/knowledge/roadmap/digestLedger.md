@@ -83,3 +83,5 @@
 | 24.10.2026 | `digests/2026-10-24.md` (VibeDigests, `a201f45`) | `DIGEST-1026` | разобрана 26.10.2026; Kimi K3.1 Pro уже в сиде (`04c69f726`), `mcode` есть в реестре ACP |
 | 25.10.2026 | `digests/2026-10-25.md` (VibeDigests, `a201f45`) | `DIGEST-1026` | разобрана 26.10.2026; Cursor `agent acp` уже в сиде, Nemotron Bolt — образец Ollama |
 | 26.10.2026 | `digests/2026-10-26.md` (VibeDigests, `a201f45`) | `DIGEST-1026` | разобрана 26.10.2026; нового для кода нет, паттерн Claude Security закрыт навыком `security-audit` |
+| 27.10.2026 | `digests/2026-10-27.md` (VibeDigests, `f1d8a77`) | `DIGEST-1028` | разобрана 28.10.2026 одним разбором с 28.10; Agent Skills (формат не менялся, совместимость есть) и AGENTS.md (ядро читает только корень проекта) — сделано; Computer Use не берём |
+| 28.10.2026 | `digests/2026-10-28.md` (VibeDigests, `f1d8a77`) | `DIGEST-1028` | разобрана 28.10.2026; одно расхождение: профиля GPT-6.1 Terra нет, цена считается по Sol; Claude API 2026-10-21 и ACP v1.27 нас не задевают; замер AA по Kimi K3.1 Pro подтверждён первоисточником |
