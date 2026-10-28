@@ -8320,6 +8320,18 @@ docs.z.ai, mimo.mi.com, agentclientprotocol.com, GHSA python-sdk, ncsc.gov.uk, a
       (сгенерированный модуль равен файлу набора, файл той версии и состава — незнакомое поле роняет тест). VibeIDEA тот же файл уже читала (`SttCatalog.kt`).
       Лицензии `nemo-ctc-en` small и medium в файле набора пусты намеренно — не выдумывались
 
+## REL-1291. Релиз v1.29.1 вместо отозванной 1.29.0 (2026-10-28)
+
+- [x] **Выпущена 1.29.1 вместо отозванной 1.29.0** — ✅ (28.10.2026, main) macOS arm64 собрана локально (`release-macos.sh`), подпись проходит `codesign --verify --deep --strict`.
+      Windows x64 и arm64 взяты из CI-запуска 40679735118 на теге `v1.29.1` (задачи Windows прошли). winget PR microsoft/winget-pkgs#464053 открыт, PR на удаление 1.29.0 (#463794) влит
+- [x] **Сверка Windows-архива с 1.28.0** — ✅ (28.10.2026) убраны только карты исходников `.map` (2851) и дубль `@parcel/watcher-win32-x64/watcher.node` (рабочая копия в `@parcel/watcher/build/Release` есть).
+      Размеры zip 291 МБ и setup 180 МБ против 346 и 209 у 1.28.0. Знание: `build/windowsVmOnMac.md`
+- [ ] **`scripts/release-macos.sh` возвращает код 0 при упавшей компиляции** — видели на `SyntaxError` minimatch; скрипт должен падать
+- [ ] **Упавшие задачи CI на теге v1.29.1** — Build macOS x64 и arm64 (сборка нативного модуля: `nan_callbacks_12_inl.h … too few arguments … 'tag'`, и `digest-mismatch`) и Build Linux arm64, разобрать
+- [ ] **Два пути публикации** — push тега запускает `release.yml` сам; при зелёных задачах его шаг публикации создал бы или дополнил релиз параллельно с локальной публикацией. Решить, какой путь главный (локальный или CI), и не держать оба
+- [ ] **Linux-артефакты 1.29.1 не выложены** — x64 в CI собрался, arm64 нет
+- [ ] **Перенести `launch-build.ps1` и `vmps.ps1` в `scripts/win-vm/`** — сейчас лежат только в `/Volumes/Storage/Caches/vibeide/release/`
+
 ## REL-128. Релиз v1.28.0 (2026-10-22, macOS arm64 + Windows x64)
 
 - [x] **Смоук `next` перед выпуском** — ✅ (22.10.2026) полная `npm run compile` (5,4 мин, 0 ошибок) и `npm run buildreact`, один стенд из скилла `launch` с копией профиля

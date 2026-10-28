@@ -20,11 +20,13 @@
    scripts/win-vm/vssh.sh 'hostname'
    ```
    Адрес машины — `192.168.64.5`; сменился — узнать через `scripts/win-vm/gexec.sh` и передать в `VM_IP`.
-2. Скопировать сценарии и собрать опубликованный тег:
+2. Скопировать сценарии и собрать опубликованный тег.
+   Сборка идёт вне сеанса SSH: `launch-build.ps1` запускает `build.ps1` через CIM под `pwsh` 7, иначе обрыв соединения убивает сборку.
    ```bash
-   scp -i /Volumes/Storage/Caches/vibeide/windows/ssh/id_ed25519 scripts/win-vm/{build.ps1,package.ps1,crossDeps.mts} vsadmin@192.168.64.5:C:/
-   scripts/win-vm/vssh.sh 'powershell -ExecutionPolicy Bypass -File C:\build.ps1 -Tag vX.Y.Z *>&1 | Tee-Object C:\b\build.log'
+   scp -i /Volumes/Storage/Caches/vibeide/windows/ssh/id_ed25519 scripts/win-vm/{build.ps1,package.ps1,crossDeps.mts} /Volumes/Storage/Caches/vibeide/release/launch-build.ps1 vsadmin@192.168.64.5:C:/
+   scripts/win-vm/vssh.sh 'powershell -ExecutionPolicy Bypass -File C:\launch-build.ps1 -Tag vX.Y.Z'
    ```
+   Ход сборки — в `C:\b\build.log`.
    `build.ps1` клонирует тег, ставит зависимости, выравнивает платформенные пакеты и запускает
    `release-windows.ps1 -SkipPublish`. Версия не бампается: собирается то, что в теге.
 3. Упаковку без перекомпиляции повторяет `package.ps1`.
