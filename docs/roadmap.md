@@ -8336,7 +8336,7 @@ docs.z.ai, mimo.mi.com, agentclientprotocol.com, GHSA python-sdk, ncsc.gov.uk, a
 - [x] **Linux x64 в релизе 1.29.1** — ✅ (28.10.2026) `.deb`, `.rpm` и `.tar.gz` взяты из CI-запуска 40679735118; в архиве `vibeVersion` 1.29.1 и коммит тега. Строка Linux дописана в «📦 Сборка»; issue #4 закрыт ответом
 - [x] **Linux arm64 и публикация при частичном сбое** — ✅ (28.10.2026, `next`) arm64 переведён на родную машину `ubuntu-24.04-arm` (кросс-линковка `native-keymap` не находила arm64 `libX11`/`libxkbfile`).
       Шаг публикации идёт при упавших платформах; релиза нет — создаёт черновик, релиз есть — доливает недостающие файлы, ноты не трогает. ⚠ живьём не прогнано: проверится на следующем теге. Знание: `build/releaseCiAssets.md`
-- [ ] **Перенести `launch-build.ps1` и `vmps.ps1` в `scripts/win-vm/`** — сейчас лежат только в `/Volumes/Storage/Caches/vibeide/release/`
+- [x] **Перенести `launch-build.ps1` и `vmps.ps1` в `scripts/win-vm/`** — ✅ (29.10.2026) перенесены с русскими комментариями, мануал `windowsBuildOnMac.md` копирует их из репозитория
 
 ## REL-128. Релиз v1.28.0 (2026-10-22, macOS arm64 + Windows x64)
 

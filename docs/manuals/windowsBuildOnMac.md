@@ -23,10 +23,10 @@
 2. Скопировать сценарии и собрать опубликованный тег.
    Сборка идёт вне сеанса SSH: `launch-build.ps1` запускает `build.ps1` через CIM под `pwsh` 7, иначе обрыв соединения убивает сборку.
    ```bash
-   scp -i /Volumes/Storage/Caches/vibeide/windows/ssh/id_ed25519 scripts/win-vm/{build.ps1,package.ps1,crossDeps.mts} /Volumes/Storage/Caches/vibeide/release/launch-build.ps1 vsadmin@192.168.64.5:C:/
+   scp -i /Volumes/Storage/Caches/vibeide/windows/ssh/id_ed25519 scripts/win-vm/{build.ps1,package.ps1,crossDeps.mts,launch-build.ps1,vmps.ps1} vsadmin@192.168.64.5:C:/
    scripts/win-vm/vssh.sh 'powershell -ExecutionPolicy Bypass -File C:\launch-build.ps1 -Tag vX.Y.Z'
    ```
-   Ход сборки — в `C:\b\build.log`.
+   Ход сборки — в `C:\b\build.log`, сводка процессов и хвост журнала — `scripts/win-vm/vssh.sh 'pwsh -File C:\vmps.ps1'`.
    `build.ps1` клонирует тег, ставит зависимости, выравнивает платформенные пакеты и запускает
    `release-windows.ps1 -SkipPublish`. Версия не бампается: собирается то, что в теге.
 3. Упаковку без перекомпиляции повторяет `package.ps1`.
