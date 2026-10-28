@@ -73,3 +73,15 @@
 **Формат правки файлов переводов:** они огромны, и перезапись через `json.dumps` переформатирует
 файл целиком, утопив содержательную правку в шуме диффа. Править точечной текстовой заменой с
 последующей проверкой `json.loads`.
+
+---
+
+## [баг] Кэш встроенных расширений и язык сканирования: «Расширения были изменены на диске» при каждом запуске
+
+**Контекст:** VibeIDE 1.28.1, macOS, русский UI (`defaultLocale: "ru"`, `locale` в `argv.json` не задан). С 27.10.2026 в `window1/renderer.log` при каждом старте `Invalidating Cache` (два списка по 101 встроенному расширению), `extensions.builtin.cache` перезаписывается тем же содержимым, справа вверху висит «Расширения были изменены на диске. Обновите окно.». Перезагрузка окна и полный перезапуск не помогают.
+
+**Суть:** `extensions.builtin.cache` — один файл на профиль (`CachedProfilesData/__default__profile__/`), и пишут его **два разных экземпляра** `NativeExtensionsScannerService`: в рендерере (`cachedExtensionScanner`) и в main-процессе (`getInstalled()`). Имя файла не содержит языка, а `ExtensionScannerInput` содержит — поэтому сканы с разным `language` делят один кэш. Рендерер сканирует с `platform.language` (`ru`) и применяет `package.nls.ru.json` наших встроенных расширений; main-процесс (`languagePacks.update()`, `userDataSync`) вызывал `getInstalled()` без языка → `input.language === undefined` и английские манифесты. Встроенные MS-расширения при этом совпадали: их переводит языковой пакет через `translations`, а не `package.nls`. Поэтому в логе расходятся ровно три наших: `vibeide.vibeide-neon`, `vibeide.vibeide-plan-dashboard`, `vibeide.vibeide-sample`. Дополнительно `validateCache()` не сверял вход кэша со своим: через 3 с (throttle) валидатор одного экземпляра сравнивал **чужой** кэш со своим результатом, писал `Invalidating Cache`, удалял кэш и стрелял `onDidChangeCache` → уведомление.
+
+**Фикс (2026-10-28):** (1) `createExtensionScannerInput()` разрешает язык до конкретного значения (`language ?? platform.language`) и кладёт в `ExtensionScannerInput` уже разрешённый; (2) `CachedExtensionsScanner.validateCache()` инвалидирует только кэш, записанный тем же входом (`ExtensionScannerInput.equals(cacheContents.input, this.input)`). Гард: `npm run extension-scan-invariants-check`.
+
+**Применение:** любой скан расширений, пишущий общий кэш, обязан получать один и тот же язык; новый скан с другим входом не должен приводить к инвалидации чужого кэша — сравнивать вход.

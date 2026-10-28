@@ -40,3 +40,29 @@ _«Refusing to watch … for changes using fs.watch() for possibly being a netwo
 файлы рабочей папки под `/Volumes` — там это единственный способ ничего не услышать.
 
 **Связано:** [liveSmokeStand.md](../testing/liveSmokeStand.md) — стенд, на котором это найдено.
+
+---
+
+## [исправление] Локальный том под `/Volumes` распознаётся по таблице монтирования
+
+**Контекст:** 27.10.2026 на `/Volumes/ExVint` (APFS, `local` по `mount`) при каждом запуске в `renderer.log`
+появлялось
+_«Refusing to watch /Volumes/ExVint/work/… for changes using fs.watch() for possibly being a network share»_.
+Причина — та же грубая проверка по префиксу `/Volumes/`: она не различала локальный APFS-том и сетевую шару.
+
+**Суть:** проверка в `nodejsWatcherLib.ts` больше не отклоняет путь только по префиксу. Для путей под
+`/Volumes/` читается таблица `/sbin/mount` (новый `macMountTable.ts` в той же папке), выбирается самый
+длинный подходящий mount point и требуется флаг `local`. SMB/AFP/NFS (`smbfs`, `afpfs`, `nfs`) этого флага не
+имеют и по-прежнему отклоняются; путь, для которого в таблице нет явной записи, тоже отклоняется — fallback
+на корневой mount `/` намеренно не считается доказательством локальности. Таблица кэшируется на 5 с, чтобы
+стартовые запросы к нескольким путям одного тома не запускали `mount` каждый раз. Ошибка `mount` даёт пустую
+таблицу, то есть консервативный отказ, как до фикса.
+
+**Применение:** проверка на машине — проект на `/Volumes/ExVint`, в логе нет `Refusing to watch`, правка
+`.vibe/hooks.json` подхватывается без перезапуска. Регрессия закрыта тестом
+`src/vs/platform/files/test/node/macMountTable.test.ts` (локальный APFS разрешён; smbfs/nfs, неизвестные пути
+и самый длинный вложенный mount отклоняются). Ограничение: локальные тома с ФС, не помеченной в `mount` как
+`local`, остаются неотличимы от сетевых и отклоняются — это осознанно безопасная сторона. См. также
+[verifyBeforeHypothesizing.md](../patterns/verifyBeforeHypothesizing.md).
+
+**Связано:** [liveSmokeStand.md](../testing/liveSmokeStand.md), запись выше — исходный квирк.

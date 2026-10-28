@@ -22,7 +22,7 @@
  * Pure: the caller passes the facts of the question and gets a verdict
  */
 
-import { analyzeShellLine, analyzeShellLineIn } from '../nlShellSafetyAnalyzer.js';
+import { analyzeShellLine, analyzeShellLineIn, programOf, splitShellSegments } from '../nlShellSafetyAnalyzer.js';
 import { IShellRemovalScopeOptions, createShellRemovalScope } from '../shellRemovalScope.js';
 import { IAcpConfigChoice } from './acpProtocol.js';
 
@@ -95,6 +95,33 @@ const EDIT_MODE_KINDS: ReadonlySet<string> = new Set(['edit', 'move']);
 
 const SHELL_KIND = 'execute';
 
+/** Программы, которые только читают: их файлы-аргументы можно судить по границе проекта. */
+const READ_ONLY_SHELL_PROGRAMS: ReadonlySet<string> = new Set([
+	'cat', 'head', 'tail', 'less', 'more', 'grep', 'rg', 'sed', 'awk', 'cut', 'sort', 'uniq',
+	'wc', 'diff', 'find', 'ls', 'stat', 'file', 'readlink', 'realpath', 'bat', 'fd', 'zcat',
+	'bzcat', 'xzcat', 'rev', 'tac', 'nl', 'od', 'hexdump', 'xxd', 'strings', 'du', 'df',
+]);
+
+/**
+ * Абсолютные пути из read-only команды. Только чтение, поэтому к путям применяется та же граница
+ * проекта, что и к `Read`/`Glob`/`Grep`: `cat /etc/passwd` не должен быть проще, чем `Read /etc/passwd`.
+ *
+ * Относительные пути намеренно не трогаются: без раскрытия `cwd` их легко принять за внешние и
+ * спрашивать лишнего; такой случай продолжает решаться режимом, как и раньше.
+ */
+function absoluteReadOnlyShellPaths(command: string): string[] {
+	const paths: string[] = [];
+	for (const segment of splitShellSegments(command)) {
+		if (!READ_ONLY_SHELL_PROGRAMS.has(programOf(segment.command))) { continue; }
+		for (const arg of segment.args) {
+			if (arg.startsWith('/') || /^[A-Za-z]:[\\/]/.test(arg)) {
+				paths.push(arg);
+			}
+		}
+	}
+	return [...new Set(paths)];
+}
+
 /** How an agent names its modes: the planning one, and the one that asks before it acts (Claude Code's `default`) */
 const AGENT_PLAN_MODE = /plan/i;
 const AGENT_ASKING_MODE = /default|manual/i;
@@ -138,7 +165,10 @@ export function decidePermission(facts: IAcpRequestFacts, context: IAcpDecisionC
 		if (commandLineOf(facts) === undefined) { return ask('unknownCommand'); }
 		if (isIrreversible(facts, context)) { return ask('irreversible'); }
 	}
-	if (PATH_BOUND_KINDS.has(facts.toolKind) && !pathsAreAllowed(facts.paths, context)) {
+	const paths = facts.toolKind === SHELL_KIND
+		? [...new Set([...facts.paths, ...absoluteReadOnlyShellPaths(commandLineOf(facts) ?? '')])]
+		: facts.paths;
+	if ((PATH_BOUND_KINDS.has(facts.toolKind) || (facts.toolKind === SHELL_KIND && paths.length > 0)) && !pathsAreAllowed(paths, context)) {
 		return ask('outsideProject');
 	}
 	if (context.grants.some(grant => grantMatches(grant, facts))) {

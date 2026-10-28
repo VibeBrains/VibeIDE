@@ -129,8 +129,9 @@ export interface IVibeAcpSessionsService {
 	resumeSession(agent: VibeAgentEntry, previousSessionId: string): Promise<{ readonly session: IAcpSession; readonly mode: AcpReconnectMode }>;
 	prompt(sessionId: string, request: IVibeAcpPromptRequest): Promise<void>;
 	/**
-	 * The person's answer; `grant` — a permission for the rest of the session that goes with an allowing answer
-	 * It has to be one the question offered: a surface cannot invent a wider permission than the one it was shown
+	 * The person's answer to one open question; `grant` — a permission for the rest of the session that
+	 * goes with an allowing answer. It has to be one the question offered: a surface cannot invent a
+	 * wider permission than the one it was shown.
 	 */
 	answerPermission(sessionId: string, requestId: string, optionId: string | undefined, grant?: AcpGrant): Promise<void>;
 	/** Allow every open question that offers a one-time «да»: one click for the four reads of one turn */
@@ -362,7 +363,7 @@ export class VibeAcpSessionsService extends Disposable implements IVibeAcpSessio
 	}
 
 	/**
-	 * Ответ человека. `undefined` — отказ.
+	 * Ответ человека на один открытый вопрос. `undefined` — отказ.
 	 *
 	 * Отказ отбрасывает чекпоинт: правки, к которой он относился, не случилось.
 	 */
@@ -377,14 +378,16 @@ export class VibeAcpSessionsService extends Disposable implements IVibeAcpSessio
 	}
 
 	/**
-	 * The same «да» to every open question that offers it: four reads of one turn are one click.
-	 * A question without an allowing option stays open: inventing consent the agent never offered is not ours.
+	 * «Разрешить все» — это N разовых «да», а не постоянное разрешение: четыре чтения одного хода — один клик.
+	 *
+	 * Для одной карточки вариант `allow_always` — выбор человека, а для кнопки «Разрешить все» он стал бы подменой
+	 * одним нажатием. Вопрос с одним лишь `allow_always` остаётся человеку, как и вопрос без разрешающего варианта.
 	 */
 	async allowAllPermissions(sessionId: string): Promise<number> {
 		const state = this._sessions.get(sessionId);
 		if (!state) { return 0; }
 		const targets = [...state.pending.values()]
-			.map(pending => ({ pending, optionId: allowOptionOf(pending.request.options) }))
+			.map(pending => ({ pending, optionId: pending.request.options.find(option => option.kind === 'allow_once')?.optionId }))
 			.filter((target): target is { pending: IPendingPermission; optionId: string } => target.optionId !== undefined);
 		if (targets.length === 0) { return 0; }
 		for (const target of targets) {
@@ -420,10 +423,10 @@ export class VibeAcpSessionsService extends Disposable implements IVibeAcpSessio
 		// The journal has to answer which of the parallel questions stayed without one
 		const allowed = optionKind?.startsWith('allow') === true;
 		this._activityLog.logFinished(allowed
-			? localize('vibeide.acp.log.permissionAllowed', "Внешний агент: разрешено: {0}", request.title)
+			? localize('vibeide.acp.log.permissionAllowed', "Внешний агент: разрешено: {0}", this._permissionSubject(request))
 			: optionId
-				? localize('vibeide.acp.log.permissionRejected', "Внешний агент: отклонено: {0}", request.title)
-				: localize('vibeide.acp.log.permissionCancelled', "Внешний агент: отменено: {0}", request.title));
+				? localize('vibeide.acp.log.permissionRejected', "Внешний агент: отклонено: {0}", this._permissionSubject(request))
+				: localize('vibeide.acp.log.permissionCancelled', "Внешний агент: отменено: {0}", this._permissionSubject(request)));
 		// A refusal — the person's cancel or the agent's own «reject» option — means the edit did not happen
 		if (!allowed && pending.snapshotId) {
 			await this._snapshotService.discardSnapshot(pending.snapshotId);
@@ -655,7 +658,7 @@ export class VibeAcpSessionsService extends Disposable implements IVibeAcpSessio
 				if (state) {
 					state.busy = false;
 					state.error = event.error;
-					state.pending.clear();
+					void this._closeAllPending(state);
 					state.disconnected = true;
 					this._audit(buildAcpSessionAudit({ agentId: state.agentId, sessionId: state.sessionId, phase: 'failed', error: event.error }, Date.now()));
 				}
@@ -767,11 +770,11 @@ export class VibeAcpSessionsService extends Disposable implements IVibeAcpSessio
 				decidedBy: 'policy',
 				reason: decision.reason,
 			}, Date.now()));
-			this._activityLog.logFinished(localize('vibeide.acp.log.autoAllowed', "Внешнему агенту разрешено без вопроса: {0}", request.title));
+			this._activityLog.logFinished(localize('vibeide.acp.log.autoAllowed', "Внешнему агенту разрешено без вопроса: {0}", this._permissionSubject(request)));
 			return;
 		}
 		state.pending.set(request.requestId, { request, ...(snapshotId ? { snapshotId } : {}), ...(decision.action === 'ask' ? { reason: decision.reason } : {}), offers: grantOffersFor(facts, roots) });
-		this._activityLog.logStarted(localize('vibeide.acp.log.asks', "Внешний агент просит разрешения: {0}", request.title));
+		this._activityLog.logStarted(localize('vibeide.acp.log.asks', "Внешний агент просит разрешения: {0}", this._permissionSubject(request)));
 		this._onDidChange.fire();
 	}
 
@@ -789,11 +792,31 @@ export class VibeAcpSessionsService extends Disposable implements IVibeAcpSessio
 			return;
 		}
 		state.pending.delete(requestId);
-		this._activityLog.logFinished(localize('vibeide.acp.log.withdrawn', "Внешний агент: отменено: {0}", pending.request.title));
+		this._activityLog.logFinished(localize('vibeide.acp.log.withdrawn', "Внешний агент: отменено: {0}", this._permissionSubject(pending.request)));
 		this._onDidChange.fire();
 		if (pending.snapshotId) {
 			await this._snapshotService.discardSnapshot(pending.snapshotId);
 		}
+	}
+
+	/** Имя инструмента рядом с заголовком, когда они различаются: в журнале по нему видно, что именно спрашивалось. */
+	private _permissionSubject(request: IAcpPermissionRequest): string {
+		return request.name && request.name !== request.title
+			? localize('vibeide.acp.permission.subjectWithTool', "{0} ({1})", request.title, request.name)
+			: request.title;
+	}
+
+	/** Все открытые вопросы закрываются без ответа человека: соединение оборвалось, и правок, о которых спрашивали, не будет. */
+	private async _closeAllPending(state: ISessionState): Promise<void> {
+		const open = [...state.pending.values()];
+		state.pending.clear();
+		for (const item of open) {
+			this._activityLog.logFinished(localize('vibeide.acp.log.permissionCancelled', "Внешний агент: отменено: {0}", this._permissionSubject(item.request)));
+			if (item.snapshotId) {
+				await this._snapshotService.discardSnapshot(item.snapshotId);
+			}
+		}
+		this._onDidChange.fire();
 	}
 
 	private async _snapshotBefore(request: IAcpPermissionRequest): Promise<string | undefined> {
@@ -811,12 +834,6 @@ export class VibeAcpSessionsService extends Disposable implements IVibeAcpSessio
 }
 
 const KNOWN_COMMANDS_STORAGE_KEY = 'vibeide.acp.knownAgentCommands';
-
-/** The agent's own one-time «да»: which of its variants means yes is not ours to guess */
-function allowOptionOf(options: IAcpPermissionRequest['options']): string | undefined {
-	return options.find(option => option.kind === 'allow_once')?.optionId
-		?? options.find(option => option.kind === 'allow_always')?.optionId;
-}
 
 /** The stored commands of every agent; a record of another shape is dropped, not trusted */
 function parseKnownCommands(raw: string | undefined): Record<string, readonly IAcpCommand[]> {

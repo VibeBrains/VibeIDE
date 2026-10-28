@@ -485,7 +485,14 @@ export abstract class AbstractExtensionsScannerService extends Disposable implem
 	}
 
 	private async createExtensionScannerInput(location: URI, profile: boolean, type: ExtensionType, language: string | undefined, validate: boolean, profileScanOptions: IProfileExtensionsScanOptions | undefined, productVersion: IProductVersion): Promise<ExtensionScannerInput> {
-		const translations = await this.getTranslations(language ?? platform.language);
+		// VibeIDE: the scan language must never stay `undefined` in the input. The manifest cache
+		// (`extensions.builtin.cache`) has no language in its file name and is shared by the renderer
+		// scanner and the main-process scanner. A scan without an explicit language used to be cached
+		// as `language: undefined` with English manifests (the workbench scan passes
+		// `platform.language` and localizes them through `package.nls.<lang>.json`), so every start
+		// invalidated the cache written by the other scan → «Расширения были изменены на диске».
+		const resolvedLanguage = language ?? platform.language;
+		const translations = await this.getTranslations(resolvedLanguage);
 		const mtime = await this.getMtime(location);
 		const applicationExtensionsLocation = profile && !this.uriIdentityService.extUri.isEqual(location, this.userDataProfilesService.defaultProfile.extensionsResource) ? this.userDataProfilesService.defaultProfile.extensionsResource : undefined;
 		const applicationExtensionsLocationMtime = applicationExtensionsLocation ? await this.getMtime(applicationExtensionsLocation) : undefined;
@@ -502,7 +509,7 @@ export abstract class AbstractExtensionsScannerService extends Disposable implem
 			productVersion.date,
 			this.productService.commit,
 			!this.environmentService.isBuilt,
-			language,
+			resolvedLanguage,
 			translations,
 		);
 	}
@@ -1010,6 +1017,14 @@ class CachedExtensionsScanner extends ExtensionsScanner {
 		const cacheContents = await this.readExtensionCache(cacheFile);
 		if (!cacheContents) {
 			// Cache has been deleted by someone else, which is perfectly fine...
+			return;
+		}
+
+		// VibeIDE: the cache file is shared by several scanner instances (renderer and main process)
+		// and by scans with different inputs. Comparing one scan's cached result with another scan's
+		// fresh result reports a bogus mismatch: it deletes a good cache and fires `onDidChangeCache`,
+		// which surfaces as «Расширения были изменены на диске» on every start.
+		if (!cacheContents.input || !ExtensionScannerInput.equals(cacheContents.input, this.input)) {
 			return;
 		}
 
