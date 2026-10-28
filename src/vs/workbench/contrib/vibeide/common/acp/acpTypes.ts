@@ -40,7 +40,10 @@ export interface IAcpAgentLaunch {
 /** Запрос разрешения от агента, ждущий ответа человека. */
 export interface IAcpPermissionRequest {
 	readonly requestId: string;
+	/** The chat's session: the card belongs to it even when a subagent's child session asks */
 	readonly sessionId: string;
+	/** The agent's own session that asked; a subagent's child session differs from the chat's */
+	readonly requestSessionId: string;
 	/** The guest's own id of the call — ties the answer to the call in the audit log. Empty if not sent. */
 	readonly toolCallId: string;
 	/** Название инструмента, как его назвал агент. */

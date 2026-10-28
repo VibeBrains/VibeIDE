@@ -7,7 +7,8 @@ import { useCallback, useEffect, useState } from 'react';
 import { AlertTriangle, ChevronRight, Info } from 'lucide-react';
 import { AcpCompactionMessage, AcpNoticeMessage, AcpToolMessage } from '../../../../common/chatThreadServiceTypes.js';
 import { IAcpCommand, IAcpConfigChoice, IAcpConfigOption, IAcpDiff, isCompactionSettled } from '../../../../common/acp/acpProtocol.js';
-import { ACP_PERMISSION_MODES, AcpGrant, AcpPermissionMode, DEFAULT_ACP_PERMISSION_MODE, describeAsking, describeGrant, permissionOptionLabel } from '../../../../common/acp/acpPermissionPolicy.js';
+import { IAcpPermissionRequest } from '../../../../common/acp/acpTypes.js';
+import { ACP_PERMISSION_MODES, AcpDecisionReason, AcpGrant, AcpPermissionMode, DEFAULT_ACP_PERMISSION_MODE, describeAsking, describeGrant, permissionOptionLabel } from '../../../../common/acp/acpPermissionPolicy.js';
 import { useAccessor, useChatThreadsState } from '../util/services.js';
 import { VibeCustomDropdownBox } from '../util/inputs.js';
 import { ToolHeaderWrapper, ToolChildrenWrapper } from './SidebarChat.js';
@@ -199,7 +200,7 @@ const useAcpSessionView = (sessionId: string | undefined) => {
 	useEffect(() => {
 		const sync = () => setPending(previous => {
 			const next = read();
-			return previous?.pendingPermission?.requestId === next?.pendingPermission?.requestId
+			return samePending(previous?.pendingPermissions, next?.pendingPermissions)
 				&& previous?.grants === next?.grants
 				&& previous?.configOptions === next?.configOptions
 				&& previous?.configuring === next?.configuring
@@ -213,6 +214,19 @@ const useAcpSessionView = (sessionId: string | undefined) => {
 };
 
 /**
+ * Тот же набор вопросов: сервис отдаёт новый массив на каждое изменение, а карточкам нужен
+ * новый объект только тогда, когда появился, закрылся или сменил причину сам вопрос
+ */
+const samePending = (
+	previous: readonly { readonly request: { readonly requestId: string }; readonly reason?: string; readonly grantOffers: readonly unknown[] }[] | undefined,
+	next: readonly { readonly request: { readonly requestId: string }; readonly reason?: string; readonly grantOffers: readonly unknown[] }[] | undefined,
+): boolean => previous?.length === next?.length && (previous ?? []).every((item, index) =>
+	item.request.requestId === next?.[index]?.request.requestId
+	&& item.reason === next?.[index]?.reason
+	&& item.grantOffers === next?.[index]?.grantOffers
+);
+
+/**
  * Вопрос внешнего агента в ленте чата: что за действие, какие файлы, что именно меняется
  * Решение человека одно из предложенных агентом; «на сессию» добавляет наше разрешение, а агенту уходит разовое «да»
  */
@@ -222,20 +236,56 @@ export const AcpPermissionCard = ({ threadId }: { threadId: string }) => {
 	const threadsState = useChatThreadsState();
 	const agent = threadsState.allThreads[threadId]?.acpAgent;
 	const view = useAcpSessionView(agent?.sessionId);
+	const pending = view?.pendingPermissions ?? [];
+	if (!view || pending.length === 0) { return null; }
+
+	return <div className='flex flex-col gap-2'>
+		{pending.length > 1 && <div className='flex items-center gap-2 px-1'>
+			<AcpButton onClick={() => void sessions.allowAllPermissions(view.sessionId)} title='Разрешить все открытые запросы этого хода разовым «да»'>
+				{`Разрешить все ${pending.length}`}
+			</AcpButton>
+		</div>}
+		{pending.map(item => <AcpPermissionRequestCard
+			key={item.request.toolCallId || item.request.requestId}
+			sessionId={view.sessionId}
+			agentName={view.agentName}
+			request={item.request}
+			reason={item.reason}
+			grantOffers={item.grantOffers}
+		/>)}
+	</div>;
+};
+
+/**
+ * Один вопрос: кнопки принадлежат вызову (`toolCallId`), поэтому ответ закрывает только его
+ * Решение человека одно из предложенных агентом; «на сессию» добавляет наше разрешение, а агенту уходит разовое «да»
+ */
+const AcpPermissionRequestCard = ({ sessionId, agentName, request, reason, grantOffers }: {
+	readonly sessionId: string;
+	readonly agentName: string;
+	readonly request: IAcpPermissionRequest;
+	readonly reason?: AcpDecisionReason;
+	readonly grantOffers: readonly AcpGrant[];
+}) => {
+	const accessor = useAccessor();
+	const sessions = accessor.get('IVibeAcpSessionsService');
 	const [offersOpen, setOffersOpen] = useState(false);
-	const request = view?.pendingPermission;
-	if (!view || !request) { return null; }
 
 	const answer = (optionId: string | undefined, grant?: AcpGrant) => {
 		setOffersOpen(false);
-		void sessions.answerPermission(view.sessionId, optionId, grant);
+		void sessions.answerPermission(sessionId, request.requestId, optionId, grant);
 	};
 	const allowOnce = request.options.find(option => option.kind === 'allow_once');
-	const asking = view.pendingReason ? describeAsking(view.pendingReason) : undefined;
-	const irreversible = view.pendingReason === 'irreversible';
+	const asking = reason ? describeAsking(reason) : undefined;
+	const irreversible = reason === 'irreversible';
 
-	return <div className={`rounded-lg border bg-vibe-bg-2 px-3 py-3 ${irreversible ? 'border-vibe-warning' : 'border-vibe-border-3'}`} role='group' aria-label='Вопрос внешнего агента'>
-		<div className='text-xs text-vibe-fg-3'>{`${view.agentName} просит разрешения`}</div>
+	return <div
+		className={`rounded-lg border bg-vibe-bg-2 px-3 py-3 ${irreversible ? 'border-vibe-warning' : 'border-vibe-border-3'}`}
+		role='group'
+		aria-label='Вопрос внешнего агента'
+		data-tool-call-id={request.toolCallId}
+	>
+		<div className='text-xs text-vibe-fg-3'>{`${agentName} просит разрешения`}</div>
 		<div className='mt-1 text-sm font-semibold text-vibe-fg-0'>{request.title}</div>
 		{/* Заголовок агент пишет как хочет; имя инструмента стабильно и показывает, что на самом деле вызывается */}
 		{request.name && request.name !== request.title && <div className='mt-1 text-xs text-vibe-fg-3'>
@@ -252,7 +302,7 @@ export const AcpPermissionCard = ({ threadId }: { threadId: string }) => {
 			{request.options.map(option => <AcpButton key={option.optionId} onClick={() => answer(option.optionId)}>
 				{permissionOptionLabel(option, request.options)}
 			</AcpButton>)}
-			{allowOnce && view.pendingGrantOffers.length > 0 && <AcpButton
+			{allowOnce && grantOffers.length > 0 && <AcpButton
 				quiet
 				title='Разрешить сейчас и не спрашивать про то же до конца сессии'
 				onClick={() => setOffersOpen(open => !open)}
@@ -261,7 +311,7 @@ export const AcpPermissionCard = ({ threadId }: { threadId: string }) => {
 			</AcpButton>}
 		</div>
 		{offersOpen && allowOnce && <div className='mt-2 flex flex-col items-start gap-1'>
-			{view.pendingGrantOffers.map(offer => <AcpButton key={JSON.stringify(offer)} quiet onClick={() => answer(allowOnce.optionId, offer)}>
+			{grantOffers.map(offer => <AcpButton key={JSON.stringify(offer)} quiet onClick={() => answer(allowOnce.optionId, offer)}>
 				{describeGrant(offer)}
 			</AcpButton>)}
 		</div>}

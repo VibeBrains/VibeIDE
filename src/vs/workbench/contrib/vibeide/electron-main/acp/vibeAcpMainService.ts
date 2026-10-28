@@ -597,7 +597,9 @@ export class VibeAcpMainService extends Disposable implements IVibeAcpMain {
 			kind: 'permission',
 			request: {
 				requestId,
+				// The owner session, not the child one: a subagent's question is shown in the chat that started it
 				sessionId: agent.sessionId ?? '',
+				requestSessionId: readString(params, 'sessionId') ?? '',
 				toolCallId: readString(toolCall, 'toolCallId') ?? '',
 				// Имя инструмента идёт вторым: человеку «edit_file» говорит больше, чем слово «действие».
 				title: facts.title || facts.name || facts.toolKind || 'действие',
