@@ -7,6 +7,7 @@ import { AcpMcpServer } from './acpMcpExport.js';
 import { Event } from '../../../../../base/common/event.js';
 import { AcpContentBlock, AcpReconnectMode, AcpStopReason, AcpToolStatus, IAcpAuthMethod, IAcpCommand, IAcpConfigOption, IAcpDiff, IAcpPromptCapabilities } from './acpProtocol.js';
 import { AcpFileBefore } from './acpEditBaseline.js';
+import { AcpDecisionReason, AcpGrant } from './acpPermissionPolicy.js';
 
 /**
  * Контракт хоста ACP: VibeIDE как клиент, внешний агент как процесс.
@@ -63,6 +64,15 @@ export interface IAcpPermissionRequest {
 	readonly diffs: readonly IAcpDiff[];
 	/** Варианты, предложенные самим агентом: их идентификаторы уходят обратно в ответе. */
 	readonly options: readonly { readonly optionId: string; readonly name: string; readonly kind: string }[];
+}
+
+/** Один открытый вопрос разрешения: сам запрос и что поверхность может предложить к нему. */
+export interface IAcpPendingPermission {
+	readonly request: IAcpPermissionRequest;
+	/** Why this question was not answered by the mode or a grant, when that is worth telling the person */
+	readonly reason?: AcpDecisionReason;
+	/** What the person may give for the rest of the session instead of answering this one time */
+	readonly offers: readonly AcpGrant[];
 }
 
 export type AcpEvent =

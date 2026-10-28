@@ -308,7 +308,7 @@ export class AcpChatRunner extends Disposable {
 			mirror.cursor--;
 		}
 
-		const next = view.pendingPermission ? 'awaiting_user' : view.busy ? 'LLM' : undefined;
+		const next = view.pendingPermissions.length > 0 ? 'awaiting_user' : view.busy ? 'LLM' : undefined;
 		if (next) {
 			if (next !== mirror.phase) {
 				mirror.phase = next;

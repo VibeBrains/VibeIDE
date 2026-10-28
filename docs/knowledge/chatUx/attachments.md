@@ -53,3 +53,17 @@ Paste файлов, vision-capability gate (двойной), скрытый dead
 - Защитный механизм для пользователя — **UI override** через Settings: `setOverridesOfModel(provider, model, { supportsVision: false })`. Запись локальна для пользователя, легко снять, не требует пересборки.
 - Substring-эвристика в [modelVisionHeuristics.ts](../../../src/vs/workbench/contrib/vibeide/common/modelVisionHeuristics.ts) — **не добавлять общие токены** (`omni`, `multimodal`, etc.). Many "omni" модели advertise мультимодальность, но text-only на free-tier — общий токен сразу даёт false-positive. Только узкие per-family маркеры (`-vl`, `vision`, `claude-3/4`, `gpt-4o/4.1/5`, `gemini`, конкретные имена типа `phi-3.5-vision`).
 - Console.warn `[VibeIDE] vision capability for X resolved by name heuristic` в `aggregatorVisionHeuristic` — диагностический сигнал. Если пользователь жалуется на проблемы с картинками И этот warn срабатывает — подозревать false-positive heuristic ИЛИ catalog-lying upstream, рекомендовать UI override на конкретную модель.
+
+---
+
+## [архитектура] Схема доставки вложений чата к LLM
+
+**Контекст:** Пользователь пожаловался, что прикрепил три изображения к запросу Claude Agent, но в отправленном сообщении виден только текст, а вложения отсутствуют. Нужно было понять, как вложения хранятся в чате и как уходят к модели, не внося правки.
+
+**Суть:**
+- `ChatMessage` хранит вложения в полях `images` и `pdfs` (`ChatImageAttachment[]` / `ChatPDFAttachment[]`).
+- Изображения проходят через `convertToLLMMessageService`: каждое превращается в base64 content part и далее подаётся в `aiSdkAdapter`.
+- PDF бинарно не передаётся модели: вместо этого используется `extractedText` (текстовая выжимка, полученная до отправки).
+- Эта схема описывает внутренний путь вложений от UI чата к транспорту LLM.
+
+**Применение:** При будущем разборе UI-бага проверять два независимых факта: (1) видимость вложений в отправленном сообщении в UI, (2) фактический payload, уходящий агенту. Чтение кода подтверждает только внутреннюю схему; оно **не доказывает доставку в конкретном внешнем Claude Agent** и **не объясняет наблюдаемый UI-симптом**. Причина пока не утверждается, автоматического воспроизведения нет.

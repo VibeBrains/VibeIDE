@@ -130,28 +130,7 @@
 				"when": "editorHasSelection",
 				"mac": "cmd+shift+f"
 			}
-		],
-		"configuration": {
-			"title": "%configuration.title%",
-			"properties": {
-				"vibeide.trustScore.level": {
-					"type": "string",
-					"enum": ["manual", "supervised", "auto"],
-					"default": "manual",
-					"enumDescriptions": [
-						"%configuration.trustScore.level.manual.description%",
-						"%configuration.trustScore.level.supervised.description%",
-						"%configuration.trustScore.level.auto.description%"
-					],
-					"description": "%configuration.trustScore.level.description%"
-				},
-				"vibeide.skills.workspaceDiscoveryHint": {
-					"type": "boolean",
-					"default": true,
-					"description": "%configuration.skills.workspaceDiscoveryHint.description%"
-				}
-			}
-		}
+		]
 	},
 	"_upstream": {
 		"source": "https://github.com/robb0wen/synthwave-vscode",

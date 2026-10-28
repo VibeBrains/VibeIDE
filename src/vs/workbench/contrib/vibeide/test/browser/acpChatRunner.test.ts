@@ -55,6 +55,7 @@ class FakeSessions {
 			disconnected: false,
 			reconnecting: false,
 			log: this.log.snapshot,
+			pendingPermissions: [],
 			pendingPermission: undefined,
 			pendingGrantOffers: [],
 			permissionMode: this.mode,

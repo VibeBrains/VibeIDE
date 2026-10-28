@@ -606,7 +606,19 @@ export class VibeAcpMainService extends Disposable implements IVibeAcpMain {
 	 * A request already answered, or one served at once (a file read or write), has nothing left to withdraw
 	 */
 	private _withdraw(agent: IAgentProcess, rpcId: number | string | undefined): void {
-		if (rpcId === undefined) { return; }
+		// Без requestId `$/cancel_request` снимает весь ход: закрываем все открытые вопросы агента,
+		// включая вопросы его дочерних сессий, иначе их карточки останутся висеть без ответа.
+		if (rpcId === undefined) {
+			for (const [requestId, pending] of [...this._permissions]) {
+				if (pending.agent !== agent) { continue; }
+				this._permissions.delete(requestId);
+				this._send(agent, errorFrame(pending.rpcId, JSON_RPC_ERROR.requestCancelled, 'Request cancelled'));
+				if (agent.sessionId) {
+					this._onEvent.fire({ kind: 'permissionWithdrawn', sessionId: agent.sessionId, requestId });
+				}
+			}
+			return;
+		}
 		for (const [requestId, pending] of this._permissions) {
 			if (pending.agent !== agent || pending.rpcId !== rpcId) { continue; }
 			this._permissions.delete(requestId);

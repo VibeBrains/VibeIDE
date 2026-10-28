@@ -80,6 +80,54 @@ suite('VibeAcpSessionsService — кто отвечает на вопрос вн
 		assert.deepStrictEqual([pendingOf(service)?.requestId, answers, snapshots.created], ['r1', [], [['/ws/app/src/a.ts']]]);
 	});
 
+	test('параллельные запросы хранятся независимо, и ответ закрывает только свой', async () => {
+		const { service, events, answers } = setup();
+		await service.startSession(agent);
+		events.fire(request({ requestId: 'r1', toolCallId: 'c1', title: 'Read a.css' }));
+		events.fire(request({ requestId: 'r2', toolCallId: 'c2', title: 'Read b.css' }));
+		await settle();
+		assert.deepStrictEqual(service.sessions[0].pendingPermissions.map(pending => pending.request.requestId), ['r1', 'r2']);
+
+		await service.answerPermission('s1', 'r1', 'allow');
+		await settle();
+		assert.deepStrictEqual([service.sessions[0].pendingPermissions.map(pending => pending.request.requestId), answers.map(answer => answer.requestId)], [['r2'], ['r1']]);
+	});
+
+	test('«Разрешить все» отвечает на каждый открытый вопрос с разовым разрешающим вариантом', async () => {
+		const { service, events, answers } = setup();
+		await service.startSession(agent);
+		events.fire(request({ requestId: 'r1', toolCallId: 'c1', title: 'Read a.css' }));
+		events.fire(request({ requestId: 'r2', toolCallId: 'c2', title: 'Read b.css' }));
+		await settle();
+		await service.answerAllPermissions('s1');
+		await settle();
+		assert.deepStrictEqual([service.sessions[0].pendingPermissions, answers.map(answer => answer.requestId)], [[], ['r1', 'r2']]);
+	});
+
+	test('«Разрешить все» не подменяет разовое разрешение постоянным', async () => {
+		const { service, events, answers } = setup();
+		await service.startSession(agent);
+		events.fire(request({ requestId: 'r1', toolCallId: 'c1', title: 'Read a.css', options: [{ optionId: 'always', name: 'Always', kind: 'allow_always' }] }));
+		events.fire(request({ requestId: 'r2', toolCallId: 'c2', title: 'Read b.css' }));
+		await settle();
+		await service.answerAllPermissions('s1');
+		await settle();
+		assert.deepStrictEqual(
+			[service.sessions[0].pendingPermissions.map(pending => pending.request.requestId), answers.map(answer => answer.requestId)],
+			[['r1'], ['r2']]);
+	});
+
+	test('обрыв связи закрывает все открытые вопросы', async () => {
+		const { service, events } = setup();
+		await service.startSession(agent);
+		events.fire(request({ requestId: 'r1', toolCallId: 'c1', title: 'Read a.css' }));
+		events.fire(request({ requestId: 'r2', toolCallId: 'c2', title: 'Read b.css' }));
+		await settle();
+		events.fire({ kind: 'failed', sessionId: 's1', error: 'процесс упал' });
+		await settle();
+		assert.deepStrictEqual(service.sessions[0].pendingPermissions, []);
+	});
+
 	test('в режиме «Правки» правка в проекте отвечается сама разовым «да», чекпоинт остаётся, ответ записан в аудит как ответ системы', async () => {
 		const { service, events, answers, snapshots, audit } = setup();
 		await service.startSession(agent);
@@ -129,12 +177,12 @@ suite('VibeAcpSessionsService — кто отвечает на вопрос вн
 		events.fire(request({ requestId: 'r1', title: 'npm test', name: 'Bash', toolKind: 'execute', command: 'npm test', paths: [] }));
 		await settle();
 		const offers = service.sessions[0].pendingGrantOffers;
-		await service.answerPermission('s1', 'allow', { kind: 'command', prefix: 'npm' });
+		await service.answerPermission('s1', 'r1', 'allow', { kind: 'command', prefix: 'npm' });
 		assert.deepStrictEqual([offers, service.sessions[0].grants, answers.length], [[{ kind: 'command', prefix: 'npm test' }], [], 1]);
 
 		events.fire(request({ requestId: 'r2', title: 'npm test', name: 'Bash', toolKind: 'execute', command: 'npm test', paths: [] }));
 		await settle();
-		await service.answerPermission('s1', 'allow', offers[0]);
+		await service.answerPermission('s1', 'r2', 'allow', offers[0]);
 		events.fire(request({ requestId: 'r3', title: 'npm test', name: 'Bash', toolKind: 'execute', command: 'npm test', paths: [] }));
 		await settle();
 		assert.deepStrictEqual([service.sessions[0].grants, answers.map(a => a.requestId), pendingOf(service)], [[{ kind: 'command', prefix: 'npm test' }], ['r1', 'r2', 'r3'], undefined]);
@@ -145,7 +193,7 @@ suite('VibeAcpSessionsService — кто отвечает на вопрос вн
 		await service.startSession(agent);
 		events.fire(request({ requestId: 'r1', title: 'npm test', name: 'Bash', toolKind: 'execute', command: 'npm test', paths: [] }));
 		await settle();
-		await service.answerPermission('s1', 'allow', service.sessions[0].pendingGrantOffers[0]);
+		await service.answerPermission('s1', 'r1', 'allow', service.sessions[0].pendingGrantOffers[0]);
 		service.clearGrants('s1');
 		events.fire(request({ requestId: 'r2', title: 'npm test', name: 'Bash', toolKind: 'execute', command: 'npm test', paths: [] }));
 		await settle();
@@ -157,7 +205,7 @@ suite('VibeAcpSessionsService — кто отвечает на вопрос вн
 		await service.startSession(agent);
 		events.fire(request({}));
 		await settle();
-		await service.answerPermission('s1', 'reject');
+		await service.answerPermission('s1', 'r1', 'reject');
 		assert.deepStrictEqual(snapshots.discarded, ['snap1']);
 	});
 

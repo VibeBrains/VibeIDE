@@ -15,7 +15,8 @@ import { isAbsolute } from '../../../../../../../base/common/path.js';
 import { separateOutFirstLine } from '../../../../common/helpers/util.js';
 import { BlockCode } from '../util/inputs.js';
 import { CodespanLocationLink } from '../../../../common/chatThreadServiceTypes.js';
-import { getBasename, getRelative, voidOpenFileFn } from '../sidebar-tsx/SidebarChat.js';
+import { getRelative, voidOpenFileFn } from '../sidebar-tsx/SidebarChat.js';
+import { getCodespanDisplayText } from '../../../../common/markdownCodespanPath.js';
 import { chatMarkdownRenderS } from '../vibe-settings-tsx/vibeSettingsRu.js';
 
 
@@ -123,7 +124,7 @@ const CodespanWithLink = ({ text, rawText, chatMessageLocation }: { text: string
 
 	let link: CodespanLocationLink | undefined = undefined;
 	let tooltip: string | undefined = undefined;
-	let displayText = text;
+	const displayText = getCodespanDisplayText(text);
 
 
 	if (rawText.endsWith('`')) {
@@ -139,13 +140,8 @@ const CodespanWithLink = ({ text, rawText, chatMessageLocation }: { text: string
 				});
 		}
 
-		if (link?.displayText) {
-			displayText = link.displayText;
-		}
-
 		if (isValidUri(displayText)) {
 			tooltip = getRelative(URI.file(displayText), accessor);  // Full path as tooltip
-			displayText = getBasename(displayText);
 		}
 	}
 
