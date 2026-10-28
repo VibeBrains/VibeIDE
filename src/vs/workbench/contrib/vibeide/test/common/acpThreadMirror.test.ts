@@ -5,14 +5,14 @@
 
 import * as assert from 'assert';
 import { ensureNoDisposablesAreLeakedInTestSuite } from '../../../../../base/test/common/utils.js';
-import { mirrorAcpEntries } from '../../common/acp/acpThreadMirror.js';
+import { mirrorAcpEntries, nextMirrorCursor } from '../../common/acp/acpThreadMirror.js';
 import { AcpSessionLog } from '../../common/acp/acpSessionLog.js';
 
 suite('acpThreadMirror', () => {
 
 	ensureNoDisposablesAreLeakedInTestSuite();
 
-	const tool = (log: AcpSessionLog, id: string, status: 'in_progress' | 'completed', extra: { output?: string; exitCode?: number } = {}) =>
+	const tool = (log: AcpSessionLog, id: string, status: 'pending' | 'in_progress' | 'completed', extra: { output?: string; exitCode?: number } = {}) =>
 		log.applyTool({ toolCallId: id, title: 'git status', name: 'Bash', toolKind: 'execute', status, paths: [], diffs: [], output: extra.output ?? '', ...(extra.exitCode === undefined ? {} : { exitCode: extra.exitCode }) });
 
 	test('мысль и следующий за ней ответ — одно сообщение: рассуждение над ответом', () => {
@@ -112,5 +112,25 @@ suite('acpThreadMirror', () => {
 		assert.deepStrictEqual(mirrorAcpEntries(log.snapshot.entries, 0)[0].message, {
 			role: 'acp_compaction', compactionId: 'cmp-2', status: 'failed', summary: '', error: 'модель недоступна',
 		});
+	});
+	test('курсор не уходит дальше первого незавершённого вызова: статусы параллельных команд доходят до чата', () => {
+		const log = new AcpSessionLog();
+		log.appendText('Запускаю', false);
+		for (const id of ['a', 'b', 'c', 'd']) {
+			tool(log, id, 'pending');
+		}
+		const cursors: number[] = [];
+		let cursor = nextMirrorCursor(log.snapshot.entries, 0);
+		cursors.push(cursor);
+		tool(log, 'a', 'completed');
+		tool(log, 'b', 'completed');
+		cursor = nextMirrorCursor(log.snapshot.entries, cursor);
+		cursors.push(cursor);
+		const statuses = mirrorAcpEntries(log.snapshot.entries, cursors[0]).map(block => block.message.role === 'acp_tool' ? block.message.status : block.message.role);
+		tool(log, 'c', 'completed');
+		tool(log, 'd', 'completed');
+		log.appendText('Готово', false);
+		cursors.push(nextMirrorCursor(log.snapshot.entries, cursor));
+		assert.deepStrictEqual({ cursors, statuses }, { cursors: [1, 3, 5], statuses: ['completed', 'completed', 'pending', 'pending'] });
 	});
 });

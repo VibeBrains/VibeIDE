@@ -29,7 +29,7 @@ import { ChatImageAttachment, ChatMessage, ChatPDFAttachment, StagingSelectionIt
 import { AcpStopReason, isCompactionSettled, isToolOpen } from '../../common/acp/acpProtocol.js';
 import { DEFAULT_ACP_PERMISSION_MODE } from '../../common/acp/acpPermissionPolicy.js';
 import { ACP_EMBED_MAX_CHARS_DEFAULT, ACP_EMBED_MAX_CHARS_KEY } from '../../common/acp/acpPromptContext.js';
-import { mirrorAcpEntries } from '../../common/acp/acpThreadMirror.js';
+import { mirrorAcpEntries, nextMirrorCursor } from '../../common/acp/acpThreadMirror.js';
 import { AcpLogEntry } from '../../common/acp/acpSessionLog.js';
 import { VibeAgentEntry } from '../../common/acp/vibeAgentsFile.js';
 import { collectAcpEditorContext } from './acpEditorContext.js';
@@ -306,12 +306,7 @@ export class AcpChatRunner extends Disposable {
 			mirror.autonomousOpen = true;
 		}
 		this._mirror(threadId, blocks, mirror.written);
-		mirror.cursor = entries.length === 0 ? 0 : entries.length - 1;
-		const last = entries[entries.length - 1];
-		const previous = entries[entries.length - 2];
-		if (last?.kind === 'message' && !last.thought && previous?.kind === 'message' && previous.thought) {
-			mirror.cursor--;
-		}
+		mirror.cursor = nextMirrorCursor(entries, mirror.cursor);
 
 		const next = view.pendingPermissions.length > 0 ? 'awaiting_user' : view.busy ? 'LLM' : undefined;
 		if (next) {

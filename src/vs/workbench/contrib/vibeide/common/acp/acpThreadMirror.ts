@@ -14,6 +14,7 @@
  */
 
 import { ChatMessage } from '../chatThreadServiceTypes.js';
+import { isCompactionSettled, isToolOpen } from './acpProtocol.js';
 import { AcpLogEntry } from './acpSessionLog.js';
 
 export interface IAcpMirrorBlock {
@@ -94,6 +95,32 @@ export function mirrorAcpEntries(entries: readonly AcpLogEntry[], from: number):
 		}
 	}
 	return blocks;
+}
+
+/**
+ * С какой записи читать ленту в следующий раз
+ *
+ * Обычно растёт только последняя запись — текущая реплика — и чтение начинается с неё
+ * Но вызовы, начатые раньше, тоже ещё меняются: агент объявляет несколько команд сразу,
+ * а статус каждой приходит позже, по мере разрешений. Поэтому курсор не уходит дальше
+ * первого незавершённого вызова или сжатия контекста — иначе их обновления не попадут в чат
+ *
+ * Мысль и ответ за ней — одно сообщение: курсор встаёт на мысль, чтобы пара собралась заново
+ */
+export function nextMirrorCursor(entries: readonly AcpLogEntry[], from: number): number {
+	let cursor = entries.length === 0 ? 0 : entries.length - 1;
+	const last = entries[cursor];
+	const previous = entries[cursor - 1];
+	if (last?.kind === 'message' && !last.thought && previous?.kind === 'message' && previous.thought) {
+		cursor--;
+	}
+	for (let i = Math.max(0, from); i < cursor; i++) {
+		const entry = entries[i];
+		if ((entry.kind === 'tool' && isToolOpen(entry.status)) || (entry.kind === 'acpCompaction' && !isCompactionSettled(entry.status))) {
+			return i;
+		}
+	}
+	return cursor;
 }
 
 /** `notice` marks a line the IDE wrote, so it is never reported outside the chat as the agent's answer */
