@@ -1221,8 +1221,8 @@ const openAIModelOptions = { // https://platform.openai.com/docs/pricing
 		supportsSystemMessage: 'developer-role',
 		reasoningCapabilities: { supportsReasoning: true, canTurnOffReasoning: false, canIOReasoning: false, reasoningSlider: { type: 'effort_slider', values: ['low', 'medium', 'high', 'xhigh', 'max'], default: 'medium' } },
 	},
-	// GPT-6.1 Terra (developers.openai.com/api/docs/models/gpt-6.1-terra, checked 2026-10-28): half of Sol's price,
-	// and unlike Sol it takes `none`, so reasoning can be switched off. Tools work on Responses only
+	// GPT-6.1 Terra (developers.openai.com/api/docs/models/gpt-6.1-terra): вдвое дешевле Sol
+	// В отличие от Sol принимает `none`, поэтому рассуждение выключается. Инструменты — только через Responses
 	'gpt-6.1-terra': {
 		contextWindow: 1_050_000,
 		reservedOutputTokenSpace: 128_000,
