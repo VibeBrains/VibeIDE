@@ -15,7 +15,8 @@ import { isAbsolute } from '../../../../../../../base/common/path.js';
 import { separateOutFirstLine } from '../../../../common/helpers/util.js';
 import { BlockCode } from '../util/inputs.js';
 import { CodespanLocationLink } from '../../../../common/chatThreadServiceTypes.js';
-import { getBasename, getRelative, voidOpenFileFn } from '../sidebar-tsx/SidebarChat.js';
+import { getRelative, voidOpenFileFn } from '../sidebar-tsx/SidebarChat.js';
+import { presentInlineCodePath } from '../../../../common/inlineCodePathPresentation.js';
 import { chatMarkdownRenderS } from '../vibe-settings-tsx/vibeSettingsRu.js';
 
 
@@ -139,14 +140,13 @@ const CodespanWithLink = ({ text, rawText, chatMessageLocation }: { text: string
 				});
 		}
 
-		if (link?.displayText) {
-			displayText = link.displayText;
-		}
-
-		if (isValidUri(displayText)) {
-			tooltip = getRelative(URI.file(displayText), accessor);  // Full path as tooltip
-			displayText = getBasename(displayText);
-		}
+		// Always show the path exactly as written. Resolving it may add a
+		// tooltip and a click target, but must not replace the label: a
+		// basename hides the directory, and for a folder path ending in `/`
+		// it used to be the empty string, so the path disappeared entirely.
+		const presentation = presentInlineCodePath(text, uri => getRelative(uri, accessor));
+		displayText = presentation.displayText;
+		tooltip = presentation.tooltip;
 	}
 
 
