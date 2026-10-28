@@ -7239,7 +7239,7 @@ VibeIDEA разобрала те же сводки раньше (`docs/vibe/refe
 - `gpt-6.1-terra-pro` есть на OpenRouter; страница OpenAI для него не открывалась — профиль и цену не брать из агрегатора
 
 **Заведено:**
-- [ ] **Профиль GPT-6.1 Terra в `modelCapabilities.ts` и образец в `openai.jsonc`** — найдено 28.10.2026, польза средняя (цена в счётчике завышена вдвое), трудоёмкость малая.
+- [x] **Профиль GPT-6.1 Terra в `modelCapabilities.ts` и образец в `openai.jsonc`** — ✅ (2026-10-28, `feature/terra-ci-names`) профиль добавлен, живьём не прогнано (нет ключа OpenAI); образец в наборе VibeBrains — отдельно. Найдено 28.10.2026, польза средняя (цена в счётчике завышена вдвое), трудоёмкость малая.
   Профиль `gpt-6.1-terra` рядом с Sol: окно 1_050_000, вывод 128_000, `cost: { input: 1.00, cache_read: 0.05, cache_write: 1.25, output: 5.00, long_context: gpt6LongContext }` (множители 2 / 2 / 1.5 совпадают с докой),
   vision, `reasoningOffEffort: 'none'` с `canTurnOffReasoning: true`, ползунок `low … max`, по умолчанию `medium`. Регекс `/gpt-6.*terra/` — перед `/gpt-6\.1/` в `openAIFallbackProfiles`.
   Образец в `providers/openai.jsonc` набора (процедура сидов: VibeBrains, `bump.mjs`, пуш набора, потом указатель и манифест); шапка файла утверждает «у GPT-6 Terra нет» — поправить. Тест по образцу `test/common/builtinModelProfiles.test.ts`
