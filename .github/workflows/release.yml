@@ -274,12 +274,18 @@ jobs:
     # ubuntu-latest now resolves to 26.04, where dpkg-shlibdeps aborts with a
     # Perl Dpkg/Shlibs/SymbolFile.pm error and breaks the .deb build (run 40493134071).
     # Pin to 24.04 until that toolchain bug is resolved.
-    runs-on: ubuntu-24.04
+    # arm64 собирается на родной arm64-машине: при кросс-сборке на x64 линковщику
+    # не хватало arm64-версий libX11 и libxkbfile (native-keymap, run 40679735118)
+    runs-on: ${{ matrix.runner }}
     needs: compile
     strategy:
       fail-fast: false
       matrix:
-        arch: [x64, arm64]
+        include:
+          - arch: x64
+            runner: ubuntu-24.04
+          - arch: arm64
+            runner: ubuntu-24.04-arm
 
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
@@ -297,17 +303,11 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y build-essential pkg-config libkrb5-dev libx11-dev libxkbfile-dev rpm fakeroot
-          if [ "${{ matrix.arch }}" = "arm64" ]; then
-            sudo apt-get install -y gcc-aarch64-linux-gnu g++-aarch64-linux-gnu
-          fi
           npm ci
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: '1'
           npm_config_foreground_scripts: 'true'
-          npm_config_arch: ${{ matrix.arch == 'arm64' && 'arm64' || 'x64' }}
-          CC: ${{ matrix.arch == 'arm64' && 'aarch64-linux-gnu-gcc' || 'gcc' }}
-          CXX: ${{ matrix.arch == 'arm64' && 'aarch64-linux-gnu-g++' || 'g++' }}
 
       - name: Build Linux app
         run: node node_modules/gulp/bin/gulp.js vscode-linux-${{ matrix.arch }}
@@ -351,7 +351,10 @@ jobs:
   release:
     name: Publish GitHub Release
     runs-on: ubuntu-latest
-    needs: [build-windows, build-macos, build-linux]
+    needs: [compile, build-windows, build-macos, build-linux]
+    # Одна упавшая платформа не прячет готовые сборки остальных:
+    # шаг идёт, если собрался общий compile, и выкладывает то, что есть
+    if: ${{ !cancelled() && needs.compile.result == 'success' }}
     permissions:
       contents: write
 
@@ -369,6 +372,7 @@ jobs:
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           path: release-artifacts/
+          pattern: '{windows,macos,linux}-*'
 
       - name: Generate changelog
         run: |
@@ -399,29 +403,45 @@ jobs:
         env:
           VIBE_VERSION: ${{ env.VIBE_VERSION }}
 
-      - name: Create GitHub Release
-        uses: softprops/action-gh-release@efb35369e0ad2afab669f228072c1b0d510eae64 # v3.0.3
-        with:
-          tag_name: ${{ env.VIBE_VERSION }}
-          name: "VibeIDE ${{ env.VIBE_VERSION }}"
-          body_path: RELEASE_NOTES.md
-          draft: false
-          files: |
-            release-artifacts/windows-x64/**/*.exe
-            release-artifacts/windows-x64/**/*.zip
-            release-artifacts/windows-arm64/**/*.exe
-            release-artifacts/windows-arm64/**/*.zip
-            release-artifacts/macos-x64/**/*.dmg
-            release-artifacts/macos-x64/**/*.zip
-            release-artifacts/macos-arm64/**/*.dmg
-            release-artifacts/macos-arm64/**/*.zip
-            release-artifacts/linux-x64/**/*.deb
-            release-artifacts/linux-x64/**/*.rpm
-            release-artifacts/linux-x64/**/*.tar.gz
-            release-artifacts/linux-arm64/**/*.deb
-            release-artifacts/linux-arm64/**/*.rpm
-            release-artifacts/linux-arm64/**/*.tar.gz
-            sbom.json
-            transparency.json
-            release-manifest.json
-            checksums-sha256.txt
+      # Публикует владелец после ручной проверки (двухфазный выпуск), поэтому CI:
+      # - релиза нет — создаёт черновик с авточенджлогом;
+      # - релиз есть — только доливает файлы, которых в нём нет: ноты и уже выложенные
+      #   (проверенные локальные сборки) не трогает
+      - name: Create draft or add missing assets
+        run: |
+          set -euo pipefail
+          shopt -s globstar nullglob
+          files=(
+            release-artifacts/windows-*/**/*.exe release-artifacts/windows-*/**/*.zip
+            release-artifacts/macos-*/**/*.dmg release-artifacts/macos-*/**/*.zip
+            release-artifacts/linux-*/**/*.deb release-artifacts/linux-*/**/*.rpm release-artifacts/linux-*/**/*.tar.gz
+          )
+          # Манифест и контрольные суммы считаны по файлам CI: в чужой релиз с локальными
+          # сборками они не идут, иначе суммы разойдутся с выложенными файлами
+          extras=(sbom.json transparency.json)
+          own_extras=(release-manifest.json checksums-sha256.txt)
+          if [ ${#files[@]} -eq 0 ]; then
+            echo "::error::Нет ни одного собранного файла"
+            exit 1
+          fi
+          if gh release view "$VIBE_VERSION" >/dev/null 2>&1; then
+            existing=$(gh release view "$VIBE_VERSION" --json assets -q '.assets[].name')
+            missing=()
+            for f in "${files[@]}" "${extras[@]}"; do
+              if ! grep -qxF "$(basename "$f")" <<<"$existing"; then
+                missing+=("$f")
+              fi
+            done
+            if [ ${#missing[@]} -eq 0 ]; then
+              echo "Все файлы уже в релизе $VIBE_VERSION"
+            else
+              printf 'Доливаю: %s\n' "${missing[@]##*/}"
+              gh release upload "$VIBE_VERSION" "${missing[@]}"
+            fi
+          else
+            gh release create "$VIBE_VERSION" --draft --target "$GITHUB_SHA" \
+              --title "VibeIDE $VIBE_VERSION" --notes-file RELEASE_NOTES.md "${files[@]}" "${extras[@]}" "${own_extras[@]}"
+          fi
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          VIBE_VERSION: ${{ env.VIBE_VERSION }}
