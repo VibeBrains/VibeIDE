@@ -485,7 +485,14 @@ export abstract class AbstractExtensionsScannerService extends Disposable implem
 	}
 
 	private async createExtensionScannerInput(location: URI, profile: boolean, type: ExtensionType, language: string | undefined, validate: boolean, profileScanOptions: IProfileExtensionsScanOptions | undefined, productVersion: IProductVersion): Promise<ExtensionScannerInput> {
-		const translations = await this.getTranslations(language ?? platform.language);
+		// Resolve the language once. The same value must be used both to load language pack
+		// translations and to pick `package.nls.<language>.json` while reading manifests.
+		// Previously a scan without an explicit language loaded translations for
+		// `platform.language` but stored `undefined` in the input, so it read the English
+		// manifests while a scan with an explicit language read the localized ones. Both
+		// scans share the extension cache, so the mismatch invalidated it on every start.
+		const resolvedLanguage = language ?? platform.language;
+		const translations = await this.getTranslations(resolvedLanguage);
 		const mtime = await this.getMtime(location);
 		const applicationExtensionsLocation = profile && !this.uriIdentityService.extUri.isEqual(location, this.userDataProfilesService.defaultProfile.extensionsResource) ? this.userDataProfilesService.defaultProfile.extensionsResource : undefined;
 		const applicationExtensionsLocationMtime = applicationExtensionsLocation ? await this.getMtime(applicationExtensionsLocation) : undefined;
@@ -502,7 +509,7 @@ export abstract class AbstractExtensionsScannerService extends Disposable implem
 			productVersion.date,
 			this.productService.commit,
 			!this.environmentService.isBuilt,
-			language,
+			resolvedLanguage,
 			translations,
 		);
 	}

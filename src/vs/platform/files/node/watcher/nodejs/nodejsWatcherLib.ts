@@ -6,7 +6,7 @@
 import { watch, promises } from 'fs';
 import { RunOnceWorker, ThrottledWorker } from '../../../../../base/common/async.js';
 import { CancellationToken, CancellationTokenSource } from '../../../../../base/common/cancellation.js';
-import { isEqual, isEqualOrParent } from '../../../../../base/common/extpath.js';
+import { isEqual } from '../../../../../base/common/extpath.js';
 import { Disposable, DisposableStore, IDisposable, thenRegisterOrDispose, toDisposable } from '../../../../../base/common/lifecycle.js';
 import { normalizeNFC } from '../../../../../base/common/normalization.js';
 import { basename, dirname, join } from '../../../../../base/common/path.js';
@@ -18,6 +18,7 @@ import { FileChangeFilter, FileChangeType, IFileChange } from '../../../common/f
 import { ILogMessage, coalesceEvents, INonRecursiveWatchRequest, parseWatcherPatterns, IRecursiveWatcherWithSubscribe, isFiltered, isWatchRequestWithCorrelation } from '../../../common/watcher.js';
 import { Lazy } from '../../../../../base/common/lazy.js';
 import { ParsedPattern } from '../../../../../base/common/glob.js';
+import { isNetworkShare } from './networkShare.js';
 
 export class NodeJSFileWatcherLibrary extends Disposable {
 
@@ -189,12 +190,13 @@ export class NodeJSFileWatcherLibrary extends Disposable {
 			return;
 		}
 
-		// macOS: watching samba shares can crash VSCode so we do
-		// a simple check for the file path pointing to /Volumes
-		// (https://github.com/microsoft/vscode/issues/106879)
+		// macOS: watching samba shares can crash VSCode
+		// (https://github.com/microsoft/vscode/issues/106879).
+		// Check the filesystem type of the path instead of its `/Volumes` prefix:
+		// local volumes, including external APFS disks, are mounted there too.
 		// TODO@electron this needs a revisit when the crash is
 		// fixed or mitigated upstream.
-		if (isMacintosh && isEqualOrParent(realPath, '/Volumes/', true)) {
+		if (await isNetworkShare(realPath)) {
 			this.error(`Refusing to watch ${realPath} for changes using fs.watch() for possibly being a network share where watching is unreliable and unstable.`);
 
 			return;

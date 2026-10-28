@@ -4,6 +4,7 @@
  *--------------------------------------------------------------------------------------------*/
 import assert from 'assert';
 import { VSBuffer } from '../../../../base/common/buffer.js';
+import { language } from '../../../../base/common/platform.js';
 import { dirname, joinPath } from '../../../../base/common/resources.js';
 import { URI } from '../../../../base/common/uri.js';
 import { ensureNoDisposablesAreLeakedInTestSuite } from '../../../../base/test/common/utils.js';
@@ -102,6 +103,27 @@ suite('NativeExtensionsScanerService Test', () => {
 		assert.deepStrictEqual(actual[0].metadata, undefined);
 		assert.deepStrictEqual(actual[0].targetPlatform, TargetPlatform.UNDEFINED);
 		assert.deepStrictEqual(actual[0].manifest, manifest);
+	});
+
+	test('scan system extensions applies package.nls localization also without an explicit language', async () => {
+		// A scan without a language must use the same resolved language as a scan with one,
+		// otherwise the cached builtin manifests (English) never match the validation scan
+		// (localized) and the extension cache is invalidated on every start.
+		instantiationService.stub(INativeEnvironmentService, {
+			...instantiationService.get(INativeEnvironmentService),
+			isBuilt: true,
+		});
+		const extensionLocation = await aSystemExtension(anExtensionManifest({ 'name': 'name', 'publisher': 'pub', 'displayName': '%displayName%' }));
+		const fileService = instantiationService.get(IFileService);
+		await fileService.writeFile(joinPath(extensionLocation, 'package.nls.json'), VSBuffer.fromString(JSON.stringify({ displayName: 'Hello World' })));
+		await fileService.writeFile(joinPath(extensionLocation, `package.nls.${language}.json`), VSBuffer.fromString(JSON.stringify({ displayName: 'Hello World Localized' })));
+		const testObject: IExtensionsScannerService = disposables.add(instantiationService.createInstance(ExtensionsScannerService));
+
+		const withoutExplicitLanguage = await testObject.scanSystemExtensions({});
+		const withExplicitLanguage = await testObject.scanSystemExtensions({ language: language });
+
+		assert.deepStrictEqual(withoutExplicitLanguage[0].manifest.displayName, withExplicitLanguage[0].manifest.displayName);
+		assert.deepStrictEqual(withoutExplicitLanguage[0].manifest.displayName, 'Hello World Localized');
 	});
 
 	test('scan user extensions', async () => {

@@ -11,11 +11,5 @@
 	"command.doctor.run.title": "VibeIDE: Запустить Doctor (диагностика)",
 	"command.audit.export.title": "VibeIDE: Экспортировать журнал аудита (GDPR)",
 	"command.audit.deleteAll.title": "VibeIDE: Удалить весь журнал аудита (GDPR Erasure)",
-	"command.transparency.show.title": "VibeIDE: Показать Transparency Dashboard",
-	"configuration.title": "VibeIDE",
-	"configuration.trustScore.level.description": "Уровень Trust Score для автономии агента",
-	"configuration.trustScore.level.manual.description": "Manual 🟢 — каждое действие агента требует подтверждения",
-	"configuration.trustScore.level.supervised.description": "Supervised 🟡 — уведомления, авто-применение по таймауту",
-	"configuration.trustScore.level.auto.description": "Auto 🔴 — агент работает автономно в рамках бюджетных лимитов",
-	"configuration.skills.workspaceDiscoveryHint.description": "Если рабочая область подгружает Agent Skills из .vibe/skills/ — показать одно info-уведомление на окно с примерами идентификаторов и кнопкой «Skills — select for session» (только UX; на приоритет правил не влияет)."
+	"command.transparency.show.title": "VibeIDE: Показать Transparency Dashboard"
 }

@@ -17,11 +17,5 @@
 	"command.doctor.run.title": "VibeIDE: Run Doctor (diagnostics)",
 	"command.audit.export.title": "VibeIDE: Export audit log (GDPR)",
 	"command.audit.deleteAll.title": "VibeIDE: Delete all audit log entries (GDPR Erasure)",
-	"command.transparency.show.title": "VibeIDE: Show Transparency Dashboard",
-	"configuration.title": "VibeIDE",
-	"configuration.trustScore.level.description": "Trust Score level for agent autonomy",
-	"configuration.trustScore.level.manual.description": "Manual 🟢 — every agent action requires confirmation",
-	"configuration.trustScore.level.supervised.description": "Supervised 🟡 — notifications, auto-apply on timeout",
-	"configuration.trustScore.level.auto.description": "Auto 🔴 — agent runs autonomously within budget limits",
-	"configuration.skills.workspaceDiscoveryHint.description": "If the workspace loads Agent Skills from .vibe/skills/ — show one info notification per window with example ids and a «Skills — select for session» button (UX only; does not affect rule precedence)."
+	"command.transparency.show.title": "VibeIDE: Show Transparency Dashboard"
 }
