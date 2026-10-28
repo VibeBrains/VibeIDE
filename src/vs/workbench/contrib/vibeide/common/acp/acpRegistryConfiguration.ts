@@ -4,15 +4,18 @@
  *--------------------------------------------------------------------------------------------*/
 
 // Registers vibeide.acp.registryUrl — where external agents are imported from —, vibeide.acp.readJetBrainsAgents,
-// vibeide.acp.ideTools — whether an external agent may ask the editor what is open — and vibeide.acp.embedMaxChars —
-// how large a file may be to ride inside a prompt to an external agent.
-// Consumers: the registry import service in electron-browser/acp and the agents listing and the prompt in browser/acp.
+// vibeide.acp.ideTools — whether an external agent may ask the editor what is open —, vibeide.acp.embedMaxChars —
+// how large a file may be to ride inside a prompt to an external agent — and vibeide.acp.traceFrames — whether the
+// main process writes ACP frames to the log.
+// Consumers: the registry import service in electron-browser/acp, the agents listing and the prompt in browser/acp,
+// and the ACP host in electron-main/acp.
 
 import { Registry } from '../../../../../platform/registry/common/platform.js';
 import { ConfigurationScope, IConfigurationRegistry, Extensions as ConfigurationExtensions } from '../../../../../platform/configuration/common/configurationRegistry.js';
 import { localize } from '../../../../../nls.js';
 import { ACP_REGISTRY_DEFAULT_URL } from './acpRegistry.js';
 import { ACP_EMBED_MAX_CHARS_DEFAULT, ACP_EMBED_MAX_CHARS_KEY } from './acpPromptContext.js';
+import { ACP_TRACE_FRAMES_KEY } from './acpTrace.js';
 
 export const ACP_REGISTRY_URL_KEY = 'vibeide.acp.registryUrl';
 export const ACP_READ_JETBRAINS_AGENTS_KEY = 'vibeide.acp.readJetBrainsAgents';
@@ -50,6 +53,13 @@ Registry.as<IConfigurationRegistry>(ConfigurationExtensions.Configuration).regis
 			minimum: 0,
 			scope: ConfigurationScope.APPLICATION,
 			description: localize('vibeide.acp.embedMaxChars', 'Самый большой файл (в знаках), чей текст кладётся прямо в сообщение внешнему агенту. Файл побольше уходит ссылкой, и агент читает его сам. Выделенный фрагмент подчиняется тому же пределу.'),
+		},
+		[ACP_TRACE_FRAMES_KEY]: {
+			type: 'boolean',
+			default: false,
+			// APPLICATION: журнал общий на всё приложение, и включать его из репозитория нельзя
+			scope: ConfigurationScope.APPLICATION,
+			description: localize('vibeide.acp.traceFrames', 'Писать кадры протокола ACP в журнал: вопросы разрешения, их отзывы, ответы и обновления вызовов (id, метод, статус, заголовок — без содержимого файлов и диффов). Нужно для разбора зависших вопросов; по умолчанию выключено, журнал пишется уровнем trace.'),
 		},
 	},
 });

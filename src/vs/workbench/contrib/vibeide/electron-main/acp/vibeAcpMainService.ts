@@ -13,6 +13,9 @@ import { Disposable } from '../../../../../base/common/lifecycle.js';
 import { raceTimeout } from '../../../../../base/common/async.js';
 import { generateUuid } from '../../../../../base/common/uuid.js';
 import { isAbsolute, join } from '../../../../../base/common/path.js';
+import { ILogService } from '../../../../../platform/log/common/log.js';
+import { IConfigurationService } from '../../../../../platform/configuration/common/configuration.js';
+import { ACP_TRACE_FRAMES_KEY } from '../../common/acp/acpTrace.js';
 import { vibeLog } from '../../common/vibeLog.js';
 import {
 	ACP_AGENT_METHOD,
@@ -186,7 +189,11 @@ const NESTED_SESSION_MARKERS = [
 export class VibeAcpMainService extends Disposable implements IVibeAcpMain {
 
 	/** @param _shellEnv the login shell's environment, resolved (and cached) the way VS Code does for its terminals. */
-	constructor(private readonly _shellEnv: () => Promise<NodeJS.ProcessEnv>) {
+	constructor(
+		private readonly _shellEnv: () => Promise<NodeJS.ProcessEnv>,
+		private readonly _log: ILogService,
+		private readonly _configurationService: IConfigurationService,
+	) {
 		super();
 	}
 
@@ -197,6 +204,15 @@ export class VibeAcpMainService extends Disposable implements IVibeAcpMain {
 	private readonly _agents = new Map<string, IAgentProcess>();
 	/** Запросы разрешения, ждущие ответа человека: наш id → чем ответить агенту. */
 	private readonly _permissions = new Map<string, { readonly agent: IAgentProcess; readonly rpcId: number | string }>();
+
+	/**
+	 * Кадры ACP в журнал: по умолчанию молчит и включается настройкой
+	 * Только id, метод, статус и заголовок — содержимое файлов и диффов в журнал не попадает
+	 */
+	private _trace(text: string): void {
+		if (this._configurationService.getValue<boolean>(ACP_TRACE_FRAMES_KEY) !== true) { return; }
+		this._log.trace(`[ACP] ${text}`);
+	}
 
 	async startSession(launch: IAcpAgentLaunch): Promise<IAcpSession> {
 		const { agent, mcpServers } = await this._spawnAndGreet(launch);
@@ -359,6 +375,7 @@ export class VibeAcpMainService extends Disposable implements IVibeAcpMain {
 		const pending = this._permissions.get(requestId);
 		if (!pending) { return; }
 		this._permissions.delete(requestId);
+		this._trace(`${pending.agent.launch.name}: ответ requestId=${requestId} ${optionId ? `optionId=${optionId}` : 'отказ'}`);
 		// Отказ выражается отменой, а не «выбран вариант отказа»: варианты придумывает агент, и
 		// угадывать, который из них означает «нет», нельзя.
 		const outcome: JsonValue = optionId
@@ -377,6 +394,7 @@ export class VibeAcpMainService extends Disposable implements IVibeAcpMain {
 		for (const [requestId, pending] of [...this._permissions]) {
 			if (pending.agent !== agent) { continue; }
 			this._permissions.delete(requestId);
+			this._trace(`${agent.launch.name}: ответ requestId=${requestId} отмена хода`);
 			this._send(agent, resultFrame(pending.rpcId, { outcome: { outcome: 'cancelled' } }));
 			this._onEvent.fire({ kind: 'permissionWithdrawn', sessionId, requestId });
 		}
@@ -434,7 +452,9 @@ export class VibeAcpMainService extends Disposable implements IVibeAcpMain {
 				continue;
 			}
 			if (isNotification(message) && message.method === ACP_CLIENT_METHOD.cancelRequest) {
-				this._withdraw(agent, cancelledRequestIdOf(message.params));
+				const rpcId = cancelledRequestIdOf(message.params);
+				this._trace(`${agent.launch.name}: $/cancel_request rpcId=${rpcId ?? 'весь ход'}`);
+				this._withdraw(agent, rpcId);
 			}
 		}
 	}
@@ -475,6 +495,8 @@ export class VibeAcpMainService extends Disposable implements IVibeAcpMain {
 	private _onUpdate(agent: IAgentProcess, params: JsonValue | undefined): void {
 		const update = parseSessionUpdate(params);
 		if (!update) { return; }
+		// Имя кадра (`tool_call` или `tool_call_update`) нужно журналу: по нему видно, первый это кадр вызова или дополнение
+		const frame = readString(readObject(params, 'update'), 'sessionUpdate');
 		const sessionId = agent.sessionId;
 		// The replay of `session/load` is history already on screen — but a settings change during it is the current
 		// state. It is kept even before the session is adopted, and the reconnection hands it over
@@ -499,6 +521,7 @@ export class VibeAcpMainService extends Disposable implements IVibeAcpMain {
 				this._onEvent.fire({ kind: 'text', sessionId, text: update.text, thought: update.thought });
 				return;
 			case 'tool':
+				this._trace(`${agent.launch.name}: ${frame ?? 'tool_call'} toolCallId=${update.toolCallId} status=${update.status}`);
 				this._captureBeforeEdit(agent, update.toolCallId, update.toolKind, update.status, update.paths);
 				this._onEvent.fire({
 					kind: 'tool',
@@ -582,7 +605,9 @@ export class VibeAcpMainService extends Disposable implements IVibeAcpMain {
 		this._permissions.set(requestId, { agent, rpcId });
 		const toolCall = readObject(params, 'toolCall');
 		const facts = toolCallFacts(toolCall ?? null);
-		this._captureBeforeEdit(agent, readString(toolCall, 'toolCallId') ?? '', facts.toolKind, 'pending', facts.paths);
+		const toolCallId = readString(toolCall, 'toolCallId') ?? '';
+		this._trace(`${agent.launch.name}: session/request_permission requestId=${requestId} rpcId=${rpcId} toolCallId=${toolCallId} title=${facts.title || facts.name || facts.toolKind || 'действие'}`);
+		this._captureBeforeEdit(agent, toolCallId, facts.toolKind, 'pending', facts.paths);
 		const rawOptions = readValue(params, 'options');
 		const options = Array.isArray(rawOptions)
 			? rawOptions

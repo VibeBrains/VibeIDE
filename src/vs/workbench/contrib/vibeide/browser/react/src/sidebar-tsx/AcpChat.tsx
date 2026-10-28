@@ -9,6 +9,7 @@ import { AcpCompactionMessage, AcpNoticeMessage, AcpToolMessage } from '../../..
 import { IAcpCommand, IAcpConfigChoice, IAcpConfigOption, IAcpDiff, isCompactionSettled } from '../../../../common/acp/acpProtocol.js';
 import { IAcpPermissionRequest } from '../../../../common/acp/acpTypes.js';
 import { ACP_PERMISSION_MODES, AcpDecisionReason, AcpGrant, AcpPermissionMode, DEFAULT_ACP_PERMISSION_MODE, describeAsking, describeGrant, permissionOptionLabel } from '../../../../common/acp/acpPermissionPolicy.js';
+import { acpToolStatusLabel, questionOfCall, splitAcpQuestions } from '../../../../common/acp/acpParallelPermissions.js';
 import { useAccessor, useChatThreadsState } from '../util/services.js';
 import { VibeCustomDropdownBox } from '../util/inputs.js';
 import { ToolHeaderWrapper, ToolChildrenWrapper } from './SidebarChat.js';
@@ -24,15 +25,6 @@ const TOOL_KIND_NAMES: Record<string, string> = {
 	'execute': 'Команда',
 	'think': 'Размышление',
 	'fetch': 'Запрос в сеть',
-};
-
-const TOOL_STATUS_NAMES: Record<string, string> = {
-	pending: 'ждёт',
-	in_progress: 'идёт',
-	completed: 'готово',
-	failed: 'ошибка',
-	cancelled: 'отменено',
-	unknown: 'идёт',
 };
 
 /** Дифф длиннее этого сворачивается: правка на 200 строк иначе вытеснит с экрана всё остальное. */
@@ -69,18 +61,22 @@ export const AcpDiffBlock = ({ diff }: { diff: IAcpDiff }) => {
  * Вызов инструмента внешнего агента в ленте чата
  * Агент делает его сам, поэтому карточка только рассказывает: что за инструмент, чем кончилось, что вывел
  */
-export const AcpToolCard = ({ message, isCheckpointGhost }: { message: AcpToolMessage; isCheckpointGhost: boolean }) => {
+export const AcpToolCard = ({ message, isCheckpointGhost, acpSessionId }: { message: AcpToolMessage; isCheckpointGhost: boolean; acpSessionId?: string }) => {
+	// Вопрос принадлежит вызову, который назван в `toolCallId`: в ленте их может ждать несколько, а спрошен один
+	const view = useAcpSessionView(acpSessionId);
+	const question = view ? questionOfCall(view.pendingPermissions, message.toolCallId) : undefined;
 	const kind = TOOL_KIND_NAMES[message.toolKind] ?? (message.toolKind || 'Инструмент');
 	// Заголовок агент вправе не прислать, и в схеме v2 он необязателен: тогда имя инструмента, а затем путь
 	const what = message.title || message.name || message.paths[0] || 'действие без названия';
 	const hasDetails = message.diffs.length > 0 || message.output.length > 0;
 	const exit = message.exitCode === undefined || message.exitCode === 0 ? '' : ` · код ${message.exitCode}`;
+	const status = acpToolStatusLabel(message.status, !!question) ?? '';
 
 	return <div className={isCheckpointGhost ? 'opacity-50' : ''}>
 		<ToolHeaderWrapper
 			title={kind}
 			desc1={what}
-			desc2={`${TOOL_STATUS_NAMES[message.status] ?? ''}${exit}`}
+			desc2={`${status}${exit}`}
 			isError={message.status === 'failed' || (message.exitCode !== undefined && message.exitCode !== 0)}
 			isRejected={message.status === 'cancelled'}
 			icon={null}
@@ -93,6 +89,15 @@ export const AcpToolCard = ({ message, isCheckpointGhost }: { message: AcpToolMe
 				</div>
 			</ToolChildrenWrapper> : undefined}
 		</ToolHeaderWrapper>
+		{question && view && <div className='mt-1'>
+			<AcpPermissionRequestCard
+				sessionId={view.sessionId}
+				agentName={view.agentName}
+				request={question.request}
+				reason={question.reason}
+				grantOffers={question.grantOffers}
+			/>
+		</div>}
 	</div>;
 };
 
@@ -227,26 +232,32 @@ const samePending = (
 );
 
 /**
- * Вопрос внешнего агента в ленте чата: что за действие, какие файлы, что именно меняется
- * Решение человека одно из предложенных агентом; «на сессию» добавляет наше разрешение, а агенту уходит разовое «да»
+ * Вопросы, которым не нашлось места у своего вызова: без `toolCallId` или с вызовом, которого в ленте нет
+ * «Разрешить все N» считает все открытые вопросы хода, включая те, что стоят под своими карточками
  */
 export const AcpPermissionCard = ({ threadId }: { threadId: string }) => {
 	const accessor = useAccessor();
 	const sessions = accessor.get('IVibeAcpSessionsService');
 	const threadsState = useChatThreadsState();
-	const agent = threadsState.allThreads[threadId]?.acpAgent;
-	const view = useAcpSessionView(agent?.sessionId);
+	const thread = threadsState.allThreads[threadId];
+	const view = useAcpSessionView(thread?.acpAgent?.sessionId);
 	const pending = view?.pendingPermissions ?? [];
 	if (!view || pending.length === 0) { return null; }
 
+	// Вопрос с вызовом в ленте уже стоит под его карточкой: второй раз здесь его показывать нельзя
+	const feedToolCallIds = (thread?.messages ?? []).flatMap(message => message.role === 'acp_tool' ? [message.toolCallId] : []);
+	const { homeless } = splitAcpQuestions(pending, feedToolCallIds);
+	const allowAll = pending.length > 1;
+	if (homeless.length === 0 && !allowAll) { return null; }
+
 	return <div className='flex flex-col gap-2'>
-		{pending.length > 1 && <div className='flex items-center gap-2 px-1'>
+		{allowAll && <div className='flex items-center gap-2 px-1'>
 			<AcpButton onClick={() => void sessions.allowAllPermissions(view.sessionId)} title='Разрешить все открытые запросы этого хода разовым «да»'>
 				{`Разрешить все ${pending.length}`}
 			</AcpButton>
 		</div>}
-		{pending.map(item => <AcpPermissionRequestCard
-			key={item.request.toolCallId || item.request.requestId}
+		{homeless.map(item => <AcpPermissionRequestCard
+			key={item.request.requestId}
 			sessionId={view.sessionId}
 			agentName={view.agentName}
 			request={item.request}
@@ -260,7 +271,7 @@ export const AcpPermissionCard = ({ threadId }: { threadId: string }) => {
  * Один вопрос: кнопки принадлежат вызову (`toolCallId`), поэтому ответ закрывает только его
  * Решение человека одно из предложенных агентом; «на сессию» добавляет наше разрешение, а агенту уходит разовое «да»
  */
-const AcpPermissionRequestCard = ({ sessionId, agentName, request, reason, grantOffers }: {
+export const AcpPermissionRequestCard = ({ sessionId, agentName, request, reason, grantOffers }: {
 	readonly sessionId: string;
 	readonly agentName: string;
 	readonly request: IAcpPermissionRequest;
