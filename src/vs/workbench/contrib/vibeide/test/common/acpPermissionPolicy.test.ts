@@ -107,6 +107,15 @@ suite('acpPermissionPolicy', () => {
 				['outsideProject', 'outsideProject', 'grant']);
 		});
 
+		test('read-only Bash читает за пределами проекта не проще, чем Read: тоже спрашивается', () => {
+			const outside = shell('cat /etc/passwd');
+			const inside = shell('cat /ws/app/README.md');
+			const globOutside = shell('grep -r secret /home/me');
+			assert.deepStrictEqual(
+				[decidePermission(outside, context('auto')).reason, decidePermission(inside, context('auto')).reason, decidePermission(globOutside, context('auto')).reason],
+				['outsideProject', 'modeAuto', 'outsideProject']);
+		});
+
 		test('граница не режет путь, который лишь начинается так же, как корень проекта', () => {
 			const sibling = facts({ toolKind: 'edit', paths: ['/ws/app-other/a.ts'] });
 			assert.strictEqual(decidePermission(sibling, context('auto')).reason, 'outsideProject');

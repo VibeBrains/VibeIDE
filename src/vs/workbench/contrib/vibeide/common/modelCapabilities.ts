@@ -1221,6 +1221,19 @@ const openAIModelOptions = { // https://platform.openai.com/docs/pricing
 		supportsSystemMessage: 'developer-role',
 		reasoningCapabilities: { supportsReasoning: true, canTurnOffReasoning: false, canIOReasoning: false, reasoningSlider: { type: 'effort_slider', values: ['low', 'medium', 'high', 'xhigh', 'max'], default: 'medium' } },
 	},
+	// GPT-6.1 Terra (developers.openai.com/api/docs/models/gpt-6.1-terra): вдвое дешевле Sol
+	// В отличие от Sol принимает `none`, поэтому рассуждение выключается. Инструменты — только через Responses
+	'gpt-6.1-terra': {
+		contextWindow: 1_050_000,
+		reservedOutputTokenSpace: 128_000,
+		cost: { input: 1.00, cache_read: 0.05, cache_write: 1.25, output: 5.00, long_context: gpt6LongContext },
+		downloadable: false,
+		supportsFIM: false,
+		supportsVision: true,
+		specialToolFormat: 'openai-style',
+		supportsSystemMessage: 'developer-role',
+		reasoningCapabilities: { supportsReasoning: true, canTurnOffReasoning: true, canIOReasoning: false, reasoningOffEffort: 'none', reasoningSlider: { type: 'effort_slider', values: ['low', 'medium', 'high', 'xhigh', 'max'], default: 'medium' } },
+	},
 	// Latest GPT-5 series (best for coding and agentic tasks):
 	'gpt-5.1': {
 		contextWindow: 1_047_576, // TODO: Verify actual context window
@@ -1405,6 +1418,7 @@ const openAIFallbackProfiles: ReadonlyArray<readonly [RegExp, keyof typeof openA
 	// GPT-6 has no bare alias; an unnamed tier borrows the middle one rather than guessing high or low.
 	[/gpt-6.*astra/, 'gpt-6-astra'],
 	[/gpt-6.*luna/, 'gpt-6-luna'],
+	[/gpt-6.*terra/, 'gpt-6.1-terra'],
 	[/gpt-6\.1/, 'gpt-6.1-sol'],
 	[/gpt-6/, 'gpt-6-sol'],
 	[/gpt-5\.1/, 'gpt-5.1'],

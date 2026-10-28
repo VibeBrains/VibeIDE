@@ -205,6 +205,20 @@ suite('builtin model profiles — имя на проводе, профиль, п
 		]);
 	});
 
+	test('GPT-6.1 Terra: цена $1 / $5, рассуждение выключается; Sol не изменился', () => {
+		const terra = getModelCapabilities('openAI', 'gpt-6.1-terra', undefined);
+		const sol = getModelCapabilities('openAI', 'gpt-6.1-sol', undefined);
+		assert.deepStrictEqual({
+			terra: [terra.recognizedModelName, terra.cost.input, terra.cost.output, terra.cost.cache_read, terra.cost.cache_write, terra.reasoningCapabilities && terra.reasoningCapabilities.canTurnOffReasoning],
+			terraDated: getModelCapabilities('openAI', 'gpt-6.1-terra-2026-10-20', undefined).recognizedModelName,
+			sol: [sol.recognizedModelName, sol.cost.input, sol.reasoningCapabilities && sol.reasoningCapabilities.canTurnOffReasoning],
+		}, {
+			terra: ['gpt-6.1-terra', 1, 5, 0.05, 1.25, true],
+			terraDated: 'gpt-6.1-terra',
+			sol: ['gpt-6.1-sol', 2, false],
+		});
+	});
+
 	/**
 	 * Рассуждение V4 приходит своим полем `reasoning_content`, поэтому разбора `<think>` из текста у встроенного DeepSeek нет:
 	 * Унаследованный от R1, он вырезал бы тег из ответа, который его цитирует, вместе со всем, что за ним

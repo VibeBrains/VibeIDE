@@ -96,6 +96,7 @@
     "gen:terse-replies": "node scripts/gen-terse-replies.ts",
     "gen:all": "npm run gen:vibe-defaults && npm run gen:specs-help && npm run gen:docs-bundle && npm run gen:slop-catalog && npm run gen:stt-models && npm run gen:terse-replies",
     "docs-graph-check": "node scripts/vibe-docs-graph.mjs --check",
+    "extension-scan-invariants-check": "node scripts/check-extension-scan-invariants.mts",
     "providers-fields-check": "node scripts/vibe-providers-fields.mjs",
     "quirks-conflicts-check": "node scripts/vibe-quirks-conflicts.mjs",
     "quirks-provenance-check": "node scripts/vibe-quirks-provenance.ts",

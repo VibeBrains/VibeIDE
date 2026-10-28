@@ -498,8 +498,17 @@ export class VibeTelegramBridgeContribution extends Disposable implements IWorkb
 			}
 			return;
 		}
-		// Тот же вопрос второй карточкой — два ответа на один запрос.
-		if (shown) { return; }
+		if (shown) {
+			// Тот же вопрос второй карточкой — два ответа на один запрос.
+			if (shown[1].requestId === pending.requestId) { return; }
+			// Первый вопрос закрыли в IDE, а карточка на телефоне осталась бы. Токен привязан к одному
+			// requestId, поэтому старую карточку гасим: иначе её кнопка ответила бы на уже другой вопрос.
+			const [token, entry] = shown;
+			this._acpApprovals.delete(token);
+			if (entry.messageId !== undefined) {
+				await this._main.send({ chatId: entry.chatId, editMessageId: entry.messageId, text: escapeTelegramHtml('Решено в IDE.') });
+			}
+		}
 
 		const token = `p${++this._approvalCounter}`;
 		const delivered = await this._main.send({
@@ -989,6 +998,8 @@ export class VibeTelegramBridgeContribution extends Disposable implements IWorkb
 			if (chatId !== undefined && chatId !== acpPending.chatId) { return; }
 			this._acpApprovals.delete(token);
 			const session = this._acp.sessions.find(view => view.sessionId === acpPending.sessionId);
+			// Отвечаем ровно на тот вопрос, чья карточка висит на телефоне: «первый открытый» мог смениться,
+			// пока человек читал сообщение.
 			const request = session?.pendingPermissions.find(pending => pending.request.requestId === acpPending.requestId)?.request;
 			if (!request) {
 				await this._reply(acpPending.chatId, 'Этот вопрос уже решён.');

@@ -83,6 +83,30 @@ suite('VibeAcpSessionsService — кто отвечает на вопрос вн
 		assert.deepStrictEqual([pendingOf(service)?.requestId, answers, snapshots.created], ['r1', [], [['/ws/app/src/a.ts']]]);
 	});
 
+	test('«Разрешить все» не подменяет разовое разрешение постоянным', async () => {
+		const { service, events, answers } = setup();
+		await service.startSession(agent);
+		events.fire(request({ requestId: 'r1', toolCallId: 'c1', title: 'Read a.css', options: [{ optionId: 'always', name: 'Always', kind: 'allow_always' }] }));
+		events.fire(request({ requestId: 'r2', toolCallId: 'c2', title: 'Read b.css' }));
+		await settle();
+		await service.allowAllPermissions('s1');
+		await settle();
+		assert.deepStrictEqual(
+			[service.sessions[0].pendingPermissions.map(pending => pending.request.requestId), answers.map(answer => answer.requestId)],
+			[['r1'], ['r2']]);
+	});
+
+	test('обрыв связи закрывает все открытые вопросы', async () => {
+		const { service, events, snapshots } = setup();
+		await service.startSession(agent);
+		events.fire(request({ requestId: 'r1', toolCallId: 'c1', title: 'Edit a.ts', paths: ['/ws/app/src/a.ts'] }));
+		events.fire(request({ requestId: 'r2', toolCallId: 'c2', title: 'Edit b.ts', paths: ['/ws/app/src/b.ts'] }));
+		await settle();
+		events.fire({ kind: 'failed', sessionId: 's1', error: 'процесс упал' });
+		await settle();
+		assert.deepStrictEqual([service.sessions[0].pendingPermissions, snapshots.discarded], [[], ['snap1', 'snap2']]);
+	});
+
 	test('в режиме «Правки» правка в проекте отвечается сама разовым «да», чекпоинт остаётся, ответ записан в аудит как ответ системы', async () => {
 		const { service, events, answers, snapshots, audit } = setup();
 		await service.startSession(agent);

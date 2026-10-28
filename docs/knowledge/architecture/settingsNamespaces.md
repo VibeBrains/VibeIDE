@@ -80,6 +80,26 @@ Catch-all `vibeide.*` в `vibeide/other` важен: новые ключи **н�
 Этот раздел документирован отдельно в AGENTS.md / CLAUDE.md, но повторяю — изменения в TOC относятся
 к workbench/preferences, а не к `product.json`, и не требуют bump версии или релиз-цикла.
 
+## [баг] Настройка объявлена дважды: расширение и ядро workbench → «Это свойство уже зарегистрировано»
+
+**Контекст:** `window1/renderer.log` при каждом запуске 1.28.1:
+`[vibeide.vibeide-neon]: Невозможно зарегистрировать "vibeide.trustScore.level". Это свойство уже зарегистрировано.`
+и то же для `vibeide.skills.workspaceDiscoveryHint`.
+
+**Суть:** оба ключа регистрирует ядро — `src/vs/workbench/contrib/vibeide/common/vibeideGlobalSettingsConfiguration.ts`
+(scopes `APPLICATION` / `RESOURCE`, русские описания), — и они же повторно объявлялись в
+`contributes.configuration` расширения `extensions/vibeide-neon/package.json`. Объявление расширения
+всегда проигрывает и оставляет warning в логе (плюс расхождение `scope` и описаний).
+
+**Фикс (2026-10-28):** из `extensions/vibeide-neon/package.json` убран блок `contributes.configuration`
+целиком (в нём были только эти два ключа), из `package.nls.json` / `package.nls.ru.json` — осиротевшие
+ключи `configuration.*`. Гард: `npm run extension-scan-invariants-check` — пересечение ключей
+`contributes.configuration` встроенных расширений и `registerConfiguration` в
+`src/vs/workbench/contrib/vibeide` должно быть пустым.
+
+**Применение:** `vibeide.*` настройки объявляются **только** в ядре workbench; расширение может их
+читать (`workspace.getConfiguration`), но не объявлять.
+
 ## Ссылки
 
 - [settingsLayout.ts](../../../src/vs/workbench/contrib/preferences/browser/settingsLayout.ts) — TOC.
