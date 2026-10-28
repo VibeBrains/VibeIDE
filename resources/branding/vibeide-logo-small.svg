@@ -1,0 +1,29 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024">
+	<defs>
+		<clipPath id="left"><rect x="0" y="0" width="494" height="1024"/></clipPath>
+		<g id="half">
+			<g clip-path="url(#left)">
+				<rect x="200" y="74" width="294" height="876" rx="80"/>
+				<circle cx="340" cy="200" r="140"/>
+				<circle cx="225" cy="300" r="150"/>
+				<circle cx="185" cy="500" r="160"/>
+				<circle cx="215" cy="710" r="155"/>
+				<circle cx="330" cy="830" r="130"/>
+			</g>
+		</g>
+		<g id="traces" fill="none" stroke="#1e2a33" stroke-width="62" stroke-linecap="round" stroke-linejoin="round">
+			<path d="M330 240 V400 L410 480 V600 L232 422"/>
+			<path d="M240 640 H322 L412 730 L344 798"/>
+			<circle cx="330" cy="200" r="46"/>
+			<circle cx="200" cy="395" r="46"/>
+			<circle cx="200" cy="640" r="46"/>
+			<circle cx="316" cy="826" r="46"/>
+		</g>
+	</defs>
+	<use href="#half" fill="#3dbab5"/>
+	<use href="#traces"/>
+	<g transform="translate(1024 0) scale(-1 1)">
+		<use href="#half" fill="#9b2fa3"/>
+		<use href="#traces"/>
+	</g>
+</svg>
