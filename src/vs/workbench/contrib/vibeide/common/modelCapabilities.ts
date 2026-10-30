@@ -634,6 +634,16 @@ const openSourceModelOptions_assumingOAICompat = {
 		contextWindow: 1_048_576, reservedOutputTokenSpace: 32_768,
 		cost: { input: 3.00, cache_read: 0.30, output: 15.00 },
 	},
+	// `k3-256k` on Kimi Code is K3 with a 256K window and image-only input, no video (kimi.com/code/docs/en/kimi-code/models,
+	// 30.10.2026). Falling through to K3 gave it the 1M window, so compaction started past the real limit
+	'kimiK3_256k': {
+		supportsFIM: false,
+		supportsSystemMessage: 'system-role',
+		specialToolFormat: 'openai-style',
+		reasoningCapabilities: { supportsReasoning: true, canTurnOffReasoning: false, canIOReasoning: true, reasoningSlider: { type: 'effort_slider', values: ['low', 'high', 'max'], default: 'high' } },
+		contextWindow: 262_144, reservedOutputTokenSpace: 32_768,
+		cost: { input: 3.00, cache_read: 0.30, output: 15.00 },
+	},
 	// `kimi-for-coding` on Kimi Code is K2.8 Preview: 1M window, levels low/high/max, default max, and `none` turns thinking off
 	// (kimi.com/code/docs/en/kimi-code/models, 26.10.2026). A subscription model: the price is K2.5's, an approximation, not a zero
 	'kimiForCoding': {
@@ -813,6 +823,8 @@ const extensiveModelOptionsFallback: VoidStaticProviderInfo['modelOptionsFallbac
 	if (lower.includes('kimi-k3.1') || /(^|\/)k3\.1-pro/.test(lower)) {
 		return toFallback(openSourceModelOptions_assumingOAICompat, lower.includes('highspeed') ? 'kimiK3.1ProHighspeed' : 'kimiK3.1Pro');
 	}
+	// `k3-256k` goes first: the general K3 branch below would give it the 1M window
+	if (/(^|\/)k3-256k/.test(lower)) { return toFallback(openSourceModelOptions_assumingOAICompat, 'kimiK3_256k'); }
 	// Kimi Code names K3 `k3` and `k3-256k`; the Open Platform and aggregators `kimi-k3`
 	if (lower.includes('kimi-k3') || /(^|\/)k3($|-)/.test(lower)) { return toFallback(openSourceModelOptions_assumingOAICompat, 'kimiK3'); }
 	// `kimi-for-coding-highspeed` on Kimi Code is K2.7 Code HighSpeed, not K2.8 Preview: always reasons, 256K window

@@ -189,7 +189,7 @@ suite('builtin model profiles — имя на проводе, профиль, п
 			{ model: 'openRouter/anthropic/claude-haiku-5.5 ← claude-haiku-5-5', canTurnOff: true, off: { thinking: { type: 'disabled' } }, levels: 'low/medium/high/xhigh/max', default: 'medium', cost: '0.1/0.5/0.01' },
 			{ model: 'openAI/gpt-6.1-sol ← gpt-6.1-sol', canTurnOff: false, off: undefined, levels: 'low/medium/high/xhigh/max', default: 'medium', cost: '2/10/0.1' },
 			{ model: 'openRouter/moonshotai/kimi-k3 ← kimiK3', canTurnOff: false, off: undefined, levels: 'low/high/max', default: 'high', cost: '3/15/0.3' },
-			{ model: 'openRouter/k3-256k ← kimiK3', canTurnOff: false, off: undefined, levels: 'low/high/max', default: 'high', cost: '3/15/0.3' },
+			{ model: 'openRouter/k3-256k ← kimiK3_256k', canTurnOff: false, off: undefined, levels: 'low/high/max', default: 'high', cost: '3/15/0.3' },
 			{ model: 'openRouter/kimi-for-coding ← kimiForCoding', canTurnOff: true, off: { reasoning_effort: 'none' }, levels: 'low/high/max', default: 'max', cost: '0.6/2.5/—' },
 			{ model: 'openRouter/moonshotai/kimi-k3.1-pro ← kimiK3.1Pro', canTurnOff: false, off: undefined, levels: 'low/high/max', default: 'high', cost: '2/10/0.2' },
 			{ model: 'openRouter/kimi-k3.1-pro-highspeed ← kimiK3.1ProHighspeed', canTurnOff: false, off: undefined, levels: 'low/high/max', default: 'high', cost: '4/20/0.2' },
@@ -203,6 +203,11 @@ suite('builtin model profiles — имя на проводе, профиль, п
 			{ model: 'openRouter/z-ai/glm-5.3 ← glm5.3', canTurnOff: false, off: undefined, levels: 'low/high/max', default: 'high', cost: '1.4/4.4/—' },
 			{ model: 'openRouter/z-ai/glm-5.3-flash ← glm5', canTurnOff: true, off: undefined, levels: undefined, default: undefined, cost: '1/3.2/—' },
 		]);
+	});
+
+	test('Kimi K3: у k3-256k окно 256K, у k3 — 1M', () => {
+		const windowOf = (modelName: string) => getModelCapabilities('openRouter', modelName, undefined).contextWindow;
+		assert.deepStrictEqual(['k3-256k', 'k3', 'moonshotai/kimi-k3'].map(windowOf), [262_144, 1_048_576, 1_048_576]);
 	});
 
 	test('GPT-6.1 Terra: цена $1 / $5, рассуждение выключается; Sol не изменился', () => {
