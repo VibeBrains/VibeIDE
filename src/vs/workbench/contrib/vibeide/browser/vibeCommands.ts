@@ -875,11 +875,13 @@ registerAction2(class extends Action2 {
 			// отличается от вредителя. Скилл, которого агент пока не видит, говорит об этом тут же.
 			const origin = s.package ? skillOriginLabel(s.package.origin) : undefined;
 			const trust = s.package && !skillsLib.isSkillAvailableToModel(s) ? describeSkillTrust(s.package.trust) : undefined;
+			// Версия набора — рядом с происхождением: по ней видно, обновился ли навык у вас
+			const version = s.vibeVersion ? localize('vibeideSkillsVersion', 'версия {0}', s.vibeVersion) : undefined;
 			return {
 				label: s.skillId,
 				description: s.description.length > 140 ? `${s.description.slice(0, 137)}…` : s.description,
 				// Происхождение идёт первым: оно решает, стоит ли вообще читать требования.
-				detail: [origin, trust, requirements ? `⚙ ${requirements}` : undefined].filter(Boolean).join(' · ') || undefined,
+				detail: [origin, trust, version, requirements ? `⚙ ${requirements}` : undefined].filter(Boolean).join(' · ') || undefined,
 				picked: active.has(s.skillId.toLowerCase()),
 			};
 		};

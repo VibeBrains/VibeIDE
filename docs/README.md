@@ -58,7 +58,7 @@
 - [telegramBridge.md](manuals/telegramBridge.md) — мост в Telegram: свой бот за минуту, токен в хранилище секретов, привязка чата, работа за прокси.
 - [telegramClaudeCode.md](manuals/telegramClaudeCode.md) — Claude Code с телефона: команды `/cc`, кнопки подтверждения, рабочая папка, чего мост не умеет.
 - [specsWorkflow.md](manuals/specsWorkflow.md) — как работать со спеками; **источник** справки «?» в панели «Спеки» (генерируется на сборке).
-- [vibeEnvironment.md](manuals/vibeEnvironment.md) — окружение `.vibe`: почему устаревает, две команды, lock-файл.
+- [vibeEnvironment.md](manuals/vibeEnvironment.md) — окружение `.vibe`: почему устаревает, три команды, версии «было → стало», автообновление и lock-файл.
 
 **Планирование Phase 1 и нормативные документы**
 - [v1/README.md](v1/README.md) — индекс всех V1-документов (phases, agent, config, integrations, risks, transparency, vision).

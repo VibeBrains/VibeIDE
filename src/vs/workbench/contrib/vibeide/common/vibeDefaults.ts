@@ -68,6 +68,73 @@ export interface VibeDefaultsDiffEntry {
 	/** POSIX path relative to the workspace `.vibe/` folder. */
 	readonly path: string;
 	readonly status: VibeDefaultStatus;
+	/** Версия из шапки копии пользователя; нет версии — `undefined` (в отчёте «—»). */
+	readonly localVersion?: string;
+	/** Версия из реестра набора; у файлов без поля в реестре — `undefined`. */
+	readonly releaseVersion?: string;
+}
+
+/**
+ * Версия файла набора из его шапки. Контракт набора различает два места: у навыка
+ * (`SKILL.md`) версия лежит вложенно в `metadata`, у правила (`.mdc`) — ключом верхнего
+ * уровня. Читается только шапка: одноимённое поле в JSON-файлах продукта — версия формата,
+ * а не ревизия набора.
+ */
+export function vibeSeedFileVersion(path: string, text: string): string | undefined {
+	const block = frontmatterBlock(text);
+	if (!block) {
+		return undefined;
+	}
+	const isSkill = path === 'SKILL.md' || path.endsWith('/SKILL.md');
+	if (isSkill) {
+		return nestedMetadataValue(block, 'vibeVersion') ?? topLevelScalar(block, 'vibeVersion');
+	}
+	if (path.endsWith('.mdc')) {
+		return topLevelScalar(block, 'vibeVersion') ?? nestedMetadataValue(block, 'vibeVersion');
+	}
+	return undefined;
+}
+
+/** «Было → стало» без догадок: отсутствующая сторона честно показывается прочерком. */
+export function formatVibeVersionChange(from: string | undefined, to: string | undefined): string {
+	return `${from ?? '—'} → ${to ?? '—'}`;
+}
+
+function frontmatterBlock(text: string): string | undefined {
+	// BOM снимается по коду, а не литералом в регулярке: невидимый символ в исходнике не переживёт правку
+	const withoutBom = text.charCodeAt(0) === 0xFEFF ? text.slice(1) : text;
+	const match = withoutBom.match(/^---\r?\n([\s\S]*?)\r?\n---(?:\r?\n|$)/);
+	return match?.[1];
+}
+
+/** Значение ключа верхнего уровня шапки: строка сразу после `---`, без отступа. */
+function topLevelScalar(block: string, key: string): string | undefined {
+	const match = new RegExp(`^${key}:\\s*["']?([^"'\\n]+?)["']?\\s*$`, 'im').exec(block);
+	return match?.[1]?.trim() || undefined;
+}
+
+/** Значение внутри блока `metadata:` — вложенность задаётся отступом, а не именем файла. */
+function nestedMetadataValue(block: string, key: string): string | undefined {
+	const lines = block.split(/\r?\n/);
+	const start = lines.findIndex(line => /^metadata:\s*$/.test(line));
+	if (start < 0) {
+		return undefined;
+	}
+	const value = new RegExp(`^\\s+${key}:\\s*["']?([^"'\\n]+?)["']?\\s*$`, 'i');
+	for (let i = start + 1; i < lines.length; i++) {
+		const line = lines[i];
+		if (!line.trim()) {
+			continue;
+		}
+		if (!/^\s/.test(line)) {
+			break; // верхний уровень — блок `metadata` закончился
+		}
+		const match = value.exec(line);
+		if (match) {
+			return match[1].trim() || undefined;
+		}
+	}
+	return undefined;
 }
 
 export interface VibeDefaultsDiff {
@@ -177,19 +244,28 @@ export async function diffVibeDefaults(
 			continue; // never compare the bookkeeping against itself
 		}
 		const target = joinPath(vibeDir, ...file.path.split('/'));
+		// «Стало» берётся из реестра, а не из шапки релиза: реестр — единственный источник,
+		// который знает версию и для файлов, чью шапку человек уже переписал
+		const releaseVersion = revisions.find(r => r.path === file.path)?.vibeVersion;
+		const push = (status: VibeDefaultStatus, localText?: string) => entries.push({
+			path: file.path,
+			status,
+			localVersion: localText === undefined ? undefined : vibeSeedFileVersion(file.path, localText),
+			releaseVersion,
+		});
 
 		let localText: string;
 		try {
 			localText = (await fileService.readFile(target)).value.toString();
 		} catch {
-			entries.push({ path: file.path, status: 'missing' }); // absent, unreadable or a directory
+			push('missing'); // absent, unreadable or a directory
 			continue;
 		}
 
 		const localSha = sha(localText);
 		const releaseSha = sha(file.contents);
 		if (localSha === releaseSha) {
-			entries.push({ path: file.path, status: 'same' });
+			push('same', localText);
 			continue;
 		}
 
@@ -200,7 +276,7 @@ export async function diffVibeDefaults(
 			// спрашивать не о чем. Так классифицируются проекты, засеянные до появления lock —
 			// иначе каждый их файл навсегда оставался бы «unknown» и никогда не обновлялся.
 			const known = await isUntouchedPastRevision(file.path, localText, revisions);
-			entries.push({ path: file.path, status: known ? 'outdated' : 'unknown' });
+			push(known ? 'outdated' : 'unknown', localText);
 			continue;
 		}
 
@@ -213,13 +289,13 @@ export async function diffVibeDefaults(
 		// checked out alone. A copy that is byte for byte an old release is untouched whatever the lock says:
 		// Read as the user's own choice it would stay old for good
 		if (userMoved && await isUntouchedPastRevision(file.path, localText, revisions)) {
-			entries.push({ path: file.path, status: 'outdated' });
+			push('outdated', localText);
 			continue;
 		}
 		const status: VibeDefaultStatus = releaseMoved
 			? (userMoved || settledOwn ? 'conflict' : 'outdated')
 			: 'customized'; // release stood still → the difference is the user's own, settled choice
-		entries.push({ path: file.path, status });
+		push(status, localText);
 	}
 
 	const of = (s: VibeDefaultStatus) => entries.filter(e => e.status === s);

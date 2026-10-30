@@ -37,7 +37,7 @@ import { IUntitledTextResourceEditorInput } from '../../../common/editor.js';
 import { IQuickInputService } from '../../../../platform/quickinput/common/quickInput.js';
 import { readVibeDocsFile, searchVibeDocs } from '../common/vibeDocsIndex.js';
 import { VibeSpecsCommands } from './vibeSpecsConstants.js';
-import { VIBEIDE_APPLY_DEFAULTS_CMD, VIBEIDE_SHOW_DEFAULTS_CMD } from './vibeDefaultsContribution.js';
+import { VIBEIDE_APPLY_DEFAULTS_CMD, VIBEIDE_CHECK_UPDATES_CMD, VIBEIDE_SHOW_DEFAULTS_CMD } from './vibeDefaultsContribution.js';
 import { VIBE_COMMAND_CATEGORY } from '../common/vibeCommandCategory.js';
 import { VIBE_PROJECT_GRAPH_OPEN_CMD } from './codeGraph/vibeProjectGraphEditor.js';
 
@@ -321,6 +321,15 @@ MenuRegistry.appendMenuItem(VibeideTitleBarMenuId, {
 	},
 	group: 'c_env',
 	order: 2,
+});
+
+MenuRegistry.appendMenuItem(VibeideTitleBarMenuId, {
+	command: {
+		id: VIBEIDE_CHECK_UPDATES_CMD,
+		title: localize('vibeideCheckUpdates', 'Проверить обновления набора'),
+	},
+	group: 'c_env',
+	order: 3,
 });
 
 // ── Group d_commands ── (after search, separated by a divider)

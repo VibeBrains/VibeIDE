@@ -216,6 +216,8 @@ export interface VibeSeedRevision {
 	readonly version: number;
 	readonly sha256: string;
 	readonly history: readonly string[];
+	/** `vibeVersion` из реестра набора; у набора старого формата поля нет. */
+	readonly vibeVersion?: string;
 }
 
 export const VIBE_VERSIONS_MANIFEST: ReadonlyArray<VibeSeedRevision> = [

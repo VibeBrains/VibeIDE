@@ -21,8 +21,20 @@ import { IVibeideModelService } from '../common/vibeideModelService.js';
 import { IVibeideSettingsService } from '../common/vibeideSettingsService.js';
 import { getDefaultVibeReadmeMarkdown, VIBE_WORKSPACE_FORMAT_VERSION } from '../common/vibeDefaultWorkspaceReadme.js';
 import { serializeProjectCommandsInitTemplate } from '../common/projectCommandsInitTemplate.js';
-import { applyVibeDefaults, cleanupDeprecatedVibeDefaults, diffVibeDefaults, refreshSeedBases } from '../common/vibeDefaults.js';
-import { VIBEIDE_APPLY_DEFAULTS_CMD, VIBEIDE_ENV_NOTIFY_SETTING, VIBEIDE_SHOW_DEFAULTS_CMD } from './vibeDefaultsContribution.js';
+import {
+	applyVibeDefaults,
+	cleanupDeprecatedVibeDefaults,
+	diffVibeDefaults,
+	formatVibeVersionChange,
+	refreshSeedBases,
+	VibeDefaultsDiffEntry,
+} from '../common/vibeDefaults.js';
+import {
+	VIBEIDE_APPLY_DEFAULTS_CMD,
+	VIBEIDE_ENV_AUTO_UPDATE_SETTING,
+	VIBEIDE_ENV_NOTIFY_SETTING,
+	VIBEIDE_SHOW_DEFAULTS_CMD,
+} from './vibeDefaultsContribution.js';
 
 const VIBE_VERSION = VIBE_WORKSPACE_FORMAT_VERSION;
 
@@ -274,9 +286,9 @@ export class VibeConfigInitContribution extends Disposable implements IWorkbench
 	}
 
 	/**
-	 * Tells the user once per open when a release moved their `.vibe` files. Fires only on
-	 * `needsAttention` — i.e. never for files they customized themselves, which differ from the
-	 * release by their own decision and would otherwise nag on every single launch.
+	 * Tells the user once per open when a release moved their `.vibe` files. Files the user never
+	 * touched are updated first (unless `autoUpdateDefaults` is off), so the message lists what was
+	 * already done; `customized` files stay out of the report and only conflicts still need a human.
 	 *
 	 * Seeding above must stay at `BlockRestore` (other services read `.vibe` early), but a toast
 	 * fired that early has no UI to land in and is simply lost — so wait for the workbench before
@@ -294,22 +306,60 @@ export class VibeConfigInitContribution extends Disposable implements IWorkbench
 		// Основа слияния нужна и тому, кто выключил уведомление: конфликт возникнет, когда набор уйдёт дальше,
 		// а восстановить основу задним числом нечем. Пока копия ещё не правлена, её текст и есть ревизия набора
 		await refreshSeedBases(this._fileService, vibeDir, diff);
+
+		// Автообновление не зависит от напоминания: выключить шум и выключить обновление — разные решения.
+		// Трогаем только `outdated` — нетронутые копии прошлых ревизий; правки и конфликты остаются человеку
+		let autoUpdated: readonly VibeDefaultsDiffEntry[] = [];
+		if (this._configurationService.getValue<boolean>(VIBEIDE_ENV_AUTO_UPDATE_SETTING) !== false && diff.outdated.length > 0) {
+			const outdated = diff.outdated;
+			try {
+				await applyVibeDefaults(this._fileService, vibeDir, { overwrite: true, only: outdated.map(e => e.path) });
+				autoUpdated = outdated;
+				diff = await diffVibeDefaults(this._fileService, vibeDir);
+			} catch (e) {
+				vibeLog.warn('vibeConfigInit', 'Failed to auto-update .vibe defaults:', e);
+			}
+		}
+
 		if (this._configurationService.getValue<boolean>(VIBEIDE_ENV_NOTIFY_SETTING) === false) {
 			return;
 		}
-		if (!diff.needsAttention) {
+		if (autoUpdated.length === 0 && !diff.needsAttention) {
 			return;
 		}
 
 		const safe = diff.missing.length + diff.outdated.length;
 		const human = diff.conflict.length + diff.unknown.length;
+		// «Имя: было → стало» — версия из шапки копии и версия из реестра, без догадок о содержимом
+		const changedEntries = autoUpdated.length > 0 ? autoUpdated : diff.outdated;
+		const changed = changedEntries
+			.slice(0, 12)
+			.map(e => e.localVersion || e.releaseVersion
+				? `${e.path}: ${formatVibeVersionChange(e.localVersion, e.releaseVersion)}`
+				: e.path)
+			.join('\n');
+		const changedSuffix = changed ? `\n${changed}` : '';
+
+		if (human === 0 && safe === 0) {
+			this._notificationService.notify({
+				severity: Severity.Info,
+				message: autoUpdated.length > 0
+					? localize('vibeide.environment.autoUpdated', 'Окружение агентов `.vibe` обновлено автоматически ({0}):\n{1}', autoUpdated.length, changed)
+					: localize('vibeide.environment.current', 'Набор актуален: окружение агентов `.vibe` не требует обновлений.'),
+			});
+			return;
+		}
+
+		const intro = autoUpdated.length > 0
+			? localize('vibeide.environment.movedAuto', 'Окружение агентов `.vibe` обновлено автоматически ({0}):\n{1}\n\nЕщё можно обновить без потерь — {2}, требует вашего решения — {3}.', autoUpdated.length, changed, safe, human)
+			: localize(
+				'vibeide.environment.moved',
+				'Окружение агентов `.vibe` отстало от релиза: можно обновить без потерь — {0}, требует вашего решения — {1}.{2}',
+				safe, human, changedSuffix,
+			);
 		this._notificationService.prompt(
 			Severity.Info,
-			localize(
-				'vibeide.environment.moved',
-				'Окружение агентов `.vibe` отстало от релиза: можно обновить без потерь — {0}, требует вашего решения — {1}.',
-				safe, human,
-			),
+			intro,
 			[
 				{
 					label: localize('vibeide.environment.show', 'Показать'),

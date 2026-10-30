@@ -218,4 +218,40 @@ precheck: scripts/check.sh
 				'Только git.');
 		});
 	});
+	suite('версия навыка по контракту набора', () => {
+		test('читается вложенно из metadata.vibeVersion', () => {
+			const raw = `---
+name: nested-version
+description: Версия лежит там, где велит контракт.
+metadata:
+  vibeVersion: "1.2.0"
+---
+
+Тело.
+`;
+			const parsed = parseSkillMarkdown(raw, '.vibe/skills/nested-version/SKILL.md', 'fallback');
+			assert.strictEqual(parsed!.vibeVersion, '1.2.0');
+		});
+
+		test('верхний уровень остаётся совместимым со старыми скиллами', () => {
+			const raw = `---
+name: top-version
+description: Прежнее место версии.
+vibeVersion: "0.9.0"
+---
+
+Тело.
+`;
+			const parsed = parseSkillMarkdown(raw, '.vibe/skills/top-version/SKILL.md', 'fallback');
+			assert.strictEqual(parsed!.vibeVersion, '0.9.0');
+		});
+
+		test('сериализатор пишет версию в metadata, а не на верхний уровень', () => {
+			const md = serializeSkillMarkdown({ name: 'nested-out', description: 'Пишем по контракту.', body: 'Тело.', vibeVersion: '1.0.0' });
+			assert.ok(md.includes('metadata:\n  vibeVersion: "1.0.0"'), 'версия должна быть вложенной');
+			assert.ok(!/^vibeVersion:/m.test(md), 'верхний уровень не должен появляться снова');
+			const parsed = parseSkillMarkdown(md, '.vibe/skills/nested-out/SKILL.md', 'nested-out');
+			assert.strictEqual(parsed!.vibeVersion, '1.0.0');
+		});
+	});
 });
