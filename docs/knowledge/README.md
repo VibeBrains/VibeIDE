@@ -22,6 +22,7 @@
 
 | Файл | О чём |
 |---|---|
+| [chatThreadStorage.md](architecture/chatThreadStorage.md) | **[грабля]** История чата одним ключом на 134 МБ роняла окно с кодом 5 (OOM в Zone при `JSON.stringify`) и уводила в петлю; теперь файл на тред, запись только изменённых, перенос со старого ключа, защита от петли падений — отметка своя у каждого окна, иначе восстановление нескольких окон при запуске выглядит как падения; как найти причину по minidump |
 | [chatPane.md](architecture/chatPane.md) | Две поверхности чата, `VibeChatEditorPane`, multi-chat tabs, lockdown, session restore |
 | [codeNavigationWithoutLanguageServer.md](architecture/codeNavigationWithoutLanguageServer.md) | Переход по методам без языкового сервера: грамматики tree-sitter уже в сборке и снимают стену Windows (Phpactor требует `posix`); TS работает из коробки, PHP не имел definition-провайдера вовсе; грабля `namespace X;` как соседа |
 | [plansAndAgents.md](architecture/plansAndAgents.md) | Persisted plans, lease, JSONL journal, dashboard, subagents, background agent, stall watchdog, project rules, agent skills |

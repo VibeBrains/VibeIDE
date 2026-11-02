@@ -8,7 +8,8 @@ import { Action2, registerAction2 } from '../../../../platform/actions/common/ac
 import { ServicesAccessor } from '../../../../platform/instantiation/common/instantiation.js';
 import { INotificationService, Severity } from '../../../../platform/notification/common/notification.js';
 import { localize, localize2 } from '../../../../nls.js';
-import { IChatThreadService, ThreadType } from './chatThreadService.js';
+import { ChatThreads, IChatThreadService, ThreadType } from './chatThreadService.js';
+import { parseThreadsFromStorage } from '../common/chatThreadSerialization.js';
 import { ChatMessage } from '../common/chatThreadServiceTypes.js';
 import { IFileDialogService, IDialogService } from '../../../../platform/dialogs/common/dialogs.js';
 import { IFileService } from '../../../../platform/files/common/files.js';
@@ -154,6 +155,57 @@ registerAction2(class ExportProjectHistoryAction extends Action2 {
 			notificationService.notify({ severity: Severity.Info, message: localize('vibeide.history.exportProject.done', 'История экспортирована: {0} тредов → {1}', threads.length, target.fsPath) });
 		} catch (e) {
 			notificationService.notify({ severity: Severity.Error, message: localize('vibeide.history.exportProject.fail', 'Не удалось записать файл экспорта: {0}', String(e)) });
+		}
+	}
+});
+
+// Импорт архива чатов: JSON вида `{ "<id треда>": <тред> }` — тот же формат, что
+// лежал в старом общем ключе хранилища. Существующие id не перезаписываются.
+registerAction2(class ImportChatArchiveAction extends Action2 {
+	constructor() {
+		super({
+			id: 'vibeide.history.importArchive',
+			title: localize2('vibeide.history.importArchive', "Импортировать архив чатов"),
+			f1: true,
+			category: VIBE_COMMAND_CATEGORY,
+		});
+	}
+
+	async run(accessor: ServicesAccessor): Promise<void> {
+		const chatThreadService = accessor.get(IChatThreadService);
+		const notificationService = accessor.get(INotificationService);
+		const fileDialogService = accessor.get(IFileDialogService);
+		const fileService = accessor.get(IFileService);
+
+		const picked = await fileDialogService.showOpenDialog({
+			canSelectFiles: true,
+			canSelectFolders: false,
+			canSelectMany: false,
+			title: localize('vibeide.history.importArchive.pick', "Выберите архив чатов (JSON)"),
+			filters: [{ name: 'JSON', extensions: ['json'] }],
+		});
+		const uri = picked?.[0];
+		if (!uri) { return; }
+
+		// Импорт поверх ещё не загруженной истории: дождёмся диска, чтобы правильно
+		// посчитать пропущенные существующие треды.
+		await chatThreadService.whenThreadsLoaded;
+
+		try {
+			const content = (await fileService.readFile(uri)).value.toString();
+			const parsed = parseThreadsFromStorage<ChatThreads>(content);
+			if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+				notificationService.notify({ severity: Severity.Error, message: localize('vibeide.history.importArchive.badFormat', "Файл не похож на архив чатов: ожидался объект с тредами по id.") });
+				return;
+			}
+			const total = Object.values(parsed).filter((thread): thread is ThreadType => !!thread).length;
+			const added = chatThreadService.importThreads(parsed);
+			notificationService.notify({
+				severity: Severity.Info,
+				message: localize('vibeide.history.importArchive.done', "Импортировано тредов: {0}, пропущено существующих: {1}", added, total - added),
+			});
+		} catch (e) {
+			notificationService.notify({ severity: Severity.Error, message: localize('vibeide.history.importArchive.fail', "Не удалось прочитать архив чатов: {0}", String(e)) });
 		}
 	}
 });

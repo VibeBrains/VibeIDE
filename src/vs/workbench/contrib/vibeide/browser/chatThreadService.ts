@@ -62,7 +62,7 @@ import { traceAgentStep } from '../common/agentTurnTrace.js';
 import { CancellationToken } from '../../../../base/common/cancellation.js';
 import { ILanguageFeaturesService } from '../../../../editor/common/services/languageFeatures.js';
 import { ChatMessage, ChatImageAttachment, ChatPDFAttachment, CheckpointEntry, CodespanLocationLink, StagingSelectionItem, ToolMessage, PlanMessage, PlanStep, StepStatus, ReviewMessage, PendingInjection, ReviewChecklist, ReviewChecklistItem, EditBatch, EditBatchItem, normalizePendingInjections, ScoutLead, ScoutMessage } from '../common/chatThreadServiceTypes.js';
-import { refusedToolMessage, withRefusalKind } from '../common/toolRefusal.js';
+import { refusedToolMessage } from '../common/toolRefusal.js';
 import { ThreadRunTracker } from '../common/chatRunOutcome.js';
 import { trimThreadMessages, capToolResultSizes } from '../common/chatThreadTrim.js';
 import { Position } from '../../../../editor/common/core/position.js';
@@ -77,7 +77,7 @@ import { IVibeDesktopNotificationService } from './vibeDesktopNotificationServic
 import { VibeideFileSnapshot } from '../common/editCodeServiceTypes.js';
 import { INotificationHandle, INotificationService, Severity } from '../../../../platform/notification/common/notification.js';
 import { truncate } from '../../../../base/common/strings.js';
-import { THREAD_STORAGE_KEY, OPEN_TAB_IDS_KEY } from '../common/storageKeys.js';
+import { OPEN_TAB_IDS_KEY } from '../common/storageKeys.js';
 import { HISTORY_SHOW_ALL_PROJECTS_KEY, HISTORY_DEFAULT_SHOW_ALL_KEY, threadOwnedBy } from '../common/chatHistoryScope.js';
 import { IVibeExternalAccessService, ExternalAccessRequiredError } from '../common/vibeExternalAccessService.js';
 import { unclaimedToolTagPlaceholder } from '../common/xmlToolNormalize.js';
@@ -86,6 +86,9 @@ import { deepClone } from '../../../../base/common/objects.js';
 import { IWorkspaceContextService } from '../../../../platform/workspace/common/workspace.js';
 import { IDirectoryStrService } from '../common/directoryStrService.js';
 import { IFileService } from '../../../../platform/files/common/files.js';
+import { IUserDataProfilesService } from '../../../../platform/userDataProfile/common/userDataProfile.js';
+import { ChatThreadStore, ChatThreadStoreSaveResult } from './chatThreadStore.js';
+import { ChatRestoreCrashGuard } from './chatRestoreCrashGuard.js';
 import { IMCPService } from '../common/mcpService.js';
 import { IVibePromptGuardService } from '../common/vibePromptGuardService.js';
 import { guardToolOutput } from '../common/untrustedToolOutputGuard.js';
@@ -513,7 +516,7 @@ export type ThreadType = {
 	};
 };
 
-type ChatThreads = {
+export type ChatThreads = {
 	[id: string]: undefined | ThreadType;
 };
 
@@ -662,6 +665,8 @@ export interface IChatThreadService {
 
 	readonly state: ThreadsState;
 	readonly streamState: ThreadStreamState; // not persistent
+	/** Резолвится, когда треды с диска загружены и слиты в `state`. */
+	readonly whenThreadsLoaded: Promise<void>;
 
 	onDidChangeCurrentThread: Event<void>;
 	onDidChangeStreamState: Event<{ threadId: string }>;
@@ -705,6 +710,11 @@ export interface IChatThreadService {
 	getCurrentWorkspaceThreads(): ThreadType[];
 	/** Delete all message-bearing threads strictly owned by the current project. Returns how many were deleted. */
 	deleteCurrentWorkspaceThreads(): number;
+	/**
+	 * Добавляет треды, которых ещё нет в состоянии (импорт архива).
+	 * Возвращает число добавленных; уже существующие с теми же id пропускаются.
+	 */
+	importThreads(threads: ChatThreads): number;
 	openNewThread(): void;
 	/** Always create a fresh thread (bypasses openNewThread's empty-thread reuse). Returns the new thread id. */
 	forceCreateNewThread(): string;
@@ -1175,6 +1185,15 @@ class ChatThreadService extends Disposable implements IChatThreadService {
 	private static readonly STORE_THREADS_DEBOUNCE_MS = 1500;
 	private _pendingThreadsToStore: ChatThreads | undefined = undefined;
 	private readonly _storeThreadsScheduler = this._register(new RunOnceScheduler(() => this._flushStoreThreads(), ChatThreadService.STORE_THREADS_DEBOUNCE_MS));
+	/** Файлы тредов на диске вместо одного общего значения в IStorageService. */
+	private readonly _threadStore: ChatThreadStore;
+	/** До конца load() записи копятся в буфере: иначе пустой старт затрёт историю на диске. */
+	private _threadsLoaded = false;
+	readonly whenThreadsLoaded: Promise<void>;
+	/** Можно ли восстанавливать вкладки: запрещает защита от петли падений. */
+	private readonly _restoreTabsOnStart: boolean;
+	/** Треды, о которых уже предупредили за эту сессию (ужатие/превышение предела). */
+	private readonly _storeWarnedThreads = new Set<string>();
 
 
 
@@ -1196,6 +1215,7 @@ class ChatThreadService extends Disposable implements IChatThreadService {
 		@IWorkspaceContextService private readonly _workspaceContextService: IWorkspaceContextService,
 		@IDirectoryStrService private readonly _directoryStringService: IDirectoryStrService,
 		@IFileService private readonly _fileService: IFileService,
+		@IUserDataProfilesService private readonly _profilesService: IUserDataProfilesService,
 		@IVibePersistedPlanService private readonly _persistedPlanService: IVibePersistedPlanService,
 		@IVibePlanEventJournalService private readonly _planEventJournal: IVibePlanEventJournalService,
 		@IVibePlanBindingRegistry private readonly _planBindingRegistry: IVibePlanBindingRegistry,
@@ -1252,18 +1272,18 @@ class ChatThreadService extends Disposable implements IChatThreadService {
 
 		this._register(this._toolsService.onDidBackgroundCommandExit(exit => this._onBackgroundCommandExit(exit)));
 
-		const readThreads = this._readAllThreads() || {};
+		this._threadStore = this._register(new ChatThreadStore(this._fileService, this._profilesService, this._storageService, this._configurationService));
 
-		const allThreads = readThreads;
-		// Restore open chat tabs, dropping any whose thread no longer exists (deleted elsewhere) OR is
-		// empty (stale "Новый чат" leftovers — e.g. the locked empty tab from the pre-View layout). The
-		// single current empty thread is re-added by openNewThread() below, so there's never more than one.
-		const restoredTabs = this._readOpenTabIds().filter(id => (allThreads[id]?.messages.length ?? 0) > 0);
-		this.state = {
-			allThreads: allThreads,
-			currentThreadId: null as unknown as string, // gets set in startNewThread()
-			openTabIds: restoredTabs,
-		};
+		// Защита от петли падений: два окна подряд, не прожившие минуту, — вкладки не
+		// восстанавливаем. Сами треды остаются на диске, их открывает история.
+		this._restoreTabsOnStart = this._register(new ChatRestoreCrashGuard(this._storageService)).decideOnStart();
+		if (!this._restoreTabsOnStart) {
+			this._notificationService.warn(localize('vibeide.chat.restoreSkipped', "Окно дважды подряд упало после открытия, вкладки чата не восстановлены. Треды сохранены — откройте нужный из истории."));
+		}
+
+		// Треды читаются с диска асинхронно; state стартует пустым, а openNewThread()
+		// ниже создаёт первый пустой тред. По готовности загруженное сливается с тем,
+		// что человек успел написать за это время (state побеждает при совпадении id).
 
 		// Reset ContextGuard counters when the user switches to a different
 		// chat thread (or opens a new one). Without this the status bar would
@@ -1291,6 +1311,8 @@ class ChatThreadService extends Disposable implements IChatThreadService {
 
 		// always be in a thread
 		this.openNewThread();
+
+		this.whenThreadsLoaded = this._loadThreadsFromStore();
 
 
 		// keep track of user-modified files
@@ -1385,74 +1407,48 @@ class ChatThreadService extends Disposable implements IChatThreadService {
 		this._onDidChangeCurrentThread.fire();
 	};
 
-	// !!! this is important for properly restoring URIs and images from storage
-	// should probably re-use code from void/src/vs/base/common/marshalling.ts instead. but this is simple enough
-	private _convertThreadDataFromStorage(threadsStr: string): ChatThreads {
-		return JSON.parse(threadsStr, (key, value) => {
-			// A guard's refusal stored as `tool_error` with empty params before the `refused` kind: its card would read a URI off it
-			if (value && typeof value === 'object' && value.role === 'tool') {
-				return withRefusalKind(value);
-			}
-			if (value && typeof value === 'object' && value.$mid === 1) { // $mid is the MarshalledId. $mid === 1 means it is a URI
-				// `URI.revive` is the cheaper restore path — no full parse, just
-				// re-establishes the prototype/methods on the existing object shape.
-				// `URI.from` would re-parse the components. For thread restore that
-				// can replay hundreds of URIs on workspace open, the difference adds
-				// up. Switch is safe because $mid:1 already guarantees a properly
-				// shaped URI literal from `JSON.stringify(uri.toJSON())`.
-				return URI.revive(value);
-			}
-			// Restore Uint8Array from base64 string for image data
-			// Only process 'data' keys that are directly under image attachment objects
-			// Check key === 'data' to match image attachment structure
-			if (key === 'data') {
-				if (typeof value === 'string' && value.startsWith('__base64__:')) {
-					// Handle base64 string format (the normal case)
-					try {
-						const base64 = value.substring(11); // Remove '__base64__:' prefix
-						const binaryString = atob(base64);
-						const bytes = new Uint8Array(binaryString.length);
-						for (let i = 0; i < binaryString.length; i++) {
-							bytes[i] = binaryString.charCodeAt(i);
-						}
-						return bytes;
-					} catch (e) {
-						vibeLog.error('chatThread', 'Failed to decode base64 image data in storage reviver', e);
-						return value; // Return original value on error
-					}
-				} else if (Array.isArray(value)) {
-					// Handle case where it's already an array but not Uint8Array
-					// Only convert if it looks like byte data (all numbers 0-255)
-					if (value.length > 0 && value.every((v: unknown) => typeof v === 'number' && v >= 0 && v <= 255)) {
-						return new Uint8Array(value as number[]);
-					}
+	/**
+	 * Загружает треды с диска и сливает их с тем, что успело появиться в state за
+	 * время чтения. Пишет накопленное только после этого: пустой старт не должен
+	 * затирать историю.
+	 */
+	private async _loadThreadsFromStore(): Promise<void> {
+		try {
+			const loaded = await this._threadStore.load();
+			const merged: ChatThreads = { ...loaded, ...this.state.allThreads };
+			// openNewThread() отработал до загрузки и создал пустой тред, не увидев прошлый пустой с диска
+			// Пустой тред держим один — текущий, иначе каждый запуск добавлял бы в историю ещё один
+			const currentId = this.state.currentThreadId;
+			for (const [id, thread] of Object.entries(merged)) {
+				if (id !== currentId && thread && thread.messages.length === 0) {
+					delete merged[id];
 				}
-				// For objects, don't try to convert here - let it be handled later if needed
-				// This prevents infinite recursion and unexpected conversions
 			}
-			return value;
-		});
-	}
+			this._capLoadedToolResults(merged);
 
-	// Tool-result SIZE cap, resolved from config with defensive clamps. Bounds how large a
-	// single stored tool-result may be once it ages past the recent window — the dominant
-	// renderer/disk memory cost on long sessions (real store: ~40MB, `content` 11MB).
-	private _resolveToolResultCap(): { maxChars: number; keepRecent: number } {
-		const kb = Math.max(4, Math.min(2048, this._configurationService.getValue<number>('vibeide.chat.maxStoredToolResultKB') ?? 24));
-		const keepRecent = Math.max(0, Math.min(200, this._configurationService.getValue<number>('vibeide.chat.keepRecentFullToolResults') ?? 16));
-		return { maxChars: kb * 1024, keepRecent };
-	}
-
-	private _readAllThreads(): ChatThreads | null {
-		const threadsStr = this._storageService.get(THREAD_STORAGE_KEY, StorageScope.APPLICATION);
-		if (!threadsStr) {
-			return null;
+			// Восстанавливаем вкладки только если это разрешила защита от падений.
+			// Пустые треды и треды, удалённые в другом окне, отбрасываем; уже открытый
+			// в этом окне пустой тред (создан openNewThread) сохраняем.
+			const restored = this._restoreTabsOnStart
+				? this._readOpenTabIds().filter(id => (merged[id]?.messages.length ?? 0) > 0)
+				: [];
+			const openTabIds = Array.from(new Set([...restored, ...this.state.openTabIds])).filter(id => !!merged[id]);
+			this._setState({ allThreads: merged, openTabIds });
+			vibeLog.info('chatThread', `История чата загружена: ${Object.keys(merged).length} тредов.`);
+		} catch (e) {
+			vibeLog.error('chatThread', 'Не удалось загрузить треды с диска', e);
 		}
-		const threads = this._convertThreadDataFromStorage(threadsStr);
 
-		// One-time cleanup on load: cap oversized OLD tool-results across ALL threads so the
-		// historical baseline doesn't sit in renderer memory at full size. Recent results per
-		// thread stay verbatim. The capped state is re-persisted on the next mutation.
+		this._threadsLoaded = true;
+		// Буфер мог накопиться, пока шла загрузка; теперь в нём актуальное состояние.
+		this._pendingThreadsToStore = this.state.allThreads;
+		this._flushStoreThreads();
+	}
+
+	// One-time cleanup on load: cap oversized OLD tool-results across ALL threads so the
+	// historical baseline doesn't sit in renderer memory at full size. Recent results per
+	// thread stay verbatim. The capped state is re-persisted on the next save.
+	private _capLoadedToolResults(threads: ChatThreads): void {
 		const { maxChars, keepRecent } = this._resolveToolResultCap();
 		let totalCapped = 0, totalKbCut = 0;
 		for (const id of Object.keys(threads)) {
@@ -1468,8 +1464,15 @@ class ChatThreadService extends Disposable implements IChatThreadService {
 		if (totalCapped > 0) {
 			vibeLog.info('chatThread', `Load: capped ${totalCapped} old tool-result(s) across threads (~${totalKbCut | 0} KB) to bound renderer memory (keepRecent=${keepRecent}, maxKB=${(maxChars / 1024) | 0}).`);
 		}
+	}
 
-		return threads;
+	// Tool-result SIZE cap, resolved from config with defensive clamps. Bounds how large a
+	// single stored tool-result may be once it ages past the recent window — the dominant
+	// renderer/disk memory cost on long sessions (real store: ~40MB, `content` 11MB).
+	private _resolveToolResultCap(): { maxChars: number; keepRecent: number } {
+		const kb = Math.max(4, Math.min(2048, this._configurationService.getValue<number>('vibeide.chat.maxStoredToolResultKB') ?? 24));
+		const keepRecent = Math.max(0, Math.min(200, this._configurationService.getValue<number>('vibeide.chat.keepRecentFullToolResults') ?? 16));
+		return { maxChars: kb * 1024, keepRecent };
 	}
 
 	private _storeAllThreads(threads: ChatThreads) {
@@ -1486,29 +1489,29 @@ class ChatThreadService extends Disposable implements IChatThreadService {
 	private _flushStoreThreads() {
 		const threads = this._pendingThreadsToStore;
 		if (threads === undefined) { return; }
+		// До конца load() не пишем: в state ещё нет истории с диска, и пустой
+		// набор удалил бы файлы. Буфер дождётся загрузки и уйдёт на диск после неё.
+		if (!this._threadsLoaded) { return; }
 		this._pendingThreadsToStore = undefined;
-		// Convert Uint8Array image data to base64 before serializing
-		const serializedThreads = JSON.stringify(threads, (key, value) => {
-			// Convert Uint8Array to base64 string for storage
-			if (key === 'data' && value instanceof Uint8Array) {
-				// Convert Uint8Array to base64
-				const chunkSize = 0x8000; // 32KB chunks to avoid stack overflow
-				let binaryString = '';
-				for (let i = 0; i < value.length; i += chunkSize) {
-					const chunk = value.slice(i, i + chunkSize);
-					binaryString += String.fromCharCode(...chunk);
-				}
-				const base64 = btoa(binaryString);
-				return `__base64__:${base64}`;
-			}
-			return value;
-		});
-		this._storageService.store(
-			THREAD_STORAGE_KEY,
-			serializedThreads,
-			StorageScope.APPLICATION,
-			StorageTarget.USER
-		);
+		void this._threadStore.save(threads)
+			.then(result => this._reportThreadStoreWarnings(result))
+			.catch(e => vibeLog.error('chatThread', 'Не удалось сохранить треды чата', e));
+	}
+
+	private _reportThreadStoreWarnings(result: ChatThreadStoreSaveResult): void {
+		const mb = Math.max(1, Math.min(4096, this._configurationService.getValue<number>('vibeide.chat.maxThreadStorageMB') ?? 32));
+		for (const id of result.cappedThreadIds) {
+			const key = `capped:${id}`;
+			if (this._storeWarnedThreads.has(key)) { continue; }
+			this._storeWarnedThreads.add(key);
+			this._notificationService.warn(localize('vibeide.chat.threadStorage.capped', "Тред «{0}» больше предела хранения ({1} МБ) — старые результаты инструментов ужаты.", id, mb));
+		}
+		for (const id of result.oversizedThreadIds) {
+			const key = `oversized:${id}`;
+			if (this._storeWarnedThreads.has(key)) { continue; }
+			this._storeWarnedThreads.add(key);
+			this._notificationService.warn(localize('vibeide.chat.threadStorage.oversized', "Тред «{0}» не удалось уложить в предел хранения ({1} МБ) даже после ужатия — он сохранён целиком.", id, mb));
+		}
 	}
 
 	// ── Open chat tabs (multi-chat) ──────────────────────────────────────────────
@@ -9066,7 +9069,9 @@ We only need to do it for files that were edited since `from`, ie files between 
 			}
 		};
 		collect(this.state.allThreads);
-		collect(this._readAllThreads());
+		// Другие окна могут держать треды только на диске — их тоже нельзя считать мёртвыми.
+		await this.whenThreadsLoaded;
+		collect(await this._threadStore.readAllFromDisk());
 		await this._workspaceSnapshotService.prune([...live]);
 	}
 
@@ -10286,6 +10291,22 @@ We only need to do it for files that were edited since `from`, ie files between 
 			.filter(id => { const t = this.state.allThreads[id]; return !!t && threadOwnedBy(t, wsId) && t.messages.length > 0; });
 		for (const id of ids) { this.deleteThread(id); } // reuse deleteThread → plan/lock/session cleanup
 		return ids.length;
+	}
+
+	importThreads(threads: ChatThreads): number {
+		const current = this.state.allThreads;
+		const updated: ChatThreads = { ...current };
+		let added = 0;
+		for (const [id, thread] of Object.entries(threads)) {
+			if (!thread || updated[id]) { continue; }
+			updated[id] = thread;
+			added++;
+		}
+		if (added > 0) {
+			this._storeAllThreads(updated);
+			this._setState({ allThreads: updated });
+		}
+		return added;
 	}
 
 	openNewThread() {
