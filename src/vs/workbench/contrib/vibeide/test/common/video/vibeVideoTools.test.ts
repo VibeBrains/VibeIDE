@@ -138,11 +138,11 @@ suite('vibeVideoTools', () => {
 					resolveVideoTuning('nonsense'),
 				],
 				[
-					{ framesEnabled: false, sceneThreshold: 0.3, maxFrames: 4, frameHeight: 480 },
-					{ framesEnabled: true, sceneThreshold: 0.45, maxFrames: 16, frameHeight: 480 },
-					{ framesEnabled: true, sceneThreshold: 0.3, maxFrames: 48, frameHeight: 720 },
-					{ framesEnabled: true, sceneThreshold: 0.12, maxFrames: 150, frameHeight: 1080 },
-					{ framesEnabled: true, sceneThreshold: 0.3, maxFrames: 48, frameHeight: 720 },
+					{ framesEnabled: false, sceneThreshold: 0.3, maxFrames: 4, frameHeight: 480, frameLayout: 'frames' },
+					{ framesEnabled: true, sceneThreshold: 0.45, maxFrames: 16, frameHeight: 480, frameLayout: 'sheet' },
+					{ framesEnabled: true, sceneThreshold: 0.3, maxFrames: 48, frameHeight: 720, frameLayout: 'frames' },
+					{ framesEnabled: true, sceneThreshold: 0.12, maxFrames: 150, frameHeight: 1080, frameLayout: 'frames' },
+					{ framesEnabled: true, sceneThreshold: 0.3, maxFrames: 48, frameHeight: 720, frameLayout: 'frames' },
 				],
 			);
 		});
@@ -150,7 +150,7 @@ suite('vibeVideoTools', () => {
 		test('an explicitly set knob overrides the preset — and only that knob', () => {
 			assert.deepStrictEqual(
 				resolveVideoTuning('token-burner', { maxFrames: 10 }),
-				{ framesEnabled: true, sceneThreshold: 0.12, maxFrames: 10, frameHeight: 1080 },
+				{ framesEnabled: true, sceneThreshold: 0.12, maxFrames: 10, frameHeight: 1080, frameLayout: 'frames' },
 			);
 		});
 
@@ -161,8 +161,8 @@ suite('vibeVideoTools', () => {
 					resolveVideoTuning('efficient', { maxFrames: undefined }),
 				],
 				[
-					{ framesEnabled: true, sceneThreshold: 0.9, maxFrames: 150, frameHeight: 240 },
-					{ framesEnabled: true, sceneThreshold: 0.45, maxFrames: 16, frameHeight: 480 },
+					{ framesEnabled: true, sceneThreshold: 0.9, maxFrames: 150, frameHeight: 240, frameLayout: 'sheet' },
+					{ framesEnabled: true, sceneThreshold: 0.45, maxFrames: 16, frameHeight: 480, frameLayout: 'sheet' },
 				],
 			);
 		});

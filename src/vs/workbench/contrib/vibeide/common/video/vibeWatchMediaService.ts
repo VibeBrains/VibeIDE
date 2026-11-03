@@ -32,12 +32,28 @@ export interface IWatchFrameBytes {
 	readonly data: Uint8Array;
 }
 
+/** Лист кадров, прочитанный с диска: одна картинка на несколько кадров */
+export interface IWatchSheetBytes {
+	/** Номер листа с единицы — так он подписан и в тексте */
+	readonly index: number;
+	readonly cols: number;
+	readonly rows: number;
+	/** Таймкоды кадров листа в порядке ячеек сетки */
+	readonly frameTimes: readonly number[];
+	readonly width: number;
+	readonly height: number;
+	readonly sizeBytes: number;
+	readonly data: Uint8Array;
+}
+
 /** Запись, разобранная движком, пока её временные файлы ещё на месте */
 export interface IPreparedWatch {
 	readonly media: IWatchedMedia;
 	readonly result: VideoAnalysisResult;
 	/** Кадры с диска; без номеров — все, в порядке времени */
 	readFrames(indices?: readonly number[]): Promise<readonly IWatchFrameBytes[]>;
+	/** Листы кадров с диска, в порядке сборки; пусто, когда кадры уходят отдельно */
+	readSheets(): Promise<readonly IWatchSheetBytes[]>;
 }
 
 /** Почему разбор не состоялся, и что с этим делать вызывающему */

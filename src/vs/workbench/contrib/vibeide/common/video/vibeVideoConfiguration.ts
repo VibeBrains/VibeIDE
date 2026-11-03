@@ -19,6 +19,7 @@ export const VIDEO_DETAIL_KEY = 'vibeide.video.detail';
 export const VIDEO_SCENE_THRESHOLD_KEY = 'vibeide.video.sceneThreshold';
 export const VIDEO_MAX_FRAMES_KEY = 'vibeide.video.maxFrames';
 export const VIDEO_FRAME_HEIGHT_KEY = 'vibeide.video.frameHeight';
+export const VIDEO_FRAME_LAYOUT_KEY = 'vibeide.video.frameLayout';
 export const VIDEO_SUBTITLE_LANGUAGES_KEY = 'vibeide.video.subtitleLanguages';
 export const VIDEO_FRAME_MODEL_KEY = 'vibeide.video.frameModel';
 export const VIDEO_TOOL_MAX_FRAMES_KEY = 'vibeide.video.toolMaxFrames';
@@ -80,6 +81,15 @@ export type VideoDetailLevel = 'transcript' | 'efficient' | 'balanced' | 'token-
 
 export const VIDEO_DETAIL_DEFAULT: VideoDetailLevel = 'balanced';
 
+/** Как кадры уходят модели: отдельными картинками или склеенными в листы-сетки */
+export type VideoFrameLayout = 'frames' | 'sheet';
+
+export const VIDEO_FRAME_LAYOUT_DEFAULT: VideoFrameLayout = 'frames';
+
+export function normalizeVideoFrameLayout(configured: unknown): VideoFrameLayout {
+	return configured === 'sheet' ? 'sheet' : VIDEO_FRAME_LAYOUT_DEFAULT;
+}
+
 /** Everything the pipeline needs to know about how thorough (and how expensive) this run should be. */
 export interface VideoTuning {
 	/** `false` → the video file is never downloaded; the run is transcript-only. */
@@ -87,17 +97,18 @@ export interface VideoTuning {
 	sceneThreshold: number;
 	maxFrames: number;
 	frameHeight: number;
+	frameLayout: VideoFrameLayout;
 }
 
 const VIDEO_DETAIL_PRESETS: Readonly<Record<VideoDetailLevel, VideoTuning>> = {
 	// Cheapest possible: subtitles or speech recognition, zero frames, no video download at all.
-	'transcript': { framesEnabled: false, sceneThreshold: VIDEO_SCENE_THRESHOLD_DEFAULT, maxFrames: MAX_FRAMES_MIN, frameHeight: 480 },
-	// A quick look: few frames, only pronounced scene changes, small images.
-	'efficient': { framesEnabled: true, sceneThreshold: 0.45, maxFrames: 16, frameHeight: 480 },
+	'transcript': { framesEnabled: false, sceneThreshold: VIDEO_SCENE_THRESHOLD_DEFAULT, maxFrames: MAX_FRAMES_MIN, frameHeight: 480, frameLayout: 'frames' },
+	// A quick look: few frames, only pronounced scene changes, small images — and sheets, since images cost the most.
+	'efficient': { framesEnabled: true, sceneThreshold: 0.45, maxFrames: 16, frameHeight: 480, frameLayout: 'sheet' },
 	// The historical defaults — what /watch did before presets existed.
-	'balanced': { framesEnabled: true, sceneThreshold: VIDEO_SCENE_THRESHOLD_DEFAULT, maxFrames: VIDEO_MAX_FRAMES_DEFAULT, frameHeight: VIDEO_FRAME_HEIGHT_DEFAULT },
+	'balanced': { framesEnabled: true, sceneThreshold: VIDEO_SCENE_THRESHOLD_DEFAULT, maxFrames: VIDEO_MAX_FRAMES_DEFAULT, frameHeight: VIDEO_FRAME_HEIGHT_DEFAULT, frameLayout: 'frames' },
 	// Everything the pipeline can give: the cap on frames, a low scene threshold, full-height images.
-	'token-burner': { framesEnabled: true, sceneThreshold: 0.12, maxFrames: MAX_FRAMES_MAX, frameHeight: FRAME_HEIGHT_MAX },
+	'token-burner': { framesEnabled: true, sceneThreshold: 0.12, maxFrames: MAX_FRAMES_MAX, frameHeight: FRAME_HEIGHT_MAX, frameLayout: 'frames' },
 };
 
 export function normalizeVideoDetail(configured: unknown): VideoDetailLevel {
@@ -114,7 +125,7 @@ export function normalizeVideoDetail(configured: unknown): VideoDetailLevel {
  */
 export function resolveVideoTuning(
 	detail: unknown,
-	explicit: { sceneThreshold?: unknown; maxFrames?: unknown; frameHeight?: unknown } = {},
+	explicit: { sceneThreshold?: unknown; maxFrames?: unknown; frameHeight?: unknown; frameLayout?: unknown } = {},
 ): VideoTuning {
 	const preset = VIDEO_DETAIL_PRESETS[normalizeVideoDetail(detail)];
 	return {
@@ -122,6 +133,7 @@ export function resolveVideoTuning(
 		sceneThreshold: explicit.sceneThreshold === undefined ? preset.sceneThreshold : clampVideoSceneThreshold(explicit.sceneThreshold),
 		maxFrames: explicit.maxFrames === undefined ? preset.maxFrames : clampVideoMaxFrames(explicit.maxFrames),
 		frameHeight: explicit.frameHeight === undefined ? preset.frameHeight : clampVideoFrameHeight(explicit.frameHeight),
+		frameLayout: explicit.frameLayout === undefined ? preset.frameLayout : normalizeVideoFrameLayout(explicit.frameLayout),
 	};
 }
 
@@ -179,6 +191,16 @@ Registry.as<IConfigurationRegistry>(ConfigurationExtensions.Configuration).regis
 			minimum: FRAME_HEIGHT_MIN,
 			maximum: FRAME_HEIGHT_MAX,
 			description: localize('vibeide.video.frameHeight', 'Высота кадров в пикселях (240–1080), к которой даунскейлится видео перед отправкой модели. Выше — читаемее мелкий текст на экране, но тяжелее запрос. Заданное здесь значение перекрывает пресет «Подробность разбора».'),
+		},
+		[VIDEO_FRAME_LAYOUT_KEY]: {
+			type: 'string',
+			enum: ['frames', 'sheet'],
+			default: VIDEO_FRAME_LAYOUT_DEFAULT,
+			enumDescriptions: [
+				localize('vibeide.video.frameLayout.frames', 'Отдельными картинками: каждый кадр — своё изображение. Модель видит кадр целиком и точно сопоставляет его с таймкодом.'),
+				localize('vibeide.video.frameLayout.sheet', 'Листами: кадры склеиваются в сетку, таймкод нарисован на каждом кадре. Одна картинка на несколько кадров — дешевле по числу изображений, но мелкие детали видно хуже.'),
+			],
+			description: localize('vibeide.video.frameLayout', 'Как отдавать модели кадры видео: отдельными картинками или листами-сетками. Листы экономят изображения в запросе, но каждый кадр в них мельче. Если ffmpeg не умеет собирать сетки, кадры уходят отдельно. Заданное здесь значение перекрывает пресет «Подробность разбора».'),
 		},
 		[VIDEO_FRAME_MODEL_KEY]: {
 			type: 'string',

@@ -34,9 +34,10 @@ import { CancellationToken, CancellationTokenSource } from '../../../../../base/
 import { ILogService } from '../../../../../platform/log/common/log.js';
 import { IConfigurationService } from '../../../../../platform/configuration/common/configuration.js';
 import { IEnvironmentMainService } from '../../../../../platform/environment/electron-main/environmentMainService.js';
-import { VideoAnalysisProgress, VideoAnalysisResult, VideoAnalysisStage, VideoAnalyzeOptions, VideoFrameInfo, VideoToolsDownloadProgress, VideoToolsState, VideoTranscriptSegment, selectEvenlySpreadFrames } from '../../common/video/vibeVideoTypes.js';
+import { VideoAnalysisProgress, VideoAnalysisResult, VideoAnalysisStage, VideoAnalyzeOptions, VideoFrameInfo, VideoHdrInfo, VideoSheetInfo, VideoToolsDownloadProgress, VideoToolsState, VideoTranscriptSegment, selectEvenlySpreadFrames } from '../../common/video/vibeVideoTypes.js';
 import { VideoToolsArchive, VIDEO_TOOLS_DIR, classifyWatchInput, isRemoteVideoInput, resolveVideoToolPaths, videoToolsArchiveForPlatform } from '../../common/video/vibeVideoTools.js';
-import { VIDEO_DETAIL_KEY, VIDEO_FRAME_HEIGHT_KEY, VIDEO_MAX_FRAMES_KEY, VIDEO_SCENE_THRESHOLD_KEY, VIDEO_SUBTITLE_LANGUAGES_KEY, VIDEO_TOOLS_PATH_KEY, VideoTuning, normalizeVideoSubtitleLanguages, resolveVideoTuning } from '../../common/video/vibeVideoConfiguration.js';
+import { SHEET_MAX_FRAMES, SHEET_TILE_MARGIN, SHEET_TILE_PADDING, buildFramePassFilter, isHdrStreamLine, parseFfmpegFilterNames, sheetGrid, timecodeFontCandidates } from '../../common/video/videoFrameFilters.js';
+import { VIDEO_DETAIL_KEY, VIDEO_FRAME_HEIGHT_KEY, VIDEO_FRAME_LAYOUT_KEY, VIDEO_MAX_FRAMES_KEY, VIDEO_SCENE_THRESHOLD_KEY, VIDEO_SUBTITLE_LANGUAGES_KEY, VIDEO_TOOLS_PATH_KEY, VideoTuning, normalizeVideoSubtitleLanguages, resolveVideoTuning } from '../../common/video/vibeVideoConfiguration.js';
 import { VoiceProfileId } from '../../common/voice/vibeVoiceTypes.js';
 import { downloadWithSha256 } from '../vibeVerifiedDownload.js';
 import { VibeVoiceMainService } from '../voice/vibeVoiceMainService.js';
@@ -84,6 +85,8 @@ export class VibeVideoMainService extends Disposable {
 	private readonly archive: VideoToolsArchive | undefined;
 	private activeToolsDownload: Promise<void> | undefined;
 	private readonly activeRequests = new Map<string, ActiveRequest>();
+	/** Имена фильтров сборки ffmpeg: `ffmpeg -filters` запускается один раз на путь бинарника */
+	private readonly filterLists = new Map<string, Promise<ReadonlySet<string>>>();
 
 	constructor(
 		private readonly logService: ILogService,
@@ -239,6 +242,7 @@ export class VibeVideoMainService extends Disposable {
 			let durationSec: number | undefined;
 			let videoPath: string;
 			let transcriptSrt: string | undefined;
+			let hdrDetected = false;
 
 			if (remote) {
 				this.emitStage(requestId, 'probe');
@@ -261,10 +265,13 @@ export class VibeVideoMainService extends Disposable {
 				this.emitStage(requestId, 'download');
 				const height = tuning.frameHeight;
 				videoPath = await this.downloadMedia(entry, paths, input, workDir, requestId, `bv*[height<=${height}]+ba/b[height<=${height}]`, 'video');
+				// Скачанный файл локальным пробником ещё не смотрели: HDR ищем тем же баннером перед кадрами
+				hdrDetected = await this.probeHdr(entry, paths.ffmpeg, videoPath);
 			} else {
 				title = basename(input);
 				const probe = await this.probeLocalMedia(entry, paths.ffmpeg, input);
 				durationSec = probe.durationSec;
+				hdrDetected = probe.hdr;
 				// Nothing to download for a local file, but transcript-only still means no frames.
 				if (!probe.hasVideoStream || !this.videoTuning().framesEnabled) {
 					return await this.finishAudioOnly(entry, paths, requestId, workDir, { title, durationSec }, { localPath: input });
@@ -273,7 +280,7 @@ export class VibeVideoMainService extends Disposable {
 			}
 
 			this.emitStage(requestId, 'frames');
-			const extraction = await this.extractFrames(entry, paths.ffmpeg, videoPath, workDir);
+			const extraction = await this.extractFrames(entry, paths.ffmpeg, videoPath, workDir, hdrDetected);
 			durationSec ??= extraction.durationSec;
 
 			let audioPcmPath: string | undefined;
@@ -283,7 +290,7 @@ export class VibeVideoMainService extends Disposable {
 				entry.audioPcmPath = audioPcmPath;
 			}
 
-			return { requestId, kind: 'video', title, durationSec, frames: extraction.frames, transcriptSrt, audioPcmPath, workDir };
+			return { requestId, kind: 'video', title, durationSec, frames: extraction.frames, hdr: extraction.hdr, sheets: extraction.sheets, transcriptSrt, audioPcmPath, workDir };
 		} catch (error) {
 			await this.removeWorkDir(requestId, entry);
 			this.activeRequests.delete(requestId);
@@ -414,7 +421,7 @@ export class VibeVideoMainService extends Disposable {
 	 * output target, only the stderr banner matters. Cover art inside audio files shows up
 	 * as a `Video: mjpeg … (attached pic)` stream and must not count as video.
 	 */
-	private async probeLocalMedia(entry: ActiveRequest, ffmpeg: string, mediaPath: string): Promise<{ hasVideoStream: boolean; durationSec?: number }> {
+	private async probeLocalMedia(entry: ActiveRequest, ffmpeg: string, mediaPath: string): Promise<{ hasVideoStream: boolean; durationSec?: number; hdr: boolean }> {
 		const result = await this.runTool(entry, ffmpeg, ['-hide_banner', '-i', mediaPath]);
 		const streams = result.stderr.split('\n').filter(line => /Stream #\d+:\d+/.test(line));
 		if (streams.length === 0) {
@@ -423,8 +430,24 @@ export class VibeVideoMainService extends Disposable {
 			const tail = result.stderr.trim().split('\n').pop() ?? '';
 			throw new Error(`ffmpeg: ${tail || `exit code ${result.code}`}`);
 		}
-		const hasVideoStream = streams.some(line => /: Video: /.test(line) && !line.includes('attached pic'));
-		return { hasVideoStream, durationSec: parseFfmpegDurationSec(result.stderr) };
+		const videoStreams = streams.filter(line => /: Video: /.test(line));
+		const hasVideoStream = videoStreams.some(line => !line.includes('attached pic'));
+		const hdr = videoStreams.some(isHdrStreamLine);
+		return { hasVideoStream, durationSec: parseFfmpegDurationSec(result.stderr), hdr };
+	}
+
+	/**
+	 * HDR у скачанного по ссылке файла: до кадров его тоже надо посмотреть баннером
+	 * Сбой пробы кадры не отменяет — без HDR они просто пойдут как есть
+	 */
+	private async probeHdr(entry: ActiveRequest, ffmpeg: string, mediaPath: string): Promise<boolean> {
+		try {
+			const probe = await this.probeLocalMedia(entry, ffmpeg, mediaPath);
+			return probe.hdr;
+		} catch (error) {
+			this.logService.warn(`[vibeVideo] HDR probe failed: ${error instanceof Error ? error.message : String(error)}`);
+			return false;
+		}
 	}
 
 	private async fetchSubtitles(entry: ActiveRequest, ytDlp: string, url: string, workDir: string): Promise<string | undefined> {
@@ -511,21 +534,41 @@ export class VibeVideoMainService extends Disposable {
 			sceneThreshold: explicit<number>(VIDEO_SCENE_THRESHOLD_KEY),
 			maxFrames: explicit<number>(VIDEO_MAX_FRAMES_KEY),
 			frameHeight: explicit<number>(VIDEO_FRAME_HEIGHT_KEY),
+			frameLayout: explicit<string>(VIDEO_FRAME_LAYOUT_KEY),
 		});
 	}
 
-	private async extractFrames(entry: ActiveRequest, ffmpeg: string, videoPath: string, workDir: string): Promise<{ frames: VideoFrameInfo[]; durationSec?: number }> {
+	/**
+	 * Кадры видео: сцены → (HDR → обычный цвет) → высота → (таймкод) → JPEG
+	 *
+	 * HDR и листы включаются только тогда, когда нужные фильтры в сборке ffmpeg действительно
+	 * есть: старая сборка без `zscale`/`tonemap` получает кадры как раньше, с записью в лог
+	 */
+	private async extractFrames(entry: ActiveRequest, ffmpeg: string, videoPath: string, workDir: string, hdrDetected: boolean): Promise<{ frames: VideoFrameInfo[]; durationSec?: number; sheets?: VideoSheetInfo[]; hdr: VideoHdrInfo }> {
 		const framesDir = join(workDir, 'frames');
-		const { frameHeight: height, maxFrames, sceneThreshold: configuredThreshold } = this.videoTuning();
+		const { frameHeight: height, maxFrames, sceneThreshold: configuredThreshold, frameLayout } = this.videoTuning();
+		const filters = await this.ffmpegFilters(entry, ffmpeg);
 
-		let pass = await this.runFramePass(entry, ffmpeg, videoPath, framesDir, height, configuredThreshold);
+		const toneMapped = hdrDetected && filters.has('zscale') && filters.has('tonemap');
+		if (hdrDetected && !toneMapped) {
+			this.logService.warn('[vibeVideo] HDR source, but this ffmpeg build lacks zscale/tonemap — frames keep HDR colors');
+		}
+		const wantsSheet = frameLayout === 'sheet' && filters.has('tile');
+		if (frameLayout === 'sheet' && !wantsSheet) {
+			this.logService.warn('[vibeVideo] sheet layout requested, but this ffmpeg build lacks the tile filter — frames stay separate');
+		}
+		// Таймкод рисуем только на листах: отдельным кадрам он не нужен, а шрифта может не оказаться
+		const timecodeFont = wantsSheet && filters.has('drawtext') ? this.timecodeFont() : undefined;
+		const filterFor = (threshold: number) => buildFramePassFilter({ threshold, height, tonemap: toneMapped, timecodeFont });
+
+		let pass = await this.runFramePass(entry, ffmpeg, videoPath, framesDir, filterFor(configuredThreshold));
 		if (pass.frames.length < MIN_USEFUL_FRAMES && configuredThreshold > RETRY_SCENE_THRESHOLD) {
 			// Single-shot videos (static screencasts, talking heads) can yield zero scene
 			// changes at the default threshold — retry once with the low one (frame 0 is
 			// always captured via eq(n,0), so even the retry can't return empty).
 			this.logService.info(`[vibeVideo] only ${pass.frames.length} frames at threshold ${configuredThreshold} — retrying at ${RETRY_SCENE_THRESHOLD}`);
 			await this.clearDir(framesDir);
-			pass = await this.runFramePass(entry, ffmpeg, videoPath, framesDir, height, RETRY_SCENE_THRESHOLD);
+			pass = await this.runFramePass(entry, ffmpeg, videoPath, framesDir, filterFor(RETRY_SCENE_THRESHOLD));
 		}
 
 		const kept = selectEvenlySpreadFrames(pass.frames, maxFrames);
@@ -533,14 +576,95 @@ export class VibeVideoMainService extends Disposable {
 			const keptPaths = new Set(kept.map(f => f.path));
 			await Promise.all(pass.frames.filter(f => !keptPaths.has(f.path)).map(f => fsPromises.rm(f.path, { force: true })));
 		}
-		return { frames: kept, durationSec: pass.durationSec };
+		const sheets = wantsSheet ? await this.buildSheets(entry, ffmpeg, workDir, kept) : [];
+		return { frames: kept, durationSec: pass.durationSec, sheets: sheets.length > 0 ? sheets : undefined, hdr: { detected: hdrDetected, toneMapped } };
 	}
 
-	private async runFramePass(entry: ActiveRequest, ffmpeg: string, videoPath: string, framesDir: string, height: number, threshold: number): Promise<{ frames: VideoFrameInfo[]; durationSec?: number }> {
+	/**
+	 * Имена фильтров сборки ffmpeg — один запуск `ffmpeg -filters` на путь бинарника
+	 * Список нужен, чтобы HDR и листы включались только там, где фильтры правда есть
+	 */
+	private ffmpegFilters(entry: ActiveRequest, ffmpeg: string): Promise<ReadonlySet<string>> {
+		const cached = this.filterLists.get(ffmpeg);
+		if (cached) {
+			return cached;
+		}
+		const pending = this.readFilterList(entry, ffmpeg).catch(() => {
+			// Неудачный запуск не запоминаем: следующий разбор попробует снова
+			this.filterLists.delete(ffmpeg);
+			return new Set<string>();
+		});
+		this.filterLists.set(ffmpeg, pending);
+		return pending;
+	}
+
+	private async readFilterList(entry: ActiveRequest, ffmpeg: string): Promise<Set<string>> {
+		const result = await this.runTool(entry, ffmpeg, ['-hide_banner', '-filters']);
+		return parseFfmpegFilterNames(`${result.stdout}\n${result.stderr}`);
+	}
+
+	/** Первый существующий шрифт из стандартных путей платформы; нет шрифта — кадры остаются без таймкода */
+	private timecodeFont(): string | undefined {
+		for (const candidate of timecodeFontCandidates(process.platform as 'darwin' | 'win32' | 'linux')) {
+			if (existsSync(candidate)) {
+				return candidate;
+			}
+		}
+		return undefined;
+	}
+
+	/**
+	 * Листы кадров: кадры копируются по порядку в отдельный каталог, и из каждой группы
+	 * ffmpeg склеивает одну картинку — `tile` с `nb_frames` берёт ровно кадры группы, а
+	 * ячейки, оставшиеся от неполной сетки, заливаются цветом подложки
+	 */
+	private async buildSheets(entry: ActiveRequest, ffmpeg: string, workDir: string, frames: readonly VideoFrameInfo[]): Promise<VideoSheetInfo[]> {
+		if (frames.length === 0) {
+			return [];
+		}
+		const inputDir = join(workDir, 'sheet_in');
+		const outputDir = join(workDir, 'sheets');
+		await fsPromises.mkdir(inputDir, { recursive: true });
+		await fsPromises.mkdir(outputDir, { recursive: true });
+		for (let index = 0; index < frames.length; index++) {
+			await fsPromises.copyFile(frames[index].path, join(inputDir, `in_${String(index + 1).padStart(4, '0')}.jpg`));
+		}
+		const grids = sheetGrid(frames.length, SHEET_MAX_FRAMES);
+		const sheets: VideoSheetInfo[] = [];
+		let offset = 0;
+		for (let index = 0; index < grids.length; index++) {
+			const { cols, rows } = grids[index];
+			const onSheet = Math.min(SHEET_MAX_FRAMES, frames.length - offset);
+			const name = `sheet_${String(index + 1).padStart(2, '0')}.jpg`;
+			const sheetPath = join(outputDir, name);
+			const result = await this.runTool(entry, ffmpeg, [
+				'-hide_banner', '-y',
+				'-framerate', '1',
+				// Первый файл группы: `image2` читает файлы подряд, а `nb_frames` обрывает чтение на границе листа
+				'-start_number', String(offset + 1),
+				'-i', join(inputDir, 'in_%04d.jpg'),
+				'-frames:v', '1',
+				'-vf', `tile=${cols}x${rows}:nb_frames=${onSheet}:padding=${SHEET_TILE_PADDING}:margin=${SHEET_TILE_MARGIN}:color=0x202020`,
+				'-q:v', '3',
+				sheetPath,
+			]);
+			if (result.code !== 0 || !existsSync(sheetPath)) {
+				// Лист не собрался — не беда: кадры отдельными картинками остаются на месте
+				this.logService.warn(`[vibeVideo] sheet ${name} failed: ${result.stderr.trim().split('\n').pop() ?? `exit code ${result.code}`}`);
+				offset += onSheet;
+				continue;
+			}
+			const stat = await fsPromises.stat(sheetPath);
+			sheets.push({ path: sheetPath, frameTimes: frames.slice(offset, offset + onSheet).map(frame => frame.timeSec), cols, rows, sizeBytes: stat.size });
+			offset += onSheet;
+		}
+		return sheets;
+	}
+
+	private async runFramePass(entry: ActiveRequest, ffmpeg: string, videoPath: string, framesDir: string, filter: string): Promise<{ frames: VideoFrameInfo[]; durationSec?: number }> {
 		// Frame 0 is always selected as an anchor; scene changes above the threshold add the
 		// rest. showinfo (after select) logs pts_time + dimensions per KEPT frame, which is
 		// the timecode binding. `-fps_mode vfr` keeps one image per selected frame.
-		const filter = `select='eq(n,0)+gt(scene,${threshold})',scale=-2:'min(${height},ih)',showinfo`;
 		const result = await this.runTool(entry, ffmpeg, [
 			'-hide_banner',
 			'-i', videoPath,
