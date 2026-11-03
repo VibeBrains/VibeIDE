@@ -99,7 +99,8 @@
 Перевод стоит между `select` и `scale`: `zscale` в линейный свет → `tonemap=hable` → BT.709 (`HDR_TO_SDR_FILTER` в `common/video/videoFrameFilters.ts`)
 `zscale` нужен libzimg: он есть в ffmpeg 6.0 с нашего зеркала, но его нет в обычном `brew install ffmpeg` (8.1) — есть в `ffmpeg-full`
 Поэтому фильтры включаются только по списку `ffmpeg -filters` этой сборки; нет фильтра — кадры как раньше и предупреждение в журнале
-Проверено на синтетическом ролике с пометкой PQ: цепочка проходит; качество цвета на настоящем HDR-ролике не проверено
+Проверено 03.11.2026 на 10 секундах HDR10 с YouTube (AV1, PQ): без перевода кадр серый, с переводом — цвета как на экране
+HDR-ролик без айфона берётся с YouTube: `yt-dlp -f "bv*[dynamic_range^=HDR][height<=720]"`; кусок `--download-sections` старым yt-dlp получает 403
 
 ## [квирк] Список `ffmpeg -filters`: три знака свойств в ffmpeg 6 и два в ffmpeg 8 (03.11.2026)
 
