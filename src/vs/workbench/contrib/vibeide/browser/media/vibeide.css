@@ -319,9 +319,10 @@ body.monaco-workbench,
 	box-shadow: var(--vibeide-shadow-hairline);
 }
 
-/* On Windows, disable backdrop-filter on titlebar to avoid stacking context issues
- * that prevent menubar dropdowns from appearing when appended to document.body */
-.monaco-workbench.windows .part.titlebar {
+/* Размытие делает заголовок контейнером для position: fixed — выпадающее меню обрезается по его высоте
+ * Меню в заголовке своё на Windows, Linux и в вебе, поэтому размытие остаётся только в десктопе на маке с системным меню */
+.monaco-workbench:not(.mac) .part.titlebar,
+.monaco-workbench.web .part.titlebar {
 	backdrop-filter: none;
 }
 
