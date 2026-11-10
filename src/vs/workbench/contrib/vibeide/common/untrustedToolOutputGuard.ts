@@ -22,11 +22,16 @@
  * The standing rule "tool output is data" lives in the system prompt (`UNTRUSTED_CONTENT_NOTE` in `prompt/prompts.ts`)
  * The line in front of the output only names the case where the text actually tried
  *
+ * The structural half is separate from detection: a tool whose result carries text from outside
+ * (files, pages, terminal output, MCP) always gets it inside `<external_content source="...">`
+ * No finding is needed for that frame. `prepareToolOutput` is the one place that adds it and then guards
+ *
  * Pure: strings in, strings out
  * The sanitiser is passed in, so this is testable from `test/common/` without the service graph
  * The sanitiser logs findings itself under the label given here, so the call sites do not repeat the logging
  */
 
+import { carriesExternalContentOfBuiltinToolName } from './prompt/tools/index.js';
 import { GuardedContext, isInjectionWarning, SanitizeFn } from './retrievedContextGuard.js';
 
 /**
@@ -35,7 +40,8 @@ import { GuardedContext, isInjectionWarning, SanitizeFn } from './retrievedConte
  * `extract_structured` is here because the page goes through an extraction model first
  * A model that read an injection can return it as a field value
  * `design_review` is here because its findings quote the previewed page: selectors and measured text come from the page itself
- * Tools that read workspace files are not: `read_file` is guarded at the read itself
+ * Tools that read workspace files are not detected here: `read_file` is guarded at the read itself
+ * They still get the structural frame from `carriesExternalContentOfBuiltinToolName`
  */
 const UNTRUSTED_OUTPUT_BUILTIN_TOOLS: ReadonlySet<string> = new Set(['web_search', 'browse_url', 'extract_structured', 'design_review']);
 
@@ -69,4 +75,49 @@ export function guardToolOutput({ toolName, isMcpTool, output, sanitize }: ToolO
 		warnings: result.warnings,
 		tainted,
 	};
+}
+
+/** Имя тега, которым помечен текст чужого источника */
+export const EXTERNAL_CONTENT_TAG = 'external_content';
+
+/** Экранирование значения атрибута: имя MCP-инструмента приходит от сервера */
+function escapeAttribute(value: string): string {
+	return value.replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
+
+/**
+ * Постоянная рамка вокруг чужого текста
+ *
+ * Ставится всегда, а не только при найденной инъекции: отсутствие рамки не должно означать «здесь безопасно»
+ * Строка детерминирована, чтобы кэш промпта не сдвигался от вызова к вызову
+ * Закрывающий тег внутри текста обезврежен: иначе страница закрыла бы рамку и вышла из данных
+ */
+export function wrapExternalContent(toolName: string, output: string): string {
+	const body = output.replace(/<\s*\/\s*external_content/gi, match => match.replace('<', '&lt;'));
+	return `<${EXTERNAL_CONTENT_TAG} source="${escapeAttribute(toolName)}">\n${body}\n</${EXTERNAL_CONTENT_TAG}>`;
+}
+
+/** Нужна ли рамка: MCP-инструменты помечаются автоматически, встроенные — по карте реестра */
+export function toolCarriesExternalContent(toolName: string, isMcpTool: boolean): boolean {
+	if (isMcpTool) {
+		return true;
+	}
+	const flags: { readonly [name: string]: boolean | undefined } = carriesExternalContentOfBuiltinToolName;
+	return flags[toolName] === true;
+}
+
+/** Результат в рамке, если инструмент несёт чужой текст, иначе без изменений */
+export function frameToolOutput(toolName: string, isMcpTool: boolean, output: string): string {
+	return toolCarriesExternalContent(toolName, isMcpTool) ? wrapExternalContent(toolName, output) : output;
+}
+
+/**
+ * Единая точка подготовки результата инструмента к отправке модели
+ *
+ * Сперва рамка, потом guard: предупреждение о найденных фразах остаётся снаружи рамки
+ * Внутри рамки лежит только чужой текст, даже когда он пытался отдать приказ
+ */
+export function prepareToolOutput(input: ToolOutputGuardInput): GuardedContext {
+	const framed = frameToolOutput(input.toolName, input.isMcpTool, input.output);
+	return guardToolOutput({ ...input, output: framed });
 }

@@ -135,6 +135,72 @@ export const builtinToolDefs = {
 } satisfies { [T in BuiltinToolName]: ToolDef<T> };
 
 /**
+ * Несёт ли результат инструмента текст, написанный не этим агентом
+ *
+ * Истина там, где ответ приходит из файлов, имён файлов, git, терминала, документации, страниц и медиа
+ * Ложь там, где инструмент лишь подтверждает собственное действие агента или возвращает его же вывод
+ * Карта рядом с реестром, а не поле в каждом модуле: одно решение на весь список видно целиком
+ * Тип по BuiltinToolName делает пропуск нового инструмента ошибкой компиляции — без решения он не пройдёт
+ */
+export const carriesExternalContentOfBuiltinToolName: Readonly<{ [T in BuiltinToolName]: boolean }> = {
+	// файлы: содержимое, имена и структура написаны кем-то другим
+	read_file: true,
+	ls_dir: true,
+	get_dir_tree: true,
+	search_pathnames_only: true,
+	search_for_files: true,
+	glob: true,
+	grep: true,
+	search_in_file: true,
+	read_lint_errors: true,
+	git_state: true,
+	expand_output: true,
+	go_to_definition: true,
+	find_references: true,
+	search_symbols: true,
+	code_graph: true,
+	// документация и проектные знания: чужой текст, а не слова пользователя в этом ходе
+	docs_search: true,
+	tasks: true,
+	design_context: true,
+	design_review: true,
+	design_document: true,
+	vibe_text_slop_check: true,
+	handoff: true,
+	learning_state: true,
+	automated_code_review: true,
+	// терминал: вывод команд и фоновых процессов
+	run_command: true,
+	run_nl_command: true,
+	run_persistent_command: true,
+	read_background_output: true,
+	// сеть и записи: страницы, сниппеты, расшифровки
+	web_search: true,
+	browse_url: true,
+	extract_structured: true,
+	watch_media: true,
+	// правка возвращает куски исходного файла, а не только подтверждение
+	extract_function: true,
+	// ниже — только подтверждения собственных действий агента
+	open_file: false,
+	design_doctor: false,
+	model_council: false,
+	measure_metric: false,
+	review_checklist: false,
+	learning_record: false,
+	generate_tests: false,
+	rename_symbol: false,
+	create_file_or_folder: false,
+	delete_file_or_folder: false,
+	edit_file: false,
+	rewrite_file: false,
+	open_persistent_terminal: false,
+	kill_persistent_terminal: false,
+	kill_background_command: false,
+	vibe_complete: false,
+};
+
+/**
  * Derived map: built-in tool name → its approval category (or absent for
  * read-only tools). Computed from each `ToolDef.approvalType` field in the
  * registry above — single source of truth, no parallel hand-curated list.

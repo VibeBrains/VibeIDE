@@ -91,7 +91,7 @@ import { ChatThreadStore, ChatThreadStoreSaveResult } from './chatThreadStore.js
 import { ChatRestoreCrashGuard } from './chatRestoreCrashGuard.js';
 import { IMCPService } from '../common/mcpService.js';
 import { IVibePromptGuardService } from '../common/vibePromptGuardService.js';
-import { guardToolOutput } from '../common/untrustedToolOutputGuard.js';
+import { prepareToolOutput } from '../common/untrustedToolOutputGuard.js';
 import { RawMCPToolCall } from '../common/mcpServiceTypes.js';
 import { preprocessImagesForQA } from './imageQAIntegration.js';
 import { autoFallbackCandidates, ITaskAwareModelRouter, nextAutoFallback, TaskContext } from '../common/modelRouter.js';
@@ -4814,8 +4814,9 @@ Output ONLY the JSON, no other text. Start with { and end with }.`;
 
 		// Web pages, search snippets and replies of MCP servers are text somebody else wrote
 		// The same guard as the file read, applied to the string the model gets: one place covers every MCP server
-		// A finding puts a line in front of the output, see common/untrustedToolOutputGuard.ts
-		toolResultStr = guardToolOutput({
+		// A tool that carries external text is framed first; a finding still puts a line in front of the frame
+		// See common/untrustedToolOutputGuard.ts
+		toolResultStr = prepareToolOutput({
 			toolName,
 			isMcpTool: !isBuiltInTool,
 			output: toolResultStr,
