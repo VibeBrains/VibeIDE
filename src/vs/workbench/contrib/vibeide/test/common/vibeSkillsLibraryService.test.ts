@@ -141,6 +141,26 @@ description: ${marker}
 				['Одно описание в две строки.', 'Одно описание в две строки.', 'Одно описание в две строки.']);
 		});
 
+		test('описание в кавычках, в блоке и без кавычек читается одинаково', () => {
+			const descriptionOf = (line: string) => parseSkillMarkdown(`---
+name: scalar-skill
+${line}
+---
+
+Тело.
+`, '.vibe/skills/scalar-skill/SKILL.md', 'x')!.description;
+			assert.deepStrictEqual(
+				[
+					descriptionOf('description: "Скажи \\"привет\\" \\\\ и\\nдальше"'),
+					descriptionOf("description: 'It''s fine'"),
+					descriptionOf('description: >\n  Первая строка\n  вторая строка'),
+					descriptionOf('description: |\n  Первая строка\n  вторая строка'),
+					descriptionOf('description:   Просто текст   '),
+				],
+				['Скажи "привет" \\ и\nдальше', "It's fine", 'Первая строка вторая строка', 'Первая строка вторая строка', 'Просто текст'],
+			);
+		});
+
 		test('скилл по стандарту, без нашего vibeVersion, разбирается', () => {
 			const raw = `---
 name: standard-skill

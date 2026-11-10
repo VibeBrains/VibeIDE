@@ -238,3 +238,40 @@ suite('ruleFrontmatter — @rule invocation + naming (R.5)', () => {
 		assert.deepStrictEqual(parseRuleInvocations(''), []);
 	});
 });
+
+suite('ruleFrontmatter — скалярные значения шапки', () => {
+
+	ensureNoDisposablesAreLeakedInTestSuite();
+
+	const valueOf = (line: string) => parseRuleFrontmatter(`---\n${line}\n---\nbody`).frontmatter['description'];
+
+	test('двойные кавычки: снимаются, экранирование раскрывается', () => {
+		assert.deepStrictEqual(
+			valueOf('description: "Скажи \\"привет\\" \\\\ и\\nдальше"'),
+			'Скажи "привет" \\ и\nдальше',
+		);
+	});
+
+	test('одинарные кавычки: снимаются, удвоенная кавычка становится одной', () => {
+		assert.deepStrictEqual(valueOf("description: 'It''s fine'"), "It's fine");
+	});
+
+	test('блок > склеивает строки пробелом, блок | сохраняет перевод строки', () => {
+		assert.deepStrictEqual(
+			[
+				valueOf('description: >\n  Первая строка\n  вторая строка'),
+				valueOf('description: |\n  Первая строка\n  вторая строка'),
+			],
+			['Первая строка вторая строка', 'Первая строка\nвторая строка'],
+		);
+	});
+
+	test('без кавычек значение возвращается как есть, обрезанное', () => {
+		assert.deepStrictEqual(valueOf('description:   Просто текст   '), 'Просто текст');
+	});
+
+	test('список в кавычках не принимается за одно значение', () => {
+		const { frontmatter } = parseRuleFrontmatter('---\ntriggers: "Deploy", "CI"\n---\nbody');
+		assert.deepStrictEqual(parseTriggers(frontmatter), ['deploy', 'ci']);
+	});
+});

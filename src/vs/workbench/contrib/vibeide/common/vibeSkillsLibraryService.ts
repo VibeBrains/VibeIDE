@@ -5,6 +5,7 @@
 
 
 import { vibeLog } from './vibeLog.js';
+import { parseYamlScalar } from './frontmatterScalar.js';
 import { localize } from '../../../../nls.js';
 import { toAction } from '../../../../base/common/actions.js';
 import { VSBuffer } from '../../../../base/common/buffer.js';
@@ -261,7 +262,7 @@ export function readFrontmatterScalar(block: string, field: string): string {
 		return '';
 	}
 	if (!/^[|>][-+]?$/.test(inline)) {
-		return inline.replace(/^["']|["']$/g, '');
+		return parseYamlScalar(inline);
 	}
 
 	const lines = block.split(/\r?\n/);
@@ -282,9 +283,8 @@ export function readFrontmatterScalar(block: string, field: string): string {
 		}
 		collected.push(line.trim());
 	}
-	// `|` keeps newlines and `>` folds them; for a catalogue entry the difference does not
-	// survive rendering anyway, so both are joined with spaces.
-	return collected.join(' ').trim();
+	// Каталог показывает описание одной строкой, поэтому `|` здесь тоже склеивается пробелом
+	return parseYamlScalar(`${inline}\n${collected.join('\n')}`, true);
 }
 
 /** Parse SKILL.md YAML frontmatter (minimal roadmap contract). Invalid strict entries yield null (skipped). */
