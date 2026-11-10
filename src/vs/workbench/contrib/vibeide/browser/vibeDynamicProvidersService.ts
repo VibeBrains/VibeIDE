@@ -36,7 +36,9 @@ import { IConfigurationService } from '../../../../platform/configuration/common
 import { INotificationService } from '../../../../platform/notification/common/notification.js';
 import { IStorageService, StorageScope, StorageTarget } from '../../../../platform/storage/common/storage.js';
 import { IPathService } from '../../../services/path/common/pathService.js';
+import { localize } from '../../../../nls.js';
 import { scanProviderConfig, scanEnvFileSecrets, ConfigGuardFinding } from '../common/vibeConfigGuard.js';
+import { ProviderKeyCandidates, ProviderKeySource, resolveProviderKey } from '../common/providerKeySources.js';
 import { apiKeySlotOfRef, builtinProviderIdOf, isBuiltinProviderId, VibeideStatefulModelInfo, apiKeyEnvVarOfProvider, ProviderName } from '../common/vibeideSettingsTypes.js';
 import { IVibeideSettingsService, VibeProviderActiveOverrides, ModelOption, DynProviderTransportConfig, DynamicProviderSeed } from '../common/vibeideSettingsService.js';
 import type { BuiltinWireHints } from '../common/builtinWireHints.js';
@@ -69,6 +71,17 @@ const UNREACHABLE_REPROBE_MS = 10_000;
 const SYS_MSG_MAP: Record<string, 'system-role' | 'developer-role' | 'separated'> = {
 	system: 'system-role', developer: 'developer-role', separated: 'separated',
 };
+
+/** Победивший источник ключа для предупреждения — сам ключ здесь не называется */
+function keySourceLabel(source: ProviderKeySource): string {
+	switch (source) {
+		case 'gui': return localize('vibeide.providers.keySourceGui', "ключ из настроек IDE");
+		case 'ref': return localize('vibeide.providers.keySourceRef', "ключ из настроек IDE по apiKeyRef");
+		case 'env-file':
+		case 'os-env': return localize('vibeide.providers.keySourceEnv', "переменная окружения");
+		default: return localize('vibeide.providers.keySourceNone', "ни один источник");
+	}
+}
 
 /**
  * Per-model wire format from the file's `static` list → map for the transport config.
@@ -942,6 +955,11 @@ class VibeDynamicProvidersService extends Disposable implements IVibeDynamicProv
 			if (kind !== 'override' && isKeyless(resolved) && (resolved.apiKeyEnv || resolved.apiKeyRef)) {
 				warnings.push(`«${entry.id}»: "auth": "none" — ключ из ${resolved.apiKeyEnv ? 'apiKeyEnv' : 'apiKeyRef'} не отправляется; уберите его или auth`);
 			}
+			// Два источника ключа сразу оставляют один молча неиспользованным — назовём переменную и фактический источник
+			const keyChoice = resolveProviderKey(this._keyCandidatesOf({ id: builtinSelf ?? entry.id, entry: resolved }));
+			if (keyChoice.conflict && !isKeyless(resolved) && !usesGoogleAdc(resolved) && resolved.apiKeyEnv) {
+				warnings.push(`«${entry.id}»: ${localize('vibeide.providers.keyConflict', "Ключ задан и переменной {0}, и в настройках IDE — используется {1}", resolved.apiKeyEnv, keySourceLabel(keyChoice.source))}`);
+			}
 			// Dropped aloud, as VibeIDEA does: sent as OpenAI's spelling, an unknown dialect would look like a dial that works.
 			if (reasoningDialectOf(resolved.reasoningDialect) === 'invalid') {
 				warnings.push(`«${entry.id}»: reasoningDialect ${JSON.stringify(resolved.reasoningDialect)} не разобран — рассуждение уйдёт как у OpenAI (reasoning_effort); допустимо "openrouter"`);
@@ -974,40 +992,37 @@ class VibeDynamicProvidersService extends Disposable implements IVibeDynamicProv
 		void this._enrichWithCatalog(state.providers, gen);
 	}
 
+	/** Откуда может взяться ключ провайдера — в том же порядке, что у пути отправки */
+	private _keyCandidatesOf(p: Pick<ResolvedProviderEntry, 'id' | 'entry'>): ProviderKeyCandidates {
+		return {
+			guiKey: (this._settingsService.state.dynamicProviderApiKeys ?? {})[p.id],
+			refKey: p.entry.apiKeyRef
+				? this._settingsService.state.settingsOfProvider[apiKeySlotOfRef(p.entry.apiKeyRef)]?.apiKey
+				: undefined,
+			envFileKey: p.entry.apiKeyEnv ? this._envFileVars[p.entry.apiKeyEnv] : undefined,
+			osEnvPresent: this._hasOsEnvKey(p),
+		};
+	}
+
 	/** Browser-visible key for a dynamic provider: apiKeyRef (secure settings) → .vibe/.env. A key only
 	 *  in an OS env var isn't visible to the renderer (PRODUCT invariant 12) — electron-main still
 	 *  resolves apiKeyEnv from process.env at send time; here it just doesn't count for UI gating. */
 	private _resolveBrowserKey(p: ResolvedProviderEntry): string | undefined {
-		// Precedence: key typed into the Settings card (UI) → apiKeyRef (another provider's secure key)
-		// → .vibe/.env. The UI key wins because it's the most explicit, per-provider user action.
-		const uiKey = (this._settingsService.state.dynamicProviderApiKeys ?? {})[p.id];
-		const refKey = p.entry.apiKeyRef
-			? this._settingsService.state.settingsOfProvider[apiKeySlotOfRef(p.entry.apiKeyRef)]?.apiKey
-			: undefined;
-		const envFileKey = p.entry.apiKeyEnv ? this._envFileVars[p.entry.apiKeyEnv] : undefined;
-		return (uiKey?.trim() ? uiKey : undefined) || refKey || envFileKey || undefined;
+		return resolveProviderKey(this._keyCandidatesOf(p)).key;
 	}
 
 	/** Which source the resolved key came from (same precedence as `_resolveBrowserKey`), for the card.
 	 *  `'env'` covers both `.vibe/.env` (value visible to the renderer) and an OS env var whose
 	 *  PRESENCE was reported by the desktop contribution (value stays in electron-main). */
 	private _resolveKeySource(p: ResolvedProviderEntry): 'gui' | 'env' | 'ref' | 'none' {
-		const uiKey = (this._settingsService.state.dynamicProviderApiKeys ?? {})[p.id];
-		if (uiKey?.trim()) { return 'gui'; }
-		const refKey = p.entry.apiKeyRef
-			? this._settingsService.state.settingsOfProvider[apiKeySlotOfRef(p.entry.apiKeyRef)]?.apiKey
-			: undefined;
-		if (refKey?.trim()) { return 'ref'; }
-		const envFileKey = p.entry.apiKeyEnv ? this._envFileVars[p.entry.apiKeyEnv] : undefined;
-		if (envFileKey?.trim()) { return 'env'; }
-		if (this._hasOsEnvKey(p)) { return 'env'; }
-		return 'none';
+		const source = resolveProviderKey(this._keyCandidatesOf(p)).source;
+		return source === 'gui' ? 'gui' : source === 'ref' ? 'ref' : source === 'none' ? 'none' : 'env';
 	}
 
 	/** OS-environment key presence for a config provider: it declares `apiKeyEnv`, and the desktop
 	 *  contribution confirmed that variable is set (same presence-only mechanism built-ins use — the
 	 *  value never reaches the renderer; electron-main resolves it at send time). */
-	private _hasOsEnvKey(p: ResolvedProviderEntry): boolean {
+	private _hasOsEnvKey(p: Pick<ResolvedProviderEntry, 'id' | 'entry'>): boolean {
 		return !!p.entry.apiKeyEnv && this._settingsService.getEnvApiKeyProviderIds().has(p.id);
 	}
 
