@@ -8,6 +8,7 @@ import { isLinuxSnap } from '../../../base/common/platform.js';
 import { localize } from '../../../nls.js';
 import { IOSProperties } from '../../native/common/native.js';
 import { IProductService } from '../../product/common/productService.js';
+import { localizeVibeideMadeIn } from '../common/dialogs.js';
 import { process } from '../../../base/parts/sandbox/electron-browser/globals.js';
 
 export function createNativeAboutDialogDetails(productService: IProductService, osProps: IOSProperties): { title: string; details: string; detailsToCopy: string } {
@@ -19,7 +20,7 @@ export function createNativeAboutDialogDetails(productService: IProductService, 
 	}
 
 	const getDetails = (useAgo: boolean): string => {
-		return localize({ key: 'aboutDetail', comment: ['Electron, Chromium, Node.js and V8 are product names that need no translation'] },
+		const aboutText = localize({ key: 'aboutDetail', comment: ['Electron, Chromium, Node.js and V8 are product names that need no translation'] },
 			"VibeIDE: {0}\nVS Code: {1}\nCommit: {2}\nDate: {3}\nElectron: {4}\nElectronBuildId: {5}\nChromium: {6}\nNode.js: {7}\nV8: {8}\nOS: {9}",
 			productService.vibeVersion || 'unknown',
 			version,
@@ -32,6 +33,9 @@ export function createNativeAboutDialogDetails(productService: IProductService, 
 			process.versions['v8'],
 			`${osProps.type} ${osProps.arch} ${osProps.release}${isLinuxSnap ? ' snap' : ''}`
 		);
+
+		// Нативный диалог не умеет ссылки, поэтому подпись идёт строкой в конце
+		return `${aboutText}\n\n${localizeVibeideMadeIn()}`;
 	};
 
 	const details = getDetails(true);

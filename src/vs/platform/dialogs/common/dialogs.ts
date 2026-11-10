@@ -14,6 +14,14 @@ import { localize } from '../../../nls.js';
 import { createDecorator } from '../../instantiation/common/instantiation.js';
 import { ITelemetryData } from '../../telemetry/common/telemetry.js';
 
+// Домен храним одним значением: подпись нужна и нативному, и браузерному окну «О программе»
+export const VIBEIDE_SITE_DOMAIN = 'borodatych.ru';
+
+// Локализуем фразу целиком, чтобы в переводе можно было переставить домен
+export function localizeVibeideMadeIn(): string {
+	return localize('vibeideMadeIn', "Сделано в {0}", VIBEIDE_SITE_DOMAIN);
+}
+
 export interface IDialogArgs {
 	readonly confirmArgs?: IConfirmDialogArgs;
 	readonly inputArgs?: IInputDialogArgs;
