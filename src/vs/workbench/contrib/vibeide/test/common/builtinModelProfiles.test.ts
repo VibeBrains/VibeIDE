@@ -27,6 +27,9 @@ suite('builtin model profiles — имя на проводе, профиль, п
 
 	test('имя модели уходит тем, что выбрано; профиль — по первому совпадению от частного к общему', () => {
 		assert.deepStrictEqual([
+			resolved('anthropic', 'claude-fable-5-2'),
+			resolved('anthropic', 'claude-fable-5.2'),
+			resolved('anthropic', 'claude-mythos-5-2'),
 			resolved('anthropic', 'claude-fable-5-1'),
 			resolved('anthropic', 'claude-mythos-5-1'),
 			resolved('anthropic', 'claude-fable-5'),
@@ -50,6 +53,9 @@ suite('builtin model profiles — имя на проводе, профиль, п
 			resolved('xAI', 'grok-4-fast'),
 			resolved('xAI', 'grok-3-mini-fast-beta'),
 		], [
+			'claude-fable-5-2 ← claude-fable-5-2',
+			'claude-fable-5.2 ← claude-fable-5-2',
+			'claude-mythos-5-2 ← claude-fable-5-2',
 			'claude-fable-5-1 ← claude-fable-5-1',
 			'claude-mythos-5-1 ← claude-fable-5-1',
 			'claude-fable-5 ← claude-fable-5',
@@ -110,8 +116,11 @@ suite('builtin model profiles — имя на проводе, профиль, п
 			const slider = reasoning?.reasoningSlider?.type === 'effort_slider' ? reasoning.reasoningSlider : undefined;
 			return { model: modelName, cost: caps.cost, levels: slider?.values.join('/'), default: slider?.default, canTurnOff: reasoning?.canTurnOffReasoning, retires: caps.deprecation?.date };
 		};
-		assert.deepStrictEqual(['claude-fable-5-1', 'claude-mythos-5', 'claude-opus-4-6', 'claude-sonnet-4-6', 'claude-opus-4-5', 'claude-opus-4-1', 'claude-sonnet-4-5', 'claude-haiku-4-5'].map(card), [
+		assert.deepStrictEqual(['claude-fable-5-2', 'claude-mythos-5-2', 'claude-fable-5-1', 'claude-fable-5', 'claude-mythos-5', 'claude-opus-4-6', 'claude-sonnet-4-6', 'claude-opus-4-5', 'claude-opus-4-1', 'claude-sonnet-4-5', 'claude-haiku-4-5'].map(card), [
+			{ model: 'claude-fable-5-2', cost: { input: 8, cache_read: 0.8, cache_write: 10, output: 40 }, levels: 'low/medium/high/xhigh/max', default: 'high', canTurnOff: false, retires: undefined },
+			{ model: 'claude-mythos-5-2', cost: { input: 8, cache_read: 0.8, cache_write: 10, output: 40 }, levels: 'low/medium/high/xhigh/max', default: 'high', canTurnOff: false, retires: undefined },
 			{ model: 'claude-fable-5-1', cost: { input: 10, cache_read: 0.25, cache_write: 12.5, output: 50 }, levels: 'low/medium/high/xhigh/max', default: 'high', canTurnOff: false, retires: undefined },
+			{ model: 'claude-fable-5', cost: { input: 10, cache_read: 1, cache_write: 12.5, output: 50 }, levels: 'low/medium/high/xhigh/max', default: 'high', canTurnOff: false, retires: undefined },
 			{ model: 'claude-mythos-5', cost: { input: 10, cache_read: 1, cache_write: 12.5, output: 50 }, levels: 'low/medium/high/xhigh/max', default: 'high', canTurnOff: false, retires: undefined },
 			{ model: 'claude-opus-4-6', cost: { input: 5, cache_read: 0.5, cache_write: 6.25, output: 25 }, levels: 'low/medium/high/max', default: 'high', canTurnOff: true, retires: undefined },
 			{ model: 'claude-sonnet-4-6', cost: { input: 3, cache_read: 0.3, cache_write: 3.75, output: 15 }, levels: 'low/medium/high/max', default: 'high', canTurnOff: true, retires: undefined },
@@ -129,11 +138,12 @@ suite('builtin model profiles — имя на проводе, профиль, п
 	test('Claude через шлюз: та же таблица, что у прямого провайдера; выключенные 3.x — на живой профиль своей линии', () => {
 		const via = (modelName: string) => `${modelName} ← ${getModelCapabilities('openRouter', modelName, undefined).recognizedModelName}`;
 		assert.deepStrictEqual([
-			'anthropic/claude-opus-5', 'anthropic/claude-sonnet-5.5', 'anthropic/claude-fable-5.1', 'anthropic/claude-opus-4.6',
+			'anthropic/claude-opus-5', 'anthropic/claude-sonnet-5.5', 'anthropic/claude-fable-5.2', 'anthropic/claude-fable-5.1', 'anthropic/claude-opus-4.6',
 			'anthropic/claude-3.7-sonnet', 'anthropic/claude-3-opus', 'anthropic/claude-3.5-haiku', 'anthropic/claude-next',
 		].map(via), [
 			'anthropic/claude-opus-5 ← claude-opus-5',
 			'anthropic/claude-sonnet-5.5 ← claude-sonnet-5-5',
+			'anthropic/claude-fable-5.2 ← claude-fable-5-2',
 			'anthropic/claude-fable-5.1 ← claude-fable-5-1',
 			'anthropic/claude-opus-4.6 ← claude-opus-4-6',
 			'anthropic/claude-3.7-sonnet ← claude-sonnet-4-6',

@@ -911,6 +911,25 @@ const anthropicModelOptions = {
 			reasoningSlider: { type: 'effort_slider', values: ['low', 'medium', 'high', 'xhigh', 'max'], default: 'medium' },
 		},
 	},
+	// Fable 5.2 (09.11.2026): $8/$40 вместо $10/$50, 1M окна и 128K вывода
+	// Уровни усилия прежние, умолчание у вендора `high`
+	// Кэш у Anthropic считается от входной цены: чтение 0.1×, запись 1.25× — как у Fable 5 при $10
+	'claude-fable-5-2': {
+		contextWindow: 1_000_000,
+		reservedOutputTokenSpace: 128_000,
+		cost: { input: 8.00, cache_read: 0.80, cache_write: 10.00, output: 40.00 },
+		downloadable: false,
+		supportsFIM: false,
+		specialToolFormat: 'anthropic-style',
+		supportsSystemMessage: 'separated',
+		reasoningCapabilities: {
+			supportsReasoning: true,
+			canTurnOffReasoning: false,
+			canIOReasoning: true,
+			reasoningReservedOutputTokenSpace: 128_000,
+			reasoningSlider: { type: 'effort_slider', values: ['low', 'medium', 'high', 'xhigh', 'max'], default: 'high' },
+		},
+	},
 	// Fable and Mythos share one price and one shape; Mythos is served by invitation and resolves to these entries.
 	// Thinking is always on: both `disabled` and a budget answer 400 (thinking-troubleshooting, checked 25.09.2026).
 	'claude-fable-5-1': {
@@ -1126,6 +1145,7 @@ function firstMatchingProfile<K extends string>(modelName: string, profiles: Rea
  */
 const anthropicFallbackProfiles: ReadonlyArray<readonly [RegExp, keyof typeof anthropicModelOptions]> = [
 	// Claude 5 and Opus 4.7+ think adaptively: a level instead of a budget.
+	[/(fable|mythos)-?5[-.]2/, 'claude-fable-5-2'],
 	[/(fable|mythos)-?5[-.]1/, 'claude-fable-5-1'],
 	[/(fable|mythos)-?5/, 'claude-fable-5'],
 	[/opus-?5[-.]5/, 'claude-opus-5-5'],
