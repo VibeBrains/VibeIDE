@@ -68,6 +68,7 @@
 | [vibeServerPreviewCookies.md](architecture/vibeServerPreviewCookies.md) | Cookie-авторизация в превью: перезапись Set-Cookie → `SameSite=None; Secure` для зарегистрированных loopback-origin'ов; **гоча: один `onHeadersReceived` на сессию** — вызов встроен в апстрим-хендлер `app.ts` |
 | [previewInspectElement.md](architecture/previewInspectElement.md) | Inspect-режим превью (клик → селектор в чат): труба postMessage `__vibeBrowser` вместо одностороннего WS, cross-origin пускает селектор но не скриншот (блокер VS.6), window-capture бьёт document-capture, селектор — кандидат не истина, только static-runtime, `CSS.escape` для Tailwind-классов |
 | [claudeApiVersion20261021.md](architecture/claudeApiVersion20261021.md) | Claude API версии **2026-10-21** (400 на `temperature`/`top_p`/`top_k`, ключ `Authorization: Bearer`): нас не задевает — чат на `@ai-sdk/anthropic`, версия `2023-06-01` зашита, сэмплинг Claude не уходит; что проверить при бампе пакета |
+| [openSpecChangeFolders.md](architecture/openSpecChangeFolders.md) | **[разбор]** Папки изменений OpenSpec: структура и жизненный цикл `proposal → delta → apply → archive`; что уже есть (`docs/specs/`, бриф, план), что берём (замысел с вариантами, дельта к спеке, архив с вливанием) и что нет (`tasks.md`, свой `status`, CLI); формат `docs/changes/<id>/` и граница с брифом/планом без второго трекера |
 
 ### [ui/](ui/) — CSS, темы, view-инфраструктура
 
