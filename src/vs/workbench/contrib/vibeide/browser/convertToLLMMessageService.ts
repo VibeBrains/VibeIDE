@@ -71,6 +71,7 @@ import { pickHeaviestTrimmableIndex } from '../common/prompt/contextTrim.js';
 import { IVibeProjectRulesService } from './vibeProjectRulesService.js';
 import { extractToolFilePaths, toWorkspaceRelative, parseRuleInvocations } from '../common/prompt/ruleFrontmatter.js';
 import { planBudgetFillTail } from '../common/agentLoopHeuristics.js';
+import { shouldBudgetFill } from '../common/contextLimitDialog.js';
 import { buildTaskSourceBlock, PRESERVE_NOTE_MAX_CHARS, TASK_SOURCE_MAX_CHARS, TASK_SOURCE_WRAPPER_MAX_CHARS } from '../common/compactionAnchor.js';
 import type { CompactionTaskSource } from '../common/compactionAnchor.js';
 import { updateTokenCalibration, clampTokenCalibration, serializeCalibration, deserializeCalibration, TOKEN_CALIBRATION_MAX } from '../common/tokenCalibration.js';
@@ -2409,7 +2410,9 @@ class ConvertToLLMMessageService extends Disposable implements IConvertToLLMMess
 		// final updateUsage (after Step B, line ~2005) are the source of
 		// truth — both reflect post-truncation reality.
 
-		if (beforeTokens > calBudget && llmMessages.length > 6) {
+		// Диалог на 90% не может сжать историю сам: он оставил флаг, забираем его ровно один раз
+		const forceCompact = ctxGuard?.consumeForceCompact() === true;
+		if (shouldBudgetFill({ forceCompact, beforeTokens, budget: calBudget, messageCount: llmMessages.length })) {
 			// Budget-FILL truncation: keep as MANY of the newest messages as fit within
 			// `budget` at full fidelity, and summarize ONLY the genuine overflow head.
 			//

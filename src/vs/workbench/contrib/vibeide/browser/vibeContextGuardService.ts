@@ -14,6 +14,7 @@ import { Registry } from '../../../../platform/registry/common/platform.js';
 import { IConfigurationRegistry, Extensions as ConfigurationExtensions } from '../../../../platform/configuration/common/configurationRegistry.js';
 
 import { localize } from '../../../../nls.js';
+import { ContextLimitDialogChoice, ForceCompactFlag } from '../common/contextLimitDialog.js';
 
 // ── Configuration ─────────────────────────────────────────────────────────────
 // Surface the context-guard thresholds in VS Code's Settings UI. Without this
@@ -36,7 +37,12 @@ Registry.as<IConfigurationRegistry>(ConfigurationExtensions.Configuration).regis
 			default: 90,
 			minimum: 60,
 			maximum: 99,
-			description: localize('vibeide.context.criticalThresholdPercent', 'Процент заполнения контекстного окна, при котором mid-task поднимается blocking-диалог "compact / continue / cancel + снапшот". По умолчанию 90%. Должен быть выше `warningThresholdPercent`.'),
+			description: localize('vibeide.context.criticalThresholdPercent', 'Процент заполнения контекстного окна, при котором mid-task поднимается диалог «Сжать / Продолжить / Остановить» (если включена настройка `vibeide.context.criticalDialog.enabled`). По умолчанию 90%. Должен быть выше `warningThresholdPercent`.'),
+		},
+		'vibeide.context.criticalDialog.enabled': {
+			type: 'boolean',
+			default: true,
+			description: localize('vibeide.context.criticalDialog.enabled', 'Показывать диалог «Сжать / Продолжить / Остановить» при критическом заполнении контекстного окна (порог `criticalThresholdPercent`). Один раз на тред: после выбора диалог не повторяется до смены треда. «Сжать» сохраняет заметку «что сохранить» и сворачивает историю при следующем запросе, «Остановить» ставит агента на паузу. Выключение оставляет только индикатор — сжатие по-прежнему происходит само, когда история перестаёт влезать.'),
 		},
 		'vibeide.context.tokenCalibrationMaxFactor': {
 			type: 'number',
@@ -48,7 +54,7 @@ Registry.as<IConfigurationRegistry>(ConfigurationExtensions.Configuration).regis
 	},
 });
 
-export type ContextLimitAction = 'compact' | 'continue' | 'cancel';
+export type ContextLimitAction = ContextLimitDialogChoice;
 
 export interface ContextLimitStatus {
 	currentTokens: number;
@@ -96,6 +102,12 @@ export interface IVibeContextGuardService {
 	getPreserveNote(): string | undefined;
 	setPreserveNote(text: string | undefined): void;
 
+	/** Запросить сжатие на следующем запросе, даже если оценка истории влезает в бюджет */
+	requestForceCompact(): void;
+
+	/** Забрать запрос сжатия; после вызова флаг снят */
+	consumeForceCompact(): boolean;
+
 	/**
 	 * Reset usage counters to zero (e.g. when the user switches to a different
 	 * chat thread). Status bar refreshes immediately; the next request through
@@ -140,6 +152,8 @@ class VibeContextGuardService extends Disposable implements IVibeContextGuardSer
 	private _summarizedMessages: number | undefined = undefined;
 	private _calibrationFactor: number | undefined = undefined;
 	private _preserveNote: string | undefined = undefined;
+	/** Флаг forceCompactNext: диалог на 90% просит сжать историю на следующем запросе */
+	private readonly _forceCompactNext = new ForceCompactFlag();
 	private _warningFired = false;
 	private _criticalFired = false;
 	private _warningThreshold: number;
@@ -222,6 +236,14 @@ class VibeContextGuardService extends Disposable implements IVibeContextGuardSer
 		this._preserveNote = text;
 	}
 
+	requestForceCompact(): void {
+		this._forceCompactNext.request();
+	}
+
+	consumeForceCompact(): boolean {
+		return this._forceCompactNext.consume();
+	}
+
 	reset(): void {
 		this._currentTokens = 0;
 		this._maxTokens = 0;
@@ -229,6 +251,7 @@ class VibeContextGuardService extends Disposable implements IVibeContextGuardSer
 		this._summarizedMessages = undefined;
 		this._calibrationFactor = undefined;
 		this._preserveNote = undefined;
+		this._forceCompactNext.reset();
 		this._warningFired = false;
 		this._criticalFired = false;
 		this._onUsageUpdated.fire(this.getStatus());
