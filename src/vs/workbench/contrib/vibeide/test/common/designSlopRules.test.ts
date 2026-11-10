@@ -481,8 +481,9 @@ suite('designSlopRules', () => {
 		assert.deepStrictEqual(
 			[RULE_COUNT > 0, ALL_RULE_IDS.length, ALL_RULE_IDS.length >= RULE_COUNT],
 			// 65 + 13 правил находимости (категория `seo`, добавлена 14.08.2026)
-			// + 7 из разбора plugin87/ux-ui-agent-skills (17.09.2026).
-			[true, 88, true],
+			// + 7 из разбора plugin87/ux-ui-agent-skills (17.09.2026)
+			// + 3 компонентных + 8 правил дизайна, фаза 3 (10.11.2026).
+			[true, 96, true],
 		);
 	});
 
@@ -864,5 +865,83 @@ suite('designSlopRules — проверки из разбора ux-ui-agent-skil
 			el({ selector: 'p', text: 'Мы рады вас видеть 🙂 и ждём отзывов о новой версии продукта.' }),
 		]);
 		assert.deepStrictEqual(findingsOf('emoji-as-icon', page).map(f => f.selector).sort(), ['button.stats', 'h1']);
+	});
+});
+
+suite('designSlopRules — правила дизайна, фаза 3', () => {
+	ensureNoDisposablesAreLeakedInTestSuite();
+
+	const findingsOf = (rule: string, snapshot: DocumentSnapshot) => reviewDesign(snapshot).filter(f => f.rule === rule);
+
+	test('переход всех свойств — находка, перечисленные свойства и раскладка — нет', () => {
+		const all = findingsOf('transition-all', doc([el({ selector: '.card', transitionProperty: 'all' })]));
+		const listed = findingsOf('transition-all', doc([el({ selector: '.card', transitionProperty: 'opacity, transform' })]));
+		const layout = findingsOf('layout-property-animation', doc([el({ selector: '.card', transitionProperty: 'all' })]));
+		assert.deepStrictEqual([all.map(f => f.selector), listed.length, layout.length], [['.card'], 0, 0]);
+	});
+
+	test('больше трёх гарнитур — находка, три — система', () => {
+		const styled = (families: string[]) => doc(families.map((fontFamily, index) =>
+			el({ selector: `.t${index}`, text: 'Текст', fontFamily })));
+		const many = styled(['A, sans-serif', 'B, serif', 'C, monospace', 'D, cursive']);
+		const three = styled(['A, sans-serif', 'B, serif', 'C, monospace']);
+		assert.deepStrictEqual([findingsOf('too-many-fonts', many).length, findingsOf('too-many-fonts', three).length], [1, 0]);
+	});
+
+	test('больше трёх начертаний — находка, три — шкала', () => {
+		const weighted = (weights: number[]) => doc(weights.map((fontWeight, index) =>
+			el({ selector: `.w${index}`, text: 'Текст', fontWeight })));
+		const many = weighted([400, 500, 600, 700]);
+		const three = weighted([400, 500, 700]);
+		assert.deepStrictEqual([findingsOf('too-many-weights', many).length, findingsOf('too-many-weights', three).length], [1, 0]);
+	});
+
+	test('многоточие тремя точками — находка; типографское и код — нет', () => {
+		const threeDots = findingsOf('three-dot-ellipsis', doc([el({ selector: '.more', text: 'Подробнее...' })]));
+		const typographic = findingsOf('three-dot-ellipsis', doc([el({ selector: '.more', text: 'Подробнее…' })]));
+		const code = findingsOf('three-dot-ellipsis', doc([el({ selector: 'code', tag: 'code', text: 'wait...' })]));
+		assert.deepStrictEqual([threeDots.length, typographic.length, code.length], [1, 0, 0]);
+	});
+
+	test('чисто белая поверхность от 600×400 — находка; оттенок и блок меньше — нет', () => {
+		const white = (over: Partial<ElementSnapshot>) => el({
+			selector: '.hero', text: '', widthPx: 600, heightPx: 400, ownBackgroundAlpha: 1,
+			backgroundColor: [255, 255, 255], ...over,
+		});
+		const pure = findingsOf('pure-white-surface', doc([white({})]));
+		const offWhite = findingsOf('pure-white-surface', doc([white({ backgroundColor: [254, 254, 254] })]));
+		const small = findingsOf('pure-white-surface', doc([white({ widthPx: 599, heightPx: 399 })]));
+		assert.deepStrictEqual([pure.map(f => f.selector), offWhite.length, small.length], [['.hero'], 0, 0]);
+	});
+
+	test('текст в узкой колонке на четырёх строках — находка; шире и короче — нет', () => {
+		const sliver = (over: Partial<ElementSnapshot>) => el({
+			selector: '.col', text: 'Текст, который в узкой колонке рвётся по слову.', fontSizePx: 16,
+			widthPx: 192, textLineCount: 4, ...over,
+		});
+		const narrow = findingsOf('text-sliver', doc([sliver({})]));
+		const wide = findingsOf('text-sliver', doc([sliver({ widthPx: 400 })]));
+		const short = findingsOf('text-sliver', doc([sliver({ textLineCount: 3 })]));
+		assert.deepStrictEqual([narrow.map(f => f.selector), wide.length, short.length], [['.col'], 0, 0]);
+	});
+
+	test('капслок h1 с межстрочным меньше кегля — находка; с запасом и строчный — нет', () => {
+		const heading = (over: Partial<ElementSnapshot>) => el({
+			selector: 'h1', tag: 'h1', text: 'ЗАГОЛОВОК', textTransform: 'uppercase',
+			fontSizePx: 40, lineHeightPx: 36, ...over,
+		});
+		const caps = findingsOf('caps-head-under-1.0', doc([heading({})]));
+		const loose = findingsOf('caps-head-under-1.0', doc([heading({ lineHeightPx: 48 })]));
+		const lower = findingsOf('caps-head-under-1.0', doc([heading({ textTransform: 'none' })]));
+		assert.deepStrictEqual([caps.map(f => f.selector), loose.length, lower.length], [['h1'], 0, 0]);
+	});
+
+	test('мелкие h2 на десктопе — находка; крупные и неизвестный вьюпорт — нет', () => {
+		const heads = (sizes: number[]) => sizes.map((fontSizePx, index) =>
+			el({ selector: `h2:nth-of-type(${index + 1})`, tag: 'h2', text: 'Раздел', fontSizePx }));
+		const small = findingsOf('small-section-heads', doc(heads([28, 32, 36]), { viewport: 'desktop' }));
+		const large = findingsOf('small-section-heads', doc(heads([40, 44, 48]), { viewport: 'desktop' }));
+		const unknown = findingsOf('small-section-heads', doc(heads([28, 32, 36])));
+		assert.deepStrictEqual([small.length, large.length, unknown.length], [1, 0, 0]);
 	});
 });

@@ -35,6 +35,11 @@ const ILLUSTRATION_MIN_SHAPES = 8;
 const ILLUSTRATION_MIN_WIDTH_PX = 200;
 /** Border colour close to the surface it sits on: a frame nobody sees, drawn out of habit. */
 const INVISIBLE_BORDER_MAX_CONTRAST = 1.12;
+/** Блок меньше этого — карточка или плашка, а не поверхность страницы. */
+const PURE_WHITE_MIN_WIDTH_PX = 600;
+const PURE_WHITE_MIN_HEIGHT_PX = 400;
+/** Собственный фон должен быть непрозрачным, иначе это подложка, а не поверхность. */
+const OPAQUE_BACKGROUND_MIN_ALPHA = 0.5;
 
 const maxBorder = (el: ElementSnapshot): number =>
 	Math.max(el.borderWidthPx.top, el.borderWidthPx.right, el.borderWidthPx.bottom, el.borderWidthPx.left);
@@ -220,6 +225,20 @@ const ruleUniformRadiusAndShadow: Rule = doc => {
 	}];
 };
 
+/** Большая чисто белая поверхность: белый по умолчанию, а не выбранный тон. */
+const rulePureWhiteSurface: Rule = doc => doc.elements
+	.filter(el => el.ownBackgroundAlpha > OPAQUE_BACKGROUND_MIN_ALPHA)
+	.filter(el => el.backgroundColor[0] === 255 && el.backgroundColor[1] === 255 && el.backgroundColor[2] === 255)
+	.filter(el => el.widthPx >= PURE_WHITE_MIN_WIDTH_PX && el.heightPx >= PURE_WHITE_MIN_HEIGHT_PX)
+	.map(el => ({
+		rule: RULE.pureWhiteSurface,
+		severity: 'info' as const,
+		message: `Чисто белая поверхность ${el.widthPx.toFixed(0)}×${el.heightPx.toFixed(0)}px`,
+		why: 'Чистый белый — это значение браузера по умолчанию; тёплый или холодный оттенок фона читается как выбранный, а не оставленный.',
+		selector: el.selector,
+		evidence: `background: #ffffff, ${el.widthPx.toFixed(0)}×${el.heightPx.toFixed(0)}px`,
+	}));
+
 export const VISUAL_RULES: readonly Rule[] = [
 	ruleExtremeRadius,
 	ruleUniformRadiusAndShadow,
@@ -230,4 +249,5 @@ export const VISUAL_RULES: readonly Rule[] = [
 	ruleDecorativeBackdrop,
 	ruleShapeAssembledArt,
 	ruleInvisibleBorder,
+	rulePureWhiteSurface,
 ];

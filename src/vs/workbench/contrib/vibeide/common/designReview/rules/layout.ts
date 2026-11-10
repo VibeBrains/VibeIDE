@@ -58,6 +58,10 @@ const COLUMN_IMBALANCE_RATIO = 2.2;
 const COLUMN_MIN_WIDTH_PX = 200;
 /** A heading needs more air above it than below: less than this ratio reads as crowding. */
 const HEADING_SPACE_RATIO = 0.6;
+/** Текстовая колонка уже этого числа знаков (в долях кегля) читается по одному слову в строке. */
+const MIN_TEXT_SLIVER_WIDTH_EM = 16;
+/** На трёх строках узкий блок ещё может быть подписью; с четырёх — это текст. */
+const MIN_TEXT_SLIVER_LINES = 4;
 /** Distance from a heading's top within which the previous block is "against" it. */
 const HEADING_CROWD_GAP_PX = 10;
 /** Cards flush to one edge of a horizontal scroller while their siblings have breathing room. */
@@ -635,6 +639,19 @@ const ruleFlushToScrollerEdge: Rule = doc => {
 	return findings;
 };
 
+/** Текст, сжатый в узкую щель: строки рвутся по слову, и абзац перестаёт читаться. */
+const ruleTextSliver: Rule = doc => doc.elements
+	.filter(el => el.text.length > 0 && el.fontSizePx > 0 && el.textLineCount >= MIN_TEXT_SLIVER_LINES)
+	.filter(el => el.widthPx / el.fontSizePx < MIN_TEXT_SLIVER_WIDTH_EM)
+	.map(el => ({
+		rule: RULE.textSliver,
+		severity: 'warning' as const,
+		message: `Текст шириной ${(el.widthPx / el.fontSizePx).toFixed(0)} знаков на ${el.textLineCount} строках`,
+		why: 'В такой узкой колонке строка вмещает пару слов, и глаз не успевает собрать фразу: ширину задаёт содержимое, а не остаток места.',
+		selector: el.selector,
+		evidence: `${el.widthPx.toFixed(0)}px при font-size ${el.fontSizePx}px, строк ${el.textLineCount}`,
+	}));
+
 export const LAYOUT_RULES: readonly Rule[] = [
 	ruleLineLength,
 	ruleTargetBelowWcag,
@@ -655,4 +672,5 @@ export const LAYOUT_RULES: readonly Rule[] = [
 	ruleColumnImbalance,
 	ruleHeadingCrowded,
 	ruleFlushToScrollerEdge,
+	ruleTextSliver,
 ];

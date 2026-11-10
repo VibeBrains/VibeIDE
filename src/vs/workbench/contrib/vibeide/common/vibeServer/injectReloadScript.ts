@@ -199,7 +199,8 @@ export function buildReloadClientScript(wsPath: string): string {
 		'boxShadow:(s.boxShadow||"none").slice(0,200),backdropFilter:((s.backdropFilter||s.webkitBackdropFilter)||"none").slice(0,80),',
 		'borderRadiusPx:dsRadius(s),borderWidthPx:bw,borderColor:bc?bc.c:[0,0,0],borderAlpha:bc?bc.a:0,',
 		'animationName:s.animationName||"none",animationTimingFunction:(s.animationTimingFunction||"ease").slice(0,80),animationDurationMs:dsMs(s.animationDuration),',
-		'transitionProperty:(s.transitionProperty||"none").slice(0,120),transitionTimingFunction:(s.transitionTimingFunction||"ease").slice(0,80),',
+		// Вычисленное transition-property по умолчанию равно all даже без перехода, поэтому при нулевых длительностях — none
+		'transitionProperty:(/[1-9]/.test(s.transitionDuration||"")?(s.transitionProperty||"none"):"none").slice(0,120),transitionTimingFunction:(s.transitionTimingFunction||"ease").slice(0,80),',
 		'position:s.position||"static",zIndex:s.zIndex==="auto"?0:(parseInt(s.zIndex,10)||0),overflowX:s.overflowX||"visible",overflowY:s.overflowY||"visible",',
 		'widthPx:r.width,heightPx:r.height,leftPx:r.left+window.scrollX,topPx:r.top+window.scrollY,',
 		'scrollWidthPx:el.scrollWidth||0,clientWidthPx:el.clientWidth||0,',

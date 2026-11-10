@@ -36,6 +36,14 @@ const ICON_TILE_MIN_RADIUS_PX = 6;
 const DISPLAY_FONT_PX = 34;
 /** Words above which a display headline is a paragraph wearing a headline's clothes. */
 const MAX_DISPLAY_WORDS = 12;
+/** More families than this stop reading as a typographic system. */
+const MAX_FONT_FAMILIES = 3;
+/** More weights than this stop reading as a hierarchy. */
+const MAX_FONT_WEIGHTS = 3;
+/** Капслок без запаса по строке: прописные выше строчных и упираются друг в друга. */
+const CAPS_HEAD_MIN_LINE_HEIGHT_RATIO = 1.0;
+/** Медиана кегля h2 ниже этого на десктопе читается как подпись, а не как раздел. */
+const MIN_SECTION_HEAD_FONT_PX = 40;
 /**
  * Families that arrive with the template rather than with a decision.
  *
@@ -327,6 +335,89 @@ const ruleOrphanWord: Rule = doc => doc.elements
 		evidence: `${el.textLineCount} строк, на последней 1 слово`,
 	}));
 
+/** Больше трёх семейств — уже не система, а случайный набор: у каждого свой характер. */
+const ruleTooManyFonts: Rule = doc => {
+	const families = new Set(
+		doc.elements
+			.filter(el => el.text.length > 0 && el.fontFamily)
+			.map(el => primaryFamily(el.fontFamily))
+	);
+	if (families.size <= MAX_FONT_FAMILIES) { return []; }
+	return [{
+		rule: RULE.tooManyFonts,
+		severity: 'info',
+		message: `На странице ${families.size} разных гарнитур`,
+		why: 'Каждая гарнитура несёт свой характер; больше трёх на одном экране читаются как отсутствие выбора.',
+		selector: 'body',
+		evidence: [...families].join(', '),
+	}];
+};
+
+/** Больше трёх начертаний — шкала перестаёт различаться на глаз. */
+const ruleTooManyWeights: Rule = doc => {
+	const weights = new Set(
+		doc.elements
+			.filter(el => el.text.length > 0)
+			.map(el => el.fontWeight)
+	);
+	if (weights.size <= MAX_FONT_WEIGHTS) { return []; }
+	return [{
+		rule: RULE.tooManyWeights,
+		severity: 'info',
+		message: `На странице ${weights.size} разных начертаний`,
+		why: 'Разница между соседними весами на глаз почти не видна, поэтому hierarchy держат размером и цветом, а не пятой насыщенностью.',
+		selector: 'body',
+		evidence: [...weights].sort((a, b) => a - b).join(', '),
+	}];
+};
+
+/** Три точки вместо типографского многоточия — след машинного набора. */
+const ruleThreeDotEllipsis: Rule = doc => doc.elements
+	.filter(el => el.text.includes('...') && el.tag !== 'code' && el.tag !== 'pre')
+	.map(el => ({
+		rule: RULE.threeDotEllipsis,
+		severity: 'info' as const,
+		message: 'Многоточие набрано тремя точками',
+		why: 'Три точки стоят на равном расстоянии и не переносятся как один знак; в русском наборе ставят одно многоточие «…».',
+		selector: el.selector,
+		evidence: `«${el.text.slice(0, 40)}»`,
+	}));
+
+/** Капслок с межстрочным меньше кегля: прописные буквы упираются друг в друга. */
+const ruleCapsHeadUnder: Rule = doc => doc.elements
+	.filter(el => /^h[1-2]$/.test(el.tag) && el.textTransform === 'uppercase')
+	.filter(el => el.fontSizePx > 0 && el.lineHeightPx > 0 && el.lineHeightPx / el.fontSizePx < CAPS_HEAD_MIN_LINE_HEIGHT_RATIO)
+	.map(el => ({
+		rule: RULE.capsHeadUnder,
+		severity: 'warning' as const,
+		message: `${el.tag} капслоком с межстрочным ${(el.lineHeightPx / el.fontSizePx).toFixed(2)}`,
+		why: 'Прописные выше строчных и занимают всю строку, поэтому им нужен запас по высоте; иначе строки слипаются.',
+		selector: el.selector,
+		evidence: `line-height: ${el.lineHeightPx}px при font-size: ${el.fontSizePx}px`,
+	}));
+
+/** Медиана h2 ниже 40px на десктопе: разделы читаются как подписи под содержимым. */
+const ruleSmallSectionHeads: Rule = doc => {
+	// Ширина не названа — молчим: 40px — норма именно для десктопа, а не для любого снимка
+	if (doc.viewport !== 'desktop') { return []; }
+	const sizes = doc.elements
+		.filter(el => el.tag === 'h2' && el.fontSizePx > 0)
+		.map(el => el.fontSizePx)
+		.sort((a, b) => a - b);
+	if (sizes.length === 0) { return []; }
+	const middle = Math.floor(sizes.length / 2);
+	const median = sizes.length % 2 ? sizes[middle] : (sizes[middle - 1] + sizes[middle]) / 2;
+	if (median >= MIN_SECTION_HEAD_FONT_PX) { return []; }
+	return [{
+		rule: RULE.smallSectionHeads,
+		severity: 'info',
+		message: `Медиана кегля h2 — ${median.toFixed(0)}px`,
+		why: 'Раздел должен быть заметно крупнее текста под ним; мелкие одинаковые h2 превращают страницу в список абзацев.',
+		selector: 'h2',
+		evidence: `медиана ${median.toFixed(0)}px на ${sizes.length} заголовках`,
+	}];
+};
+
 export const TYPOGRAPHY_RULES: readonly Rule[] = [
 	ruleTinyText,
 	ruleUndersizedUiText,
@@ -345,4 +436,9 @@ export const TYPOGRAPHY_RULES: readonly Rule[] = [
 	ruleJustifiedText,
 	ruleHangingPreposition,
 	ruleOrphanWord,
+	ruleTooManyFonts,
+	ruleTooManyWeights,
+	ruleThreeDotEllipsis,
+	ruleCapsHeadUnder,
+	ruleSmallSectionHeads,
 ];
