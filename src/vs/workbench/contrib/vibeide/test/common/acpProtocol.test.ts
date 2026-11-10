@@ -9,6 +9,7 @@ import {
 	ACP_TOOL_OUTPUT_MAX_CHARS,
 	AcpStreamDecoder,
 	agentCommandOf,
+	agentSupportsAuthStatus,
 	agentSupportsClose,
 	agentSupportsSystemPrompt,
 	cancelledRequestIdOf,
@@ -24,6 +25,7 @@ import {
 	returnToSessionParams,
 	setConfigOptionParams,
 	authMethodsOf,
+	authStatusOf,
 	parseSessionUpdate,
 	promptCapabilitiesOf,
 	stopReasonOf,
@@ -410,6 +412,45 @@ suite('acpProtocol', () => {
 
 		test('агент без авторизации не ломает знакомство', () => {
 			assert.deepStrictEqual([authMethodsOf({ protocolVersion: 1 }), authMethodsOf(undefined)], [[], []]);
+		});
+
+		test('auth/status объявлен объектом, отсутствие и null — нет', () => {
+			const greeting = (auth: JsonValue): JsonValue => ({ agentCapabilities: { auth } });
+			assert.deepStrictEqual(
+				[
+					agentSupportsAuthStatus(greeting({ status: {} })),
+					agentSupportsAuthStatus(greeting({ status: null })),
+					agentSupportsAuthStatus(greeting({})),
+					agentSupportsAuthStatus(undefined),
+				],
+				[true, false, false, false]);
+		});
+
+		test('состояние входа: незнакомая строка и отсутствие состояния — unknown', () => {
+			const state = (raw: JsonValue | undefined) => authStatusOf(raw === undefined ? undefined : { state: raw }).state;
+			assert.deepStrictEqual(
+				[state('authenticated'), state('unauthenticated'), state('not_required'), state('waiting_for_user'), state(undefined)],
+				['authenticated', 'unauthenticated', 'not_required', 'unknown', 'unknown']);
+			assert.deepStrictEqual([authStatusOf({}).state, authStatusOf(undefined).state], ['unknown', 'unknown']);
+		});
+
+		test('аккаунты только для показа: кривое поле игнорируется, кривая запись пропускается', () => {
+			const status = authStatusOf({
+				state: 'authenticated',
+				accounts: [
+					{ label: 'Личный', active: true, name: 'Анна', email: 'a@example.com', organization: 'ООО «Пример»' },
+					{ label: 'Без флага', active: 'да', name: 42 },
+					{ name: 'Без метки' },
+					'строка',
+				],
+			});
+			assert.deepStrictEqual(status, {
+				state: 'authenticated',
+				accounts: [
+					{ label: 'Личный', active: true, name: 'Анна', email: 'a@example.com', organization: 'ООО «Пример»' },
+					{ label: 'Без флага' },
+				],
+			});
 		});
 	});
 

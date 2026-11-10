@@ -28,6 +28,7 @@ export const ACP_PROTOCOL_VERSION = 1;
 export const ACP_AGENT_METHOD = {
 	initialize: 'initialize',
 	authenticate: 'authenticate',
+	authStatus: 'auth/status',
 	newSession: 'session/new',
 	loadSession: 'session/load',
 	resumeSession: 'session/resume',
@@ -43,6 +44,8 @@ export const ACP_CLIENT_METHOD = {
 	readTextFile: 'fs/read_text_file',
 	writeTextFile: 'fs/write_text_file',
 	sessionUpdate: 'session/update',
+	/** Полный снимок состояния входа: может прийти в любой момент после initialize */
+	authStatusUpdate: 'auth/status_update',
 	/** The agent withdraws a request it sent us; the answer to that request is `requestCancelled` */
 	cancelRequest: '$/cancel_request',
 } as const;
@@ -261,6 +264,70 @@ export function authMethodsOf(initializeResult: JsonValue | undefined): readonly
 		methods.push({ id, name: stringAt(record, 'name') ?? id, description: stringAt(record, 'description') ?? '' });
 	}
 	return methods;
+}
+
+/** Состояние входа, о котором агент рассказал сам; незнакомая строка означает «неизвестно» */
+export type AcpAuthState = 'authenticated' | 'unauthenticated' | 'not_required' | 'unknown';
+
+/** Аккаунт агента: только для показа человеку, в журнал и трассу не попадает */
+export interface IAcpAuthAccount {
+	readonly label: string;
+	readonly active?: boolean;
+	readonly name?: string;
+	readonly email?: string;
+	readonly organization?: string;
+}
+
+/** Ответ на `auth/status` и уведомление `auth/status_update` несут один и тот же снимок */
+export interface IAcpAuthStatus {
+	readonly state: AcpAuthState;
+	readonly accounts: readonly IAcpAuthAccount[];
+}
+
+/**
+ * Объявил ли агент поддержку `auth/status` (`agentCapabilities.auth.status`).
+ *
+ * Схема требует объект: `{}` — поддержка, отсутствие или `null` — нет. `true` принимаем тоже:
+ * агент сказал о намерении ясно, а строгость схемы здесь ничего не защищает.
+ */
+export function agentSupportsAuthStatus(greeting: JsonValue | undefined): boolean {
+	const status = asObject(asObject(asObject(greeting)?.['agentCapabilities'])?.['auth'])?.['status'];
+	return status === true || !!asObject(status);
+}
+
+/**
+ * Снимок входа из ответа на `auth/status` или уведомления `auth/status_update`.
+ *
+ * Действовать можно только по `state`: незнакомое значение — `unknown`. Кривое поле аккаунта
+ * игнорируется, запись без метки пропускается — показ важнее строгости, но выдумывать нечего.
+ */
+export function authStatusOf(result: JsonValue | undefined): IAcpAuthStatus {
+	const record = asObject(result);
+	const rawState = record?.['state'];
+	const state: AcpAuthState = rawState === 'authenticated' || rawState === 'unauthenticated' || rawState === 'not_required'
+		? rawState
+		: 'unknown';
+	const accounts: IAcpAuthAccount[] = [];
+	const rawAccounts = record?.['accounts'];
+	if (Array.isArray(rawAccounts)) {
+		for (const entry of rawAccounts) {
+			const account = asObject(entry);
+			const label = stringAt(account, 'label');
+			if (!label) { continue; }
+			const active = account?.['active'];
+			const name = stringAt(account, 'name');
+			const email = stringAt(account, 'email');
+			const organization = stringAt(account, 'organization');
+			accounts.push({
+				label,
+				...(typeof active === 'boolean' ? { active } : {}),
+				...(name ? { name } : {}),
+				...(email ? { email } : {}),
+				...(organization ? { organization } : {}),
+			});
+		}
+	}
+	return { state, accounts };
 }
 
 /**
