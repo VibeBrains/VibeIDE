@@ -328,13 +328,15 @@ body.monaco-workbench,
 
 .monaco-workbench .part.sidebar > .content .pane-header,
 .monaco-workbench .part.auxiliarybar > .content .pane-header {
-	padding: var(--vibeide-space-sm) var(--vibeide-space-md) !important;
-	min-height: 32px;
+	padding: 0 var(--vibeide-space-md) !important;
 }
 
-.monaco-workbench .part.sidebar > .content .pane-body,
-.monaco-workbench .part.auxiliarybar > .content .pane-body {
-	padding-bottom: var(--vibeide-space-sm);
+/* Высота заголовка панели задаётся переменной, а не min-height и отступами:
+ * Раскладка берёт ту же высоту из setGlobalPaneHeaderSize (VIBE_PANE_HEADER_SIZE в styleOverrides.contribution.ts)
+ * Высота, известная одному CSS, сдвигала содержимое вниз, и последняя строка списка не доскролливалась
+ * Экспериментальная тема VS Code (.style-override) ставит свою высоту, её не перебиваем */
+.monaco-workbench:not(.style-override) .monaco-pane-view {
+	--pane-header-size: 32px;
 }
 
 .monaco-workbench .split-view-view {
