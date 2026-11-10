@@ -71,6 +71,8 @@ import { pickHeaviestTrimmableIndex } from '../common/prompt/contextTrim.js';
 import { IVibeProjectRulesService } from './vibeProjectRulesService.js';
 import { extractToolFilePaths, toWorkspaceRelative, parseRuleInvocations } from '../common/prompt/ruleFrontmatter.js';
 import { planBudgetFillTail } from '../common/agentLoopHeuristics.js';
+import { buildTaskSourceBlock, PRESERVE_NOTE_MAX_CHARS, TASK_SOURCE_MAX_CHARS, TASK_SOURCE_WRAPPER_MAX_CHARS } from '../common/compactionAnchor.js';
+import type { CompactionTaskSource } from '../common/compactionAnchor.js';
 import { updateTokenCalibration, clampTokenCalibration, serializeCalibration, deserializeCalibration, TOKEN_CALIBRATION_MAX } from '../common/tokenCalibration.js';
 import { IStorageService, StorageScope, StorageTarget } from '../../../../platform/storage/common/storage.js';
 import { INotificationService, Severity } from '../../../../platform/notification/common/notification.js';
@@ -1384,8 +1386,10 @@ export interface IConvertToLLMMessageService {
 	/**
 	 * `reasoningPrefix` — fingerprint of the prefix the answer to this request is produced under, for Anthropic-shaped
 	 * models; the caller keeps it on the answer so a later request can tell its thinking blocks are still valid
+	 *
+	 * `taskSource` — бриф задачи; при сжатии истории его текст попадает в `<task_source>` рядом с исходной задачей
 	 */
-	prepareLLMChatMessages: (opts: { chatMessages: ChatMessage[]; chatMode: ChatMode; modelSelection: ModelSelection | null; repoIndexerPromise?: Promise<{ results: string[]; metrics: QueryMetrics } | null>; skipContextGuardUpdate?: boolean }) => Promise<{ messages: LLMChatMessage[]; separateSystemMessage: string | undefined; turnContext?: string; reasoningPrefix?: string }>;
+	prepareLLMChatMessages: (opts: { chatMessages: ChatMessage[]; chatMode: ChatMode; modelSelection: ModelSelection | null; repoIndexerPromise?: Promise<{ results: string[]; metrics: QueryMetrics } | null>; skipContextGuardUpdate?: boolean; taskSource?: CompactionTaskSource }) => Promise<{ messages: LLMChatMessage[]; separateSystemMessage: string | undefined; turnContext?: string; reasoningPrefix?: string }>;
 	prepareFIMMessage(opts: { messages: LLMFIMMessage; modelSelection: ModelSelection | null; featureName: FeatureName; languageId?: string }): { prefix: string; suffix: string; stopTokens: string[] };
 	startRepoIndexerQuery: (chatMessages: ChatMessage[], chatMode: ChatMode) => Promise<{ results: string[]; metrics: QueryMetrics } | null>;
 	/** Feed back a provider-reported prompt token count so the token-budget estimator can self-calibrate per (provider×model). No-op until a prompt has been built for that model this session. */
@@ -2004,7 +2008,7 @@ class ConvertToLLMMessageService extends Disposable implements IConvertToLLMMess
 		};
 	};
 
-	prepareLLMChatMessages: IConvertToLLMMessageService['prepareLLMChatMessages'] = async ({ chatMessages, chatMode, modelSelection, repoIndexerPromise, skipContextGuardUpdate }) => {
+	prepareLLMChatMessages: IConvertToLLMMessageService['prepareLLMChatMessages'] = async ({ chatMessages, chatMode, modelSelection, repoIndexerPromise, skipContextGuardUpdate, taskSource }) => {
 		if (modelSelection === null) { return { messages: [], separateSystemMessage: undefined }; }
 
 		// Subagents run against the SAME context-guard singleton as the main thread. Writing this
@@ -2429,11 +2433,17 @@ class ConvertToLLMMessageService extends Disposable implements IConvertToLLMMess
 			const OTHER_SUMMARY_MAX_CHARS = 800;
 			const SUMMARY_BODY_MAX_CHARS = 2400;
 			const SUMMARY_WRAPPER_CHARS = 96; // tags + heading boilerplate
+			const preserveNote = ctxGuard?.getPreserveNote();
+			const taskSourceBlock = buildTaskSourceBlock(taskSource, preserveNote);
 			const sysInstrTokens = estimateTokens(systemMessage) + estimateTokens(aiInstructions);
 			// Reserve room for the summary block we may prepend to the system message, sized to its
-			// worst-case char output (pinned original task + summary body). Mirrors estimateTokens'
-			// chars-per-token ratio without allocating the placeholder string.
-			const summaryReserve = Math.ceil((PINNED_TASK_MAX_CHARS + SUMMARY_BODY_MAX_CHARS + SUMMARY_WRAPPER_CHARS) / 4);
+			// worst-case char output (pinned original task + task source + summary body). The task
+			// source is reserved only when it will actually be present, so a thread without a brief
+			// keeps the whole budget for history. Mirrors estimateTokens' chars-per-token ratio.
+			const taskSourceReserve = taskSourceBlock
+				? (taskSource?.text.trim() ? TASK_SOURCE_MAX_CHARS : 0) + (preserveNote?.trim() ? PRESERVE_NOTE_MAX_CHARS : 0) + TASK_SOURCE_WRAPPER_MAX_CHARS
+				: 0;
+			const summaryReserve = Math.ceil((PINNED_TASK_MAX_CHARS + taskSourceReserve + SUMMARY_BODY_MAX_CHARS + SUMMARY_WRAPPER_CHARS) / 4);
 			const tailBudget = Math.max(256, calBudget - sysInstrTokens - summaryReserve);
 
 			// Plan the kept set: the recent budget-fit tail PLUS any PINNED message that falls in
@@ -2463,8 +2473,9 @@ class ConvertToLLMMessageService extends Disposable implements IConvertToLLMMess
 				const otherSummary = otherMessages.map(m => `${m.role}: ${m.content.slice(0, PER_OTHER_MSG_MAX_CHARS)}`).join('\n').slice(0, OTHER_SUMMARY_MAX_CHARS);
 
 				const headConcat = userSummary + (otherSummary ? '\n' + otherSummary : '');
+				const taskSourcePrefix = taskSourceBlock ? `${taskSourceBlock}\n\n` : '';
 				// Textual fallback body (unchanged behavior). Byte-identical when the LLM path is off/uncached.
-				const textualBody = `${pinnedOriginal}Prior conversation summarized (${head.length} older messages; ${keep.length} kept in full incl. pinned). Key points:\n${headConcat.slice(0, SUMMARY_BODY_MAX_CHARS)}${headConcat.length > SUMMARY_BODY_MAX_CHARS ? '…' : ''}`;
+				const textualBody = `${taskSourcePrefix}${pinnedOriginal}Prior conversation summarized (${head.length} older messages; ${keep.length} kept in full incl. pinned). Key points:\n${headConcat.slice(0, SUMMARY_BODY_MAX_CHARS)}${headConcat.length > SUMMARY_BODY_MAX_CHARS ? '…' : ''}`;
 
 				// LLM summary (opt-in). Cache-safe: reuse a byte-stable summary keyed by the head's content
 				// hash; on a miss use the textual body THIS turn and fill the cache in the background.
@@ -2473,7 +2484,7 @@ class ConvertToLLMMessageService extends Disposable implements IConvertToLLMMess
 					const headKey = String(hash(head.map(m => `${m.role}:${m.content}`).join('\u0000')));
 					const cachedLLM = this._historySummaryCache.get(headKey);
 					if (cachedLLM) {
-						summaryBody = `${pinnedOriginal}Prior conversation summarized (${head.length} older messages; ${keep.length} kept in full incl. pinned). Key points:\n${cachedLLM}`;
+						summaryBody = `${taskSourcePrefix}${pinnedOriginal}Prior conversation summarized (${head.length} older messages; ${keep.length} kept in full incl. pinned). Key points:\n${cachedLLM}`;
 					} else {
 						this._scheduleHistorySummary(headKey, head, modelSelection);
 					}

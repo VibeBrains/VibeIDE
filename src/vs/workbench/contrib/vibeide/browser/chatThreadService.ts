@@ -145,6 +145,8 @@ import { isContinuationRequest, buildScoutGoal, hasAgentWorkSinceLastUserMessage
 import { toolParamUri } from '../common/toolParamUri.js';
 import { currentTaskOf, taskReminderLine } from '../common/autopilotNudge.js';
 import { coverageOf, isCovered, parseBrief } from '../common/taskBrief.js';
+import { briefFileName } from '../common/taskBriefFile.js';
+import type { CompactionTaskSource } from '../common/compactionAnchor.js';
 import { VIBEIDE_CIRCUIT_BREAKERS_ACTION_ID } from './vibeCircuitBreakerCommands.js';
 import { IVibePlanEventJournalService } from '../common/vibePlanEventJournalService.js';
 import { IVibePlanBindingRegistry } from './vibePlanBindingRegistry.js';
@@ -3265,6 +3267,26 @@ class ChatThreadService extends Disposable implements IChatThreadService {
 		return resolved;
 	}
 
+	/**
+	 * Бриф последнего плана треда — опора задачи после сжатия истории.
+	 *
+	 * Работаем по ссылке briefId, а не копии текста: бриф правится на диске, и промпт должен
+	 * видеть актуальную версию. Нет плана с брифом или файл не читается — поля нет, и сводка
+	 * собирается как раньше.
+	 */
+	private async _taskSourceForThread(threadId: string): Promise<CompactionTaskSource | undefined> {
+		const thread = this.state.allThreads[threadId];
+		const folder = this._workspaceContextService.getWorkspace().folders[0];
+		if (!thread || !folder) { return undefined; }
+		for (let i = thread.messages.length - 1; i >= 0; i--) {
+			const message = thread.messages[i];
+			if (message.role !== 'plan' || !message.briefId) { continue; }
+			const brief = await this._persistedPlanService.loadBrief(folder.uri, message.briefId);
+			return brief ? { text: brief.text, path: `.vibe/plans/${briefFileName(message.briefId)}` } : undefined;
+		}
+		return undefined;
+	}
+
 	// Generate plan from user request by asking LLM
 	/**
 	 * Разобрать задачу на требования и привязать бриф к плану.
@@ -5862,11 +5884,13 @@ Output ONLY the JSON, no other text. Start with { and end with }.`;
 				this._rememberReasoningPrefix(threadId, cached.reasoningPrefix);
 			} else {
 				// Prepare messages (expensive operation)
+				const taskSource = await this._taskSourceForThread(threadId);
 				const prepResult = await this._convertToLLMMessagesService.prepareLLMChatMessages({
 					chatMessages: preprocessedMessages,
 					modelSelection,
 					chatMode,
-					repoIndexerPromise: repoIndexerResults ? Promise.resolve(repoIndexerResults) : repoIndexerPromise
+					repoIndexerPromise: repoIndexerResults ? Promise.resolve(repoIndexerResults) : repoIndexerPromise,
+					taskSource
 				});
 				messages = prepResult.messages;
 				separateSystemMessage = prepResult.separateSystemMessage;
@@ -6072,11 +6096,13 @@ Output ONLY the JSON, no other text. Start with { and end with }.`;
 								this._rememberReasoningPrefix(threadId, switchCached.reasoningPrefix);
 							} else {
 								// Prepare messages (cache miss)
+								const taskSource = await this._taskSourceForThread(threadId);
 								const prepResult = await this._convertToLLMMessagesService.prepareLLMChatMessages({
 									chatMessages: preprocessedMessages,
 									modelSelection,
 									chatMode,
-									repoIndexerPromise: repoIndexerResults ? Promise.resolve(repoIndexerResults) : repoIndexerPromise
+									repoIndexerPromise: repoIndexerResults ? Promise.resolve(repoIndexerResults) : repoIndexerPromise,
+									taskSource
 								});
 								messages = prepResult.messages;
 								separateSystemMessage = prepResult.separateSystemMessage;

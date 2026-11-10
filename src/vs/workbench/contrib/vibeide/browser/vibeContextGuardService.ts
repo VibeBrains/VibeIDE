@@ -92,6 +92,10 @@ export interface IVibeContextGuardService {
 	 *  on the next `updateUsage` fire, like `setTruncationStats`. */
 	setCalibrationFactor(factor: number | undefined): void;
 
+	/** Заметка «что сохранить»: попадёт в блок <task_source> рядом с брифом при сжатии. */
+	getPreserveNote(): string | undefined;
+	setPreserveNote(text: string | undefined): void;
+
 	/**
 	 * Reset usage counters to zero (e.g. when the user switches to a different
 	 * chat thread). Status bar refreshes immediately; the next request through
@@ -135,6 +139,7 @@ class VibeContextGuardService extends Disposable implements IVibeContextGuardSer
 	private _keptMessages: number | undefined = undefined;
 	private _summarizedMessages: number | undefined = undefined;
 	private _calibrationFactor: number | undefined = undefined;
+	private _preserveNote: string | undefined = undefined;
 	private _warningFired = false;
 	private _criticalFired = false;
 	private _warningThreshold: number;
@@ -209,12 +214,21 @@ class VibeContextGuardService extends Disposable implements IVibeContextGuardSer
 		this._calibrationFactor = factor;
 	}
 
+	getPreserveNote(): string | undefined {
+		return this._preserveNote;
+	}
+
+	setPreserveNote(text: string | undefined): void {
+		this._preserveNote = text;
+	}
+
 	reset(): void {
 		this._currentTokens = 0;
 		this._maxTokens = 0;
 		this._keptMessages = undefined;
 		this._summarizedMessages = undefined;
 		this._calibrationFactor = undefined;
+		this._preserveNote = undefined;
 		this._warningFired = false;
 		this._criticalFired = false;
 		this._onUsageUpdated.fire(this.getStatus());
