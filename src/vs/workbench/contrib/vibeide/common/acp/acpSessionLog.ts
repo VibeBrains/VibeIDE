@@ -58,11 +58,12 @@ export interface AcpToolFrame {
 	readonly exitCode?: number;
 }
 
-/** Расход хода: контекст и деньги. */
+/** Расход хода: контекст и деньги; `costUsd` — сумма в единицах `costCurrency` */
 export interface IAcpSessionSpend {
 	readonly used: number;
 	readonly size: number;
 	readonly costUsd?: number;
+	readonly costCurrency?: string;
 }
 
 export interface IAcpSessionSnapshot {
@@ -220,7 +221,12 @@ export class AcpSessionLog {
 	 * Значения приходят накопительными за сессию, поэтому последнее заменяет прежнее. Складывать
 	 * их значило бы посчитать одни и те же токены столько раз, сколько пришло кадров.
 	 */
-	applySpend(used: number, size: number, costUsd: number | undefined): void {
-		this._spend = { used, size, ...(costUsd === undefined ? {} : { costUsd }) };
+	applySpend(used: number, size: number, costUsd: number | undefined, costCurrency?: string): void {
+		this._spend = {
+			used,
+			size,
+			...(costUsd === undefined ? {} : { costUsd }),
+			...(costCurrency === undefined ? {} : { costCurrency }),
+		};
 	}
 }

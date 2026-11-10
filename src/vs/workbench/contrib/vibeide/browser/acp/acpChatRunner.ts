@@ -27,6 +27,7 @@ import { IChatJournalService } from '../chatJournalService.js';
 import { IVibeIgnoreService } from '../vibeIgnoreService.js';
 import { ChatImageAttachment, ChatMessage, ChatPDFAttachment, StagingSelectionItem } from '../../common/chatThreadServiceTypes.js';
 import { AcpStopReason, isCompactionSettled, isToolOpen } from '../../common/acp/acpProtocol.js';
+import { formatAcpCost } from '../../common/acp/acpCost.js';
 import { DEFAULT_ACP_PERMISSION_MODE } from '../../common/acp/acpPermissionPolicy.js';
 import { ACP_EMBED_MAX_CHARS_DEFAULT, ACP_EMBED_MAX_CHARS_KEY } from '../../common/acp/acpPromptContext.js';
 import { mirrorAcpEntries, nextMirrorCursor } from '../../common/acp/acpThreadMirror.js';
@@ -368,7 +369,7 @@ export class AcpChatRunner extends Disposable {
 				category: 'agents',
 				level: 'info',
 				text: localize('vibeide.acpChat.spend', "Агент «{0}»: {1} из {2} токенов контекста{3}. Расход идёт по подписке агента, а не по ключам IDE.",
-					binding.agentName, spend.used.toLocaleString('ru-RU'), spend.size.toLocaleString('ru-RU'), spend.costUsd === undefined ? '' : ` · $${spend.costUsd.toFixed(4)}`),
+					binding.agentName, spend.used.toLocaleString('ru-RU'), spend.size.toLocaleString('ru-RU'), spend.costUsd === undefined ? '' : ` · ${formatAcpCost(spend.costUsd, spend.costCurrency)}`),
 			});
 		}
 	}

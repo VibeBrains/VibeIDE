@@ -32,6 +32,7 @@ import {
 	JSON_RPC_ERROR,
 	JsonValue,
 	agentSupportsClose,
+	agentSupportsSystemPrompt,
 	authMethodsOf,
 	cancelledRequestIdOf,
 	configOptionsOf,
@@ -112,6 +113,8 @@ interface IAgentProcess {
 	authMethods: readonly IAcpAuthMethod[];
 	/** The agent declared `session/close`: a session ends with it before the process is ended */
 	closeSupported?: boolean;
+	/** The agent declared client system prompts: only then may `systemPrompt` ride in a session request */
+	systemPromptSupported?: boolean;
 	/** What the agent declared it accepts in a prompt; known from the greeting on, before any session */
 	promptCapabilities: IAcpPromptCapabilities;
 	/** The session's settings as the agent last reported them — a boolean's change has to say its type */
@@ -294,6 +297,7 @@ export class VibeAcpMainService extends Disposable implements IVibeAcpMain {
 		}
 		agent.authMethods = authMethodsOf(greeting);
 		agent.closeSupported = agentSupportsClose(greeting);
+		agent.systemPromptSupported = agentSupportsSystemPrompt(greeting);
 		agent.promptCapabilities = promptCapabilitiesOf(greeting);
 		// HTTP-серверы отсеиваются здесь, а не в окне: поддержку такого транспорта агент объявляет
 		// в рукопожатии, и раньше этого момента узнать её неоткуда. Отсеянное называется в журнале —
@@ -314,8 +318,12 @@ export class VibeAcpMainService extends Disposable implements IVibeAcpMain {
 	/** Open a session the given way; resolves to its id. `resume` and `load` come back to `previousSessionId`. */
 	private async _openSession(agent: IAgentProcess, mode: AcpReconnectMode, previousSessionId: string | undefined, mcpServers: readonly JsonValue[]): Promise<string> {
 		const cwd = agent.launch.cwd;
+		// Правила проекта шлём только тому, кто объявил поле: иначе агент вправе отказать на всём запросе
+		const systemPrompt = agent.systemPromptSupported ? await this._sessionSystemPrompt(cwd) : undefined;
 		if (mode === 'new' || !previousSessionId) {
-			const created = await this._call(agent, ACP_AGENT_METHOD.newSession, newSessionParams(cwd, mcpServers));
+			const created = await this._callSession(agent, ACP_AGENT_METHOD.newSession,
+				newSessionParams(cwd, mcpServers, systemPrompt),
+				newSessionParams(cwd, mcpServers));
 			const sessionId = readString(created, 'sessionId');
 			if (!sessionId) {
 				throw new Error(`${agent.launch.name} не вернул идентификатор сессии`);
@@ -324,19 +332,52 @@ export class VibeAcpMainService extends Disposable implements IVibeAcpMain {
 			return sessionId;
 		}
 		if (mode === 'resume') {
-			const resumed = await this._call(agent, ACP_AGENT_METHOD.resumeSession, returnToSessionParams(previousSessionId, cwd, mcpServers));
+			const resumed = await this._callSession(agent, ACP_AGENT_METHOD.resumeSession,
+				returnToSessionParams(previousSessionId, cwd, mcpServers, systemPrompt),
+				returnToSessionParams(previousSessionId, cwd, mcpServers));
 			agent.configOptions = configOptionsOf(resumed) ?? agent.configOptions;
 			return previousSessionId;
 		}
 		// The agent streams the whole conversation before it answers `session/load`.
 		agent.replaying = true;
 		try {
-			const loaded = await this._call(agent, ACP_AGENT_METHOD.loadSession, returnToSessionParams(previousSessionId, cwd, mcpServers));
+			const loaded = await this._callSession(agent, ACP_AGENT_METHOD.loadSession,
+				returnToSessionParams(previousSessionId, cwd, mcpServers, systemPrompt),
+				returnToSessionParams(previousSessionId, cwd, mcpServers));
 			agent.configOptions = configOptionsOf(loaded) ?? agent.configOptions;
 		} finally {
 			agent.replaying = false;
 		}
 		return previousSessionId;
+	}
+
+	/** Текст `.vibe/rules.md` рабочей папки; нет файла или он пуст — правила не шлём */
+	private async _sessionSystemPrompt(cwd: string): Promise<string | undefined> {
+		try {
+			const text = await fsPromises.readFile(join(cwd, '.vibe', 'rules.md'), 'utf8');
+			return text.trim() ? text : undefined;
+		} catch {
+			return undefined;
+		}
+	}
+
+	/**
+	 * Запрос жизненного цикла сессии с правилами и запасной путь без них.
+	 * Агент, объявивший поле, но не принявший его, отвечает `-32602`: сессия важнее правил,
+	 * поэтому повторяем один раз без поля, а не оставляем человека без агента.
+	 */
+	private async _callSession(agent: IAgentProcess, method: string, withPrompt: JsonValue, withoutPrompt: JsonValue): Promise<JsonValue> {
+		// Поля нет — повторять нечего: запасной запрос совпал бы с первым
+		if ((withPrompt as Record<string, JsonValue>)['systemPrompt'] === undefined) {
+			return this._call(agent, method, withPrompt);
+		}
+		try {
+			return await this._call(agent, method, withPrompt);
+		} catch (err) {
+			if (!(err instanceof AcpCallError) || err.code !== JSON_RPC_ERROR.invalidParams) { throw err; }
+			this._trace(`${agent.launch.name}: ${method} отверг systemPrompt (${err.code}) — повтор без правил`);
+			return this._call(agent, method, withoutPrompt);
+		}
 	}
 
 	private _adopt(agent: IAgentProcess, sessionId: string): void {
@@ -538,7 +579,15 @@ export class VibeAcpMainService extends Disposable implements IVibeAcpMain {
 				});
 				return;
 			case 'usage':
-				this._onEvent.fire({ kind: 'usage', sessionId, used: update.used, size: update.size, ...(update.costUsd === undefined ? {} : { costUsd: update.costUsd }), ...(update.origin === undefined ? {} : { origin: update.origin }) });
+				this._onEvent.fire({
+					kind: 'usage',
+					sessionId,
+					used: update.used,
+					size: update.size,
+					...(update.costUsd === undefined ? {} : { costUsd: update.costUsd }),
+					...(update.costCurrency === undefined ? {} : { costCurrency: update.costCurrency }),
+					...(update.origin === undefined ? {} : { origin: update.origin }),
+				});
 				return;
 			case 'notice':
 				this._onEvent.fire({ kind: 'notice', sessionId, severity: update.severity, title: update.title, ...(update.description === undefined ? {} : { description: update.description }) });

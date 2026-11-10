@@ -10,6 +10,7 @@ import {
 	AcpStreamDecoder,
 	agentCommandOf,
 	agentSupportsClose,
+	agentSupportsSystemPrompt,
 	cancelledRequestIdOf,
 	configOptionsOf,
 	initializeParams,
@@ -104,6 +105,29 @@ suite('acpProtocol', () => {
 		test('session/new несёт обязательный mcpServers даже пустым', () => {
 			const params = newSessionParams('/Users/me/project') as Record<string, JsonValue>;
 			assert.deepStrictEqual([params['cwd'], params['mcpServers']], ['/Users/me/project', []]);
+		});
+
+		test('session/new передаёт правила в режиме append, а пустые и отсутствующие — нет', () => {
+			const withRules = newSessionParams('/ws', [], 'Отвечай по-русски') as Record<string, JsonValue>;
+			const empty = newSessionParams('/ws', [], '   ') as Record<string, JsonValue>;
+			const none = newSessionParams('/ws') as Record<string, JsonValue>;
+			assert.deepStrictEqual(
+				[withRules['systemPrompt'], empty['systemPrompt'], none['systemPrompt']],
+				[{ mode: 'append', content: [{ type: 'text', text: 'Отвечай по-русски' }] }, undefined, undefined]);
+		});
+
+		test('системный промпт: объявленную возможность видно, отсутствие и null — нет', () => {
+			const greeting = (sessionCapabilities: JsonValue): JsonValue => ({ agentCapabilities: { sessionCapabilities } });
+			assert.deepStrictEqual(
+				[
+					agentSupportsSystemPrompt(greeting({ systemPrompt: {} })),
+					agentSupportsSystemPrompt(greeting({ systemPrompt: { mode: { override: {} } } })),
+					agentSupportsSystemPrompt(greeting({ systemPrompt: true })),
+					agentSupportsSystemPrompt(greeting({ systemPrompt: null })),
+					agentSupportsSystemPrompt(greeting({})),
+					agentSupportsSystemPrompt(undefined),
+				],
+				[true, true, true, false, false, false]);
 		});
 
 		test('prompt передаётся блоками содержимого — текст, ссылка и встроенный файл', () => {
@@ -226,15 +250,17 @@ suite('acpProtocol', () => {
 			]);
 		});
 
-		test('расход хода: контекст и деньги', () => {
+		test('расход хода: контекст, деньги и их единица', () => {
 			assert.deepStrictEqual(
 				[
 					parseSessionUpdate({ update: { sessionUpdate: 'usage_update', used: 30244, size: 1000000, cost: { amount: 0.18, currency: 'USD' } } }),
+					parseSessionUpdate({ update: { sessionUpdate: 'usage_update', used: 10, size: 20, cost: { amount: 3, currency: 'credits' } } }),
 					parseSessionUpdate({ update: { sessionUpdate: 'usage_update', used: 100, size: 200 } }),
 					parseSessionUpdate({ update: { sessionUpdate: 'usage_update', used: 100, size: 200, _meta: { '_claude/origin': { kind: 'task-notification' } } } }),
 				],
 				[
-					{ kind: 'usage', used: 30244, size: 1000000, costUsd: 0.18 },
+					{ kind: 'usage', used: 30244, size: 1000000, costUsd: 0.18, costCurrency: 'USD' },
+					{ kind: 'usage', used: 10, size: 20, costUsd: 3, costCurrency: 'credits' },
 					{ kind: 'usage', used: 100, size: 200 },
 					{ kind: 'usage', used: 100, size: 200, origin: 'task-notification' },
 				]);

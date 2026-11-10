@@ -76,6 +76,8 @@ export const JSON_RPC_ERROR = {
 	parse: -32700,
 	invalidRequest: -32600,
 	methodNotFound: -32601,
+	/** Недопустимые параметры: так агент отвечает на поле, которого он не знает */
+	invalidParams: -32602,
 	internal: -32603,
 	/** The request was withdrawn with `$/cancel_request` before it was answered (ACP v1 cancellation) */
 	requestCancelled: -32800,
@@ -215,6 +217,25 @@ export function promptCapabilitiesOf(greeting: JsonValue | undefined): IAcpPromp
 	};
 }
 
+/**
+ * Объявил ли агент поддержку клиентского системного промпта
+ * (`agentCapabilities.sessionCapabilities.systemPrompt`).
+ *
+ * Схема требует объект: `{}` — поддержка режима `append`, отсутствие или `null` — нет.
+ * `true` принимаем тоже: агент сказал о намерении ясно, а строгость схемы здесь ничего не защищает.
+ */
+export function agentSupportsSystemPrompt(greeting: JsonValue | undefined): boolean {
+	const session = asObject(asObject(asObject(greeting)?.['agentCapabilities'])?.['sessionCapabilities']);
+	const supported = session?.['systemPrompt'];
+	return supported === true || !!asObject(supported);
+}
+
+/** Поле `systemPrompt` запроса жизненного цикла сессии: правила проекта в режиме `append` */
+const systemPromptField = (text: string | undefined): JsonValue | undefined => {
+	if (!text || !text.trim()) { return undefined; }
+	return { mode: 'append', content: [{ type: 'text', text }] };
+};
+
 /** Способ войти, объявленный агентом в ответе на `initialize`. */
 export interface IAcpAuthMethod {
 	readonly id: string;
@@ -249,10 +270,19 @@ export function authMethodsOf(initializeResult: JsonValue | undefined): readonly
  * вправе отказать в создании сессии, не найдя его. Непустой список — это КОНФИГУРАЦИИ серверов, к
  * которым гость подключается сам (правила отбора — `acpMcpExport.ts`).
  */
-export const newSessionParams = (cwd: string, mcpServers: readonly JsonValue[] = []): JsonValue => ({
-	cwd,
-	mcpServers: [...mcpServers],
-});
+export const newSessionParams = (
+	cwd: string,
+	mcpServers: readonly JsonValue[] = [],
+	systemPrompt?: string,
+): JsonValue => {
+	const prompt = systemPromptField(systemPrompt);
+	return {
+		cwd,
+		mcpServers: [...mcpServers],
+		// Поле уходит только когда агент объявил возможность — решает вызывающий
+		...(prompt === undefined ? {} : { systemPrompt: prompt }),
+	};
+};
 
 /**
  * How a session whose agent process died can come back, strongest first.
@@ -378,11 +408,21 @@ export function setConfigOptionParams(sessionId: string, configId: string, value
 }
 
 /** Params of `session/resume` and `session/load`: the same shape, the session to come back to. */
-export const returnToSessionParams = (sessionId: string, cwd: string, mcpServers: readonly JsonValue[] = []): JsonValue => ({
-	sessionId,
-	cwd,
-	mcpServers: [...mcpServers],
-});
+export const returnToSessionParams = (
+	sessionId: string,
+	cwd: string,
+	mcpServers: readonly JsonValue[] = [],
+	systemPrompt?: string,
+): JsonValue => {
+	const prompt = systemPromptField(systemPrompt);
+	return {
+		sessionId,
+		cwd,
+		mcpServers: [...mcpServers],
+		// Возвращаясь в сессию, шлём то же, что при создании: иначе агент может потерять правила
+		...(prompt === undefined ? {} : { systemPrompt: prompt }),
+	};
+};
 
 /**
  * A block of a prompt, as the spec shapes it
@@ -464,8 +504,8 @@ export type AcpUpdate =
 	| { readonly kind: 'text'; readonly text: string; readonly thought: boolean }
 	/** Вызов инструмента: чем занят агент и что именно меняет. */
 	| { readonly kind: 'tool'; readonly toolCallId: string; readonly title: string; readonly name: string; readonly toolKind: string; readonly status: AcpToolStatus; readonly paths: readonly string[]; readonly diffs: readonly IAcpDiff[]; readonly output: string; readonly exitCode?: number }
-	/** Расход контекста и денег за ход. */
-	| { readonly kind: 'usage'; readonly used: number; readonly size: number; readonly costUsd?: number; readonly origin?: string }
+	/** Расход контекста и денег за ход: `costUsd` — сумма в единицах `costCurrency` */
+	| { readonly kind: 'usage'; readonly used: number; readonly size: number; readonly costUsd?: number; readonly costCurrency?: string; readonly origin?: string }
 	/** The agent changed the session's settings itself: the full list, as in a response */
 	| { readonly kind: 'config'; readonly options: readonly IAcpConfigOption[] }
 	/** The agent's own slash commands: the whole list, replacing the previous one */
@@ -559,10 +599,20 @@ export function parseSessionUpdate(params: JsonValue | undefined): AcpUpdate | u
 		const used = numberAt(update, 'used');
 		const size = numberAt(update, 'size');
 		if (used === undefined || size === undefined) { return undefined; }
-		const costUsd = numberAt(objectAt(update, 'cost'), 'amount');
+		const cost = objectAt(update, 'cost');
+		// `amount` и `currency` неразделимы по схеме: без единицы сумма ничего не значит
+		const costUsd = numberAt(cost, 'amount');
+		const costCurrency = stringAt(cost, 'currency');
 		const rawOrigin = objectAt(update, '_meta')?.['_claude/origin'];
 		const origin = typeof rawOrigin === 'string' ? rawOrigin : stringAt(asObject(rawOrigin), 'kind');
-		return { kind: 'usage', used, size, ...(costUsd === undefined ? {} : { costUsd }), ...(origin === undefined ? {} : { origin }) };
+		return {
+			kind: 'usage',
+			used,
+			size,
+			...(costUsd === undefined ? {} : { costUsd }),
+			...(costCurrency === undefined ? {} : { costCurrency }),
+			...(origin === undefined ? {} : { origin }),
+		};
 	}
 
 	if (kind === 'notice') {
