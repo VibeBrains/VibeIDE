@@ -18,6 +18,7 @@
 - [roadmap.md](roadmap.md) — главный roadmap: фазы, секции W/X/…, единственный источник правды «что уже сделано».
 - [UNRELEASED.md](UNRELEASED.md) — накопленное между релизами.
 - [functional.md](functional.md) — каталог возможностей: «что умеет», версионно-независимо.
+- [tools.md](tools.md) — сгенерированный список инструментов агента из `builtinToolDefs`; руками не правится, сверка — `npm run tools-doc-check`.
 - [decisions.md](decisions.md) — журнал решений автономной работы: развилки, выбор и причина.
 - [idea.md](idea.md) — исходный концепт продукта.
 
