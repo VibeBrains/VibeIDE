@@ -34,6 +34,17 @@ export interface IWatchedMedia {
 
 const KIND_LABELS: Record<VideoAnalysisKind, string> = { audio: 'аудиозапись', video: 'видео' };
 
+/** Лист кадров для подписи: номер и таймкоды кадров на нём */
+export interface WatchSheetTimes {
+	readonly index: number;
+	readonly frameTimes: readonly number[];
+}
+
+/** Подпись листа: «Лист 1: кадры на 00:12, 00:47» — по ней модель и человек сопоставляют картинку с временем */
+export function formatSheetTimes(frameTimes: readonly number[]): string {
+	return frameTimes.map(formatVideoTimecode).join(', ');
+}
+
 function transcriptBlock(media: IWatchedMedia): string[] {
 	if (!media.transcriptText) {
 		return [];
@@ -60,7 +71,7 @@ function headerLines(media: IWatchedMedia): string[] {
  * Сообщение `/watch`: кадры приложены картинками, текст сопоставляет их с тайм-кодами и ставит задание
  * `hint` — вопрос человека после ссылки; без него модель получает общее задание на разбор
  */
-export function composeWatchPrompt(media: IWatchedMedia, hint: string): string {
+export function composeWatchPrompt(media: IWatchedMedia, hint: string, sheets: readonly WatchSheetTimes[] = []): string {
 	const isAudio = media.kind === 'audio';
 	const lines: string[] = [isAudio ? 'Разбор аудиозаписи по команде /watch.' : 'Разбор видео по команде /watch.', ...headerLines(media), ''];
 	if (!isAudio) {
@@ -68,6 +79,12 @@ export function composeWatchPrompt(media: IWatchedMedia, hint: string): string {
 		media.frameTimes.forEach((time, index) => {
 			lines.push(`Кадр ${index + 1} — ${formatVideoTimecode(time)}`);
 		});
+		if (sheets.length > 0) {
+			lines.push('', `Кадры склеены в ${sheets.length} листов — по одной картинке на лист, таймкод нарисован на каждом кадре.`);
+			sheets.forEach(sheet => {
+				lines.push(`Лист ${sheet.index}: кадры на ${formatSheetTimes(sheet.frameTimes)}`);
+			});
+		}
 		lines.push('');
 	}
 	const transcript = transcriptBlock(media);
@@ -88,10 +105,17 @@ export function composeWatchPrompt(media: IWatchedMedia, hint: string): string {
 	return lines.join('\n');
 }
 
+/** Лист кадров в отчёте: таймкоды кадров и описание листа, если модель его дала */
+export interface WatchSheetReport {
+	readonly index: number;
+	readonly frameTimes: readonly number[];
+	readonly description?: string;
+}
+
 /** Что известно о кадрах для ответа инструмента */
 export type WatchFrameReport =
 	/** Кадры описаны: строки по номерам кадров, кого-то из них могло не оказаться в ответе описывавшего */
-	| { readonly kind: 'described'; readonly model: string; readonly descriptions: ReadonlyMap<number, string> }
+	| { readonly kind: 'described'; readonly model: string; readonly descriptions: ReadonlyMap<number, string>; readonly sheets?: readonly WatchSheetReport[] }
 	/** Кадры уходят картинками отдельно от текста (инструмент внешнего агента) */
 	| { readonly kind: 'attached' }
 	/** Кадры названы тайм-кодами, а рассмотреть их было некому; `reason` называет причину и что сделать */
@@ -120,6 +144,14 @@ function frameLines(times: readonly number[], frames: WatchFrameReport): string[
 	const heading = `Кадры (${times.length}) сняты по сменам сцен, а не через равные промежутки:`;
 	switch (frames.kind) {
 		case 'described':
+			if (frames.sheets) {
+				// Модель рассматривала листы: описание относится к листу, а строка каждого кадра остаётся
+				return [
+					`${heading} описал ${frames.model}.`,
+					...frames.sheets.map(sheet => `Лист ${sheet.index}: кадры на ${formatSheetTimes(sheet.frameTimes)}${sheet.description ? ` — ${sheet.description}` : ''}`),
+					...times.map((time, index) => `[${formatVideoTimecode(time)}] Кадр ${index + 1}`),
+				];
+			}
 			return [
 				`${heading} описал ${frames.model}.`,
 				...times.map((time, index) => {
@@ -145,6 +177,24 @@ export function composeFrameDescriptionPrompt(times: readonly number[], question
 		'Без вступления и итога, без пересказа звука, ничего не выдумывай: нечитаемое пиши как нечитаемое.',
 		'Соответствие кадров тайм-кодам:',
 		...times.map((time, index) => `Кадр ${index + 1} — ${formatVideoTimecode(time)}`),
+	];
+	if (question) {
+		lines.push('', `Человек хочет узнать о записи: ${question}`, 'Подробнее описывай то, что относится к этому вопросу.');
+	}
+	return lines.join('\n');
+}
+
+/**
+ * Просьба к модели, рассматривающей листы: по строке на лист
+ * Кадры на листе подписаны таймкодом, поэтому ответ «N: что видно» относится к листу с номером N
+ */
+export function composeSheetDescriptionPrompt(sheets: readonly WatchSheetTimes[], question: string): string {
+	const lines = [
+		`К сообщению приложены ${sheets.length} листов записи, по несколько кадров на каждом, в порядке времени. На каждом кадре нарисован его таймкод.`,
+		'Опиши каждый лист одной строкой в формате «N: что видно» — N номер листа. Называй то, что есть на экране: окно или страницу, текст, цифры, графики, людей и их действия.',
+		'Без вступления и итога, без пересказа звука, ничего не выдумывай: нечитаемое пиши как нечитаемое.',
+		'Кадры на листах:',
+		...sheets.map(sheet => `Лист ${sheet.index}: кадры на ${formatSheetTimes(sheet.frameTimes)}`),
 	];
 	if (question) {
 		lines.push('', `Человек хочет узнать о записи: ${question}`, 'Подробнее описывай то, что относится к этому вопросу.');

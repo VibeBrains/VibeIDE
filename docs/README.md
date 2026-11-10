@@ -18,6 +18,8 @@
 - [roadmap.md](roadmap.md) — главный roadmap: фазы, секции W/X/…, единственный источник правды «что уже сделано».
 - [UNRELEASED.md](UNRELEASED.md) — накопленное между релизами.
 - [functional.md](functional.md) — каталог возможностей: «что умеет», версионно-независимо.
+- [tools.md](tools.md) — сгенерированный список инструментов агента из `builtinToolDefs`; руками не правится, сверка — `npm run tools-doc-check`.
+- [decisions.md](decisions.md) — журнал решений автономной работы: развилки, выбор и причина.
 - [idea.md](idea.md) — исходный концепт продукта.
 
 **База знаний** — `knowledge/`
@@ -57,7 +59,7 @@
 - [telegramBridge.md](manuals/telegramBridge.md) — мост в Telegram: свой бот за минуту, токен в хранилище секретов, привязка чата, работа за прокси.
 - [telegramClaudeCode.md](manuals/telegramClaudeCode.md) — Claude Code с телефона: команды `/cc`, кнопки подтверждения, рабочая папка, чего мост не умеет.
 - [specsWorkflow.md](manuals/specsWorkflow.md) — как работать со спеками; **источник** справки «?» в панели «Спеки» (генерируется на сборке).
-- [vibeEnvironment.md](manuals/vibeEnvironment.md) — окружение `.vibe`: почему устаревает, две команды, lock-файл.
+- [vibeEnvironment.md](manuals/vibeEnvironment.md) — окружение `.vibe`: почему устаревает, три команды, версии «было → стало», автообновление и lock-файл.
 
 **Планирование Phase 1 и нормативные документы**
 - [v1/README.md](v1/README.md) — индекс всех V1-документов (phases, agent, config, integrations, risks, transparency, vision).

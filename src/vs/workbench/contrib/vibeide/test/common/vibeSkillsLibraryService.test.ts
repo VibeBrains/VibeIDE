@@ -141,6 +141,26 @@ description: ${marker}
 				['Одно описание в две строки.', 'Одно описание в две строки.', 'Одно описание в две строки.']);
 		});
 
+		test('описание в кавычках, в блоке и без кавычек читается одинаково', () => {
+			const descriptionOf = (line: string) => parseSkillMarkdown(`---
+name: scalar-skill
+${line}
+---
+
+Тело.
+`, '.vibe/skills/scalar-skill/SKILL.md', 'x')!.description;
+			assert.deepStrictEqual(
+				[
+					descriptionOf('description: "Скажи \\"привет\\" \\\\ и\\nдальше"'),
+					descriptionOf("description: 'It''s fine'"),
+					descriptionOf('description: >\n  Первая строка\n  вторая строка'),
+					descriptionOf('description: |\n  Первая строка\n  вторая строка'),
+					descriptionOf('description:   Просто текст   '),
+				],
+				['Скажи "привет" \\ и\nдальше', "It's fine", 'Первая строка вторая строка', 'Первая строка вторая строка', 'Просто текст'],
+			);
+		});
+
 		test('скилл по стандарту, без нашего vibeVersion, разбирается', () => {
 			const raw = `---
 name: standard-skill
@@ -216,6 +236,42 @@ precheck: scripts/check.sh
 			assert.strictEqual(
 				describeSkillRequirements({ compatibility: 'Только git.', requiresTools: [] }),
 				'Только git.');
+		});
+	});
+	suite('версия навыка по контракту набора', () => {
+		test('читается вложенно из metadata.vibeVersion', () => {
+			const raw = `---
+name: nested-version
+description: Версия лежит там, где велит контракт.
+metadata:
+  vibeVersion: "1.2.0"
+---
+
+Тело.
+`;
+			const parsed = parseSkillMarkdown(raw, '.vibe/skills/nested-version/SKILL.md', 'fallback');
+			assert.strictEqual(parsed!.vibeVersion, '1.2.0');
+		});
+
+		test('верхний уровень остаётся совместимым со старыми скиллами', () => {
+			const raw = `---
+name: top-version
+description: Прежнее место версии.
+vibeVersion: "0.9.0"
+---
+
+Тело.
+`;
+			const parsed = parseSkillMarkdown(raw, '.vibe/skills/top-version/SKILL.md', 'fallback');
+			assert.strictEqual(parsed!.vibeVersion, '0.9.0');
+		});
+
+		test('сериализатор пишет версию в metadata, а не на верхний уровень', () => {
+			const md = serializeSkillMarkdown({ name: 'nested-out', description: 'Пишем по контракту.', body: 'Тело.', vibeVersion: '1.0.0' });
+			assert.ok(md.includes('metadata:\n  vibeVersion: "1.0.0"'), 'версия должна быть вложенной');
+			assert.ok(!/^vibeVersion:/m.test(md), 'верхний уровень не должен появляться снова');
+			const parsed = parseSkillMarkdown(md, '.vibe/skills/nested-out/SKILL.md', 'nested-out');
+			assert.strictEqual(parsed!.vibeVersion, '1.0.0');
 		});
 	});
 });

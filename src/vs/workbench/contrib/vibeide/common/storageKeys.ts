@@ -23,6 +23,10 @@ export const THREAD_STORAGE_KEY = 'vibeide.chatThreadStorageII';
 // WORKSPACE-scoped so each project keeps its own open tabs (mirrors the old per-workspace editor layout).
 export const OPEN_TAB_IDS_KEY = 'vibeide.chatOpenTabIds';
 
+// Отметка о запуске окна для защиты от петли падений при восстановлении вкладок чата:
+// JSON `{ pendingSince?: number; crashes: number }` в хранилище проекта (WORKSPACE), своя у каждого окна
+export const RESTORE_CRASH_GUARD_KEY = 'vibeide.chat.restoreCrashGuard';
+
 
 
 export const OPT_OUT_KEY = 'vibeide.app.optOutAll';

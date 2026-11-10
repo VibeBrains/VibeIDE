@@ -44,7 +44,10 @@ for (const rel of RELEASE_PATHS) {
 }
 
 test('release.yml: имя образа несёт версию, как у ZIP той же сборки', () => {
-	assert.match(read('.github/workflows/release.yml'), /VibeIDE-\$\{VIBE_VERSION\}-darwin-\$\{\{ matrix\.arch \}\}\.dmg/);
+	// В имени файла версия без ведущей «v», как у локальных скриптов (тег остаётся vX.Y.Z)
+	const workflow = read('.github/workflows/release.yml');
+	assert.match(workflow, /VibeIDE-\$\{VIBE_VERSION#v\}-darwin-\$\{\{ matrix\.arch \}\}\.dmg/);
+	assert.match(workflow, /VibeIDE-\$\{VIBE_VERSION#v\}-darwin-\$\{\{ matrix\.arch \}\}\.zip/);
 });
 
 test('build-dmg-macos.sh: том называется VibeIDE', () => {

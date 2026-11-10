@@ -118,6 +118,12 @@ suite('acpSessionLog', () => {
 		assert.deepStrictEqual(log.snapshot.spend, { used: 100, size: 200 });
 	});
 
+	test('расход хранит единицу, которую назвал агент', () => {
+		const log = new AcpSessionLog();
+		log.applySpend(10, 20, 3, 'credits');
+		assert.deepStrictEqual(log.snapshot.spend, { used: 10, size: 20, costUsd: 3, costCurrency: 'credits' });
+	});
+
 	test('пометка редактора стоит отдельно и разрывает склейку реплик агента', () => {
 		const log = new AcpSessionLog();
 		log.appendText('до обрыва', false);

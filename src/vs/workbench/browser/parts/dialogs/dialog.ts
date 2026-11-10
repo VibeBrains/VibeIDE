@@ -13,6 +13,7 @@ import { IKeybindingService } from '../../../../platform/keybinding/common/keybi
 import { ResultKind } from '../../../../platform/keybinding/common/keybindingResolver.js';
 import { ILayoutService } from '../../../../platform/layout/browser/layoutService.js';
 import { IProductService } from '../../../../platform/product/common/productService.js';
+import { localizeVibeideMadeIn } from '../../../../platform/dialogs/common/dialogs.js';
 import { defaultButtonStyles, defaultCheckboxStyles, defaultInputBoxStyles, defaultDialogStyles } from '../../../../platform/theme/browser/defaultStyles.js';
 
 const defaultDialogAllowableCommands = new Set([
@@ -47,7 +48,7 @@ export function createWorkbenchDialogOptions(options: Partial<IDialogOptions>, k
 
 export function createBrowserAboutDialogDetails(productService: IProductService): { title: string; details: string; detailsToCopy: string } {
 	const detailString = (useAgo: boolean): string => {
-		return localize('aboutDetail',
+		const aboutText = localize('aboutDetail',
 			"VibeIDE: {0}\nVS Code: {1}\nCommit: {2}\nDate: {3}\nBrowser: {4}",
 			productService.vibeVersion || 'unknown',
 			productService.version || 'Unknown',
@@ -55,6 +56,9 @@ export function createBrowserAboutDialogDetails(productService: IProductService)
 			productService.date ? `${productService.date}${useAgo ? ' (' + fromNow(new Date(productService.date), true) + ')' : ''}` : 'Unknown',
 			navigator.userAgent
 		);
+
+		// Браузерное окно тоже текстовое, поэтому подпись добавляем последней строкой
+		return `${aboutText}\n\n${localizeVibeideMadeIn()}`;
 	};
 
 	const details = detailString(true);

@@ -72,6 +72,25 @@ const ruleLayoutPropertyAnimation: Rule = doc => doc.elements
 	}));
 
 /**
+ * `transition-property: all` — переход заведён «на всякий случай».
+ *
+ * Такой переход анимирует и раскладку, и цвет, и всё, что браузер найдёт изменившимся; причина
+ * перехода не названа, поэтому он либо ничего не делает, либо дёргает геометрию на каждом кадре.
+ * Отдельный id: `layout-property-animation` намеренно пропускает `all`, чтобы не судить переход,
+ * свойства которого не перечислены.
+ */
+const ruleTransitionAll: Rule = doc => doc.elements
+	.filter(el => el.transitionProperty.split(',').map(part => part.trim().toLowerCase()).includes('all'))
+	.map(el => ({
+		rule: RULE.transitionAll,
+		severity: 'info' as const,
+		message: 'Переход всех свойств сразу (transition: all)',
+		why: 'Переход без списка свойств анимирует и цвет, и раскладку: движение дёргается, а задумано ли оно — неизвестно.',
+		selector: el.selector,
+		evidence: `transition-property: ${el.transitionProperty}`,
+	}));
+
+/**
  * Animations on the page and no `prefers-reduced-motion` rule anywhere in its styles.
  *
  * Page-level: the fix is one media query, not one per element. Silent when the styles were not
@@ -96,4 +115,5 @@ export const MOTION_RULES: readonly Rule[] = [
 	ruleDecorativeAnimation,
 	ruleElasticEasing,
 	ruleLayoutPropertyAnimation,
+	ruleTransitionAll,
 ];

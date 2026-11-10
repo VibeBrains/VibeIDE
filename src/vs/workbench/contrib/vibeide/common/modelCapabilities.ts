@@ -634,6 +634,16 @@ const openSourceModelOptions_assumingOAICompat = {
 		contextWindow: 1_048_576, reservedOutputTokenSpace: 32_768,
 		cost: { input: 3.00, cache_read: 0.30, output: 15.00 },
 	},
+	// `k3-256k` on Kimi Code is K3 with a 256K window and image-only input, no video (kimi.com/code/docs/en/kimi-code/models,
+	// 30.10.2026). Falling through to K3 gave it the 1M window, so compaction started past the real limit
+	'kimiK3_256k': {
+		supportsFIM: false,
+		supportsSystemMessage: 'system-role',
+		specialToolFormat: 'openai-style',
+		reasoningCapabilities: { supportsReasoning: true, canTurnOffReasoning: false, canIOReasoning: true, reasoningSlider: { type: 'effort_slider', values: ['low', 'high', 'max'], default: 'high' } },
+		contextWindow: 262_144, reservedOutputTokenSpace: 32_768,
+		cost: { input: 3.00, cache_read: 0.30, output: 15.00 },
+	},
 	// `kimi-for-coding` on Kimi Code is K2.8 Preview: 1M window, levels low/high/max, default max, and `none` turns thinking off
 	// (kimi.com/code/docs/en/kimi-code/models, 26.10.2026). A subscription model: the price is K2.5's, an approximation, not a zero
 	'kimiForCoding': {
@@ -813,6 +823,8 @@ const extensiveModelOptionsFallback: VoidStaticProviderInfo['modelOptionsFallbac
 	if (lower.includes('kimi-k3.1') || /(^|\/)k3\.1-pro/.test(lower)) {
 		return toFallback(openSourceModelOptions_assumingOAICompat, lower.includes('highspeed') ? 'kimiK3.1ProHighspeed' : 'kimiK3.1Pro');
 	}
+	// `k3-256k` goes first: the general K3 branch below would give it the 1M window
+	if (/(^|\/)k3-256k/.test(lower)) { return toFallback(openSourceModelOptions_assumingOAICompat, 'kimiK3_256k'); }
 	// Kimi Code names K3 `k3` and `k3-256k`; the Open Platform and aggregators `kimi-k3`
 	if (lower.includes('kimi-k3') || /(^|\/)k3($|-)/.test(lower)) { return toFallback(openSourceModelOptions_assumingOAICompat, 'kimiK3'); }
 	// `kimi-for-coding-highspeed` on Kimi Code is K2.7 Code HighSpeed, not K2.8 Preview: always reasons, 256K window
@@ -897,6 +909,25 @@ const anthropicModelOptions = {
 			reasoningReservedOutputTokenSpace: 64_000,
 			// The vendor default is medium, one level below Opus 5.
 			reasoningSlider: { type: 'effort_slider', values: ['low', 'medium', 'high', 'xhigh', 'max'], default: 'medium' },
+		},
+	},
+	// Fable 5.2 (09.11.2026): $8/$40 вместо $10/$50, 1M окна и 128K вывода
+	// Уровни усилия прежние, умолчание у вендора `high`
+	// Кэш у Anthropic считается от входной цены: чтение 0.1×, запись 1.25× — как у Fable 5 при $10
+	'claude-fable-5-2': {
+		contextWindow: 1_000_000,
+		reservedOutputTokenSpace: 128_000,
+		cost: { input: 8.00, cache_read: 0.80, cache_write: 10.00, output: 40.00 },
+		downloadable: false,
+		supportsFIM: false,
+		specialToolFormat: 'anthropic-style',
+		supportsSystemMessage: 'separated',
+		reasoningCapabilities: {
+			supportsReasoning: true,
+			canTurnOffReasoning: false,
+			canIOReasoning: true,
+			reasoningReservedOutputTokenSpace: 128_000,
+			reasoningSlider: { type: 'effort_slider', values: ['low', 'medium', 'high', 'xhigh', 'max'], default: 'high' },
 		},
 	},
 	// Fable and Mythos share one price and one shape; Mythos is served by invitation and resolves to these entries.
@@ -1114,6 +1145,7 @@ function firstMatchingProfile<K extends string>(modelName: string, profiles: Rea
  */
 const anthropicFallbackProfiles: ReadonlyArray<readonly [RegExp, keyof typeof anthropicModelOptions]> = [
 	// Claude 5 and Opus 4.7+ think adaptively: a level instead of a budget.
+	[/(fable|mythos)-?5[-.]2/, 'claude-fable-5-2'],
 	[/(fable|mythos)-?5[-.]1/, 'claude-fable-5-1'],
 	[/(fable|mythos)-?5/, 'claude-fable-5'],
 	[/opus-?5[-.]5/, 'claude-opus-5-5'],

@@ -250,7 +250,7 @@ export function registerVibeideMainProcessChannels(
 			shellEnvLog.warn(`[ACP] окружение оболочки не получено — агенты стартуют с окружением IDE: ${error instanceof Error ? error.message : String(error)}`);
 			return {};
 		}
-	}));
+	}, shellEnvLog, shellEnvConfiguration));
 	mainProcessElectronServer.registerChannel(
 		VIBE_ACP_CHANNEL,
 		ProxyChannel.fromService(acpService, disposables),

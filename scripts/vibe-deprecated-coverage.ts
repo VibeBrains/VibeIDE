@@ -58,7 +58,8 @@ const JSON_STRING = '"(?:[^"\\\\]|\\\\.)*"';
 const JSON_ARRAY = '\\[[^\\]]*\\]';
 const SEED_LINE = new RegExp(`^\\t\\{ path: (${JSON_STRING}), contents: (${JSON_STRING}) \\},$`);
 const DEPRECATED_LINE = new RegExp(`^\\t\\{ path: (${JSON_STRING}), replacedBy: (?:null|${JSON_STRING}), sha256: (${JSON_ARRAY}) \\},$`);
-const VERSION_LINE = new RegExp(`^\\t\\{ path: (${JSON_STRING}), version: \\d+, sha256: (${JSON_STRING}), history: (${JSON_ARRAY}) \\},$`);
+// `vibeVersion` необязателен: набор старого формата его не несёт, и гейт обязан читать оба вида строк
+const VERSION_LINE = new RegExp(`^\\t\\{ path: (${JSON_STRING}), version: \\d+, sha256: (${JSON_STRING}), history: (${JSON_ARRAY})(?:, vibeVersion: ${JSON_STRING})? \\},$`);
 const ADDRESS_LINE = new RegExp(`^\\t\\{ path: (${JSON_STRING}), products: (${JSON_ARRAY}) \\},$`);
 const PRODUCT_LINE = new RegExp(`^export const VIBE_PRODUCT_ID = (${JSON_STRING});$`);
 

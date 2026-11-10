@@ -38,6 +38,11 @@ export const RULE = {
 	justifiedText: 'justified-text',
 	hangingPreposition: 'hanging-preposition',
 	orphanWord: 'orphan-word',
+	tooManyFonts: 'too-many-fonts',
+	tooManyWeights: 'too-many-weights',
+	threeDotEllipsis: 'three-dot-ellipsis',
+	capsHeadUnder: 'caps-head-under-1.0',
+	smallSectionHeads: 'small-section-heads',
 
 	// colour and contrast
 	lowContrast: 'low-contrast',
@@ -61,6 +66,7 @@ export const RULE = {
 	shapeAssembledArt: 'shape-assembled-art',
 	invisibleBorder: 'invisible-border',
 	uniformRadiusAndShadow: 'uniform-radius-and-shadow',
+	pureWhiteSurface: 'pure-white-surface',
 
 	// состояния интерактивных элементов
 	focusNotVisible: 'focus-not-visible',
@@ -90,11 +96,13 @@ export const RULE = {
 	columnImbalance: 'column-imbalance',
 	headingCrowded: 'heading-crowded',
 	flushToScrollerEdge: 'flush-to-scroller-edge',
+	textSliver: 'text-sliver',
 
 	// motion
 	decorativeAnimation: 'decorative-animation',
 	elasticEasing: 'elastic-easing',
 	layoutPropertyAnimation: 'layout-property-animation',
+	transitionAll: 'transition-all',
 
 	// copy
 	copySlop: 'copy-slop',
@@ -162,6 +170,11 @@ export const RULE_META: Record<RuleId, RuleMeta> = {
 	[RULE.justifiedText]: { ruleClass: 'drift', category: 'typography' },
 	[RULE.hangingPreposition]: { ruleClass: 'drift', category: 'typography' },
 	[RULE.orphanWord]: { ruleClass: 'drift', category: 'typography' },
+	[RULE.tooManyFonts]: { ruleClass: 'drift', category: 'typography' },
+	[RULE.tooManyWeights]: { ruleClass: 'drift', category: 'typography' },
+	[RULE.threeDotEllipsis]: { ruleClass: 'drift', category: 'typography' },
+	[RULE.capsHeadUnder]: { ruleClass: 'drift', category: 'typography' },
+	[RULE.smallSectionHeads]: { ruleClass: 'drift', category: 'typography' },
 
 	[RULE.lowContrast]: { ruleClass: 'floor', category: 'color' },
 	[RULE.gradientText]: { ruleClass: 'drift', category: 'color' },
@@ -186,6 +199,7 @@ export const RULE_META: Record<RuleId, RuleMeta> = {
 	[RULE.shapeAssembledArt]: { ruleClass: 'drift', category: 'visual' },
 	[RULE.invisibleBorder]: { ruleClass: 'drift', category: 'visual' },
 	[RULE.uniformRadiusAndShadow]: { ruleClass: 'drift', category: 'visual' },
+	[RULE.pureWhiteSurface]: { ruleClass: 'drift', category: 'visual' },
 	// Фокус и различимость выключенного — пол качества: без них интерфейс нельзя пройти с
 	// клавиатуры и нельзя понять, почему кнопка не срабатывает. Отклик на наведение —
 	// вопрос вкуса и устройства ввода, поэтому drift.
@@ -216,10 +230,12 @@ export const RULE_META: Record<RuleId, RuleMeta> = {
 	[RULE.columnImbalance]: { ruleClass: 'drift', category: 'layout' },
 	[RULE.headingCrowded]: { ruleClass: 'drift', category: 'layout' },
 	[RULE.flushToScrollerEdge]: { ruleClass: 'drift', category: 'layout' },
+	[RULE.textSliver]: { ruleClass: 'drift', category: 'layout' },
 
 	[RULE.decorativeAnimation]: { ruleClass: 'drift', category: 'motion' },
 	[RULE.elasticEasing]: { ruleClass: 'drift', category: 'motion' },
 	[RULE.layoutPropertyAnimation]: { ruleClass: 'drift', category: 'motion' },
+	[RULE.transitionAll]: { ruleClass: 'drift', category: 'motion' },
 
 	[RULE.copySlop]: { ruleClass: 'drift', category: 'copy' },
 	[RULE.emDashOveruse]: { ruleClass: 'drift', category: 'copy' },

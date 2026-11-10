@@ -20,6 +20,7 @@ import { IVibeModalService } from '../common/vibeModalService.js';
 import {
 	applyVibeDefaults,
 	diffVibeDefaults,
+	formatVibeVersionChange,
 	recordVibeDefaultsReconciled,
 	VibeDefaultsDiff,
 	VibeDefaultsDiffEntry,
@@ -30,9 +31,12 @@ import { VIBE_COMMAND_CATEGORY } from '../common/vibeCommandCategory.js';
 
 export const VIBEIDE_APPLY_DEFAULTS_CMD = 'vibeide.defaults.apply';
 export const VIBEIDE_SHOW_DEFAULTS_CMD = 'vibeide.defaults.show';
+export const VIBEIDE_CHECK_UPDATES_CMD = 'vibeide.defaults.checkUpdates';
 
 /** Whether to say anything when a release moved a `.vibe` file. User-facing → a setting, not a hidden key. */
 export const VIBEIDE_ENV_NOTIFY_SETTING = 'vibeide.environment.notifyOnRelease';
+/** Автообновление незатронутых файлов набора при открытии проекта. */
+export const VIBEIDE_ENV_AUTO_UPDATE_SETTING = 'vibeide.environment.autoUpdateDefaults';
 
 Registry.as<IConfigurationRegistry>(ConfigurationExtensions.Configuration).registerConfiguration({
 	id: 'vibeide.environment',
@@ -43,6 +47,11 @@ Registry.as<IConfigurationRegistry>(ConfigurationExtensions.Configuration).regis
 			type: 'boolean',
 			default: true,
 			description: localize('vibeide.environment.notifyOnRelease.desc', 'Сообщать при открытии проекта, если новый релиз изменил файлы окружения `.vibe`. Уведомление появляется ТОЛЬКО когда сдвинулся релиз: файлы, которые вы правили сами, не считаются поводом — иначе оно напоминало бы о ваших же правках при каждом запуске.'),
+		},
+		[VIBEIDE_ENV_AUTO_UPDATE_SETTING]: {
+			type: 'boolean',
+			default: true,
+			description: localize('vibeide.environment.autoUpdateDefaults.desc', 'При открытии проекта обновлять файлы окружения `.vibe`, которые изменились в новом релизе, а вы их не трогали. Ваши правки не перезаписываются ни в каком режиме: изменённые вами файлы по-прежнему требуют решения. Отключите, если хотите обновлять набор только вручную.'),
 		},
 	},
 });
@@ -63,8 +72,15 @@ function vibeDirOf(accessor: ServicesAccessor): URI | undefined {
 	return joinPath(folders[0].uri, '.vibe');
 }
 
+function versionSuffix(entry: VibeDefaultsDiffEntry): string {
+	if (!entry.localVersion && !entry.releaseVersion) {
+		return '';
+	}
+	return ` — ${formatVibeVersionChange(entry.localVersion, entry.releaseVersion)}`;
+}
+
 function listPaths(entries: readonly VibeDefaultsDiffEntry[]): string {
-	const shown = entries.slice(0, MAX_LISTED).map(e => `- \`${e.path}\``);
+	const shown = entries.slice(0, MAX_LISTED).map(e => `- \`${e.path}\`${versionSuffix(e)}`);
 	if (entries.length > MAX_LISTED) {
 		shown.push(localize('vibeide.defaults.more', '- …и ещё {0}', entries.length - MAX_LISTED));
 	}
@@ -83,7 +99,7 @@ function renderReport(diff: VibeDefaultsDiff, plan: SeedMergePlan<VibeDefaultsDi
 	const parts: string[] = [
 		diff.needsAttention
 			? localize('vibeide.defaults.report.intro', 'Окружение агентов (`.vibe`) развивается от релиза к релизу: добавляются и правятся скиллы, правила и примеры. Ваша копия отстала — ниже видно, в чём.')
-			: localize('vibeide.defaults.report.introOk', 'Окружение агентов (`.vibe`) в порядке: всё, что изменил релиз, у вас уже есть. Обновлять нечего.'),
+			: localize('vibeide.defaults.report.introOk', 'Набор актуален: окружение агентов (`.vibe`) в порядке, всё, что изменил релиз, у вас уже есть. Обновлять нечего.'),
 	];
 
 	if (diff.missing.length > 0) {
@@ -217,6 +233,63 @@ registerAction2(class extends Action2 {
 			body: renderReport(diff, plan),
 			bodyMarkdown: true,
 			icon: 'diff',
+			size: 'large',
+			buttons: diffable.length > 0
+				? [
+					{ id: 'diffs', label: localize('vibeide.defaults.showDiffs', 'Показать различия'), role: 'primary' },
+					{ id: 'close', label: localize('vibeide.defaults.close', 'Закрыть'), role: 'secondary' },
+				]
+				: [{ id: 'close', label: localize('vibeide.defaults.close', 'Закрыть'), role: 'primary' }],
+		});
+		if (res.buttonId === 'diffs') {
+			await openDiffs(editorService, vibeDir, diffable);
+		}
+	}
+});
+
+/**
+ * «Проверить обновления набора» — тот же diff, но без условий «есть ли о чём говорить»:
+ * команду зовут именно затем, чтобы узнать состояние, поэтому «набор актуален» — такой же
+ * ответ, как и список расхождений, а не повод промолчать.
+ */
+registerAction2(class extends Action2 {
+	constructor() {
+		super({
+			id: VIBEIDE_CHECK_UPDATES_CMD,
+			title: localize2('vibeide.defaults.checkUpdates', 'Проверить обновления набора'),
+			category: VIBE_COMMAND_CATEGORY,
+			f1: true,
+		});
+	}
+
+	async run(accessor: ServicesAccessor): Promise<void> {
+		const fileService = accessor.get(IFileService);
+		const modal = accessor.get(IVibeModalService);
+		const editorService = accessor.get(IEditorService);
+		const notificationService = accessor.get(INotificationService);
+		const vibeDir = vibeDirOf(accessor);
+		if (!vibeDir) {
+			return;
+		}
+
+		let diff: VibeDefaultsDiff;
+		try {
+			diff = await diffVibeDefaults(fileService, vibeDir);
+		} catch (e) {
+			notificationService.notify({
+				severity: Severity.Error,
+				message: localize('vibeide.defaults.checkFail', 'Не удалось проверить обновления набора: {0}', String(e)),
+			});
+			return;
+		}
+		const human = needsHuman(diff);
+		const plan = planSeedMerge(human, await seedBasesPresent(fileService, vibeDir, human.map(e => e.path)));
+		const diffable = [...human, ...diff.customized, ...diff.outdated];
+		const res = await modal.showModal<'diffs' | 'close'>({
+			title: localize('vibeide.defaults.checkUpdates.title', 'Проверка обновлений набора'),
+			body: renderReport(diff, plan),
+			bodyMarkdown: true,
+			icon: 'cloud-download',
 			size: 'large',
 			buttons: diffable.length > 0
 				? [

@@ -32,6 +32,7 @@
  */
 
 import { match as globMatch } from '../../../../../base/common/glob.js';
+import { parseYamlScalar } from '../frontmatterScalar.js';
 
 export interface ParsedRuleFile {
 	readonly frontmatter: Readonly<Record<string, string>>;
@@ -71,6 +72,20 @@ export function parseRuleFrontmatter(content: string): ParsedRuleFile {
 				value = items.join('\n');
 				i = next - 1;
 			}
+		} else if (/^[|>][+-]?[ \t]*$/.test(value)) {
+			// Блочный скаляр забирает следующие строки с отступом в одно значение
+			// Пустая строка остаётся пустой строкой значения, ключ с нулевым отступом закрывает блок
+			const collected: string[] = [];
+			let next = i + 1;
+			for (; next < lines.length; next++) {
+				if (lines[next].trim() === '') { collected.push(''); continue; }
+				if (!/^\s/.test(lines[next])) { break; }
+				collected.push(lines[next].trim());
+			}
+			value = parseYamlScalar(`${value}\n${collected.join('\n')}`);
+			i = next - 1;
+		} else {
+			value = parseYamlScalar(value);
 		}
 		frontmatter[kv[1].toLowerCase()] = value;
 	}

@@ -27,6 +27,9 @@ suite('builtin model profiles — имя на проводе, профиль, п
 
 	test('имя модели уходит тем, что выбрано; профиль — по первому совпадению от частного к общему', () => {
 		assert.deepStrictEqual([
+			resolved('anthropic', 'claude-fable-5-2'),
+			resolved('anthropic', 'claude-fable-5.2'),
+			resolved('anthropic', 'claude-mythos-5-2'),
 			resolved('anthropic', 'claude-fable-5-1'),
 			resolved('anthropic', 'claude-mythos-5-1'),
 			resolved('anthropic', 'claude-fable-5'),
@@ -50,6 +53,9 @@ suite('builtin model profiles — имя на проводе, профиль, п
 			resolved('xAI', 'grok-4-fast'),
 			resolved('xAI', 'grok-3-mini-fast-beta'),
 		], [
+			'claude-fable-5-2 ← claude-fable-5-2',
+			'claude-fable-5.2 ← claude-fable-5-2',
+			'claude-mythos-5-2 ← claude-fable-5-2',
 			'claude-fable-5-1 ← claude-fable-5-1',
 			'claude-mythos-5-1 ← claude-fable-5-1',
 			'claude-fable-5 ← claude-fable-5',
@@ -110,8 +116,11 @@ suite('builtin model profiles — имя на проводе, профиль, п
 			const slider = reasoning?.reasoningSlider?.type === 'effort_slider' ? reasoning.reasoningSlider : undefined;
 			return { model: modelName, cost: caps.cost, levels: slider?.values.join('/'), default: slider?.default, canTurnOff: reasoning?.canTurnOffReasoning, retires: caps.deprecation?.date };
 		};
-		assert.deepStrictEqual(['claude-fable-5-1', 'claude-mythos-5', 'claude-opus-4-6', 'claude-sonnet-4-6', 'claude-opus-4-5', 'claude-opus-4-1', 'claude-sonnet-4-5', 'claude-haiku-4-5'].map(card), [
+		assert.deepStrictEqual(['claude-fable-5-2', 'claude-mythos-5-2', 'claude-fable-5-1', 'claude-fable-5', 'claude-mythos-5', 'claude-opus-4-6', 'claude-sonnet-4-6', 'claude-opus-4-5', 'claude-opus-4-1', 'claude-sonnet-4-5', 'claude-haiku-4-5'].map(card), [
+			{ model: 'claude-fable-5-2', cost: { input: 8, cache_read: 0.8, cache_write: 10, output: 40 }, levels: 'low/medium/high/xhigh/max', default: 'high', canTurnOff: false, retires: undefined },
+			{ model: 'claude-mythos-5-2', cost: { input: 8, cache_read: 0.8, cache_write: 10, output: 40 }, levels: 'low/medium/high/xhigh/max', default: 'high', canTurnOff: false, retires: undefined },
 			{ model: 'claude-fable-5-1', cost: { input: 10, cache_read: 0.25, cache_write: 12.5, output: 50 }, levels: 'low/medium/high/xhigh/max', default: 'high', canTurnOff: false, retires: undefined },
+			{ model: 'claude-fable-5', cost: { input: 10, cache_read: 1, cache_write: 12.5, output: 50 }, levels: 'low/medium/high/xhigh/max', default: 'high', canTurnOff: false, retires: undefined },
 			{ model: 'claude-mythos-5', cost: { input: 10, cache_read: 1, cache_write: 12.5, output: 50 }, levels: 'low/medium/high/xhigh/max', default: 'high', canTurnOff: false, retires: undefined },
 			{ model: 'claude-opus-4-6', cost: { input: 5, cache_read: 0.5, cache_write: 6.25, output: 25 }, levels: 'low/medium/high/max', default: 'high', canTurnOff: true, retires: undefined },
 			{ model: 'claude-sonnet-4-6', cost: { input: 3, cache_read: 0.3, cache_write: 3.75, output: 15 }, levels: 'low/medium/high/max', default: 'high', canTurnOff: true, retires: undefined },
@@ -129,11 +138,12 @@ suite('builtin model profiles — имя на проводе, профиль, п
 	test('Claude через шлюз: та же таблица, что у прямого провайдера; выключенные 3.x — на живой профиль своей линии', () => {
 		const via = (modelName: string) => `${modelName} ← ${getModelCapabilities('openRouter', modelName, undefined).recognizedModelName}`;
 		assert.deepStrictEqual([
-			'anthropic/claude-opus-5', 'anthropic/claude-sonnet-5.5', 'anthropic/claude-fable-5.1', 'anthropic/claude-opus-4.6',
+			'anthropic/claude-opus-5', 'anthropic/claude-sonnet-5.5', 'anthropic/claude-fable-5.2', 'anthropic/claude-fable-5.1', 'anthropic/claude-opus-4.6',
 			'anthropic/claude-3.7-sonnet', 'anthropic/claude-3-opus', 'anthropic/claude-3.5-haiku', 'anthropic/claude-next',
 		].map(via), [
 			'anthropic/claude-opus-5 ← claude-opus-5',
 			'anthropic/claude-sonnet-5.5 ← claude-sonnet-5-5',
+			'anthropic/claude-fable-5.2 ← claude-fable-5-2',
 			'anthropic/claude-fable-5.1 ← claude-fable-5-1',
 			'anthropic/claude-opus-4.6 ← claude-opus-4-6',
 			'anthropic/claude-3.7-sonnet ← claude-sonnet-4-6',
@@ -189,7 +199,7 @@ suite('builtin model profiles — имя на проводе, профиль, п
 			{ model: 'openRouter/anthropic/claude-haiku-5.5 ← claude-haiku-5-5', canTurnOff: true, off: { thinking: { type: 'disabled' } }, levels: 'low/medium/high/xhigh/max', default: 'medium', cost: '0.1/0.5/0.01' },
 			{ model: 'openAI/gpt-6.1-sol ← gpt-6.1-sol', canTurnOff: false, off: undefined, levels: 'low/medium/high/xhigh/max', default: 'medium', cost: '2/10/0.1' },
 			{ model: 'openRouter/moonshotai/kimi-k3 ← kimiK3', canTurnOff: false, off: undefined, levels: 'low/high/max', default: 'high', cost: '3/15/0.3' },
-			{ model: 'openRouter/k3-256k ← kimiK3', canTurnOff: false, off: undefined, levels: 'low/high/max', default: 'high', cost: '3/15/0.3' },
+			{ model: 'openRouter/k3-256k ← kimiK3_256k', canTurnOff: false, off: undefined, levels: 'low/high/max', default: 'high', cost: '3/15/0.3' },
 			{ model: 'openRouter/kimi-for-coding ← kimiForCoding', canTurnOff: true, off: { reasoning_effort: 'none' }, levels: 'low/high/max', default: 'max', cost: '0.6/2.5/—' },
 			{ model: 'openRouter/moonshotai/kimi-k3.1-pro ← kimiK3.1Pro', canTurnOff: false, off: undefined, levels: 'low/high/max', default: 'high', cost: '2/10/0.2' },
 			{ model: 'openRouter/kimi-k3.1-pro-highspeed ← kimiK3.1ProHighspeed', canTurnOff: false, off: undefined, levels: 'low/high/max', default: 'high', cost: '4/20/0.2' },
@@ -203,6 +213,11 @@ suite('builtin model profiles — имя на проводе, профиль, п
 			{ model: 'openRouter/z-ai/glm-5.3 ← glm5.3', canTurnOff: false, off: undefined, levels: 'low/high/max', default: 'high', cost: '1.4/4.4/—' },
 			{ model: 'openRouter/z-ai/glm-5.3-flash ← glm5', canTurnOff: true, off: undefined, levels: undefined, default: undefined, cost: '1/3.2/—' },
 		]);
+	});
+
+	test('Kimi K3: у k3-256k окно 256K, у k3 — 1M', () => {
+		const windowOf = (modelName: string) => getModelCapabilities('openRouter', modelName, undefined).contextWindow;
+		assert.deepStrictEqual(['k3-256k', 'k3', 'moonshotai/kimi-k3'].map(windowOf), [262_144, 1_048_576, 1_048_576]);
 	});
 
 	test('GPT-6.1 Terra: цена $1 / $5, рассуждение выключается; Sol не изменился', () => {

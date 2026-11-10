@@ -590,6 +590,9 @@ import './vibeInlineAiExplanationHoverProvider.js';
 // VibeIDE: Context window visualizer statusbar
 import './vibeContextWindowStatusBar.js';
 
+// VibeIDE: диалог «Сжать / Продолжить / Остановить» на 90% контекста
+import './vibeContextLimitDialog.contribution.js';
+
 // VibeIDE: Context usage report command (vibeide.context.status — opens composition report)
 import './vibeContextReportContribution.js';
 

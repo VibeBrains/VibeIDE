@@ -319,21 +319,24 @@ body.monaco-workbench,
 	box-shadow: var(--vibeide-shadow-hairline);
 }
 
-/* On Windows, disable backdrop-filter on titlebar to avoid stacking context issues
- * that prevent menubar dropdowns from appearing when appended to document.body */
-.monaco-workbench.windows .part.titlebar {
+/* Размытие делает заголовок контейнером для position: fixed — выпадающее меню обрезается по его высоте
+ * Меню в заголовке своё на Windows, Linux и в вебе, поэтому размытие остаётся только в десктопе на маке с системным меню */
+.monaco-workbench:not(.mac) .part.titlebar,
+.monaco-workbench.web .part.titlebar {
 	backdrop-filter: none;
 }
 
 .monaco-workbench .part.sidebar > .content .pane-header,
 .monaco-workbench .part.auxiliarybar > .content .pane-header {
-	padding: var(--vibeide-space-sm) var(--vibeide-space-md) !important;
-	min-height: 32px;
+	padding: 0 var(--vibeide-space-md) !important;
 }
 
-.monaco-workbench .part.sidebar > .content .pane-body,
-.monaco-workbench .part.auxiliarybar > .content .pane-body {
-	padding-bottom: var(--vibeide-space-sm);
+/* Высота заголовка панели задаётся переменной, а не min-height и отступами:
+ * Раскладка берёт ту же высоту из setGlobalPaneHeaderSize (VIBE_PANE_HEADER_SIZE в styleOverrides.contribution.ts)
+ * Высота, известная одному CSS, сдвигала содержимое вниз, и последняя строка списка не доскролливалась
+ * Экспериментальная тема VS Code (.style-override) ставит свою высоту, её не перебиваем */
+.monaco-workbench:not(.style-override) .monaco-pane-view {
+	--pane-header-size: 32px;
 }
 
 .monaco-workbench .split-view-view {

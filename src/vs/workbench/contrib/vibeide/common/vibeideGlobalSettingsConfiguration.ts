@@ -1113,6 +1113,14 @@ export class VibeideGlobalSettingsConfigurationContribution extends Disposable i
 					description: localize('vibeide.chat.maxStoredToolResultKB', 'Максимальный РАЗМЕР (КБ) одного сохранённого tool-результата в истории треда, ПОСЛЕ того как он выходит из окна `keepRecentFullToolResults`. Дополняет `maxMessagesPerThread` (тот ограничивает ЧИСЛО сообщений, а этот — размер каждого): один огромный `read_file`/поиск может весить больше сотен мелких сообщений. Сверх порога — head+tail усечение с маркером и подсчётом КБ; перезапуск инструмента восстанавливает полный вывод. Снижает память рендерера и размер стора на диске на длинных сессиях. Дефолт 24 КБ. Поднимите, если часто нужен полный старый вывод; нижний предел 4 КБ — чтобы маркер не вытеснял сам результат.'),
 					scope: ConfigurationScope.APPLICATION,
 				},
+				'vibeide.chat.maxThreadStorageMB': {
+					type: 'number',
+					default: 32,
+					minimum: 1,
+					maximum: 4096,
+					description: localize('vibeide.chat.maxThreadStorageMB', "Предел размера одного треда при сохранении на диск, в мегабайтах. Тред больше предела ужимается по старым результатам инструментов (жёстко: 4 КБ на результат, последние 4 — целиком); если и после этого не влезает, он всё равно сохраняется целиком и человек получает предупреждение. Каждый тред хранится отдельным файлом, поэтому предел защищает от одного раздутого разговора, а не от всей истории. Дефолт 32 МБ."),
+					scope: ConfigurationScope.APPLICATION,
+				},
 				'vibeide.chat.keepRecentFullToolResults': {
 					type: 'number',
 					default: 16,

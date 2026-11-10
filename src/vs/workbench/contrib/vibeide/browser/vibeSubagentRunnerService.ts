@@ -26,7 +26,7 @@ import { BuiltinToolName, ToolName } from '../common/toolsServiceTypes.js';
 import { approvalTypeOfBuiltinToolName } from '../common/prompt/tools/index.js';
 import { truncateHeadTail } from '../common/toolHardening.js';
 import { IVibePromptGuardService } from '../common/vibePromptGuardService.js';
-import { guardToolOutput } from '../common/untrustedToolOutputGuard.js';
+import { prepareToolOutput } from '../common/untrustedToolOutputGuard.js';
 import { IVibeSubagentRunner, SubagentRunRequest, SubagentRunOutcome } from '../common/vibeSubagentRunner.js';
 import { IVibeSubagentRegistryService } from '../common/vibeSubagentRegistryService.js';
 import { IVibeSpendLedgerService } from './vibeSpendLedgerService.js';
@@ -469,7 +469,7 @@ class VibeSubagentRunnerService extends Disposable implements IVibeSubagentRunne
 				const { result } = await this._tools.callTool[toolName](params as never);
 				deniedActions = 0; // a tool ran cleanly — the «stuck» guard counts CONSECUTIVE misfires, not lifetime
 				// A role reads the web with the same tools as the chat, and its model is as exposed to a hostile page
-				const content = truncateHeadTail(guardToolOutput({
+				const content = truncateHeadTail(prepareToolOutput({
 					toolName,
 					isMcpTool: false,
 					output: this._tools.stringOfResult[toolName](params as never, result as never),

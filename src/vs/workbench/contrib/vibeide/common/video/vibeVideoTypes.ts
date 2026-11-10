@@ -64,6 +64,22 @@ export interface VideoFrameInfo {
 	readonly sizeBytes: number;
 }
 
+/** Что разбор узнал про HDR: он есть в исходнике и удалось ли привести его к обычному цвету */
+export interface VideoHdrInfo {
+	readonly detected: boolean;
+	readonly toneMapped: boolean;
+}
+
+/** Лист кадров: сетка cols×rows, собранная из кадров первого прохода */
+export interface VideoSheetInfo {
+	readonly path: string;
+	/** Таймкоды кадров листа в порядке ячеек сетки */
+	readonly frameTimes: readonly number[];
+	readonly cols: number;
+	readonly rows: number;
+	readonly sizeBytes: number;
+}
+
 export type VideoTranscriptKind = 'subtitles' | 'stt' | 'none';
 
 /**
@@ -80,6 +96,10 @@ export interface VideoAnalysisResult {
 	readonly title?: string;
 	readonly durationSec?: number;
 	readonly frames: readonly VideoFrameInfo[];
+	/** HDR в исходнике и удалось ли его привести к обычному цвету (только у видео) */
+	readonly hdr?: VideoHdrInfo;
+	/** Листы кадров вместо отдельных картинок для модели; отдельные кадры при этом тоже на месте */
+	readonly sheets?: readonly VideoSheetInfo[];
 	/** SRT text when subtitles were found; undefined otherwise (see `audioPcmPath`). */
 	readonly transcriptSrt?: string;
 	/**

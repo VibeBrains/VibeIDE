@@ -59,17 +59,22 @@ function stripJsonc(text) {
 	return out;
 }
 
-async function collectFiles(dir) {
+// Каталоги набора про сам набор, а не его часть: мануалы и утилиты в проекты не сеются
+// Список тот же, что NOT_SEEDED_DIRS в bump.mjs набора: реестр ревизий их не ведёт
+const NOT_SEEDED_DIRS = new Set(['docs', 'tools']);
+
+async function collectFiles(dir, top = true) {
 	const out = [];
 	const entries = await fs.readdir(dir, { withFileTypes: true });
 	for (const entry of entries) {
+		if (top && entry.isDirectory() && NOT_SEEDED_DIRS.has(entry.name)) { continue; }
 		// `.vibe-defaults` is a submodule (the seed set lives in the VibeBrains repo), so its root
 		// holds a `.git` gitlink — a FILE, not a directory. Without this it would ship inside the
 		// product as a seed and land in every new project's `.vibe/`.
 		if (entry.name === '.git') { continue; }
 		const abs = path.join(dir, entry.name);
 		if (entry.isDirectory()) {
-			out.push(...await collectFiles(abs));
+			out.push(...await collectFiles(abs, false));
 		} else if (entry.isFile()) {
 			out.push(abs);
 		}
@@ -169,8 +174,15 @@ async function main() {
 		}
 		entries.push(`\t{ path: ${JSON.stringify(rel)}, contents: ${JSON.stringify(contents)} },`);
 	}
-	const versionEntries = Object.entries(versions).map(([path, v]) =>
-		`\t{ path: ${JSON.stringify(path)}, version: ${JSON.stringify(v.version ?? 1)}, sha256: ${JSON.stringify(v.sha256)}, history: ${JSON.stringify(v.history ?? [])} },`);
+	// `vibeVersion` появился в контракте набора позже самого реестра: старый набор живёт без
+	// поля, новый несёт его рядом с версией ревизии. Переносим, только если оно есть, — иначе
+	// манифест старого набора перестал бы совпадать с перегенерированным.
+	const versionEntries = Object.entries(versions).map(([path, v]) => {
+		const vibeVersion = typeof v.vibeVersion === 'string' && v.vibeVersion.trim()
+			? `, vibeVersion: ${JSON.stringify(v.vibeVersion.trim())}`
+			: '';
+		return `\t{ path: ${JSON.stringify(path)}, version: ${JSON.stringify(v.version ?? 1)}, sha256: ${JSON.stringify(v.sha256)}, history: ${JSON.stringify(v.history ?? [])}${vibeVersion} },`;
+	});
 	const deprecatedEntries = deprecated.map(d =>
 		`\t{ path: ${JSON.stringify(d.path)}, replacedBy: ${JSON.stringify(d.replacedBy ?? null)}, sha256: ${JSON.stringify(d.sha256 ?? [])} },`);
 
@@ -216,6 +228,8 @@ export interface VibeSeedRevision {
 	readonly version: number;
 	readonly sha256: string;
 	readonly history: readonly string[];
+	/** \`vibeVersion\` из реестра набора; у набора старого формата поля нет. */
+	readonly vibeVersion?: string;
 }
 
 export const VIBE_VERSIONS_MANIFEST: ReadonlyArray<VibeSeedRevision> = [

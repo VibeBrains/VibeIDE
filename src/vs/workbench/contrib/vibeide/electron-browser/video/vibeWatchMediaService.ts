@@ -40,11 +40,12 @@ import { ILogService } from '../../../../../platform/log/common/log.js';
 import { IPathService } from '../../../../services/path/common/pathService.js';
 import { IVibeModalService } from '../../common/vibeModalService.js';
 import { IVibeVideoChatState } from '../../common/video/vibeVideoChatService.js';
-import { IPreparedWatch, IVibeWatchMediaService, IWatchFrameBytes, IWatchRunOptions, IWatchToolImage, IWatchToolReport, IWatchToolRequest, WatchRun, WatchStop } from '../../common/video/vibeWatchMediaService.js';
+import { IPreparedWatch, IVibeWatchMediaService, IWatchFrameBytes, IWatchRunOptions, IWatchSheetBytes, IWatchToolImage, IWatchToolReport, IWatchToolRequest, WatchRun, WatchStop } from '../../common/video/vibeWatchMediaService.js';
+import { SHEET_TILE_MARGIN, SHEET_TILE_PADDING } from '../../common/video/videoFrameFilters.js';
 import { VIBE_VIDEO_CHANNEL, VideoAnalysisProgress, VideoAnalysisResult, VideoAnalysisStage, VideoAnalyzeOptions, VideoToolsDownloadProgress, VideoToolsState, VideoTranscriptSegment, formatVideoTimecode, selectEvenlySpreadFrames } from '../../common/video/vibeVideoTypes.js';
 import { classifyWatchInput, isRemoteVideoInput, resolveWatchTarget, WatchTargetResolution } from '../../common/video/vibeVideoTools.js';
 import { VIDEO_ENABLED_KEY, VIDEO_FRAME_MODEL_KEY, VIDEO_TOOL_MAX_FRAMES_KEY, clampVideoToolMaxFrames } from '../../common/video/vibeVideoConfiguration.js';
-import { IWatchedMedia, WatchFrameReport, composeFrameDescriptionPrompt, composeWatchToolReport, parseFrameDescriptions } from '../../common/video/watchMediaReport.js';
+import { IWatchedMedia, WatchFrameReport, composeFrameDescriptionPrompt, composeSheetDescriptionPrompt, composeWatchToolReport, parseFrameDescriptions } from '../../common/video/watchMediaReport.js';
 import { IVibeVoiceInputService } from '../../common/voice/vibeVoiceInputService.js';
 import { VoiceProfileId } from '../../common/voice/vibeVoiceTypes.js';
 import { IVibeideSettingsService } from '../../common/vibeideSettingsService.js';
@@ -62,6 +63,15 @@ const DESCRIBE_FRAMES_TIMEOUT_MS = 180_000;
 
 function bytesToMegabytes(bytes: number): number {
 	return Math.max(1, Math.round(bytes / (1024 * 1024)));
+}
+
+/** Картинка, которая уходит модели: отдельный кадр или собранный из кадров лист */
+interface IDescribeImage {
+	readonly filename: string;
+	readonly data: Uint8Array;
+	readonly width: number;
+	readonly height: number;
+	readonly sizeBytes: number;
 }
 
 // ── Channel client ───────────────────────────────────────────────────────────
@@ -258,7 +268,12 @@ class VibeWatchMediaService extends Disposable implements IVibeWatchMediaService
 				transcriptText,
 				transcriptLabel,
 			};
-			const value = await consume({ media, result, readFrames: indices => this.readFrames(result, indices) });
+			const value = await consume({
+				media,
+				result,
+				readFrames: indices => this.readFrames(result, indices),
+				readSheets: () => this.readSheets(result),
+			});
 			return { kind: 'done', value };
 		} finally {
 			await this.channel.cleanup(requestId).catch(() => undefined);
@@ -472,6 +487,36 @@ class VibeWatchMediaService extends Disposable implements IVibeWatchMediaService
 		return frames;
 	}
 
+	/**
+	 * Листы кадров с диска
+	 *
+	 * Размер листа считаем по сетке: `tile` кладёт поля по краям и отступ между ячейками,
+	 * а кадры внутри листа одного размера — он и берётся за ячейку
+	 */
+	private async readSheets(result: VideoAnalysisResult): Promise<readonly IWatchSheetBytes[]> {
+		const sheets = result.sheets ?? [];
+		const frame = result.frames[0];
+		if (sheets.length === 0 || !frame) {
+			return [];
+		}
+		const sheetBytes: IWatchSheetBytes[] = [];
+		for (let index = 0; index < sheets.length; index++) {
+			const sheet = sheets[index];
+			const content = await this.fileService.readFile(URI.file(sheet.path));
+			sheetBytes.push({
+				index: index + 1,
+				cols: sheet.cols,
+				rows: sheet.rows,
+				frameTimes: sheet.frameTimes,
+				width: sheet.cols * frame.width + 2 * SHEET_TILE_MARGIN + (sheet.cols - 1) * SHEET_TILE_PADDING,
+				height: sheet.rows * frame.height + 2 * SHEET_TILE_MARGIN + (sheet.rows - 1) * SHEET_TILE_PADDING,
+				sizeBytes: sheet.sizeBytes,
+				data: content.value.buffer,
+			});
+		}
+		return sheetBytes;
+	}
+
 	// ── Инструмент модели ────────────────────────────────────────────────────
 
 	async forTool(request: IWatchToolRequest): Promise<IWatchToolReport> {
@@ -514,7 +559,16 @@ class VibeWatchMediaService extends Disposable implements IVibeWatchMediaService
 		const shown: IWatchedMedia = { ...media, frameTimes: picked.map(index => media.frameTimes[index]) };
 		let frames: WatchFrameReport = { kind: 'unseen', reason: '' };
 		let images: IWatchToolImage[] = [];
-		if (picked.length > 0) {
+		// Листы уже склеены из кадров первого прохода: модели уходит по картинке на лист
+		const sheets: readonly IWatchSheetBytes[] = media.kind === 'video' ? await prepared.readSheets() : [];
+		if (sheets.length > 0) {
+			if (request.frames === 'attach') {
+				frames = { kind: 'attached' };
+				images = sheets.map(sheet => ({ mimeType: 'image/jpeg', data: encodeBase64(VSBuffer.wrap(sheet.data)), timeSec: sheet.frameTimes[0] ?? 0 }));
+			} else {
+				frames = await this.describeSheets(sheets, request.question);
+			}
+		} else if (picked.length > 0) {
 			const bytes = await prepared.readFrames(picked);
 			if (request.frames === 'attach') {
 				frames = { kind: 'attached' };
@@ -557,53 +611,83 @@ class VibeWatchMediaService extends Disposable implements IVibeWatchMediaService
 		return { selection };
 	}
 
-	/** Кадры → один запрос к vision-модели: по строке на кадр. Не вышло — ответ инструмента остаётся с тайм-кодами и называет причину */
-	private async describeFrames(frames: readonly IWatchFrameBytes[], times: readonly number[], question: string): Promise<WatchFrameReport> {
+	/** Один запрос к vision-модели: сбой, отказ и таймаут возвращают причину, а не бросают */
+	private async describeImages(images: readonly IDescribeImage[], prompt: string, title: string): Promise<{ readonly model: string; readonly answer: string } | { readonly reason: string }> {
 		const model = this.frameModel();
 		if ('reason' in model) {
-			return { kind: 'unseen', reason: model.reason };
+			return { reason: model.reason };
 		}
 		const label = `${model.selection.providerName}/${model.selection.modelName}`;
 		try {
 			const cancellation = new CancellationTokenSource();
-			let answer: string;
 			try {
-				answer = await this.progressService.withProgress(
-					{
-						location: ProgressLocation.Notification,
-						title: localize('vibeVideo.describing', "Рассматриваю кадры ({0})…", frames.length),
-						cancellable: true,
-					},
-					() => this.askToDescribe(model.selection, frames, times, question, cancellation.token),
+				const answer = await this.progressService.withProgress(
+					{ location: ProgressLocation.Notification, title, cancellable: true },
+					() => this.askToDescribe(model.selection, images, prompt, cancellation.token),
 					() => cancellation.cancel(),
 				);
+				return { model: label, answer };
 			} finally {
 				cancellation.dispose();
 			}
-			const descriptions = parseFrameDescriptions(answer, frames.length);
-			if (descriptions.size === 0) {
-				return { kind: 'unseen', reason: localize('vibeVideo.describe.unparsed', "модель {0} ответила не по формату «N: что видно».", label) };
-			}
-			return { kind: 'described', model: label, descriptions };
 		} catch (error) {
 			this.logService.warn(`[vibeVideo] frame description failed: ${error instanceof Error ? error.message : String(error)}`);
-			return { kind: 'unseen', reason: localize('vibeVideo.describe.failed', "запрос к модели {0} не удался: {1}.", label, error instanceof Error ? error.message : String(error)) };
+			return { reason: localize('vibeVideo.describe.failed', "запрос к модели {0} не удался: {1}.", label, error instanceof Error ? error.message : String(error)) };
 		}
 	}
 
-	private async askToDescribe(selection: ModelSelection, frames: readonly IWatchFrameBytes[], times: readonly number[], question: string, token: CancellationToken): Promise<string> {
-		const prompt = composeFrameDescriptionPrompt(times, question);
-		const images: ChatImageAttachment[] = frames.map((frame, index) => ({
+	/** Кадры → один запрос к vision-модели: по строке на кадр. Не вышло — ответ инструмента остаётся с тайм-кодами и называет причину */
+	private async describeFrames(frames: readonly IWatchFrameBytes[], times: readonly number[], question: string): Promise<WatchFrameReport> {
+		const outcome = await this.describeImages(
+			frames.map((frame, index) => ({ filename: `frame-${index + 1}.jpg`, data: frame.data, width: frame.width, height: frame.height, sizeBytes: frame.sizeBytes })),
+			composeFrameDescriptionPrompt(times, question),
+			localize('vibeVideo.describing', "Рассматриваю кадры ({0})…", frames.length),
+		);
+		if ('reason' in outcome) {
+			return { kind: 'unseen', reason: outcome.reason };
+		}
+		const descriptions = parseFrameDescriptions(outcome.answer, frames.length);
+		if (descriptions.size === 0) {
+			return { kind: 'unseen', reason: localize('vibeVideo.describe.unparsed', "модель {0} ответила не по формату «N: что видно».", outcome.model) };
+		}
+		return { kind: 'described', model: outcome.model, descriptions };
+	}
+
+	/** Листы → один запрос к vision-модели: по строке на лист, с таймкодами кадров этого листа */
+	private async describeSheets(sheets: readonly IWatchSheetBytes[], question: string): Promise<WatchFrameReport> {
+		const outcome = await this.describeImages(
+			sheets.map(sheet => ({ filename: `sheet-${sheet.index}.jpg`, data: sheet.data, width: sheet.width, height: sheet.height, sizeBytes: sheet.sizeBytes })),
+			composeSheetDescriptionPrompt(sheets.map(sheet => ({ index: sheet.index, frameTimes: sheet.frameTimes })), question),
+			localize('vibeVideo.describingSheets', "Рассматриваю листы кадров ({0})…", sheets.length),
+		);
+		if ('reason' in outcome) {
+			return { kind: 'unseen', reason: outcome.reason };
+		}
+		const descriptions = parseFrameDescriptions(outcome.answer, sheets.length);
+		if (descriptions.size === 0) {
+			return { kind: 'unseen', reason: localize('vibeVideo.describe.unparsed', "модель {0} ответила не по формату «N: что видно».", outcome.model) };
+		}
+		return {
+			kind: 'described',
+			model: outcome.model,
+			// Модель описывала листы: строки кадров в отчёте остаются без описаний, описания идут по листам
+			descriptions: new Map(),
+			sheets: sheets.map(sheet => ({ index: sheet.index, frameTimes: sheet.frameTimes, description: descriptions.get(sheet.index) })),
+		};
+	}
+
+	private async askToDescribe(selection: ModelSelection, images: readonly IDescribeImage[], prompt: string, token: CancellationToken): Promise<string> {
+		const attachments: ChatImageAttachment[] = images.map(image => ({
 			id: generateUuid(),
-			data: frame.data,
+			data: image.data,
 			mimeType: 'image/jpeg',
-			filename: `frame-${index + 1}.jpg`,
-			width: frame.width,
-			height: frame.height,
-			size: frame.sizeBytes,
+			filename: image.filename,
+			width: image.width,
+			height: image.height,
+			size: image.sizeBytes,
 			uploadStatus: 'success',
 		}));
-		const message: ChatMessage = { role: 'user', content: prompt, displayContent: prompt, selections: null, images, state: { stagingSelections: [], isBeingEdited: false } };
+		const message: ChatMessage = { role: 'user', content: prompt, displayContent: prompt, selections: null, images: attachments, state: { stagingSelections: [], isBeingEdited: false } };
 		const { messages, separateSystemMessage } = await this.convertToLLMMessageService.prepareLLMChatMessages({
 			chatMessages: [message],
 			chatMode: 'normal',

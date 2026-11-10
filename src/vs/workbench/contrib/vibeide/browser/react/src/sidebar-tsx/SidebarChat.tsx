@@ -4477,6 +4477,8 @@ type ChatBubbleProps = {
 	isCommitted: boolean;
 	chatIsRunning: IsRunningType;
 	threadId: string;
+	/** The agent session of the thread: an ACP tool card finds its own question by it */
+	acpSessionId?: string;
 	currCheckpointIdx: number | undefined;
 	_scrollToBottom: (() => void) | null;
 };
@@ -5071,6 +5073,7 @@ const ChatBubble = React.memo((props: ChatBubbleProps) => {
 		prev.chatIsRunning === next.chatIsRunning &&
 		prev.currCheckpointIdx === next.currCheckpointIdx &&
 		prev.threadId === next.threadId &&
+		prev.acpSessionId === next.acpSessionId &&
 		prev._scrollToBottom === next._scrollToBottom;
 });
 
@@ -5113,7 +5116,7 @@ const ScoutComponent = ({ message, threadId, messageIdx }: { message: ScoutMessa
 	);
 };
 
-const _ChatBubble = React.memo(({ threadId, chatMessage, currCheckpointIdx, isCommitted, messageIdx, chatIsRunning, _scrollToBottom }: ChatBubbleProps) => {
+const _ChatBubble = React.memo(({ threadId, acpSessionId, chatMessage, currCheckpointIdx, isCommitted, messageIdx, chatIsRunning, _scrollToBottom }: ChatBubbleProps) => {
 	const role = chatMessage.role;
 
 	const isCheckpointGhost = messageIdx > (currCheckpointIdx ?? Infinity) && !chatIsRunning; // whether to show as gray (if chat is running, for good measure just dont show any ghosts)
@@ -5214,7 +5217,7 @@ const _ChatBubble = React.memo(({ threadId, chatMessage, currCheckpointIdx, isCo
 	}
 
 	else if (role === 'acp_tool') {
-		return <AcpToolCard message={chatMessage} isCheckpointGhost={isCheckpointGhost} />;
+		return <AcpToolCard message={chatMessage} isCheckpointGhost={isCheckpointGhost} acpSessionId={acpSessionId} />;
 	}
 
 	else if (role === 'acp_notice') {
@@ -5236,6 +5239,7 @@ const _ChatBubble = React.memo(({ threadId, chatMessage, currCheckpointIdx, isCo
 		prev.chatIsRunning === next.chatIsRunning &&
 		prev.currCheckpointIdx === next.currCheckpointIdx &&
 		prev.threadId === next.threadId &&
+		prev.acpSessionId === next.acpSessionId &&
 		prev._scrollToBottom === next._scrollToBottom;
 });
 
@@ -6387,6 +6391,7 @@ export const SidebarChat = () => {
 				isCommitted={false}
 				chatIsRunning={isRunning}
 				threadId={threadId}
+				acpSessionId={currentThread.acpAgent?.sessionId}
 				_scrollToBottom={null}
 			/> : null;
 
@@ -6434,6 +6439,7 @@ export const SidebarChat = () => {
 						isCommitted={true}
 						chatIsRunning={isRunning}
 						threadId={threadId}
+						acpSessionId={currentThread.acpAgent?.sessionId}
 						_scrollToBottom={scrollToBottomCallback}
 					/>
 				</div>

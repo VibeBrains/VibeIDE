@@ -13,10 +13,14 @@ import { Disposable } from '../../../../../base/common/lifecycle.js';
 import { raceTimeout } from '../../../../../base/common/async.js';
 import { generateUuid } from '../../../../../base/common/uuid.js';
 import { isAbsolute, join } from '../../../../../base/common/path.js';
+import { ILogService } from '../../../../../platform/log/common/log.js';
+import { IConfigurationService } from '../../../../../platform/configuration/common/configuration.js';
+import { ACP_TRACE_FRAMES_KEY } from '../../common/acp/acpTrace.js';
 import { vibeLog } from '../../common/vibeLog.js';
 import {
 	ACP_AGENT_METHOD,
 	ACP_CLIENT_METHOD,
+	AcpAuthState,
 	AcpContentBlock,
 	AcpReconnectMode,
 	AcpStreamDecoder,
@@ -29,7 +33,10 @@ import {
 	JSON_RPC_ERROR,
 	JsonValue,
 	agentSupportsClose,
+	agentSupportsSystemPrompt,
+	agentSupportsAuthStatus,
 	authMethodsOf,
+	authStatusOf,
 	cancelledRequestIdOf,
 	configOptionsOf,
 	encodeMessage,
@@ -109,6 +116,14 @@ interface IAgentProcess {
 	authMethods: readonly IAcpAuthMethod[];
 	/** The agent declared `session/close`: a session ends with it before the process is ended */
 	closeSupported?: boolean;
+	/** The agent declared client system prompts: only then may `systemPrompt` ride in a session request */
+	systemPromptSupported?: boolean;
+	/** The agent declared `auth/status`: only then may we ask about the login state before a session */
+	authStatusSupported?: boolean;
+	/** The login state the agent last reported; `unknown` until it says otherwise */
+	authState?: AcpAuthState;
+	/** The login hint was already shown for the current state: a repeated notification must not repeat it */
+	authHintShown?: boolean;
 	/** What the agent declared it accepts in a prompt; known from the greeting on, before any session */
 	promptCapabilities: IAcpPromptCapabilities;
 	/** The session's settings as the agent last reported them — a boolean's change has to say its type */
@@ -186,7 +201,11 @@ const NESTED_SESSION_MARKERS = [
 export class VibeAcpMainService extends Disposable implements IVibeAcpMain {
 
 	/** @param _shellEnv the login shell's environment, resolved (and cached) the way VS Code does for its terminals. */
-	constructor(private readonly _shellEnv: () => Promise<NodeJS.ProcessEnv>) {
+	constructor(
+		private readonly _shellEnv: () => Promise<NodeJS.ProcessEnv>,
+		private readonly _log: ILogService,
+		private readonly _configurationService: IConfigurationService,
+	) {
 		super();
 	}
 
@@ -197,6 +216,15 @@ export class VibeAcpMainService extends Disposable implements IVibeAcpMain {
 	private readonly _agents = new Map<string, IAgentProcess>();
 	/** Запросы разрешения, ждущие ответа человека: наш id → чем ответить агенту. */
 	private readonly _permissions = new Map<string, { readonly agent: IAgentProcess; readonly rpcId: number | string }>();
+
+	/**
+	 * Кадры ACP в журнал: по умолчанию молчит и включается настройкой
+	 * Только id, метод, статус и заголовок — содержимое файлов и диффов в журнал не попадает
+	 */
+	private _trace(text: string): void {
+		if (this._configurationService.getValue<boolean>(ACP_TRACE_FRAMES_KEY) !== true) { return; }
+		this._log.trace(`[ACP] ${text}`);
+	}
 
 	async startSession(launch: IAcpAgentLaunch): Promise<IAcpSession> {
 		const { agent, mcpServers } = await this._spawnAndGreet(launch);
@@ -278,7 +306,19 @@ export class VibeAcpMainService extends Disposable implements IVibeAcpMain {
 		}
 		agent.authMethods = authMethodsOf(greeting);
 		agent.closeSupported = agentSupportsClose(greeting);
+		agent.systemPromptSupported = agentSupportsSystemPrompt(greeting);
 		agent.promptCapabilities = promptCapabilitiesOf(greeting);
+		agent.authStatusSupported = agentSupportsAuthStatus(greeting);
+		// Состояние входа узнаём до сессии: иначе о нём станет известно только из отказа на первый ход.
+		// Неответ на необязательный вопрос не повод не начинать: состояние остаётся неизвестным.
+		if (agent.authStatusSupported) {
+			try {
+				agent.authState = authStatusOf(await this._call(agent, ACP_AGENT_METHOD.authStatus, {})).state;
+			} catch (err) {
+				agent.authState = 'unknown';
+				this._trace(`${launch.name}: auth/status не ответил (${err instanceof Error ? err.message : String(err)}) — состояние неизвестно`);
+			}
+		}
 		// HTTP-серверы отсеиваются здесь, а не в окне: поддержку такого транспорта агент объявляет
 		// в рукопожатии, и раньше этого момента узнать её неоткуда. Отсеянное называется в журнале —
 		// у гостя это выглядело бы как неработающий сервер без всякой причины.
@@ -298,8 +338,12 @@ export class VibeAcpMainService extends Disposable implements IVibeAcpMain {
 	/** Open a session the given way; resolves to its id. `resume` and `load` come back to `previousSessionId`. */
 	private async _openSession(agent: IAgentProcess, mode: AcpReconnectMode, previousSessionId: string | undefined, mcpServers: readonly JsonValue[]): Promise<string> {
 		const cwd = agent.launch.cwd;
+		// Правила проекта шлём только тому, кто объявил поле: иначе агент вправе отказать на всём запросе
+		const systemPrompt = agent.systemPromptSupported ? await this._sessionSystemPrompt(cwd) : undefined;
 		if (mode === 'new' || !previousSessionId) {
-			const created = await this._call(agent, ACP_AGENT_METHOD.newSession, newSessionParams(cwd, mcpServers));
+			const created = await this._callSession(agent, ACP_AGENT_METHOD.newSession,
+				newSessionParams(cwd, mcpServers, systemPrompt),
+				newSessionParams(cwd, mcpServers));
 			const sessionId = readString(created, 'sessionId');
 			if (!sessionId) {
 				throw new Error(`${agent.launch.name} не вернул идентификатор сессии`);
@@ -308,14 +352,18 @@ export class VibeAcpMainService extends Disposable implements IVibeAcpMain {
 			return sessionId;
 		}
 		if (mode === 'resume') {
-			const resumed = await this._call(agent, ACP_AGENT_METHOD.resumeSession, returnToSessionParams(previousSessionId, cwd, mcpServers));
+			const resumed = await this._callSession(agent, ACP_AGENT_METHOD.resumeSession,
+				returnToSessionParams(previousSessionId, cwd, mcpServers, systemPrompt),
+				returnToSessionParams(previousSessionId, cwd, mcpServers));
 			agent.configOptions = configOptionsOf(resumed) ?? agent.configOptions;
 			return previousSessionId;
 		}
 		// The agent streams the whole conversation before it answers `session/load`.
 		agent.replaying = true;
 		try {
-			const loaded = await this._call(agent, ACP_AGENT_METHOD.loadSession, returnToSessionParams(previousSessionId, cwd, mcpServers));
+			const loaded = await this._callSession(agent, ACP_AGENT_METHOD.loadSession,
+				returnToSessionParams(previousSessionId, cwd, mcpServers, systemPrompt),
+				returnToSessionParams(previousSessionId, cwd, mcpServers));
 			agent.configOptions = configOptionsOf(loaded) ?? agent.configOptions;
 		} finally {
 			agent.replaying = false;
@@ -323,9 +371,48 @@ export class VibeAcpMainService extends Disposable implements IVibeAcpMain {
 		return previousSessionId;
 	}
 
+	/** Текст `.vibe/rules.md` рабочей папки; нет файла или он пуст — правила не шлём */
+	private async _sessionSystemPrompt(cwd: string): Promise<string | undefined> {
+		try {
+			const text = await fsPromises.readFile(join(cwd, '.vibe', 'rules.md'), 'utf8');
+			return text.trim() ? text : undefined;
+		} catch {
+			return undefined;
+		}
+	}
+
+	/**
+	 * Запрос жизненного цикла сессии с правилами и запасной путь без них.
+	 * Агент, объявивший поле, но не принявший его, отвечает `-32602`: сессия важнее правил,
+	 * поэтому повторяем один раз без поля, а не оставляем человека без агента.
+	 */
+	private async _callSession(agent: IAgentProcess, method: string, withPrompt: JsonValue, withoutPrompt: JsonValue): Promise<JsonValue> {
+		// Поля нет — повторять нечего: запасной запрос совпал бы с первым
+		if ((withPrompt as Record<string, JsonValue>)['systemPrompt'] === undefined) {
+			return this._call(agent, method, withPrompt);
+		}
+		try {
+			return await this._call(agent, method, withPrompt);
+		} catch (err) {
+			if (!(err instanceof AcpCallError) || err.code !== JSON_RPC_ERROR.invalidParams) { throw err; }
+			this._trace(`${agent.launch.name}: ${method} отверг systemPrompt (${err.code}) — повтор без правил`);
+			return this._call(agent, method, withoutPrompt);
+		}
+	}
+
 	private _adopt(agent: IAgentProcess, sessionId: string): void {
 		agent.sessionId = sessionId;
 		this._agents.set(sessionId, agent);
+		// Идентификатор сессии теперь есть, и подсказку о входе можно показать до первого сообщения
+		this._hintAuthIfNeeded(agent);
+	}
+
+	/** Показать подсказку входа для активной сессии, если агент уже сказал, что вход нужен */
+	private _hintAuthIfNeeded(agent: IAgentProcess): void {
+		const { sessionId } = agent;
+		if (agent.authState !== 'unauthenticated' || !sessionId || this._agents.get(sessionId) !== agent || agent.authHintShown) { return; }
+		agent.authHintShown = true;
+		this._onEvent.fire({ kind: 'authRequired', sessionId, agentName: agent.launch.name, methods: agent.authMethods });
 	}
 
 	/** End a process on purpose: its exit must not read as a broken connection. */
@@ -346,6 +433,9 @@ export class VibeAcpMainService extends Disposable implements IVibeAcpMain {
 			// Отказ по авторизации выглядит как обычная ошибка вызова, и человек видит голый код.
 			// Между тем ответ на неё известен и лежит в способах входа, объявленных при знакомстве.
 			if (isAuthRequired(err)) {
+				// Отказ показывает подсказку всегда: вход мог сорваться и после уже показанной
+				agent.authState = 'unauthenticated';
+				agent.authHintShown = true;
 				this._onEvent.fire({ kind: 'authRequired', sessionId, agentName: agent.launch.name, methods: agent.authMethods });
 			}
 			throw err;
@@ -359,6 +449,7 @@ export class VibeAcpMainService extends Disposable implements IVibeAcpMain {
 		const pending = this._permissions.get(requestId);
 		if (!pending) { return; }
 		this._permissions.delete(requestId);
+		this._trace(`${pending.agent.launch.name}: ответ requestId=${requestId} ${optionId ? `optionId=${optionId}` : 'отказ'}`);
 		// Отказ выражается отменой, а не «выбран вариант отказа»: варианты придумывает агент, и
 		// угадывать, который из них означает «нет», нельзя.
 		const outcome: JsonValue = optionId
@@ -377,6 +468,7 @@ export class VibeAcpMainService extends Disposable implements IVibeAcpMain {
 		for (const [requestId, pending] of [...this._permissions]) {
 			if (pending.agent !== agent) { continue; }
 			this._permissions.delete(requestId);
+			this._trace(`${agent.launch.name}: ответ requestId=${requestId} отмена хода`);
 			this._send(agent, resultFrame(pending.rpcId, { outcome: { outcome: 'cancelled' } }));
 			this._onEvent.fire({ kind: 'permissionWithdrawn', sessionId, requestId });
 		}
@@ -408,6 +500,19 @@ export class VibeAcpMainService extends Disposable implements IVibeAcpMain {
 
 	// ── Приём ────────────────────────────────────────────────────────────────
 
+	/** Снимок входа из `auth/status_update`: он может прийти в любой момент после initialize */
+	private _onAuthStatus(agent: IAgentProcess, params: JsonValue | undefined): void {
+		const status = authStatusOf(params);
+		const changed = status.state !== agent.authState;
+		agent.authState = status.state;
+		// Новое состояние снова делает подсказку уместной: вход мог понадобиться заново
+		if (changed) { agent.authHintShown = false; }
+		// Не вошедший агент будит только активные сессии; прочие переходы молчаливы
+		if (status.state === 'unauthenticated') {
+			this._hintAuthIfNeeded(agent);
+		}
+	}
+
 	private _onStdout(agent: IAgentProcess, chunk: string): void {
 		const { messages, garbage } = agent.decoder.push(chunk);
 		for (const line of garbage) {
@@ -433,8 +538,14 @@ export class VibeAcpMainService extends Disposable implements IVibeAcpMain {
 				this._onUpdate(agent, message.params);
 				continue;
 			}
+			if (isNotification(message) && message.method === ACP_CLIENT_METHOD.authStatusUpdate) {
+				this._onAuthStatus(agent, message.params);
+				continue;
+			}
 			if (isNotification(message) && message.method === ACP_CLIENT_METHOD.cancelRequest) {
-				this._withdraw(agent, cancelledRequestIdOf(message.params));
+				const rpcId = cancelledRequestIdOf(message.params);
+				this._trace(`${agent.launch.name}: $/cancel_request rpcId=${rpcId ?? 'весь ход'}`);
+				this._withdraw(agent, rpcId);
 			}
 		}
 	}
@@ -475,6 +586,8 @@ export class VibeAcpMainService extends Disposable implements IVibeAcpMain {
 	private _onUpdate(agent: IAgentProcess, params: JsonValue | undefined): void {
 		const update = parseSessionUpdate(params);
 		if (!update) { return; }
+		// Имя кадра (`tool_call` или `tool_call_update`) нужно журналу: по нему видно, первый это кадр вызова или дополнение
+		const frame = readString(readObject(params, 'update'), 'sessionUpdate');
 		const sessionId = agent.sessionId;
 		// The replay of `session/load` is history already on screen — but a settings change during it is the current
 		// state. It is kept even before the session is adopted, and the reconnection hands it over
@@ -499,6 +612,7 @@ export class VibeAcpMainService extends Disposable implements IVibeAcpMain {
 				this._onEvent.fire({ kind: 'text', sessionId, text: update.text, thought: update.thought });
 				return;
 			case 'tool':
+				this._trace(`${agent.launch.name}: ${frame ?? 'tool_call'} toolCallId=${update.toolCallId} status=${update.status}`);
 				this._captureBeforeEdit(agent, update.toolCallId, update.toolKind, update.status, update.paths);
 				this._onEvent.fire({
 					kind: 'tool',
@@ -515,7 +629,15 @@ export class VibeAcpMainService extends Disposable implements IVibeAcpMain {
 				});
 				return;
 			case 'usage':
-				this._onEvent.fire({ kind: 'usage', sessionId, used: update.used, size: update.size, ...(update.costUsd === undefined ? {} : { costUsd: update.costUsd }), ...(update.origin === undefined ? {} : { origin: update.origin }) });
+				this._onEvent.fire({
+					kind: 'usage',
+					sessionId,
+					used: update.used,
+					size: update.size,
+					...(update.costUsd === undefined ? {} : { costUsd: update.costUsd }),
+					...(update.costCurrency === undefined ? {} : { costCurrency: update.costCurrency }),
+					...(update.origin === undefined ? {} : { origin: update.origin }),
+				});
 				return;
 			case 'notice':
 				this._onEvent.fire({ kind: 'notice', sessionId, severity: update.severity, title: update.title, ...(update.description === undefined ? {} : { description: update.description }) });
@@ -582,7 +704,9 @@ export class VibeAcpMainService extends Disposable implements IVibeAcpMain {
 		this._permissions.set(requestId, { agent, rpcId });
 		const toolCall = readObject(params, 'toolCall');
 		const facts = toolCallFacts(toolCall ?? null);
-		this._captureBeforeEdit(agent, readString(toolCall, 'toolCallId') ?? '', facts.toolKind, 'pending', facts.paths);
+		const toolCallId = readString(toolCall, 'toolCallId') ?? '';
+		this._trace(`${agent.launch.name}: session/request_permission requestId=${requestId} rpcId=${rpcId} toolCallId=${toolCallId} title=${facts.title || facts.name || facts.toolKind || 'действие'}`);
+		this._captureBeforeEdit(agent, toolCallId, facts.toolKind, 'pending', facts.paths);
 		const rawOptions = readValue(params, 'options');
 		const options = Array.isArray(rawOptions)
 			? rawOptions

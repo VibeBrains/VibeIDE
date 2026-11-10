@@ -102,6 +102,7 @@
     "quirks-provenance-check": "node scripts/vibe-quirks-provenance.ts",
     "command-titles-check": "node scripts/vibe-command-titles.ts",
     "generated-fresh-check": "node scripts/vibe-generated-fresh.ts",
+    "tools-doc-check": "npx tsx scripts/vibe-tools-doc.ts",
     "raw-nul-check": "node scripts/vibe-no-raw-nul.ts --all",
     "scroll-check": "node scripts/vibe-scroll-gate.ts --all",
     "entrypoints-check": "node scripts/vibe-entrypoints-check.ts",

@@ -580,7 +580,7 @@ export class VibeAcpSessionsService extends Disposable implements IVibeAcpSessio
 				return;
 			case 'usage': {
 				const state = this._sessions.get(event.sessionId);
-				state?.log.applySpend(event.used, event.size, event.costUsd);
+				state?.log.applySpend(event.used, event.size, event.costUsd, event.costCurrency);
 				if (state && event.origin) { state.turnOrigin = event.origin; }
 				this._onDidChange.fire();
 				return;

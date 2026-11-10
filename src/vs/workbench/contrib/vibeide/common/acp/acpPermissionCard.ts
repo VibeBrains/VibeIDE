@@ -15,6 +15,7 @@
  */
 
 import { AcpStopReason, IAcpDiff } from './acpProtocol.js';
+import { formatAcpCost } from './acpCost.js';
 import { IAcpSessionSpend } from './acpSessionLog.js';
 
 /** Сколько строк правки показывать в карточке: остальное — за компьютером. */
@@ -100,8 +101,8 @@ export function formatAcpTurnEnd(stopReason: AcpStopReason | undefined, spend: I
 	const ending = stopReason ? TURN_END_NAMES[stopReason] : 'ход закончился';
 	if (!spend) { return ending; }
 	const context = `${spend.used.toLocaleString('ru-RU')} / ${spend.size.toLocaleString('ru-RU')} токенов`;
-	// Цена приходит в долларах; переводить её в рубли по выдуманному курсу мы не вправе.
-	return spend.costUsd === undefined ? `${ending}\n${context}` : `${ending}\n${context} · $${spend.costUsd.toFixed(4)}`;
+	// Единицу называет агент; переводить сумму по выдуманному курсу мы не вправе
+	return spend.costUsd === undefined ? `${ending}\n${context}` : `${ending}\n${context} · ${formatAcpCost(spend.costUsd, spend.costCurrency)}`;
 }
 
 const TURN_END_NAMES: Record<AcpStopReason, string> = {

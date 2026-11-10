@@ -5,6 +5,7 @@
 
 
 import { vibeLog } from './vibeLog.js';
+import { parseYamlScalar } from './frontmatterScalar.js';
 import { localize } from '../../../../nls.js';
 import { toAction } from '../../../../base/common/actions.js';
 import { VSBuffer } from '../../../../base/common/buffer.js';
@@ -261,7 +262,7 @@ export function readFrontmatterScalar(block: string, field: string): string {
 		return '';
 	}
 	if (!/^[|>][-+]?$/.test(inline)) {
-		return inline.replace(/^["']|["']$/g, '');
+		return parseYamlScalar(inline);
 	}
 
 	const lines = block.split(/\r?\n/);
@@ -282,9 +283,8 @@ export function readFrontmatterScalar(block: string, field: string): string {
 		}
 		collected.push(line.trim());
 	}
-	// `|` keeps newlines and `>` folds them; for a catalogue entry the difference does not
-	// survive rendering anyway, so both are joined with spaces.
-	return collected.join(' ').trim();
+	// Каталог показывает описание одной строкой, поэтому `|` здесь тоже склеивается пробелом
+	return parseYamlScalar(`${inline}\n${collected.join('\n')}`, true);
 }
 
 /** Parse SKILL.md YAML frontmatter (minimal roadmap contract). Invalid strict entries yield null (skipped). */
@@ -311,6 +311,34 @@ export function describeSkillRequirements(skill: Pick<VibeSkillEntry, 'compatibi
 	return parts.join(' · ');
 }
 
+/**
+ * Версия навыка по контракту набора живёт вложенно — `metadata.vibeVersion`. Верхний уровень
+ * читается вторым: скиллы, записанные до появления metadata, и файлы чужих экосистем не должны
+ * потерять версию из-за переезда поля.
+ */
+function readSkillVibeVersion(block: string): string | undefined {
+	const lines = block.split(/\r?\n/);
+	const metadata = lines.findIndex(line => /^metadata:\s*$/.test(line));
+	if (metadata >= 0) {
+		const nested = /^\s+vibeVersion:\s*["']?([^"'\n]+?)["']?\s*$/i;
+		for (let i = metadata + 1; i < lines.length; i++) {
+			const line = lines[i];
+			if (!line.trim()) {
+				continue;
+			}
+			if (!/^\s/.test(line)) {
+				break; // блок metadata закончился
+			}
+			const match = nested.exec(line);
+			if (match) {
+				return match[1].trim() || undefined;
+			}
+		}
+	}
+	const top = /^vibeVersion:\s*["']?([^"'\n]+?)["']?\s*$/im.exec(block);
+	return top?.[1]?.trim() || undefined;
+}
+
 export function parseSkillMarkdown(raw: string, relativePath: string, defaultId: string): VibeSkillEntry | null {
 	let rest = raw.replace(/^\uFEFF/, '');
 	let skillId = defaultId;
@@ -331,7 +359,7 @@ export function parseSkillMarkdown(raw: string, relativePath: string, defaultId:
 		// скилла, — в отличие от нашего `precheck`, который проверяет путь, и `min-vibeide`,
 		// который знает только про версию IDE.
 		const compatibility = readFrontmatterScalar(block, 'compatibility');
-		const vibeVersionLine = block.match(/^\s*vibeVersion:\s*["']?([^"'\n]+)["']?\s*$/im);
+		const vibeVersion = readSkillVibeVersion(block);
 		const precheckLine = block.match(/^\s*precheck:\s*(.+)\s*$/im);
 		const tagsLine = block.match(/^\s*tags:\s*(.+)\s*$/im);
 		// `requires-tools` — наше исходное имя, `allowed-tools` — то же самое в спецификации
@@ -419,7 +447,7 @@ export function parseSkillMarkdown(raw: string, relativePath: string, defaultId:
 			minVibeide: minVibeLine?.[1].trim(),
 			compatibility: compatibility || undefined,
 			locale: localeLine?.[1].trim(),
-			vibeVersion: vibeVersionLine?.[1].trim(),
+			vibeVersion,
 			precheck,
 			triggers,
 			glob,
@@ -448,7 +476,9 @@ export function serializeSkillMarkdown(fields: { name: string; description: stri
 	lines.push(`name: ${JSON.stringify(fields.name)}`);
 	lines.push(`description: ${JSON.stringify(fields.description)}`);
 	if (fields.vibeVersion?.trim()) {
-		lines.push(`vibeVersion: ${JSON.stringify(fields.vibeVersion.trim())}`);
+		// Контракт набора: версия навыка — вложенное поле metadata, а не ключ верхнего уровня
+		lines.push('metadata:');
+		lines.push(`  vibeVersion: ${JSON.stringify(fields.vibeVersion.trim())}`);
 	}
 	lines.push('---');
 	lines.push('');

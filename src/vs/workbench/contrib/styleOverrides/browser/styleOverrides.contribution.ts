@@ -20,6 +20,13 @@ const NOTIFICATION_ROW_OVERRIDE_HEIGHT = 34;
 /** Increased pane header size (px) applied when the style-override experiment is on. */
 const PANE_HEADER_OVERRIDE_SIZE = 28;
 
+/**
+ * VibeIDE: высота заголовка панели без экспериментальной темы
+ * Держать вровень с --pane-header-size в vibeide.css: раскладка и CSS должны видеть одну высоту,
+ * иначе содержимое панели сдвигается вниз и низ списка уходит за край
+ */
+const VIBE_PANE_HEADER_SIZE = 32;
+
 // Bundle the CSS for every style-override module. Every file gates all of its
 // rules behind the single `.style-override` ancestor class, so the styles are
 // inert until that class is toggled onto the workbench container(s) below.
@@ -161,7 +168,7 @@ export class StyleOverridesContribution extends Disposable implements IWorkbench
 	}
 
 	private applyPaneHeaderSize(enabled: boolean): void {
-		setGlobalPaneHeaderSize(enabled ? PANE_HEADER_OVERRIDE_SIZE : DEFAULT_PANE_HEADER_SIZE);
+		setGlobalPaneHeaderSize(enabled ? PANE_HEADER_OVERRIDE_SIZE : VIBE_PANE_HEADER_SIZE);
 	}
 
 	override dispose(): void {

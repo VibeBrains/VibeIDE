@@ -39,7 +39,11 @@ function markdownUnder(dir: string): string[] {
 	return out;
 }
 
-const files = [join(ROOT, 'README.md'), ...markdownUnder(join(ROOT, 'docs'))];
+/** Метка сгенерированного файла: его текст пишет скрипт из кода, а не автор, и править его руками бессмысленно */
+const GENERATED_MARK = '<!-- Файл генерируется';
+
+const files = [join(ROOT, 'README.md'), ...markdownUnder(join(ROOT, 'docs'))]
+	.filter(file => !readFileSync(file, 'utf8').startsWith(GENERATED_MARK));
 const shipped = compileShippedSlopCatalog();
 if (!shipped.catalog) {
 	console.error(`❌ Каталог примет нейрослопа не читается: ${shipped.warnings.join('; ')}`);
