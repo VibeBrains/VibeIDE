@@ -15,10 +15,19 @@
 #   .\scripts\winget-release.ps1 -Version v1.3.2 # explicit version
 #   .\scripts\winget-release.ps1 -DryRun         # render + validate only, NO PR
 #
+# -InstallerPath hashes a LOCAL copy of the installer instead of downloading the
+# published one. It exists for machines that reach the GitHub API but not the release
+# asset CDN (release-assets.githubusercontent.com), where step 2 below times out —
+# see docs/knowledge/build/portableAndElectron.md. It is not a way to skip the check:
+# the local file's size must equal the published asset's size (read from the API), or
+# the script refuses, so an unrelated or stale binary cannot be hashed into a manifest.
+# Pass the exact file that Phase 2 uploaded: .build\win32-x64\system-setup\<exe>.
+#
 # Requires: wingetcreate (winget install Microsoft.WingetCreate), winget, gh (authed).
 
 param(
     [string]$Version = "",
+    [string]$InstallerPath = "",
     [switch]$DryRun
 )
 
@@ -58,17 +67,33 @@ if (-not (Get-Command wingetcreate -ErrorAction SilentlyContinue)) {
 
 # ── 1. Verify the published asset exists (winget pins a STABLE versioned URL) ──
 Step "Verifying published asset: $url"
-$assetName = gh release view $Version --repo $repo --json assets --jq ".assets[]?.name | select(. == `"$exeName`")" 2>$null
-if (-not $assetName) {
+$assetSize = gh release view $Version --repo $repo --json assets --jq ".assets[]? | select(.name == `"$exeName`") | .size" 2>$null
+if (-not $assetSize) {
     Write-Error "Asset '$exeName' not found on release $Version — run Phase 2 publish first."; exit 1
 }
-OK "Asset present on release $Version"
+$assetSize = [int64]$assetSize
+OK "Asset present on release $Version ($assetSize bytes)"
 
 # ── 2. SHA256 of the published file (must match the exact bytes users download) ─
-Step "Downloading installer to compute SHA256..."
-$tmp = Join-Path $env:TEMP $exeName
-Invoke-WebRequest -Uri $url -OutFile $tmp -UseBasicParsing
-$sha = (Get-FileHash $tmp -Algorithm SHA256).Hash.ToUpperInvariant()
+if ($InstallerPath) {
+    # Local copy: trusted only after its size matches the published asset byte for byte.
+    Step "Hashing local installer (-InstallerPath): $InstallerPath"
+    if (-not (Test-Path -LiteralPath $InstallerPath -PathType Leaf)) {
+        Write-Error "[winget] -InstallerPath '$InstallerPath' is not a file."; exit 1
+    }
+    $localSize = (Get-Item -LiteralPath $InstallerPath).Length
+    if ($localSize -ne $assetSize) {
+        Write-Error "[winget] -InstallerPath refused: '$InstallerPath' is $localSize bytes but the published '$exeName' is $assetSize bytes — this is not the file Phase 2 uploaded. Re-run Phase 2, or point -InstallerPath at the uploaded installer."
+        exit 1
+    }
+    $sha = (Get-FileHash -LiteralPath $InstallerPath -Algorithm SHA256).Hash.ToUpperInvariant()
+    OK "Local installer matches the published size ($assetSize bytes)"
+} else {
+    Step "Downloading installer to compute SHA256..."
+    $tmp = Join-Path $env:TEMP $exeName
+    Invoke-WebRequest -Uri $url -OutFile $tmp -UseBasicParsing
+    $sha = (Get-FileHash $tmp -Algorithm SHA256).Hash.ToUpperInvariant()
+}
 OK "SHA256: $sha"
 
 # ── 3. Render templates → .build/winget/manifests/.../<ver>/ ──────────────────

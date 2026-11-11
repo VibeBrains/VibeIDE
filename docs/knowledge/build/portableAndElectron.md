@@ -88,3 +88,43 @@ Portable ZIP-сборка без инсталлятора, Electron mirror пр�
 **Суть:** до установки зависимостей на **Ubuntu** нужны dev-пакеты: **`libx11-dev`**, **`libxkbfile-dev`** (плюс обычно **`build-essential`**, **`pkg-config`**, для Kerberos — **`libkrb5-dev`**). В upstream **`pr.yml`** (compile) это уже есть; в VibeIDE дополнительно выровняны **`perf-sla.yml`**, **`release.yml`**, **`pr-linux-test.yml`**, **`copilot-setup-steps.yml`**, **`monaco-editor.yml`**.
 
 **Применение:** новый workflow с полным **`npm ci`** (не **`--ignore-scripts`**) на `ubuntu-*` — копировать тот же набор apt или ссылку на шаг из **`pr.yml`**.
+
+---
+
+## [окружение] Машина с доступом к API GitHub, но без доступа к CDN ассетов
+
+**Контекст:** 11.11.2026, Windows-догон релиза 1.30.0. Фаза 1 падала трижды подряд, каждый раз на новом месте, и все три падения оказались одной причиной.
+
+**Суть:** с этой машины **доступны** `api.github.com` (поэтому `gh release view`, `gh release upload` и сам пуш работают) и `marketplace.visualstudio.com`, но **недоступны по таймауту соединения**:
+
+- `objects.githubusercontent.com` — туда редиректит `github.com/electron/electron/releases/download/...`;
+- `release-assets.githubusercontent.com` — туда редиректит скачивание ассета нашего же релиза, в том числе через `gh release download`;
+- `openvsx.eclipsecontent.org` — туда редиректит `open-vsx.org`, а это `extensionsGallery.serviceUrl` в нашем `product.json`.
+
+Отсюда три разных симптома одной болезни: `TypeError: fetch failed` на `bundle-marketplace-extensions-build`, он же на `package-win32-x64`, и обрыв Фазы 2b на `Invoke-WebRequest`.
+
+**Диагностика:** сообщение `fetch failed` не называет хост, и гадать по названию gulp-задачи бесполезно. Надёжный способ — запустить задачу с прологом, подменяющим `globalThis.fetch` на логирующую обёртку: `node --import file:///<путь>/traceFetch.mjs node_modules\gulp\bin\gulp.js <задача>`. Первый же прогон назвал `SHASUMS256.txt` и точный хост.
+
+**Почему кэш не спасает:** `@electron/get` намеренно качает `SHASUMS256.txt` с `cacheMode: Bypass` («load them fresh every time»), поэтому положить файл сумм в `~/AppData/Local/electron/Cache/<хеш>/` бесполезно — архив берётся из кэша, а суммы всё равно идут в сеть, и падение происходит на них. Каталог кэша общий для архива и сумм: `Cache.getCacheDirectory` хэширует URL без имени файла.
+
+**Чем лечится сейчас:**
+
+- Electron — `VIBE_ELECTRON_MIRROR=https://cdn.npmmirror.com/binaries/electron/` (экспортируется в `ELECTRON_MIRROR` в `build/lib/electron.ts`). Суммы зеркала совпали с запиненными в `build/checksums/electron.txt`.
+- Встроенное расширение — скачать `.vsix` с `marketplace.visualstudio.com`, **сверить sha256 с записью в `product.json`** и распаковать содержимое `extension/` в `.build/builtInExtensions/<имя>/`, дописав `__metadata` из той же записи. Сверка обязательна: она и есть то, что делает ручную подкладку равноценной обычной загрузке.
+- winget — `scripts/winget-release.ps1 -InstallerPath <путь к собранному exe>`: считает SHA256 с локального файла, предварительно сверив его размер с размером опубликованного ассета (размер читается через API, он доступен). Не совпал размер — отказ.
+
+**Что остаётся дефектом:** суммы Electron вообще не должны ходить в сеть — `build/checksums/electron.txt` уже лежит в репозитории и содержит нужную строку. Правильный фикс — отдавать `SHASUMS256.txt` из него через существующий хук-резолвер `repo` у `@vscode/gulp-electron` (тот самый, которым работает `electronArtifactFeed`). Тогда зеркало перестанет быть нужным, а проверка останется настоящей.
+
+**Применение:** любое `fetch failed` в сборке на этой машине — сперва трассировка `fetch`, потом сверка хоста с этим списком, а не поиск ошибки в коде задачи.
+
+---
+
+## [foot-gun] `vibe-release-lint` на Windows не запускал детектор нейрослопа
+
+**Контекст:** 11.11.2026, правка нот релиза 1.30.0.
+
+**Суть:** `scripts/vibe-release-lint.js:155` зовёт `spawnSync('npx', [...])` без `shell: true`. На Windows `npx` существует как `npx.cmd` и `npx.ps1`, но не как `.exe`, поэтому `spawnSync` всегда возвращает `ENOENT`, а линт печатает «The neural-slop check could not run» и **падает с кодом 1**. Проверки формата и блока поддержки при этом проходят, так что отличить «нет замечаний» от «детектор не стартовал» можно только по этой строке.
+
+**Обход до фикса:** гнать детектор напрямую — `Get-Content <ноты> -Raw | npx tsx scripts/vibe-text-slop.ts --overrides scripts/slopHouseStyle.json -`.
+
+**Применение:** обязательный гейт нот (`CLAUDE.md`) на Windows до сих пор не работал — считать ноты проверенными только после прямого прогона детектора или после фикса `shell: true`.

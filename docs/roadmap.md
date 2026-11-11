@@ -8018,6 +8018,27 @@ docs.z.ai, mimo.mi.com, agentclientprotocol.com, GHSA python-sdk, ncsc.gov.uk, a
       в `vibeSettingsRu.ts` и те же статусы в `chatThreadService.ts` («Готовлю запрос…», «Выбираю лучшую модель для задачи…»,
       «Составляю план выполнения…»). Проверено: компиляция, React-typecheck. Живьём не смотрено. ⚠ перепроверить
 
+## BUILD-NET-ASSETS. Windows-догон 1.30.0 на машине без доступа к CDN ассетов (2026-11-11)
+
+- [x] **Windows-артефакты 1.30.0 долиты в релиз и описаны в нотах** — ✅ (11.11.2026, `main`) `VibeIDESetup.exe` и
+      `VibeIDE-1.30.0-win32-x64.zip` залиты в существующий релиз тега, в «📦 Сборка» добавлена строка про installer,
+      portable и SmartScreen «неизвестный издатель», winget-PR — microsoft/winget-pkgs#477423.
+- [x] **`winget-release.ps1 -InstallerPath`** — ✅ (11.11.2026, `next`) Фаза 2b качала опубликованный `.exe`, чтобы взять
+      SHA256, и вставала намертво: `release-assets.githubusercontent.com` с этой машины не отвечает (через `gh release
+      download` тоже). Параметр считает хэш с локального файла, но сперва сверяет его размер с размером опубликованного
+      ассета (размер приходит по API, он доступен) — не совпал, отказ с объяснением. Проверено обоими способами: рендер
+      и валидация манифестов проходят, подсунутый portable-архив отвергается.
+- [x] **Разбор трёх падений Фазы 1 как одной причины** — ✅ (11.11.2026) `docs/knowledge/build/portableAndElectron.md`:
+      доступен `api.github.com`, недоступны `objects.githubusercontent.com`, `release-assets.githubusercontent.com` и
+      `openvsx.eclipsecontent.org`. Там же рецепт диагностики (пролог, подменяющий `globalThis.fetch`, — `fetch failed`
+      хост не называет) и почему подкладка `SHASUMS256.txt` в кэш не помогает (`@electron/get` берёт суммы с
+      `cacheMode: Bypass`).
+- [ ] **Суммы Electron — из `build/checksums/electron.txt`, а не из сети** — файл с нужной строкой уже в репозитории;
+      отдавать `SHASUMS256.txt` через существующий хук-резолвер `repo` у `@vscode/gulp-electron`. Снимет нужду в
+      зеркале на любой машине, проверка останется настоящей. S/M
+- [ ] **`vibe-release-lint` на Windows не запускал детектор нейрослопа** — `spawnSync('npx')` без `shell: true` даёт
+      `ENOENT`, линт падает с кодом 1, обязательный гейт нот фактически не работал. Чинится одним флагом. S
+
 ## BUILD-ELECTRON-OFFLINE. Стенд без сети не опустошает `.build/electron` (2026-10-14)
 
 - [x] **`npm run electron` не стирает установку и не качает то, что уже стоит** — ✅ (14.10.2026, `next`) `build/lib/electron.ts` в `main`
