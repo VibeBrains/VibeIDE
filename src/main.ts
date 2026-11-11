@@ -631,6 +631,11 @@ function parseCLIArgs(): NativeParsedArgs {
 
 function registerListeners(): void {
 
+	// При выходе приложение само гасит дочерние процессы, и Linux отдаёт их гибель как abnormal-exit или killed
+	// Такие записи не аварии: по ним следующий запуск ложно предлагал собрать crash report
+	let quitting = false;
+	app.on('before-quit', () => { quitting = true; });
+
 	/**
 	 * VibeIDE Idle Watchdog — cross-process crash correlation (roadmap W.3).
 	 * When the renderer dies (V8 OOM, crash, kill), main observes the event and
@@ -640,7 +645,7 @@ function registerListeners(): void {
 	 */
 	app.on('render-process-gone', (_event, webContents, details) => {
 		const watchdog = getVibeIdleWatchdog();
-		if (!watchdog) { return; }
+		if (!watchdog || quitting) { return; }
 		watchdog.recordCrash({
 			proc: 'renderer',
 			pid: webContents.getOSProcessId(),
@@ -650,7 +655,7 @@ function registerListeners(): void {
 	});
 	app.on('child-process-gone', (_event, details) => {
 		const watchdog = getVibeIdleWatchdog();
-		if (!watchdog) { return; }
+		if (!watchdog || quitting) { return; }
 		// `type` ∈ {'Tab','Utility','Zygote','Sandbox helper','GPU','Pepper Plugin',...}.
 		const procClass = details.type === 'GPU' ? 'gpu' : 'utility';
 		watchdog.recordCrash({
