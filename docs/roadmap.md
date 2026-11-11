@@ -8353,6 +8353,8 @@ docs.z.ai, mimo.mi.com, agentclientprotocol.com, GHSA python-sdk, ncsc.gov.uk, a
 - [ ] **Windows 1.30.0** — собирается на GPD по хендоффу `release-1-30-0-windows-gpd`, затем ноты и winget
 - [x] **Windows в CI: node-gyp не найден** — ✅ (11.11.2026) шаг предзагрузки заголовков искал npm только под глобальным префиксом, а на раннере GitHub под Windows он пуст
       Теперь `scripts/ci-prefetch-gyp-headers.mts` перебирает ещё папку Node и `lib/node_modules`; локально на mac проходит, на раннере Windows ⚠ перепроверить следующим тегом
+- [x] **Путь вне проекта в аргументе команды агента** — ✅ (11.11.2026, main) у брата владельца агент VibeIDE выполнил `npm run compare:brandbook -- --save /VolumES` и стёр внешний диск
+      Новый `common/commandPathsOutsideScope.ts`: отказ у исполнителя этапа, диалог в чате (корень — всегда), вопрос у ACP; правило набора `security.mdc` 1.0.1. Знание: `security/commandPathsOutsideProject.md`; живьём в собранном продукте ⚠ перепроверить
 - [x] **Ложное «предыдущая сессия завершилась аварией» после выхода** — ✅ (11.11.2026, main) issue #6: на Linux при закрытии окна ptyHost уходил с кодом 32512 и сигналом 15, а `src/main.ts` писал это в журнал сторожа как аварию
       Теперь после `before-quit` гибель дочерних процессов и окна в журнал не пишется; живьём на Linux ⚠ перепроверить
 - [x] **Linux arm64: список зависимостей `.deb`** — ✅ (11.11.2026) эталон arm64 в `build/linux/debian/dep-lists.ts` обновлён по выводу генератора из запуска 42970591621
