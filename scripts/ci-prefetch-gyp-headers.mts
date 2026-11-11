@@ -10,7 +10,7 @@
 
 import { execFileSync } from 'node:child_process';
 import { existsSync, readFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import { setTimeout as sleep } from 'node:timers/promises';
 
 const ROOT = join(import.meta.dirname, '..');
@@ -42,15 +42,24 @@ function readGypTarget(file) {
 
 /**
  * Путь к node-gyp, который поставляется вместе с npm
+ * Глобальный префикс npm не всегда там, где лежит сам npm:
+ * На раннерах GitHub под Windows префикс C:\npm\prefix пуст, а npm лежит в папке Node, поэтому места перебираются по порядку
  * @returns {string}
  */
 function bundledNodeGyp() {
+	const nodeDir = dirname(process.execPath);
 	const globalRoot = execFileSync(process.platform === 'win32' ? 'npm.cmd' : 'npm', ['root', '-g'], { encoding: 'utf8', shell: process.platform === 'win32' }).trim();
-	const path = join(globalRoot, 'npm', 'node_modules', 'node-gyp', 'bin', 'node-gyp.js');
-	if (!existsSync(path)) {
-		throw new Error(`node-gyp не найден рядом с npm: ${path}`);
+	const npmDirs = [
+		join(globalRoot, 'npm'),
+		join(nodeDir, 'node_modules', 'npm'),
+		join(nodeDir, '..', 'lib', 'node_modules', 'npm'),
+	];
+	const candidates = npmDirs.map(dir => join(dir, 'node_modules', 'node-gyp', 'bin', 'node-gyp.js'));
+	const found = candidates.find(path => existsSync(path));
+	if (!found) {
+		throw new Error(`node-gyp не найден рядом с npm, проверены пути:\n${candidates.join('\n')}`);
 	}
-	return path;
+	return found;
 }
 
 const nodeGyp = bundledNodeGyp();
