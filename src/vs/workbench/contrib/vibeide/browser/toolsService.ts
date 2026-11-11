@@ -59,6 +59,8 @@ import { INLShellParserService } from '../common/nlShellParserService.js';
 import { ISecretDetectionService } from '../common/secretDetectionService.js';
 import { IDialogService } from '../../../../platform/dialogs/common/dialogs.js';
 import { analyzeShellLine } from '../common/nlShellSafetyAnalyzer.js';
+import { commandPathsOutsideScope, describeOutsidePaths } from '../common/commandPathsOutsideScope.js';
+import { isMacintosh, isWindows } from '../../../../base/common/platform.js';
 import { ReviewChecklist } from '../common/chatThreadServiceTypes.js';
 import { HANDOFF_DIR, renderHandoff, validateHandoff } from '../common/agentHandoff.js';
 import { LEARNING_DIR, LESSONS_SUBDIR, MISSION_FILE, NOTES_FILE, RECORDS_SUBDIR, RESOURCES_FILE, renderRecord, summarizeLearning, type IDifficultyThresholds, type ILearningRecord } from '../common/learningWorkspace.js';
@@ -3009,6 +3011,12 @@ export class ToolsService extends Disposable implements IToolsService {
 					});
 				}
 
+				// Разбор естественного языка мог не увидеть абсолютный путь вне проекта: тогда
+				// решает та же проверка, что и у обычной команды — иначе критичный путь прошёл бы
+				if (!parsed.requiresConfirmation) {
+					await this._gateDestructiveCommand(parsed.command);
+				}
+
 				// L1053 — chat-mode confirm dialog UI. Service sets
 				// `requiresConfirmation = estimatedRisk !== 'low'`; both medium (ambiguous)
 				// and high (destructive) need an explicit confirm before execute.
@@ -4173,27 +4181,55 @@ ${lines.join('\n\n')}`;
 	 * and handed to an interpreter (`curl … | sh`) is destructive and stops here like `rm -rf`.
 	 */
 	private async _gateDestructiveCommand(command: string): Promise<void> {
+		const roots = this.workspaceContextService.getWorkspace().folders.map(folder => folder.uri.fsPath);
+		const outside = commandPathsOutsideScope(command, { roots, caseInsensitive: isMacintosh || isWindows });
+		const critical = outside.some(item => item.critical);
 		const destructive = analyzeShellLine(command);
-		if (!destructive) {
+		const confirmationDisabled = this._configurationService.getValue<boolean>('vibeide.agent.confirmDestructiveCommands') === false;
+
+		if (!destructive && outside.length === 0) {
 			if (this._isRiskyCommand(command)) {
 				this.notificationService.info(localize('vibeide.riskyCommand', "Команда с риском: {0}. Проверьте её перед выполнением.", command.split('\n')[0].slice(0, 300)));
 			}
 			return;
 		}
-		if (this._configurationService.getValue<boolean>('vibeide.agent.confirmDestructiveCommands') === false) {
-			this.notificationService.warn(`⚠️ Разрушительная команда выполнена без подтверждения (проверка выключена): ${command}`);
+		// Выключенная настройка снимает вопрос о разрушительности, но не о том, что команда
+		// адресует корень тома: такой путь не должен выполняться без человека никогда
+		if (confirmationDisabled && !critical) {
+			if (destructive) {
+				this.notificationService.warn(`⚠️ Разрушительная команда выполнена без подтверждения (проверка выключена): ${command}`);
+			} else if (this._isRiskyCommand(command)) {
+				this.notificationService.info(localize('vibeide.riskyCommand', "Команда с риском: {0}. Проверьте её перед выполнением.", command.split('\n')[0].slice(0, 300)));
+			}
 			return;
 		}
+		const outsideDetail = outside.length > 0 ? describeOutsidePaths(outside) : '';
+		const criticalDetail = critical
+			? localize('vibeide.outsidePathsCommand.critical', "Среди путей есть корень диска или домашней папки: очистка такого пути уничтожает всё, что на нём есть.")
+			: '';
+		const destructiveDetail = destructive
+			? localize('vibeide.destructiveCommand.detail', "{0}\n\nПризнаки: {1}\n\nЭто действие может уничтожить данные, и отменить его нечем.", command.split('\n')[0].slice(0, 300), destructive.reasons.join(', '))
+			: '';
+		const detail = [outsideDetail, criticalDetail, destructiveDetail].filter(part => part.length > 0).join('\n\n');
 		const { confirmed } = await this.dialogService.confirm({
 			type: 'warning',
-			message: localize('vibeide.destructiveCommand', "Выполнить разрушительную команду?"),
-			detail: localize('vibeide.destructiveCommand.detail', "{0}\n\nПризнаки: {1}\n\nЭто действие может уничтожить данные, и отменить его нечем.", command.split('\n')[0].slice(0, 300), destructive.reasons.join(', ')),
+			message: outside.length > 0
+				? localize('vibeide.outsidePathsCommand', "Команда работает с путями вне проекта")
+				: localize('vibeide.destructiveCommand', "Выполнить разрушительную команду?"),
+			detail,
 			primaryButton: localize('vibeide.destructiveCommand.run', "Выполнить"),
 		});
 		if (!confirmed) {
+			if (outside.length > 0) {
+				throw new ToolValidationError({
+					code: 'outside_paths_declined',
+					message: `Пользователь отказался выполнять команду с путями вне проекта (${outside.map(item => item.path).join(', ')}). Предложите путь внутри папок проекта или спросите, что делать.`,
+					hint: 'Не повторяйте ту же команду: решение принял человек.',
+				});
+			}
 			throw new ToolValidationError({
 				code: 'destructive_command_declined',
-				message: `Пользователь отказался выполнять разрушительную команду (${destructive.reasons.join(', ')}). Предложите более безопасный путь или спросите, что делать.`,
+				message: `Пользователь отказался выполнять разрушительную команду (${destructive?.reasons.join(', ')}). Предложите более безопасный путь или спросите, что делать.`,
 				hint: 'Не повторяйте ту же команду: решение принял человек.',
 			});
 		}

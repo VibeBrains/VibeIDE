@@ -24,6 +24,7 @@
 
 import { analyzeShellLine, analyzeShellLineIn, programOf, splitShellSegments } from '../nlShellSafetyAnalyzer.js';
 import { IShellRemovalScopeOptions, createShellRemovalScope } from '../shellRemovalScope.js';
+import { ICommandOutsidePath, commandPathsOutsideScope } from '../commandPathsOutsideScope.js';
 import { IAcpConfigChoice } from './acpProtocol.js';
 
 /**
@@ -82,6 +83,8 @@ export interface IAcpDecisionContext {
 	readonly roots: readonly string[];
 	/** Where the agent's commands run; the first folder of the project when not given */
 	readonly cwd?: string;
+	/** Сравнение путей без учёта регистра: на macOS и Windows имена папок совпадают иначе */
+	readonly caseInsensitivePaths?: boolean;
 }
 
 /** ACP kinds that change files */
@@ -161,12 +164,19 @@ export function decidePermission(facts: IAcpRequestFacts, context: IAcpDecisionC
 	const ask = (reason: AcpDecisionReason): IAcpDecision => ({ action: 'ask', reason });
 	const allow = (reason: AcpDecisionReason): IAcpDecision => ({ action: 'allow', reason });
 
+	let shellOutside: readonly ICommandOutsidePath[] = [];
 	if (facts.toolKind === SHELL_KIND) {
-		if (commandLineOf(facts) === undefined) { return ask('unknownCommand'); }
+		const line = commandLineOf(facts);
+		if (line === undefined) { return ask('unknownCommand'); }
+		// Путь в аргументе любой программы, а не только read-only: `npm run build -- --out /etc/x`
+		// выходит из проекта так же, как `cat /etc/x`, и границу проекта спрашивает одинаково
+		shellOutside = commandPathsOutsideScope(line, { roots: context.roots, caseInsensitive: context.caseInsensitivePaths === true });
+		// Корень диска или домашней папки не ответить ни режимом, ни разрешением сессии
+		if (shellOutside.some(item => item.critical)) { return ask('irreversible'); }
 		if (isIrreversible(facts, context)) { return ask('irreversible'); }
 	}
 	const paths = facts.toolKind === SHELL_KIND
-		? [...new Set([...facts.paths, ...absoluteReadOnlyShellPaths(commandLineOf(facts) ?? '')])]
+		? [...new Set([...facts.paths, ...shellOutside.map(item => item.path), ...absoluteReadOnlyShellPaths(commandLineOf(facts) ?? '')])]
 		: facts.paths;
 	if ((PATH_BOUND_KINDS.has(facts.toolKind) || (facts.toolKind === SHELL_KIND && paths.length > 0)) && !pathsAreAllowed(paths, context)) {
 		return ask('outsideProject');

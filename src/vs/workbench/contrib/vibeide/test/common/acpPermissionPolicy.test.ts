@@ -113,12 +113,28 @@ suite('acpPermissionPolicy', () => {
 			const globOutside = shell('grep -r secret /home/me');
 			assert.deepStrictEqual(
 				[decidePermission(outside, context('auto')).reason, decidePermission(inside, context('auto')).reason, decidePermission(globOutside, context('auto')).reason],
-				['outsideProject', 'modeAuto', 'outsideProject']);
+				// `/home/me` — корень домашней папки: выход из проекта здесь необратим
+				['outsideProject', 'modeAuto', 'irreversible']);
 		});
 
 		test('граница не режет путь, который лишь начинается так же, как корень проекта', () => {
 			const sibling = facts({ toolKind: 'edit', paths: ['/ws/app-other/a.ts'] });
 			assert.strictEqual(decidePermission(sibling, context('auto')).reason, 'outsideProject');
+		});
+
+		test('корень тома в аргументе любой программы необратим в любом режиме и при разрешении сессии', () => {
+			const run = shell('npm run compare:brandbook -- --save /VolumES');
+			const grants: AcpGrant[] = [{ kind: 'tool', tool: 'Bash' }];
+			const verdicts = (['manual', 'edits', 'plan', 'auto'] as const).map(mode => decidePermission(run, { mode, grants, roots, caseInsensitivePaths: true }));
+			assert.deepStrictEqual(verdicts.map(d => `${d.action}:${d.reason}`), Array(4).fill('ask:irreversible'));
+		});
+
+		test('путь вне проекта в аргументе любой программы спрашивается как outsideProject, а путь в проекте — нет', () => {
+			const outside = shell('node scripts/build.js --out /etc/build');
+			const inside = shell('node scripts/build.js --out /ws/app/build');
+			assert.deepStrictEqual(
+				[decidePermission(outside, context('auto')).reason, decidePermission(inside, context('auto')).reason],
+				['outsideProject', 'modeAuto']);
 		});
 	});
 

@@ -17,6 +17,7 @@
 import { localize } from '../../../../../nls.js';
 import { Emitter, Event } from '../../../../../base/common/event.js';
 import { Disposable } from '../../../../../base/common/lifecycle.js';
+import { isMacintosh, isWindows } from '../../../../../base/common/platform.js';
 import { createDecorator } from '../../../../../platform/instantiation/common/instantiation.js';
 import { InstantiationType, registerSingleton } from '../../../../../platform/instantiation/common/extensions.js';
 import { IConfigurationService } from '../../../../../platform/configuration/common/configuration.js';
@@ -754,7 +755,7 @@ export class VibeAcpSessionsService extends Disposable implements IVibeAcpSessio
 		}
 		const facts: IAcpRequestFacts = { toolKind: request.toolKind, name: request.name, title: request.title, command: request.command, paths: request.paths };
 		const roots = this._workspace.getWorkspace().folders.map(folder => folder.uri.fsPath);
-		const decision = decidePermission(facts, { mode: state.permissionMode, grants: state.grants, roots, cwd: state.cwd });
+		const decision = decidePermission(facts, { mode: state.permissionMode, grants: state.grants, roots, cwd: state.cwd, caseInsensitivePaths: isMacintosh || isWindows });
 		const autoOption = decision.action === 'allow' ? autoAnswerOptionOf(request.options) : undefined;
 		if (autoOption) {
 			await this._acpService.answerPermission(request.requestId, autoOption);

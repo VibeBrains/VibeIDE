@@ -31,6 +31,7 @@ import { IVibeSubagentRunner, SubagentRunRequest, SubagentRunOutcome } from '../
 import { IVibeSubagentRegistryService } from '../common/vibeSubagentRegistryService.js';
 import { IVibeSpendLedgerService } from './vibeSpendLedgerService.js';
 import { commandEscapesScope, describeCommandEscape } from '../common/commandEscapesScope.js';
+import { commandPathsOutsideScope, describeOutsidePaths } from '../common/commandPathsOutsideScope.js';
 import { decideStop, hopTokenCost, truncateSummary, summaryTail, RESULT_SUMMARY_MAX_CHARS, chatModeForAllowedTools, collectPathsFromRawParams, buildExploreReport, buildSubagentTaskMessage, stopReasonToRussian, SUBAGENT_MAX_DENIED_ACTIONS, SubagentStopReason } from '../common/subagentLoopPolicy.js';
 import { IConvertToLLMMessageService } from './convertToLLMMessageService.js';
 import { IToolsService } from './toolsService.js';
@@ -43,7 +44,7 @@ import { describeSharedFolderInstall, describeWriteThroughLink, packageInstallSe
 import { IFileService } from '../../../../platform/files/common/files.js';
 import { dirname, isEqual } from '../../../../base/common/resources.js';
 import { promptCacheKeyOf } from '../common/promptCacheKey.js';
-import { isLinux } from '../../../../base/common/platform.js';
+import { isLinux, isMacintosh, isWindows } from '../../../../base/common/platform.js';
 import { lastRealUserIndex } from '../common/turnContext.js';
 
 /** Under Autopilot, resource limits auto-extend rather than stop the role. This cooldown backstops a
@@ -392,6 +393,22 @@ class VibeSubagentRunnerService extends Disposable implements IVibeSubagentRunne
 					deniedActions++;
 					history.push(this._invalidToolMessage(toolCall, describeCommandEscape(String(command), escape, req.writeScope?.paths)));
 					continue;
+				}
+				// Абсолютный путь в аргументе (`--save /Volumes`) не виден ни границам записи, ни
+				// разбору разрушительности: скрипт сам решает, что с ним делать. Путь вне проекта
+				// отказывается до запуска, потому что за границей может оказаться корень тома
+				if (typeof command === 'string') {
+					const roots = [...new Set([
+						...(req.runRoot ? [req.runRoot] : []),
+						...this._workspaceContextService.getWorkspace().folders.map(folder => folder.uri.fsPath),
+					])];
+					const outside = commandPathsOutsideScope(command, { roots, caseInsensitive: isMacintosh || isWindows });
+					if (outside.length > 0) {
+						deniedActions++;
+						const allowed = roots.length > 0 ? roots.join(', ') : '(границы объявлены шагом)';
+						history.push(this._invalidToolMessage(toolCall, `${describeOutsidePaths(outside)} Шагу разрешено писать только в ${allowed}. Запусти команду из папки проекта и адресуй пути внутри границ, либо сообщи, что задача требует выхода за них: «${command.trim().slice(0, 120)}»`));
+						continue;
+					}
 				}
 			}
 

@@ -25,10 +25,10 @@
 import { IShellLineScope, ShellSafetyResult, parseShellLine, programOf } from './nlShellSafetyAnalyzer.js';
 
 /** Временные каталоги, потеря содержимого которых потерей не считается */
-const TEMP_ROOTS: readonly string[] = ['/tmp', '/private/tmp', '/var/tmp', '/private/var/tmp', '/var/folders', '/private/var/folders'];
+export const TEMP_ROOTS: readonly string[] = ['/tmp', '/private/tmp', '/var/tmp', '/private/var/tmp', '/var/folders', '/private/var/folders'];
 
 /** Временные каталоги Windows: `C:\Users\<имя>\AppData\Local\Temp`, `C:\Windows\Temp` (путь уже с прямыми слэшами) */
-const WINDOWS_TEMP = /^[a-z]:\/(?:users\/[^/]+\/appdata\/local|windows)\/temp\/(.*)$/i;
+export const WINDOWS_TEMP = /^[a-z]:\/(?:users\/[^/]+\/appdata\/local|windows)\/temp\/(.*)$/i;
 
 /** Чем подменяется `$TMPDIR` и родственные: каталог и так временный, его настоящее значение не нужно */
 const TEMP_STAND_IN = '/tmp';
