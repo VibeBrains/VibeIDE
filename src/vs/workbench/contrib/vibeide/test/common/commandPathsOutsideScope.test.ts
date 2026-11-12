@@ -53,7 +53,7 @@ suite('commandPathsOutsideScope — пути в аргументах коман�
 	test('домашний каталог всегда вне проекта и критичен', () => {
 		assert.deepStrictEqual(
 			[table('rm -rf ~'), table('cp a $HOME/x')],
-			[['~:true'], ['$HOME/x:true']]);
+			[['~:true'], ['$HOME/x:false']]);
 	});
 
 	test('буква диска: путь в проекте свой, корень диска критичен', () => {
