@@ -18,7 +18,7 @@ suite('commandPathsOutsideScope — пути в аргументах коман�
 	test('абсолютный путь в аргументе вне проекта: инцидент с --save /VolumES', () => {
 		assert.deepStrictEqual(
 			outside('npm run compare:brandbook -- --save /VolumES'),
-			[{ path: '/VolumES', critical: true }]);
+			[{ path: '/VolumES', critical: true, readOnly: false }]);
 	});
 
 	test('значение опции читается и у --opt=/path, и у -o/path', () => {
