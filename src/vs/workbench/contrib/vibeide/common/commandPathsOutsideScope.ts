@@ -25,6 +25,8 @@ export interface ICommandPathScope {
 	readonly roots: readonly string[];
 	/** Сравнение без учёта регистра — macOS и Windows */
 	readonly caseInsensitive: boolean;
+	/** Домашняя папка, если известна: тогда `~` и `$HOME` раскрываются и путь судится как абсолютный */
+	readonly home?: string;
 }
 
 export interface ICommandOutsidePath {
@@ -138,11 +140,28 @@ interface IClassifiedPath {
 	readonly critical: boolean;
 }
 
+/** Сама домашняя папка, а не путь внутри неё */
+function isHomeRoot(value: string): boolean {
+	return /^(?:~|\$HOME|\$\{HOME\})\/?$/.test(value);
+}
+
+/** `~/x` и `$HOME/x` в абсолютный путь от известной домашней папки */
+function expandHome(value: string, home: string): string {
+	return slashedPath(home).replace(/\/+$/, '') + value.replace(/^(?:~|\$HOME|\$\{HOME\})/, '');
+}
+
 /** Решение по одному пути: свой, внешний некритичный или критичный */
 function classify(value: string, scope: ICommandPathScope): IClassifiedPath | undefined {
 	const slashed = slashedPath(value);
 	if (isHomePath(slashed)) {
-		return { key: `home:${fold(slashed, scope.caseInsensitive)}`, critical: true };
+		// Без известной домашней папки путь не раскрыть: корнем считается только она сама,
+		// а вложенный путь — внешний, но не корень
+		if (scope.home === undefined) {
+			return { key: `home:${fold(slashed, scope.caseInsensitive)}`, critical: isHomeRoot(slashed) };
+		}
+		// Раскрытый путь судится как любой абсолютный: свои каталоги в домашней папке разрешаются,
+		// а корнем остаётся сама папка по правилам `/Users/<имя>` и `/home/<имя>`
+		return classify(expandHome(slashed, scope.home), { ...scope, home: undefined });
 	}
 	if (slashed === '..' || slashed.startsWith('../')) {
 		// Относительный путь читается от неизвестного каталога строки, поэтому он всегда внешний
