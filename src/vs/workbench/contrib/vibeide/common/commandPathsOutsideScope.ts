@@ -27,6 +27,8 @@ export interface ICommandPathScope {
 	readonly caseInsensitive: boolean;
 	/** Домашняя папка, если известна: тогда `~` и `$HOME` раскрываются и путь судится как абсолютный */
 	readonly home?: string;
+	/** Каталог, где запускается строка, если известен: `..` раскрывается от него */
+	readonly cwd?: string;
 }
 
 export interface ICommandOutsidePath {
@@ -53,6 +55,8 @@ const SYSTEM_ROOTS = ['System', 'usr', 'etc', 'bin', 'var', 'Library', 'private'
 export function commandPathsOutsideScope(command: string, scope: ICommandPathScope): ICommandOutsidePath[] {
 	const outside: ICommandOutsidePath[] = [];
 	const seen = new Set<string>();
+	// Каталог, от которого читаются `..`: меняется по `cd` в той же строке, а неясный `cd` его теряет
+	let cwd = scope.cwd;
 	for (const segment of splitShellSegments(slashedWindowsPaths(command))) {
 		const readOnly = isReadOnlySegment(segment.command, segment.args);
 		for (const arg of segment.args) {
@@ -60,12 +64,15 @@ export function commandPathsOutsideScope(command: string, scope: ICommandPathSco
 			if (value === undefined) {
 				continue;
 			}
-			const found = classify(value, scope);
+			const found = classify(value, { ...scope, cwd });
 			if (found === undefined || seen.has(found.key)) {
 				continue;
 			}
 			seen.add(found.key);
 			outside.push({ path: value, critical: found.critical, readOnly });
+		}
+		if (CHANGES_DIRECTORY.has(programName(segment.command))) {
+			cwd = nextDirectory(cwd, segment.args);
 		}
 	}
 	return outside;
@@ -102,8 +109,24 @@ const READ_ONLY_PROGRAMS: ReadonlySet<string> = new Set([
 	'cat', 'head', 'tail', 'less', 'more', 'grep', 'egrep', 'fgrep', 'rg', 'wc', 'diff', 'cmp',
 	'ls', 'stat', 'file', 'readlink', 'realpath', 'bat', 'fd', 'du', 'df', 'tree', 'nl', 'od',
 	'hexdump', 'xxd', 'strings', 'zcat', 'bzcat', 'xzcat', 'tac', 'rev', 'cut', 'uniq', 'find',
-	'echo', 'printf', 'test', 'which', 'pwd',
+	'echo', 'printf', 'test', 'which', 'pwd', 'cd', 'pushd', 'popd',
 ]);
+
+/** Смена каталога строки: после неё `..` читается уже от нового места */
+const CHANGES_DIRECTORY: ReadonlySet<string> = new Set(['cd', 'pushd', 'popd']);
+
+/** Каталог после `cd`: абсолютная цель или путь от известного каталога, иначе неизвестен */
+function nextDirectory(cwd: string | undefined, args: readonly string[]): string | undefined {
+	const target = args.length === 1 ? args[0] : undefined;
+	if (target === undefined || target.startsWith('-') || target.includes('$') || target.startsWith('~')) {
+		return undefined;
+	}
+	const slashed = isWindowsShaped(target) ? slashedPath(target) : target;
+	if (slashed.startsWith('/') || /^[A-Za-z]:\//.test(slashed)) {
+		return normalizePath(slashed);
+	}
+	return cwd === undefined ? undefined : normalizePath(`${slashedPath(cwd)}/${slashed}`);
+}
 
 /** Ключи `find`, с которыми он удаляет, запускает или пишет */
 const FIND_WRITE_ACTIONS = /^-(?:delete|exec|execdir|ok|okdir|fprint|fprint0|fprintf|fls)$/;
@@ -212,6 +235,10 @@ function classify(value: string, scope: ICommandPathScope): IClassifiedPath | un
 		// Раскрытый путь судится как любой абсолютный: свои каталоги в домашней папке разрешаются,
 		// а корнем остаётся сама папка по правилам `/Users/<имя>` и `/home/<имя>`
 		return classify(expandHome(slashed, scope.home), { ...scope, home: undefined });
+	}
+	if ((slashed === '..' || slashed.startsWith('../')) && scope.cwd !== undefined) {
+		// Каталог строки известен: путь раскрывается от него и судится как абсолютный
+		return classify(normalizePath(`${slashedPath(scope.cwd)}/${slashed}`), { ...scope, cwd: undefined });
 	}
 	if (slashed === '..' || slashed.startsWith('../')) {
 		// Относительный путь читается от неизвестного каталога строки, поэтому он всегда внешний
