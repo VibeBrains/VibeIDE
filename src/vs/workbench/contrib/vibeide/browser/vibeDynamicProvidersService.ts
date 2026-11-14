@@ -53,6 +53,7 @@ import { mergeModelRoutes, MODEL_ROUTES_SETTING, ModelRoutes, normalizeModelRout
 import { parseEnvFile } from '../common/vibeEnvFile.js';
 import { DEFAULT_PRICE_CHANGE_SOON_DAYS, effectiveCost, nextPriceChangeMoment, parseTimeOfDay, PriceTimeOfDay, priceChangeStatus } from '../common/modelPriceSchedule.js';
 import { VIBE_CONFIG_PROVIDERS_CACHE_KEY } from '../common/storageKeys.js';
+import { reprobeDelayMs } from '../common/providerReprobeDelay.js';
 import { ILifecycleService, LifecyclePhase } from '../../../services/lifecycle/common/lifecycle.js';
 import { IWorkbenchContribution, registerWorkbenchContribution2, WorkbenchPhase } from '../../../common/contributions.js';
 
@@ -61,12 +62,6 @@ const TOOL_FORMAT_MAP: Record<string, 'openai-style' | 'anthropic-style' | 'gemi
 };
 /** setTimeout overflows above ~24.8 days and fires at once; wait no longer and re-arm. */
 const MAX_PRICE_TIMER_MS = 7 * 24 * 60 * 60 * 1000;
-/**
- * How often a provider whose probe found no server is asked again
- * A local server is usually started after the IDE, and without a repeat its models would stay away until the files change
- * Ten seconds shows it almost at once and does not hammer a cloud endpoint that is down
- */
-const UNREACHABLE_REPROBE_MS = 10_000;
 
 const SYS_MSG_MAP: Record<string, 'system-role' | 'developer-role' | 'separated'> = {
 	system: 'system-role', developer: 'developer-role', separated: 'separated',
@@ -1107,7 +1102,7 @@ class VibeDynamicProvidersService extends Disposable implements IVibeDynamicProv
 		// all-invalid) so keyStatus flips pending → valid/invalid and a bad key's models leave the picker.
 		this._lastValidation = validationByProvider;
 		this._buildAndApply(providers, validationByProvider);
-		this._scheduleReprobe(providers, gen);
+		this._scheduleReprobe(providers, gen, 0);
 	}
 
 	/** One probe of a provider's models endpoint — with its key, or with none for a keyless server */
@@ -1134,8 +1129,9 @@ class VibeDynamicProvidersService extends Disposable implements IVibeDynamicProv
 	/**
 	 * Ask again, later, the providers whose probe found no server
 	 * Only `error` is repeated: a 401/403 cannot change until the key or the file does, and both trigger a reload
+	 * Пауза растёт с каждым пустым кругом (`reprobeDelayMs`) и сбрасывается новой загрузкой файлов, ключа или адреса
 	 */
-	private _scheduleReprobe(providers: readonly ResolvedProviderEntry[], gen: number): void {
+	private _scheduleReprobe(providers: readonly ResolvedProviderEntry[], gen: number, attempt: number): void {
 		const unreachable = providers.filter(p => this._lastValidation?.get(p.id)?.status === 'error');
 		// A disposed MutableDisposable ignores a new value, so a timer armed after disposal would never be cleared.
 		if (unreachable.length === 0 || this._store.isDisposed) {
@@ -1152,8 +1148,10 @@ class VibeDynamicProvidersService extends Disposable implements IVibeDynamicProv
 			if (answers.some(([, answer]) => answer.status !== 'error')) {
 				this._buildAndApply(providers, merged);
 			}
-			this._scheduleReprobe(providers, gen);
-		}, UNREACHABLE_REPROBE_MS);
+			// Ответил хоть один — дальше снова часто, на случай следующего; молчат все — пауза растёт
+			const answered = answers.some(([, answer]) => answer.status !== 'error');
+			this._scheduleReprobe(providers, gen, answered ? 0 : attempt + 1);
+		}, reprobeDelayMs(attempt));
 		this._reprobeTimer.value = toDisposable(() => clearTimeout(handle));
 	}
 
