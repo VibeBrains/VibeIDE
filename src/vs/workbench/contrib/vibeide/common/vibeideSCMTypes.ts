@@ -6,6 +6,7 @@
 
 import { SnapshotCommitMeta } from './workspaceSnapshotPolicy.js';
 import type { IWorktreeIncludeOptions } from './worktreeIncludePolicy.js';
+import type { IWorktreeSlotOptions } from './worktreeSlots.js';
 import type { WriteScope } from './pipeline/vibePipelineFile.js';
 import { createDecorator } from '../../../../platform/instantiation/common/instantiation.js';
 
@@ -59,6 +60,8 @@ export interface IAddWorktreeOptions {
 	readonly baseRef?: string;
 	/** Ignored files and folders to bring from the repository folder; nothing when absent. */
 	readonly include?: IWorktreeIncludeOptions;
+	/** Слоты ресурсов; нет — дерево без слота */
+	readonly slots?: IWorktreeSlotOptions;
 }
 
 /** A created agent worktree and what was brought into it from outside git. */
@@ -73,6 +76,10 @@ export interface IAddedWorktree {
 	readonly copied: readonly string[];
 	/** Paths that could not be brought; the worktree works without them. */
 	readonly failed: readonly string[];
+	/** Номер слота ресурсов; нет — слот не достался */
+	readonly slot?: number;
+	/** Переменные слота для команд роли */
+	readonly slotEnv?: Readonly<Record<string, string>>;
 }
 
 /** How an agent branch came back into the project. */

@@ -17,6 +17,7 @@ import { isMacintosh } from '../../../../base/common/platform.js';
 import { AGENT_BRANCH_PREFIX, parseWorktreeList, worktreeBranchName, worktreeRelativePath } from './worktreeNaming.js';
 import { DEFAULT_WORKTREE_INCLUDE_FILES, DEFAULT_WORKTREE_LINK_FOLDERS, IWorktreeIncludeOptions, readPatternList, readWorktreeLinkMode, WORKTREE_INCLUDE_SETTING } from './worktreeIncludePolicy.js';
 import { readWorktreeBaseMode, WORKTREE_BASE_SETTING } from './worktreeBasePolicy.js';
+import { IWorktreeSlotOptions, readSlotOptions, WORKTREE_SLOT_SETTING, worktreeSlotEnv } from './worktreeSlots.js';
 
 /**
  * Чем кончилась фиксация работы роли в её ветке.
@@ -37,6 +38,10 @@ export interface WorktreeInfo {
 	 * Известны только у дерева, созданного в этом окне: остальным ограничение не нужно — прогона в них нет
 	 */
 	linked?: readonly string[];
+	/** Номер слота ресурсов; нет — дереву слот не достался */
+	slot?: number;
+	/** Переменные слота для команд роли */
+	slotEnv?: Readonly<Record<string, string>>;
 }
 
 export const IVibeGitWorktreeService = createDecorator<IVibeGitWorktreeService>('vibeGitWorktreeService');
@@ -134,6 +139,17 @@ class VibeGitWorktreeService extends Disposable implements IVibeGitWorktreeServi
 		};
 	}
 
+	/** Настройки слотов; выключенная настройка — дерево без слота */
+	private _slotOptions(): IWorktreeSlotOptions | undefined {
+		if (this._configuration.getValue<unknown>(WORKTREE_SLOT_SETTING.enabled) === false) {
+			return undefined;
+		}
+		return readSlotOptions(
+			this._configuration.getValue<unknown>(WORKTREE_SLOT_SETTING.ports),
+			this._configuration.getValue<unknown>(WORKTREE_SLOT_SETTING.max),
+		);
+	}
+
 	async createAgentWorktree(sessionId: string): Promise<WorktreeInfo | null> {
 		const repoPath = this._repoPath();
 		if (!repoPath) {
@@ -144,6 +160,7 @@ class VibeGitWorktreeService extends Disposable implements IVibeGitWorktreeServi
 		const relativePath = worktreeRelativePath(branch);
 		const fromWorkingTree = readWorktreeBaseMode(this._configuration.getValue<unknown>(WORKTREE_BASE_SETTING)) === 'workingTree';
 		const include = this._includeOptions();
+		const slots = this._slotOptions();
 		try {
 			// Создание и слияние идут через тот же мьютекс, что и чекпоинты: две операции с индексом
 			// одного репозитория одновременно — это гонка за `.git/index`, а не параллелизм.
@@ -156,7 +173,7 @@ class VibeGitWorktreeService extends Disposable implements IVibeGitWorktreeServi
 				}
 				const baseRef = fromWorkingTree ? await this._scm.pinWorktreeBase(repoPath, branch) : undefined;
 				try {
-					return await this._scm.addWorktree(repoPath, branch, relativePath, { ...(baseRef ? { baseRef } : {}), include });
+					return await this._scm.addWorktree(repoPath, branch, relativePath, { ...(baseRef ? { baseRef } : {}), include, ...(slots ? { slots } : {}) });
 				} catch (e) {
 					// Дерева нет — его база держала бы снимок зря
 					await this._scm.releaseWorktreeBase(repoPath, branch).catch(() => { /* swept by the next prune */ });
@@ -170,6 +187,8 @@ class VibeGitWorktreeService extends Disposable implements IVibeGitWorktreeServi
 				isAgentWorktree: true,
 				sessionId,
 				...(created.linked.length > 0 ? { linked: created.linked } : {}),
+				...(created.slot !== undefined ? { slot: created.slot } : {}),
+				...(created.slotEnv ? { slotEnv: created.slotEnv } : {}),
 			};
 			this._worktrees.set(worktree.id, worktree);
 			this._onWorktreeCreated.fire(worktree);
@@ -284,9 +303,21 @@ class VibeGitWorktreeService extends Disposable implements IVibeGitWorktreeServi
 		}
 		try {
 			const entries = parseWorktreeList(await this._scm.listWorktrees(repoPath));
+			const slots = this._slotOptions();
+			const repoName = repoPath.split(/[\\/]/).filter(Boolean).pop() ?? '';
 			return entries
 				.filter(entry => entry.branch?.startsWith(AGENT_BRANCH_PREFIX))
-				.map(entry => ({ id: `wt-${entry.branch}`, path: entry.path, branch: entry.branch!, isAgentWorktree: true }));
+				.map(entry => ({
+					id: `wt-${entry.branch}`,
+					path: entry.path,
+					branch: entry.branch!,
+					isAgentWorktree: true,
+					...(entry.slot !== undefined ? {
+						slot: entry.slot,
+						// Переменные считаются из номера и настроек: файл дерева мог остаться от прошлого окна
+						...(slots ? { slotEnv: worktreeSlotEnv(entry.slot, repoName, slots.ports) } : {}),
+					} : {}),
+				}));
 		} catch (e) {
 			vibeLog.warn('Worktree', 'Не удалось перечислить деревья:', e);
 			return [];

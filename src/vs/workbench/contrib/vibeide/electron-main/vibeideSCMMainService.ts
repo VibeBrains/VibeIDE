@@ -7,7 +7,7 @@
 import { promisify } from 'util';
 import { exec as _exec, execFile as _execFile } from 'child_process';
 import { tmpdir } from 'os';
-import { dirname, isAbsolute, join, join as pathJoin } from 'path';
+import { basename, dirname, isAbsolute, join, join as pathJoin } from 'path';
 import { copyFile, lstat, mkdir, readFile, rm, rmdir, symlink, unlink, writeFile } from 'fs/promises';
 import { cp } from '@vscode/fs-copyfile';
 import { Disposable } from '../../../../base/common/lifecycle.js';
@@ -18,6 +18,8 @@ import { isSnapshotTreeId, parsePathList, parsePinnedSnapshots, planSnapshotRest
 import { CHANGES_ARGV, chunkChangedFiles, isSafeBranchName, parseNameStatusZ, parsePipelineRunRefs, pathspecOf, pipelineSnapshotMessage, pipelineSnapshotRef, selectStaleRunRefs, splitPatchSections } from '../common/workspaceChangesPolicy.js';
 import { folderExcludeLine, IWorktreeIncludeOptions, linkExcludeLine, LINKED_PATHS_FILE, parseNulList, selectIncludeFiles, selectLinkFolders, WORKTREE_INCLUDE_ARGV } from '../common/worktreeIncludePolicy.js';
 import { decideWorktreeBase, decideWorktreeFinish, parseMergeTreeZ, selectOrphanBasePins, WORKTREE_BASE_ARGV } from '../common/worktreeBasePolicy.js';
+import { parseWorktreeList } from '../common/worktreeNaming.js';
+import { formatSlotEnvFile, IWorktreeSlotOptions, parseSlotFile, pickWorktreeSlot, WORKTREE_SLOT_ENV_FILE, WORKTREE_SLOT_FILE, worktreeSlotEnv } from '../common/worktreeSlots.js';
 
 interface NumStat {
 	file: string;
@@ -144,6 +146,56 @@ const worktreeGitDir = async (worktreePath: string): Promise<string | undefined>
 		return await gitArgv(WORKTREE_INCLUDE_ARGV.worktreeGitDir, worktreePath);
 	} catch {
 		return undefined;
+	}
+};
+
+/** Номер слота дерева из его служебного каталога; файла нет или он испорчен — слота нет. */
+const readWorktreeSlot = async (worktreePath: string): Promise<number | undefined> => {
+	const gitDir = await worktreeGitDir(worktreePath);
+	if (!gitDir) {
+		return undefined;
+	}
+	try {
+		return parseSlotFile(await readFile(join(gitDir, WORKTREE_SLOT_FILE), 'utf8'));
+	} catch {
+		return undefined;
+	}
+};
+
+/**
+ * Выдать новому дереву свободный слот ресурсов
+ *
+ * Занятые номера читаются из служебных каталогов всех деревьев, а не из памяти окна: деревья
+ * прошлых запусков живы, пока git о них знает
+ * Отдельного учёта нет — номер живёт в файле служебного каталога и исчезает вместе с деревом
+ *
+ * Любой сбой слота оставляет дерево без слота: слот — удобство, а не условие создания
+ */
+const assignWorktreeSlot = async (root: string, worktreePath: string, options: IWorktreeSlotOptions): Promise<{ slot?: number; slotEnv?: Readonly<Record<string, string>> }> => {
+	try {
+		const taken: number[] = [];
+		for (const entry of parseWorktreeList(await gitArgv(['worktree', 'list', '--porcelain'], root))) {
+			const slot = await readWorktreeSlot(entry.path);
+			if (slot !== undefined) {
+				taken.push(slot);
+			}
+		}
+		const slot = pickWorktreeSlot(taken, options.max);
+		if (slot === undefined) {
+			return {};
+		}
+		const gitDir = await worktreeGitDir(worktreePath);
+		if (!gitDir) {
+			return {};
+		}
+		const slotEnv = worktreeSlotEnv(slot, basename(root), options.ports);
+		// Исключение — до файла: иначе `.vibe-slot.env` попадёт в `git status` как неотслеживаемый
+		await excludeFromGitStatus(root, [WORKTREE_SLOT_ENV_FILE]);
+		await writeFile(join(worktreePath, WORKTREE_SLOT_ENV_FILE), formatSlotEnvFile(slotEnv), 'utf8');
+		await writeFile(join(gitDir, WORKTREE_SLOT_FILE), `${slot}\n`, 'utf8');
+		return { slot, slotEnv };
+	} catch {
+		return {};
 	}
 };
 
@@ -369,7 +421,8 @@ export class VibeideSCMService extends Disposable implements IVibeideSCMService 
 		const brought = options.include
 			? await bringIgnoredInto(root, worktreePath, options.include).catch((error: unknown) => ({ ...EMPTY_INCLUDE, failed: [`(${error instanceof Error ? error.message : String(error)})`] }))
 			: EMPTY_INCLUDE;
-		return { path: worktreePath, ...brought };
+		const slot = options.slots ? await assignWorktreeSlot(root, worktreePath, options.slots) : {};
+		return { path: worktreePath, ...brought, ...slot };
 	}
 
 	async pinWorktreeBase(path: string, branch: string): Promise<string | undefined> {
@@ -529,7 +582,18 @@ export class VibeideSCMService extends Disposable implements IVibeideSCMService 
 
 	async listWorktrees(path: string): Promise<string> {
 		const root = await gitArgv(SNAPSHOT_ARGV.repoRoot, path);
-		return await gitArgv(['worktree', 'list', '--porcelain'], root);
+		const porcelain = await gitArgv(['worktree', 'list', '--porcelain'], root);
+		// Номер слота git не отдаёт: дописываем строкой в запись дерева, разборщик её знает
+		const blocks = await Promise.all(porcelain.split(/\r?\n\r?\n/).map(async block => {
+			const match = /^worktree (.+)$/m.exec(block);
+			if (!match) {
+				return block;
+			}
+			const slot = await readWorktreeSlot(match[1]);
+			// Хвостовой перевод строки отрезается: иначе строка слота оторвалась бы в отдельную пустую запись
+			return slot === undefined ? block : `${block.replace(/\s+$/, '')}\n${WORKTREE_SLOT_FILE} ${slot}`;
+		}));
+		return blocks.join('\n\n');
 	}
 
 	async createWorkspaceSnapshot(path: string, meta?: SnapshotCommitMeta, previousCommit?: string): Promise<string | undefined> {

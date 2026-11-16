@@ -31,6 +31,7 @@ import { localize } from '../../../../nls.js';
 import { isMacintosh } from '../../../../base/common/platform.js';
 import { DEFAULT_WORKTREE_INCLUDE_FILES, DEFAULT_WORKTREE_LINK_FOLDERS, defaultWorktreeLinkMode, WORKTREE_INCLUDE_SETTING } from '../common/worktreeIncludePolicy.js';
 import { DEFAULT_WORKTREE_BASE, WORKTREE_BASE_SETTING } from '../common/worktreeBasePolicy.js';
+import { DEFAULT_WORKTREE_SLOT_MAX, DEFAULT_WORKTREE_SLOT_PORTS, WORKTREE_SLOT_SETTING } from '../common/worktreeSlots.js';
 import {
 	SubagentKind,
 	SubagentIsolationDecision,
@@ -93,6 +94,23 @@ Registry.as<IConfigurationRegistry>(ConfigurationExtensions.Configuration).regis
 			],
 			default: defaultWorktreeLinkMode(isMacintosh),
 			description: localize('vibeide.subagent.worktreeLinkMode', "Как приносить в рабочее дерево роли папки из `vibeide.subagent.worktreeLinkFolders`. По умолчанию — `clone` на macOS и `link` на других системах."),
+		},
+		[WORKTREE_SLOT_SETTING.enabled]: {
+			type: 'boolean',
+			default: true,
+			description: localize('vibeide.subagent.worktreeSlots', 'Выдавать рабочему дереву роли свой слот ресурсов: номер, порты и имя стенда. Параллельные деревья тогда не делят порт и стенд docker compose. Значения пишутся в `.vibe-slot.env` в корне дерева и передаются командам роли в окружение.'),
+		},
+		[WORKTREE_SLOT_SETTING.ports]: {
+			type: 'object',
+			default: { ...DEFAULT_WORKTREE_SLOT_PORTS },
+			description: localize('vibeide.subagent.worktreeSlotPorts', 'Переменные-порты слота: имя переменной и база. Значение в дереве — база плюс номер слота.'),
+		},
+		[WORKTREE_SLOT_SETTING.max]: {
+			type: 'number',
+			default: DEFAULT_WORKTREE_SLOT_MAX,
+			minimum: 1,
+			maximum: 99,
+			description: localize('vibeide.subagent.worktreeSlotMax', 'Сколько слотов выдавать. Когда все заняты, дерево создаётся без слота.'),
 		},
 		'vibeide.subagent.forceInline': {
 			type: 'boolean',
