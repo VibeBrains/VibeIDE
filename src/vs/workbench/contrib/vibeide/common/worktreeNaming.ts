@@ -3,8 +3,12 @@
  *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
 
+import { WORKTREE_SLOT_FILE } from './worktreeSlots.js';
+
 /**
  * Имена и пути рабочих деревьев агента, плюс разбор того, что о них знает git.
+ *
+ * Листинг дополняется строкой `vibe-slot <номер>`: git о слотах не знает, их читает main-сервис
  *
  * Чистая часть изоляции: имя ветки и путь считаются без обращения к диску, поэтому их можно
  * проверить тестом, а не живым репозиторием.
@@ -48,6 +52,8 @@ export interface GitWorktreeEntry {
 	readonly branch?: string;
 	/** Дерево без ветки — отсоединённая голова; сливать там нечего. */
 	readonly detached: boolean;
+	/** Слот ресурсов, если листинг его знает: строка `vibe-slot <номер>` в записи дерева. */
+	readonly slot?: number;
 }
 
 /**
@@ -61,13 +67,15 @@ export function parseWorktreeList(porcelain: string): GitWorktreeEntry[] {
 	let path: string | undefined;
 	let branch: string | undefined;
 	let detached = false;
+	let slot: number | undefined;
 	const flush = () => {
 		if (path) {
-			entries.push({ path, ...(branch ? { branch } : {}), detached });
+			entries.push({ path, ...(branch ? { branch } : {}), detached, ...(slot !== undefined ? { slot } : {}) });
 		}
 		path = undefined;
 		branch = undefined;
 		detached = false;
+		slot = undefined;
 	};
 	for (const rawLine of porcelain.split(/\r?\n/)) {
 		const line = rawLine.trim();
@@ -82,6 +90,9 @@ export function parseWorktreeList(porcelain: string): GitWorktreeEntry[] {
 			branch = line.slice('branch '.length).replace(/^refs\/heads\//, '');
 		} else if (line === 'detached') {
 			detached = true;
+		} else if (line.startsWith(`${WORKTREE_SLOT_FILE} `)) {
+			const parsed = Number(line.slice(WORKTREE_SLOT_FILE.length + 1));
+			slot = Number.isInteger(parsed) && parsed > 0 ? parsed : undefined;
 		}
 	}
 	flush();

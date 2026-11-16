@@ -45,6 +45,8 @@ import { ILanguageService } from '../../../../editor/common/languages/language.j
 import { timeout } from '../../../../base/common/async.js';
 import { RawToolParamsObj } from '../common/sendLLMMessageTypes.js';
 import { MAX_CHILDREN_URIs_PAGE, MAX_FILE_CHARS_PAGE, MAX_TERMINAL_BG_COMMAND_TIME, MAX_TERMINAL_INACTIVE_TIME, READ_FILE_DEFAULT_LINE_LIMIT, READ_FILE_LARGE_FILE_CHARS, READ_FILE_LARGE_FILE_WINDOW_CHARS, READ_FILE_MAX_LINE_LIMIT, ORIGINAL, DIVIDER, FINAL } from '../common/prompt/prompts.js';
+import { agentWorktreeRootOf, parseSlotEnvFile, WORKTREE_SLOT_ENV_FILE } from '../common/worktreeSlots.js';
+import { WORKTREE_DIR } from '../common/worktreeNaming.js';
 import { IVibeideSettingsService } from '../common/vibeideSettingsService.js';
 import { generateUuid } from '../../../../base/common/uuid.js';
 import { Emitter, Event } from '../../../../base/common/event.js';
@@ -2714,11 +2716,12 @@ export class ToolsService extends Disposable implements IToolsService {
 			run_command: async ({ command, cwd, terminalId, timeoutMs, runInBackground }) => {
 				await this._gateDestructiveCommand(command);
 
+				const env = await this._slotEnvOf(cwd);
 				// Background mode: spin up a persistent (but hidden) terminal, kick off the command,
 				// and return immediately with a backgroundId. The caller polls via read_background_output
 				// or kills via kill_background_command.
 				if (runInBackground) {
-					const persistentTerminalId = await this.terminalToolService.createPersistentTerminal({ cwd });
+					const persistentTerminalId = await this.terminalToolService.createPersistentTerminal({ cwd, env });
 					const backgroundId = generateUuid();
 					const startedAt = Date.now();
 					this._backgroundCommands.set(backgroundId, { persistentTerminalId, command, startedAt });
@@ -2752,7 +2755,7 @@ export class ToolsService extends Disposable implements IToolsService {
 					};
 				}
 
-				const { resPromise, interrupt } = await this.terminalToolService.runCommand(command, { type: 'temporary', cwd, terminalId, timeoutMs: timeoutMs ?? undefined });
+				const { resPromise, interrupt } = await this.terminalToolService.runCommand(command, { type: 'temporary', cwd, terminalId, timeoutMs: timeoutMs ?? undefined, env });
 				return { result: resPromise, interruptTool: interrupt };
 			},
 			handoff: async ({ action, title, done, blockers, next, environment }) => {
@@ -4158,9 +4161,29 @@ ${lines.join('\n\n')}`;
 	}
 
 	/**
+	 * Переменные слота дерева агента, в котором запускается команда: свой порт и имя стенда
+	 * Слот берётся по папке запуска, поэтому инструменту не нужен лишний параметр, а команда вне дерева идёт как раньше
+	 */
+	private async _slotEnvOf(cwd: string | null | undefined): Promise<Record<string, string> | undefined> {
+		const root = cwd ? agentWorktreeRootOf(cwd, WORKTREE_DIR) : undefined;
+		if (!root) {
+			return undefined;
+		}
+		try {
+			const content = await this.fileService.readFile(URI.joinPath(URI.file(root), WORKTREE_SLOT_ENV_FILE));
+			const env = parseSlotEnvFile(content.value.toString());
+			return Object.keys(env).length > 0 ? env : undefined;
+		} catch {
+			// Дерево без слота (слоты выключены или все заняты) — команда идёт с обычным окружением
+			return undefined;
+		}
+	}
+
+	/**
 	 * Detects dangerous terminal commands that may cause data loss or system changes.
 	 * Returns 'high' for extremely dangerous commands, 'medium' for potentially risky, or 'low' for safe.
 	 */
+
 	/**
 	 * Stops before a destructive shell command and asks the human, in words, about THIS command.
 	 *

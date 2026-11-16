@@ -41,7 +41,7 @@ export interface ITerminalToolService {
 		 * поломанном rc (проверено живьём 12.08: sleep 20 «завершался» бы через 600 с).
 		 */
 		| { type: 'persistent'; persistentTerminalId: string; timeoutMs?: number; detectCompletion?: boolean }
-		| { type: 'temporary'; cwd: string | null; terminalId: string; timeoutMs?: number }
+		| { type: 'temporary'; cwd: string | null; terminalId: string; timeoutMs?: number; env?: Readonly<Record<string, string>> }
 		// | { type: 'apply', terminalId: string }
 	): Promise<{ interrupt: () => void; resPromise: Promise<{ result: string; resolveReason: TerminalResolveReason }> }>;
 
@@ -50,7 +50,7 @@ export interface ITerminalToolService {
 
 	readTerminal(terminalId: string): Promise<string>;
 
-	createPersistentTerminal(opts: { cwd: string | null }): Promise<string>;
+	createPersistentTerminal(opts: { cwd: string | null; env?: Readonly<Record<string, string>> }): Promise<string>;
 	killPersistentTerminal(terminalId: string): Promise<void>;
 
 	getPersistentTerminal(terminalId: string): ITerminalInstance | undefined;
@@ -218,9 +218,9 @@ export class TerminalToolService extends Disposable implements ITerminalToolServ
 
 	}
 
-	createPersistentTerminal: ITerminalToolService['createPersistentTerminal'] = async ({ cwd }) => {
+	createPersistentTerminal: ITerminalToolService['createPersistentTerminal'] = async ({ cwd, env }) => {
 		const terminalId = this.getValidNewTerminalId();
-		const config = { name: persistentTerminalNameOfId(terminalId), title: persistentTerminalNameOfId(terminalId) };
+		const config = { name: persistentTerminalNameOfId(terminalId), title: persistentTerminalNameOfId(terminalId), ...(env ? { env: { ...env } } : {}) };
 		const terminal = await this._createTerminal({ cwd, config, });
 		this.persistentTerminalInstanceOfId[terminalId] = terminal;
 		return terminalId;
@@ -324,7 +324,8 @@ export class TerminalToolService extends Disposable implements ITerminalToolServ
 		}
 		else {
 			const { cwd } = params;
-			terminal = await this._createTerminal({ cwd: cwd, config: undefined, hidden: true });
+			// Переменные слота дерева агента: свой порт и стенд у каждой параллельной роли
+			terminal = await this._createTerminal({ cwd: cwd, config: params.env ? { env: { ...params.env } } : undefined, hidden: true });
 			this.temporaryTerminalInstanceOfId[params.terminalId] = terminal;
 		}
 

@@ -1667,7 +1667,12 @@ registerAction2(class VibeAgentWorktrees extends Action2 {
 		}
 
 		const picked = await quickInput.pick(
-			trees.map(wt => ({ label: wt.branch, description: wt.path, wt })),
+			trees.map(wt => {
+				// Первый порт — то, что человеку нужно узнать раньше всего: конфликт стендов виден по нему
+				const port = wt.slotEnv ? Object.entries(wt.slotEnv).find(([name]) => name !== 'VIBE_SLOT' && name !== 'COMPOSE_PROJECT_NAME') : undefined;
+				const slotNote = wt.slot !== undefined ? ` · слот ${wt.slot}${port ? ` · ${port[0]}=${port[1]}` : ''}` : '';
+				return { label: wt.branch, description: `${wt.path}${slotNote}`, wt };
+			}),
 			{ title: localize('vibeide.worktrees.pick', 'Дерево агента'), placeHolder: localize('vibeide.worktrees.pickPlaceholder', 'Работа роли, не влитая в проект') });
 		if (!picked) { return; }
 
