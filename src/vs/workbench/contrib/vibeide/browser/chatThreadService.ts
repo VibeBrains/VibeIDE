@@ -6395,7 +6395,9 @@ Output ONLY the JSON, no other text. Start with { and end with }.`;
 					firstTokenTimeoutMs: firstTokenTimeoutMs({
 						promptTokensEstimate: promptTokens,
 						observedFirstTokenMs: this._firstTokenLatencyHistory(watchdogModelKey),
-						floorMs: firstTokenTimeoutFloorMs,
+						// Повтор с тем же порогом бесполезен: оборванная модель начинает заново и снова не успеет
+						// Каждая следующая попытка ждёт дольше — так медленная модель доходит до ответа и без истории
+						floorMs: firstTokenTimeoutFloorMs * (1 + watchdogRestarts),
 						ceilingMs: hardStallEnabled ? Math.max(firstTokenTimeoutFloorMs, hardStallSeconds * 1000) : FIRST_TOKEN_CEILING_MS,
 					}),
 				};
