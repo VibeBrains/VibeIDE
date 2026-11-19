@@ -48,6 +48,8 @@ import {
 	isToolOpen,
 	newSessionParams,
 	agentSupportsHttpMcp,
+	agentSupportsSessionOptions,
+	initialConfigOptionsOf,
 	parseSessionUpdate,
 	promptCapabilitiesOf,
 	promptParams,
@@ -55,6 +57,7 @@ import {
 	requestFrame,
 	resultFrame,
 	returnToSessionParams,
+	sessionRefsOf,
 	setConfigOptionParams,
 	stopReasonOf,
 	toolCallFacts,
@@ -119,6 +122,8 @@ interface IAgentProcess {
 	closeSupported?: boolean;
 	/** The agent declared client system prompts: only then may `systemPrompt` ride in a session request */
 	systemPromptSupported?: boolean;
+	/** Гость объявил `session/options`: только ему можно прислать начальные значения настроек */
+	optionsSupported?: boolean;
 	/** The agent declared `auth/status`: only then may we ask about the login state before a session */
 	authStatusSupported?: boolean;
 	/** The login state the agent last reported; `unknown` until it says otherwise */
@@ -151,6 +156,8 @@ interface IAgentProcess {
 	readonly beforeTaken: Set<string>;
 	/** Calls known as edits: a later frame may omit the kind, but the files it names are still the edit's */
 	readonly editCalls: Set<string>;
+	/** Дочерние сессии, о которых лента уже сказала: повтор той же ссылки — не новость */
+	readonly childSessions: Set<string>;
 }
 
 /** What the agent told about the session before it was handed over: its settings and its commands */
@@ -285,7 +292,7 @@ export class VibeAcpMainService extends Disposable implements IVibeAcpMain {
 			shell: false,
 		}) as ChildProcessWithoutNullStreams;
 
-		const agent: IAgentProcess = { launch, child, decoder: new AcpStreamDecoder(), pending: new Map(), nextId: 1, authMethods: [], promptCapabilities: promptCapabilitiesOf(undefined), beforeTaken: new Set(), editCalls: new Set() };
+		const agent: IAgentProcess = { launch, child, decoder: new AcpStreamDecoder(), pending: new Map(), nextId: 1, authMethods: [], promptCapabilities: promptCapabilitiesOf(undefined), beforeTaken: new Set(), editCalls: new Set(), childSessions: new Set() };
 		child.stdout.setEncoding('utf8');
 		child.stdout.on('data', chunk => this._onStdout(agent, String(chunk)));
 		// stderr агента — не протокол, а его собственные жалобы. В лог, но не в разбор: смешать
@@ -308,6 +315,7 @@ export class VibeAcpMainService extends Disposable implements IVibeAcpMain {
 		agent.authMethods = authMethodsOf(greeting);
 		agent.closeSupported = agentSupportsClose(greeting);
 		agent.systemPromptSupported = agentSupportsSystemPrompt(greeting);
+		agent.optionsSupported = agentSupportsSessionOptions(greeting);
 		agent.promptCapabilities = promptCapabilitiesOf(greeting);
 		agent.authStatusSupported = agentSupportsAuthStatus(greeting);
 		// Состояние входа узнаём до сессии: иначе о нём станет известно только из отказа на первый ход.
@@ -341,10 +349,12 @@ export class VibeAcpMainService extends Disposable implements IVibeAcpMain {
 		const cwd = agent.launch.cwd;
 		// Правила проекта шлём только тому, кто объявил поле: иначе агент вправе отказать на всём запросе
 		const systemPrompt = agent.systemPromptSupported ? await this._sessionSystemPrompt(cwd) : undefined;
+		// Настройки, выбранные человеком для этого агента раньше: сессия начинается с них, а не с чужих умолчаний
+		const initialOptions = agent.optionsSupported ? initialConfigOptionsOf(agent.launch.initialConfigOptions) : [];
 		if (mode === 'new' || !previousSessionId) {
 			const created = await this._callSession(agent, ACP_AGENT_METHOD.newSession,
-				newSessionParams(cwd, mcpServers, systemPrompt),
-				newSessionParams(cwd, mcpServers));
+				newSessionParams(cwd, mcpServers, systemPrompt, initialOptions),
+				newSessionParams(cwd, mcpServers, undefined, initialOptions));
 			const sessionId = readString(created, 'sessionId');
 			if (!sessionId) {
 				throw new Error(`${agent.launch.name} не вернул идентификатор сессии`);
@@ -354,8 +364,8 @@ export class VibeAcpMainService extends Disposable implements IVibeAcpMain {
 		}
 		if (mode === 'resume') {
 			const resumed = await this._callSession(agent, ACP_AGENT_METHOD.resumeSession,
-				returnToSessionParams(previousSessionId, cwd, mcpServers, systemPrompt),
-				returnToSessionParams(previousSessionId, cwd, mcpServers));
+				returnToSessionParams(previousSessionId, cwd, mcpServers, systemPrompt, initialOptions),
+				returnToSessionParams(previousSessionId, cwd, mcpServers, undefined, initialOptions));
 			agent.configOptions = configOptionsOf(resumed) ?? agent.configOptions;
 			return previousSessionId;
 		}
@@ -363,8 +373,8 @@ export class VibeAcpMainService extends Disposable implements IVibeAcpMain {
 		agent.replaying = true;
 		try {
 			const loaded = await this._callSession(agent, ACP_AGENT_METHOD.loadSession,
-				returnToSessionParams(previousSessionId, cwd, mcpServers, systemPrompt),
-				returnToSessionParams(previousSessionId, cwd, mcpServers));
+				returnToSessionParams(previousSessionId, cwd, mcpServers, systemPrompt, initialOptions),
+				returnToSessionParams(previousSessionId, cwd, mcpServers, undefined, initialOptions));
 			agent.configOptions = configOptionsOf(loaded) ?? agent.configOptions;
 		} finally {
 			agent.replaying = false;
@@ -586,9 +596,13 @@ export class VibeAcpMainService extends Disposable implements IVibeAcpMain {
 	 */
 	private _onUpdate(agent: IAgentProcess, params: JsonValue | undefined): void {
 		const update = parseSessionUpdate(params);
-		if (!update) { return; }
 		// Имя кадра (`tool_call` или `tool_call_update`) нужно журналу: по нему видно, первый это кадр вызова или дополнение
 		const frame = readString(readObject(params, 'update'), 'sessionUpdate');
+		if (!update) {
+			// Кадр из будущей версии протокола не должен ронять сессию: пишем в журнал и идём дальше
+			this._trace(`${agent.launch.name}: пропущен незнакомый кадр ${frame ?? 'без sessionUpdate'}`);
+			return;
+		}
 		const sessionId = agent.sessionId;
 		// The replay of `session/load` is history already on screen — but a settings change during it is the current
 		// state. It is kept even before the session is adopted, and the reconnection hands it over
@@ -629,6 +643,8 @@ export class VibeAcpMainService extends Disposable implements IVibeAcpMain {
 					output: update.output,
 					...(update.exitCode === undefined ? {} : { exitCode: update.exitCode }),
 				});
+				// Строка о ребёнке идёт после карточки вызова: человек сначала видит вызов, потом — с кем он работает
+				this._onChildSessions(agent, sessionId, readObject(params, 'update'));
 				return;
 			case 'usage':
 				this._onEvent.fire({
@@ -650,7 +666,34 @@ export class VibeAcpMainService extends Disposable implements IVibeAcpMain {
 			case 'compactionChunk':
 				this._onEvent.fire({ kind: 'compactionChunk', sessionId, compactionId: update.compactionId, text: update.text });
 				return;
+			case 'suggestions':
+				this._onEvent.fire({ kind: 'suggestions', sessionId, suggestions: update.suggestions });
+				return;
+			case 'subagent':
+				this._onChildSession(agent, sessionId, update.sessionId, update.title);
+				return;
+			default:
+				// Разбор знает больше кадров, чем окно умеет показать; молча терять их нельзя — в журнале остаётся след
+				this._trace(`${agent.launch.name}: кадр ${frame ?? 'без sessionUpdate'} не показывается`);
+				return;
 		}
+	}
+
+	/**
+	 * Ссылки на дочерние сессии из контента вызова (v1.31): агент запустил ребёнка и указал его
+	 * в `content` как `type: "session"`. В ленте это строка, поэтому разбираем контент вызова
+	 */
+	private _onChildSessions(agent: IAgentProcess, sessionId: string, raw: JsonValue | undefined): void {
+		for (const childSessionId of sessionRefsOf(raw)) {
+			this._onChildSession(agent, sessionId, childSessionId);
+		}
+	}
+
+	/** Строка о дочерней сессии — один раз на сессию: кадров с одной и той же ссылкой бывает много */
+	private _onChildSession(agent: IAgentProcess, sessionId: string, childSessionId: string, title?: string): void {
+		if (agent.childSessions.has(childSessionId)) { return; }
+		agent.childSessions.add(childSessionId);
+		this._onEvent.fire({ kind: 'subagent', sessionId, childSessionId, ...(title === undefined ? {} : { title }) });
 	}
 
 	/**
