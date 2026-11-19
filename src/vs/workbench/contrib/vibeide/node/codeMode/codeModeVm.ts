@@ -66,7 +66,8 @@ function buildSandboxSource(script: string): string {
 		log: function () {
 			var parts = [];
 			for (var i = 0; i < arguments.length; i++) {
-				parts.push(__stringify(arguments[i]));
+				// Строка в console.log — это текст, а не JSON: кавычки и экранирование здесь лишние
+				parts.push(typeof arguments[i] === 'string' ? arguments[i] : __stringify(arguments[i]));
 			}
 			__logs.push(parts.join(' '));
 		}
@@ -102,15 +103,15 @@ function isTimeoutError(error: unknown): boolean {
 	return typeof error === 'object' && error !== null && (error as { code?: unknown }).code === 'ERR_SCRIPT_EXECUTION_TIMEOUT';
 }
 
-function serializeValue(value: unknown): { text?: string; error?: string } {
+function serializeValue(value: unknown): { valueText?: string; valueError?: string } {
 	try {
 		const text = JSON.stringify(value);
 		if (text === undefined) {
 			return {};
 		}
-		return { text: text.length <= CODE_MODE_MAX_VALUE_CHARS ? text : `${text.slice(0, CODE_MODE_MAX_VALUE_CHARS)}…` };
+		return { valueText: text.length <= CODE_MODE_MAX_VALUE_CHARS ? text : `${text.slice(0, CODE_MODE_MAX_VALUE_CHARS)}…` };
 	} catch (error) {
-		return { error: codeModeErrorMessage(error) };
+		return { valueError: codeModeErrorMessage(error) };
 	}
 }
 
@@ -218,5 +219,7 @@ function readLogs(api: ICodeModeSandboxApi): string[] {
 	if (!Array.isArray(api.logs)) {
 		return [];
 	}
-	return api.logs.map(line => typeof line === 'string' ? line : String(line));
+	// `Array.from` хоста создаёт массив хоста: `api.logs.map` вернул бы массив чужого realm,
+	// и `deepStrictEqual` справедливо счёл бы его не равным обычному массиву
+	return Array.from(api.logs, line => typeof line === 'string' ? line : String(line));
 }

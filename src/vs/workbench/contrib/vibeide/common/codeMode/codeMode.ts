@@ -59,14 +59,15 @@ const FORBIDDEN_TOOL_NAMES: ReadonlySet<string> = new Set(['__proto__', 'prototy
  * `constructor` и `__proto__` — это не «неизвестный инструмент», а попытка выйти за пределы объекта
  */
 export function codeModeToolRefusal(name: unknown): string | undefined {
+	// Сначала запрещённые имена: `__proto__` не проходит проверку формы, но это не «опечатка»,
+	// а именно попытка дотянуться до прототипа — отказ должен говорить о причине
+	if (typeof name === 'string' && FORBIDDEN_TOOL_NAMES.has(name)) {
+		return name === CODE_MODE_TOOL_NAME
+			? `«${CODE_MODE_TOOL_NAME}» из скрипта недоступен: вложенный Code Mode запрещён`
+			: `«${name}» — это путь к прототипу, а не имя инструмента`;
+	}
 	if (typeof name !== 'string' || !TOOL_NAME_RE.test(name)) {
 		return `«${String(name).slice(0, CODE_MODE_MAX_CALL_NAME_CHARS)}» — недопустимое имя инструмента: разрешены строчная латиница, цифры и подчёркивание`;
-	}
-	if (name === CODE_MODE_TOOL_NAME) {
-		return `«${CODE_MODE_TOOL_NAME}» из скрипта недоступен: вложенный Code Mode запрещён`;
-	}
-	if (FORBIDDEN_TOOL_NAMES.has(name)) {
-		return `«${name}» — это путь к прототипу, а не имя инструмента`;
 	}
 	return undefined;
 }
@@ -134,7 +135,9 @@ export function buildCodeModeReport(input: ICodeModeReportInput): string {
 	if (input.error) {
 		parts.push(`Ошибка: ${input.error}`);
 	}
-	const logs = input.logs.slice(0, CODE_MODE_MAX_LOG_LINES).map(clipLine);
+	// Строки не режем по одной: иначе одна длинная строка молча превращается в огрызок,
+	// и общая обрезка с честной пометкой «обрезано» до модели уже не доходит
+	const logs = input.logs.slice(0, CODE_MODE_MAX_LOG_LINES);
 	if (logs.length > 0) {
 		const clippedCount = input.logs.length - logs.length;
 		parts.push(`Вывод console.log (${input.logs.length}):\n${logs.join('\n')}${clippedCount > 0 ? `\n… ещё ${clippedCount} строк` : ''}`);

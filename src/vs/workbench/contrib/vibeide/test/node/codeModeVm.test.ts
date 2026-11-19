@@ -9,7 +9,9 @@ import { ensureNoDisposablesAreLeakedInTestSuite } from '../../../../../base/tes
 import { runCodeModeScript } from '../../node/codeMode/codeModeVm.js';
 import { skipInElectronRenderer } from './nodeOnly.js';
 
-const TIMEOUT_MS = 2_000;
+// Раннер `test/unit/node/index.js` создаёт Mocha без `--timeout`, то есть с дефолтом 2000 мс,
+// поэтому лимит песочницы должен быть заведомо меньше: иначе тест про таймаут — гонка с самим Mocha
+const TIMEOUT_MS = 1_000;
 
 function run(script: string, callTool?: (tool: string, argsJson: string) => Promise<{ ok: boolean; text: string }>) {
 	return runCodeModeScript({
