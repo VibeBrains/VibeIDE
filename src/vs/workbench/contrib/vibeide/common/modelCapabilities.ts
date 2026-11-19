@@ -607,10 +607,13 @@ const openSourceModelOptions_assumingOAICompat = {
 	// Platform and high on Kimi Code), 1M window, but its own price — a fifth cheaper on input and a third on output.
 	// HighSpeed is the same model 2-3x faster at twice the price (platform.kimi.ai/docs/pricing/chat, 26.10.2026).
 	// Falling through to the K3 profile gave it K3's price, which the router reads as a cost, not a saving
+	// Every Kimi profile down to K2.6 takes images (platform.kimi.ai/docs/guide/use-kimi-vision-model): the live `/models`
+	// catalog carries no vision flag, so without `supportsVision` here the image gate refused the model before sending
 	'kimiK3.1Pro': {
 		supportsFIM: false,
 		supportsSystemMessage: 'system-role',
 		specialToolFormat: 'openai-style',
+		supportsVision: true,
 		reasoningCapabilities: { supportsReasoning: true, canTurnOffReasoning: false, canIOReasoning: true, reasoningSlider: { type: 'effort_slider', values: ['low', 'high', 'max'], default: 'high' } },
 		contextWindow: 1_048_576, reservedOutputTokenSpace: 32_768,
 		cost: { input: 2.00, cache_read: 0.20, output: 10.00 },
@@ -619,6 +622,7 @@ const openSourceModelOptions_assumingOAICompat = {
 		supportsFIM: false,
 		supportsSystemMessage: 'system-role',
 		specialToolFormat: 'openai-style',
+		supportsVision: true,
 		reasoningCapabilities: { supportsReasoning: true, canTurnOffReasoning: false, canIOReasoning: true, reasoningSlider: { type: 'effort_slider', values: ['low', 'high', 'max'], default: 'high' } },
 		contextWindow: 1_048_576, reservedOutputTokenSpace: 32_768,
 		cost: { input: 4.00, cache_read: 0.20, output: 20.00 },
@@ -630,6 +634,7 @@ const openSourceModelOptions_assumingOAICompat = {
 		supportsFIM: false,
 		supportsSystemMessage: 'system-role',
 		specialToolFormat: 'openai-style',
+		supportsVision: true,
 		reasoningCapabilities: { supportsReasoning: true, canTurnOffReasoning: false, canIOReasoning: true, reasoningSlider: { type: 'effort_slider', values: ['low', 'high', 'max'], default: 'high' } },
 		contextWindow: 1_048_576, reservedOutputTokenSpace: 32_768,
 		cost: { input: 3.00, cache_read: 0.30, output: 15.00 },
@@ -640,6 +645,7 @@ const openSourceModelOptions_assumingOAICompat = {
 		supportsFIM: false,
 		supportsSystemMessage: 'system-role',
 		specialToolFormat: 'openai-style',
+		supportsVision: true,
 		reasoningCapabilities: { supportsReasoning: true, canTurnOffReasoning: false, canIOReasoning: true, reasoningSlider: { type: 'effort_slider', values: ['low', 'high', 'max'], default: 'high' } },
 		contextWindow: 262_144, reservedOutputTokenSpace: 32_768,
 		cost: { input: 3.00, cache_read: 0.30, output: 15.00 },
@@ -650,6 +656,7 @@ const openSourceModelOptions_assumingOAICompat = {
 		supportsFIM: false,
 		supportsSystemMessage: 'system-role',
 		specialToolFormat: 'openai-style',
+		supportsVision: true,
 		reasoningCapabilities: { supportsReasoning: true, canTurnOffReasoning: true, canIOReasoning: true, reasoningOffPayload: { reasoning_effort: 'none' }, reasoningSlider: { type: 'effort_slider', values: ['low', 'high', 'max'], default: 'max' } },
 		contextWindow: 1_048_576, reservedOutputTokenSpace: 32_768,
 		cost: { input: 0.60, output: 2.50 },
@@ -661,6 +668,7 @@ const openSourceModelOptions_assumingOAICompat = {
 		supportsFIM: false,
 		supportsSystemMessage: 'system-role',
 		specialToolFormat: 'openai-style',
+		supportsVision: true,
 		reasoningCapabilities: { supportsReasoning: true, canTurnOffReasoning: false, canIOReasoning: true },
 		contextWindow: 262_144, reservedOutputTokenSpace: 32_768,
 		cost: { input: 0.95, cache_read: 0.19, output: 4.00 },
@@ -669,6 +677,7 @@ const openSourceModelOptions_assumingOAICompat = {
 		supportsFIM: false,
 		supportsSystemMessage: 'system-role',
 		specialToolFormat: 'openai-style',
+		supportsVision: true,
 		reasoningCapabilities: { supportsReasoning: true, canTurnOffReasoning: false, canIOReasoning: true },
 		contextWindow: 262_144, reservedOutputTokenSpace: 32_768,
 		cost: { input: 1.90, cache_read: 0.38, output: 8.00 },
@@ -678,6 +687,7 @@ const openSourceModelOptions_assumingOAICompat = {
 		supportsFIM: false,
 		supportsSystemMessage: 'system-role',
 		specialToolFormat: 'openai-style',
+		supportsVision: true,
 		reasoningCapabilities: { supportsReasoning: true, canTurnOffReasoning: true, canIOReasoning: true, reasoningOffPayload: { thinking: { type: 'disabled' } } },
 		contextWindow: 262_144, reservedOutputTokenSpace: 32_768,
 		cost: { input: 0.95, cache_read: 0.16, output: 4.00 },

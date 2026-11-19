@@ -6,6 +6,7 @@
 
 import * as assert from 'assert';
 import { isModelVisionCapable, isVisionByNameHeuristic } from '../../common/modelVisionHeuristics.js';
+import { getModelCapabilities } from '../../common/modelCapabilities.js';
 import { ensureNoDisposablesAreLeakedInTestSuite } from '../../../../../base/test/common/utils.js';
 
 suite('modelVisionHeuristics — isModelVisionCapable', () => {
@@ -38,6 +39,14 @@ suite('modelVisionHeuristics — isModelVisionCapable', () => {
 		assert.deepStrictEqual(
 			[isVisionByNameHeuristic('minimax-m3'), isVisionByNameHeuristic('minimax-m2.7'), isVisionByNameHeuristic('pixtral-12b')],
 			[true, false, true],
+		);
+	});
+
+	test('Kimi K3 and K2.6+ accept images by the model profile: the live catalog brings no vision flag', () => {
+		const vision = (model: string) => isModelVisionCapable({ providerName: 'openAICompatible', modelName: model }, getModelCapabilities('openAICompatible', model, undefined));
+		assert.deepStrictEqual(
+			[vision('k3.1-pro'), vision('kimi-k3.1-pro'), vision('k3'), vision('k3-256k'), vision('kimi-k2.6'), vision('kimi-for-coding-highspeed')],
+			[true, true, true, true, true, true],
 		);
 	});
 });
