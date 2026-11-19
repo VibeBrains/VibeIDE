@@ -9,10 +9,10 @@ import { hooksFor, parseHookConfig, VIBE_HOOK_DEFAULT_TIMEOUT_MS, VIBE_HOOK_MAX_
 import { decideHooks, verdictOf, VIBE_HOOK_REFUSE_EXIT_CODE } from '../../common/hooks/hookOutcome.js';
 
 const hook = (over: Partial<VibeHook> = {}): VibeHook => ({
-	event: 'preToolUse', command: 'echo hi', tools: [], timeoutMs: 1000, label: undefined, ...over,
+	event: 'preToolUse', command: 'echo hi', tools: [], timeoutMs: 1000, label: undefined, onFailure: 'continue', ...over,
 });
 
-const run = (over: { exitCode?: number | undefined; stdout?: string; stderr?: string; timedOut?: boolean } = {}) => ({
+const run = (over: { exitCode?: number | undefined; stdout?: string; stderr?: string; timedOut?: boolean; hook?: VibeHook } = {}) => ({
 	hook: hook(), exitCode: 0, stdout: '', stderr: '', timedOut: false, durationMs: 5, ...over,
 });
 
@@ -74,6 +74,24 @@ suite('Project hooks — config', () => {
 		);
 	});
 
+	// Поле необязательное: по умолчанию работа идёт дальше, как до его появления; неизвестное значение — предупреждение
+	test('onFailure читается как continue или block, а неизвестное значение — предупреждение и continue', () => {
+		const parsed = parseHookConfig(JSON.stringify({
+			hooks: [
+				{ event: 'preToolUse', command: 'a' },
+				{ event: 'preToolUse', command: 'b', onFailure: 'block' },
+				{ event: 'preToolUse', command: 'c', onFailure: 'blocked' },
+			],
+		}));
+		assert.deepStrictEqual(
+			{ values: parsed.hooks.map(h => h.onFailure), problems: parsed.problems },
+			{
+				values: ['continue', 'block', 'continue'],
+				problems: ['Хук №3: неизвестное значение onFailure «blocked» — считается «continue».'],
+			},
+		);
+	});
+
 	// Синтаксис верный, а имя инструмента — опечатка: хук, который не сработает ни разу, лучше назвать вслух
 	test('matcher, не совпавший ни с одним инструментом агента, предупреждает о себе', () => {
 		const parsed = parseHookConfig(JSON.stringify({
@@ -111,6 +129,20 @@ suite('Project hooks — verdicts', () => {
 				'broken',
 				'broken',
 			],
+		);
+	});
+
+	// По умолчанию сбой — «нет мнения»; владелец хука может велеть блокировать, и тогда сбой — отказ
+	test('onFailure: block превращает сбой хука в отказ, continue оставляет его сломанным', () => {
+		const blocking = hook({ onFailure: 'block' });
+		assert.deepStrictEqual(
+			[
+				verdictOf(run({ exitCode: 1, hook: blocking })).kind,
+				verdictOf(run({ exitCode: undefined, timedOut: true, hook: blocking })).kind,
+				verdictOf(run({ exitCode: 1 })).kind,
+				decideHooks('preToolUse', [verdictOf(run({ exitCode: 1, hook: blocking }))]).blocked,
+			],
+			['refuse', 'refuse', 'broken', true],
 		);
 	});
 

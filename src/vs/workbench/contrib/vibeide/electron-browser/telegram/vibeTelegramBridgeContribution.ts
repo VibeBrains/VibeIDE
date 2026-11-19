@@ -28,6 +28,8 @@ import { IVibeDeadMansSwitchService } from '../../browser/vibeDeadMansSwitchServ
 import { IVibeAgentRunLedgerService } from '../../common/vibeAgentRunLedgerService.js';
 import { buildAgentDailyDigest, formatAgentDailyDigest } from '../../common/agentDailyDigest.js';
 import { vibeLog } from '../../common/vibeLog.js';
+import { IVibeideSettingsService } from '../../common/vibeideSettingsService.js';
+import { interactiveOnlyVerdictForSelection } from '../../common/interactiveOnlyProvider.js';
 import { parseTelegramCommand, resolveProjectChoice } from '../../common/telegram/telegramCommandParse.js';
 import { generatePairingCode } from '../../common/telegram/telegramPairing.js';
 import { resolveVoiceProfile } from '../../common/voice/vibeVoiceModels.js';
@@ -132,6 +134,7 @@ export class VibeTelegramBridgeContribution extends Disposable implements IWorkb
 		@IWorkspaceContextService private readonly _workspaceService: IWorkspaceContextService,
 		@INativeHostService private readonly _nativeHostService: INativeHostService,
 		@IChatThreadService private readonly _chatThreadService: IChatThreadService,
+		@IVibeideSettingsService private readonly _settings: IVibeideSettingsService,
 		@IVibeAgentRunLedgerService private readonly _runLedger: IVibeAgentRunLedgerService,
 		@IVibeAcpSessionsService private readonly _acp: IVibeAcpSessionsService,
 		@IVibeAcpRegistryService private readonly _acpRegistry: IVibeAcpRegistryService,
@@ -764,6 +767,16 @@ export class VibeTelegramBridgeContribution extends Disposable implements IWorkb
 
 	/** Sends a message into a specific thread and mirrors that run back into the chat. */
 	private async _continueThread(chatId: number, threadId: string, prompt: string): Promise<void> {
+		// Telegram — автоматический трафик: тариф «только вручную» отказывает до запуска прогона
+		const launch = interactiveOnlyVerdictForSelection(
+			this._settings.state.settingsOfProvider,
+			this._settings.state.modelSelectionOfFeature['Chat'],
+			'telegram',
+		);
+		if (!launch.allowed) {
+			await this._reply(chatId, launch.reason);
+			return;
+		}
 		const now = Date.now();
 		this._activeRuns.set(threadId, { chatId, startedAtMs: now, lastEditMs: 0 });
 		const started = await this._main.send({ chatId, text: formatProgressLine(0, undefined) });

@@ -31,6 +31,8 @@ import { IWorkbenchContribution, registerWorkbenchContribution2, WorkbenchPhase 
 import { watchChatRun } from '../../browser/chatRunWatch.js';
 import { IChatThreadService } from '../../browser/chatThreadService.js';
 import { vibeLog } from '../../common/vibeLog.js';
+import { IVibeideSettingsService } from '../../common/vibeideSettingsService.js';
+import { interactiveOnlyVerdictForSelection } from '../../common/interactiveOnlyProvider.js';
 import { VIBE_COMMAND_CATEGORY } from '../../common/vibeCommandCategory.js';
 import {
 	IVibeHttpApiMain,
@@ -63,6 +65,7 @@ export class VibeHttpApiContribution extends Disposable implements IWorkbenchCon
 		@IConfigurationService private readonly _config: IConfigurationService,
 		@ISecretStorageService private readonly _secrets: ISecretStorageService,
 		@IChatThreadService private readonly _chatThreadService: IChatThreadService,
+		@IVibeideSettingsService private readonly _settings: IVibeideSettingsService,
 		@INotificationService private readonly _notifications: INotificationService,
 		@INativeHostService private readonly _nativeHost: INativeHostService,
 	) {
@@ -134,6 +137,17 @@ export class VibeHttpApiContribution extends Disposable implements IWorkbenchCon
 		const watch = new CancellationTokenSource();
 		const watchEntry = toDisposable(() => watch.dispose(true));
 		try {
+			// HTTP API — автоматический трафик: тариф «только вручную» отказывает до запуска треда,
+			// иначе выбранная человеком для чата модель молча ушла бы в CI
+			const launch = interactiveOnlyVerdictForSelection(
+				this._settings.state.settingsOfProvider,
+				this._settings.state.modelSelectionOfFeature['Chat'],
+				'httpApi',
+			);
+			if (!launch.allowed) {
+				await answer({ sessionId: run.request.sessionId ?? '', status: 'failed', error: launch.reason });
+				return;
+			}
 			const requested = run.request.sessionId;
 			const known = requested && this._chatThreadService.state.allThreads[requested] ? requested : undefined;
 			// Ни переключения текущего треда, ни новой вкладки: запрос приходит, пока человек

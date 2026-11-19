@@ -1172,6 +1172,7 @@ class VibeDynamicProvidersService extends Disposable implements IVibeDynamicProv
 		const transportConfigs: Record<string, DynProviderTransportConfig> = {};
 		const builtinWireHints: Record<string, BuiltinWireHints> = {};
 		const builtinLocality: Record<string, boolean> = {};
+		const builtinInteractiveOnly: Record<string, true> = {};
 		const builtinModelPatches: Record<string, Record<string, BuiltinModelPatch>> = {};
 		const builtinStaticModels: Record<string, { id: string; name?: string }[]> = {};
 		const dynamicProviderSettings: Record<string, DynamicProviderSeed> = {};
@@ -1190,6 +1191,8 @@ class VibeDynamicProvidersService extends Disposable implements IVibeDynamicProv
 				if (on.length > 0) { builtinStaticModels[p.id] = on; }
 				// A built-in whose endpoint is a local proxy to a cloud model is told so by the file, not guessed by the address
 				if (typeof p.entry.runsLocally === 'boolean') { builtinLocality[p.id] = p.entry.runsLocally; }
+				// Тариф встроенного провайдера объявлен файлом: автоматический трафик запрещён так же, как у файлового
+				if (p.entry.interactiveOnly === true) { builtinInteractiveOnly[p.id] = true; }
 				// The file's wire declarations reach the built-in too — a declaration is a contract, not a hint
 				// (the set's openai.jsonc puts GPT-6 on Responses; before, only a provider DEFINED in a file read it).
 				const modelProtocols = modelProtocolsOf(p.entry.models?.static);
@@ -1315,6 +1318,7 @@ class VibeDynamicProvidersService extends Disposable implements IVibeDynamicProv
 				keyStatus,
 				keySource,
 				runsLocally: runsLocallyOf(p.entry),
+				...(p.entry.interactiveOnly === true ? { interactiveOnly: true as const } : {}),
 				title: label,
 				...(p.paramFields.length > 0 ? { paramFields: p.paramFields } : {}),
 				...(unconfigured ? { paramsMissing: p.paramsMissing } : {}),
@@ -1328,11 +1332,12 @@ class VibeDynamicProvidersService extends Disposable implements IVibeDynamicProv
 		const hasTransport = Object.keys(transportConfigs).length > 0;
 		const hasWireHints = Object.keys(builtinWireHints).length > 0;
 		const hasLocality = Object.keys(builtinLocality).length > 0;
+		const hasInteractiveOnly = Object.keys(builtinInteractiveOnly).length > 0;
 		const hasSeed = Object.keys(dynamicProviderSettings).length > 0;
 		const hasBuiltinStatic = Object.keys(builtinStaticModels).length > 0;
 		const overrides: VibeProviderActiveOverrides | undefined =
-			(disabledProviders.size > 0 || disabledModels.size > 0 || dynamicModelOptions.length > 0 || hasTransport || hasWireHints || hasLocality || hasSeed || hasBuiltinStatic)
-				? { disabledProviders, disabledModels, dynamicModelOptions, ...(hasTransport ? { transportConfigs } : {}), ...(hasWireHints ? { builtinWireHints } : {}), ...(hasLocality ? { builtinLocality } : {}), ...(hasSeed ? { dynamicProviderSettings } : {}), ...(hasBuiltinStatic ? { builtinStaticModels } : {}) }
+			(disabledProviders.size > 0 || disabledModels.size > 0 || dynamicModelOptions.length > 0 || hasTransport || hasWireHints || hasLocality || hasInteractiveOnly || hasSeed || hasBuiltinStatic)
+				? { disabledProviders, disabledModels, dynamicModelOptions, ...(hasTransport ? { transportConfigs } : {}), ...(hasWireHints ? { builtinWireHints } : {}), ...(hasLocality ? { builtinLocality } : {}), ...(hasInteractiveOnly ? { builtinInteractiveOnly } : {}), ...(hasSeed ? { dynamicProviderSettings } : {}), ...(hasBuiltinStatic ? { builtinStaticModels } : {}) }
 				: undefined;
 		this._settingsService.applyProviderActiveOverrides(overrides);
 	}

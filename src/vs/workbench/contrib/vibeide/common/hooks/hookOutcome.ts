@@ -20,6 +20,10 @@ import { VibeHook, VibeHookEvent } from './hookConfig.js';
  *
  * That asymmetry is the safety property: a project can stop the agent only on purpose.
  *
+ * The fail-open default stays, but the hook's author may opt out: `"onFailure": "block"` turns a
+ * broken hook into a refusal, so a project that relies on its check runs nothing when the check is
+ * unavailable. The default must not change: a missing binary or a typo would otherwise lock the project.
+ *
  * One exception to "0 = allowed": a hook ported from Claude Code refuses with JSON on stdout and
  * keeps the code at 0 (see {@link foreignDecisionOf}). Read by the exit code alone, its refusal
  * reached the agent as advice while the action went through — so a deliberate "no" is honoured
@@ -130,20 +134,35 @@ export function foreignDecisionOf(stdout: string): VibeForeignVerdict | undefine
 	return undefined;
 }
 
+/**
+ * A hook that failed: work goes on, unless its author asked otherwise with `"onFailure": "block"`
+ * Then the failure is a refusal — the action it guarded must not happen without the check
+ */
+function failureVerdict(hook: VibeHook, brokenText: string, why: string): VibeHookVerdict {
+	if (hook.onFailure === 'block') {
+		return { kind: 'refuse', text: `Хук «${name(hook)}» упал: ${why}, а его владелец велел блокировать при сбое.` };
+	}
+	return { kind: 'broken', text: brokenText };
+}
+
 /** Turns a finished process into a verdict. */
 export function verdictOf(run: VibeHookRun): VibeHookVerdict {
 	if (run.timedOut) {
-		return { kind: 'broken', text: `Хук «${name(run.hook)}» не уложился в ${run.hook.timeoutMs} мс и был остановлен. Работа продолжается: сломанный хук не должен блокировать агента.` };
+		const why = `не уложился в ${run.hook.timeoutMs} мс и был остановлен`;
+		return failureVerdict(run.hook, `Хук «${name(run.hook)}» ${why}. Работа продолжается: сломанный хук не должен блокировать агента.`, why);
 	}
 	if (run.exitCode === undefined) {
-		return { kind: 'broken', text: `Хук «${name(run.hook)}» не запустился: ${trim(run.stderr) || 'причина неизвестна'}.` };
+		const why = `не запустился: ${trim(run.stderr) || 'причина неизвестна'}`;
+		return failureVerdict(run.hook, `Хук «${name(run.hook)}» ${why}.`, why);
 	}
 	if (run.exitCode === VIBE_HOOK_REFUSE_EXIT_CODE) {
 		const said = trim(run.stderr) || trim(run.stdout);
 		return { kind: 'refuse', text: said || `Хук «${name(run.hook)}» отклонил действие без объяснения.` };
 	}
 	if (run.exitCode !== 0) {
-		return { kind: 'broken', text: `Хук «${name(run.hook)}» завершился с кодом ${run.exitCode} (отказ — это код ${VIBE_HOOK_REFUSE_EXIT_CODE}). ${trim(run.stderr) || trim(run.stdout)}`.trim() };
+		const said = trim(run.stderr) || trim(run.stdout);
+		const why = `завершился с кодом ${run.exitCode}${said ? `: ${said}` : ''}`;
+		return failureVerdict(run.hook, `Хук «${name(run.hook)}» завершился с кодом ${run.exitCode} (отказ — это код ${VIBE_HOOK_REFUSE_EXIT_CODE}). ${said}`.trim(), why);
 	}
 	const foreign = foreignDecisionOf(run.stdout);
 	if (foreign) {

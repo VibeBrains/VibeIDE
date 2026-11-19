@@ -45,6 +45,12 @@ export const VIBE_HOOK_DEFAULT_TIMEOUT_MS = 30000;
 /** Hard ceiling: a project cannot ask for an unbounded hook, or a typo would hang every turn. */
 export const VIBE_HOOK_MAX_TIMEOUT_MS = 300000;
 
+/** Что хук делает со своим сбоем: работа идёт дальше или действие отменяется */
+export type VibeHookOnFailure = 'continue' | 'block';
+
+/** Допустимые значения `onFailure`; неизвестное читается как `continue` с предупреждением */
+export const VIBE_HOOK_ON_FAILURE_VALUES: readonly VibeHookOnFailure[] = ['continue', 'block'];
+
 export interface VibeHook {
 	readonly event: VibeHookEvent;
 	/** Shell command. Runs with the workspace folder as its working directory. */
@@ -57,6 +63,11 @@ export interface VibeHook {
 	readonly timeoutMs: number;
 	/** Human note shown in the IDE and to the agent when the hook refuses something. */
 	readonly label: string | undefined;
+	/**
+	 * Что делать, если хук упал: не запустился, не уложился в таймаут или вернул не тот код
+	 * `continue` (по умолчанию) — работа идёт дальше, как всегда; `block` — действие отменяется
+	 */
+	readonly onFailure: VibeHookOnFailure;
 }
 
 export interface VibeHookConfig {
@@ -140,6 +151,15 @@ export function parseHookConfig(raw: string): VibeHookConfig {
 		}
 		const toolsApply = event !== 'turnEnd' && event !== 'pipelineStepEnd';
 		const label = asString(record?.['label']);
+		const rawOnFailure = record?.['onFailure'];
+		let onFailure: VibeHookOnFailure = 'continue';
+		if (rawOnFailure !== undefined) {
+			if (rawOnFailure === 'continue' || rawOnFailure === 'block') {
+				onFailure = rawOnFailure;
+			} else {
+				problems.push(`Хук №${index + 1}: неизвестное значение onFailure «${String(rawOnFailure)}» — считается «continue».`);
+			}
+		}
 		// Хук с чужим именем инструмента не сработает никогда: предупреждаем, но не выбрасываем —
 		// имя может принадлежать инструменту будущей версии, а файл обязан пережить обновление
 		for (const tool of toolsApply ? tools : []) {
@@ -147,7 +167,7 @@ export function parseHookConfig(raw: string): VibeHookConfig {
 				problems.push(`Хук №${index + 1} «${label ?? command}» никогда не сработает: matcher «${tool}» не совпадает ни с одним инструментом агента.`);
 			}
 		}
-		hooks.push({ event, command, tools: toolsApply ? tools : [], timeoutMs, label });
+		hooks.push({ event, command, tools: toolsApply ? tools : [], timeoutMs, label, onFailure });
 	});
 
 	return { hooks, problems };

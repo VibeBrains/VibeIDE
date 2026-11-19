@@ -293,6 +293,12 @@ export interface VibeProviderEntry {
 	readonly name?: string;
 	/** Default true. `false` disables the provider and all its models. */
 	readonly active?: boolean;
+	/**
+	 * Тариф разрешает только ручную работу человека в IDE: автоматический трафик нарушает условия
+	 * `true` — модели провайдера не выбирает «Авто», их не назначают роли оркестрации и шаги пайплайна,
+	 * а HTTP API и Telegram отвечают отказом; человек по-прежнему выбирает модель в чате вручную
+	 */
+	readonly interactiveOnly?: boolean;
 	readonly order?: number;
 	readonly tags?: readonly string[];
 	readonly note?: string;
@@ -517,6 +523,13 @@ export function parseProvidersFile(raw: string | undefined | null): VibeProvider
 		if (typeof p.id !== 'string' || !p.id.trim()) { warnings.push(`providers[${i}] has no "id" — skipped`); continue; }
 		if (seenIds.has(p.id)) { warnings.push(`duplicate provider id "${p.id}" — later entry ignored`); continue; }
 		seenIds.add(p.id);
+		// Поле читается как флаг: не boolean — предупреждаем и не включаем, а не угадываем намерение
+		if (p.interactiveOnly !== undefined && typeof p.interactiveOnly !== 'boolean') {
+			warnings.push(`providers[${i}] "interactiveOnly" — не boolean, поле проигнорировано`);
+			const { interactiveOnly: _ignored, ...rest } = p;
+			providers.push(rest as unknown as VibeProviderEntry);
+			continue;
+		}
 		providers.push(p as unknown as VibeProviderEntry);
 	}
 
