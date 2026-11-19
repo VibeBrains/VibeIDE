@@ -24,7 +24,7 @@ import { IVibePromptGuardService } from '../common/vibePromptGuardService.js';
 import { IVibePerFilePermissionsService } from '../common/vibePerFilePermissionsService.js';
 import { IVibeIgnoreService } from './vibeIgnoreService.js';
 import { registerSingleton, InstantiationType } from '../../../../platform/instantiation/common/extensions.js';
-import { createDecorator, IInstantiationService, optional } from '../../../../platform/instantiation/common/instantiation.js';
+import { createDecorator, IInstantiationService } from '../../../../platform/instantiation/common/instantiation.js';
 import { buildToolCallAudit } from '../common/toolCallAudit.js';
 import { approvalTypeOfBuiltinToolName } from '../common/prompt/tools/index.js';
 import { CODE_MODE_MAX_SCRIPT_CHARS, CODE_MODE_MAX_OUTPUT_CHARS, CODE_MODE_SETTING_ENABLED, CODE_MODE_SETTING_TIMEOUT_SEC, buildCodeModeReport, codeModeLimits, codeModeNeedsApproval, codeModeToolRefusal } from '../common/codeMode/codeMode.js';
@@ -363,7 +363,7 @@ export class ToolsService extends Disposable implements IToolsService {
 		@IVibeWatchMediaService private readonly watchMediaService: IVibeWatchMediaService,
 		@IPathService private readonly pathService: IPathService,
 		// Песочницы нет в веб-сборке: там Code Mode просто не может выполнить скрипт
-		@optional(IVibeCodeModeSandboxService) private readonly _codeModeSandbox: IVibeCodeModeSandboxService | undefined,
+		@IVibeCodeModeSandboxService private readonly _codeModeSandbox: IVibeCodeModeSandboxService,
 	) {
 		super();
 		this._offlineGate = new OfflinePrivacyGate();
@@ -3619,9 +3619,6 @@ export class ToolsService extends Disposable implements IToolsService {
 				return { result: { summary } };
 			},
 			run_code_mode: async ({ script }) => {
-				if (!this._codeModeSandbox) {
-					throw new Error('Code Mode доступен только в настольной версии VibeIDE: песочницы нет в этой сборке');
-				}
 				const limits = codeModeLimits(this._configurationService.getValue<number>(CODE_MODE_SETTING_TIMEOUT_SEC));
 				const outcome = await this._codeModeSandbox.run(script, {
 					timeoutSec: limits.timeoutSec,
