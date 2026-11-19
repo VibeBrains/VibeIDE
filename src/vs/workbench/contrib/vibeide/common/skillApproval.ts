@@ -137,6 +137,61 @@ export function decideSkillTrust(input: {
 	return input.approval.digest === input.digest ? 'approved' : 'changed';
 }
 
+/**
+ * Что делать с навыком, который просит инструменты или объявляет хуки.
+ *
+ * WHY this is separate from `decideSkillTrust`: the package fingerprint answers «кто одобрил эти
+ * байты», while this verdict answers «можно ли запускать их без человека». In an interactive run the
+ * person is right there to approve, so «ask» keeps the existing dialog. In a pipeline, HTTP API or
+ * Telegram run there is nobody to ask: an unapproved skill that asks for tools or hooks is refused
+ * with a reason instead of being applied silently or hanging on a dialog.
+ */
+export type SkillLaunchDecision = 'allow' | 'ask' | 'reject';
+
+export interface SkillLaunchFacts {
+	/** В шапке объявлен `allowed-tools` или наше `requires-tools` */
+	readonly declaresTools: boolean;
+	/** В шапке объявлен `hooks` */
+	readonly declaresHooks: boolean;
+	/** Человек есть рядом и может ответить на вопрос */
+	readonly interactive: boolean;
+	/** Отпечаток пакета, который запускается; отсутствует — одобрять нечего */
+	readonly digest: string | undefined;
+	/** Отпечаток, одобренный человеком; совпадает с `digest` — это именно те байты */
+	readonly approvedDigest: string | undefined;
+}
+
+export interface SkillLaunchVerdict {
+	readonly decision: SkillLaunchDecision;
+	/** Причина отказа — готовая строка для человека; только у `reject` */
+	readonly reason?: string;
+}
+
+/**
+ * Разрешить | спросить | отклонить.
+ *
+ * A skill without tools and hooks changes nothing about the agent's powers, so it follows its
+ * ordinary approval path. A skill that asks for either needs an approval of EXACTLY this package:
+ * `builtin`/`shipped` alone is not enough for an unattended run — the point is that a person saw
+ * what these bytes can do.
+ */
+export function decideSkillLaunch(facts: SkillLaunchFacts): SkillLaunchVerdict {
+	if (!facts.declaresTools && !facts.declaresHooks) {
+		return { decision: 'allow' };
+	}
+	const approved = facts.digest !== undefined && facts.approvedDigest === facts.digest;
+	if (approved) {
+		return { decision: 'allow' };
+	}
+	if (facts.interactive) {
+		return { decision: 'ask' };
+	}
+	return {
+		decision: 'reject',
+		reason: localize('vibeide.skills.launch.needsApproval', "Навык просит инструменты/хуки — одобрите его в IDE: без человека такой навык не запускается."),
+	};
+}
+
 /** Hex SHA-256 of raw bytes — no line-ending normalisation: an approval is of the bytes that run. */
 export async function sha256OfBytes(bytes: Uint8Array): Promise<string> {
 	const digest = await crypto.subtle.digest('SHA-256', bytes);

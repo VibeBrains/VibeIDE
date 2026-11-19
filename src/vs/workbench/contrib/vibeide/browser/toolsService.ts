@@ -12,6 +12,7 @@ import * as resources from '../../../../base/common/resources.js';
 import { resolveAgentPath } from '../common/agentPathResolution.js';
 import { toolParamUri } from '../common/toolParamUri.js';
 import { placePhysicalPath, PhysicalPathProbe, resolvePhysicalEntry, resolvePhysicalPath } from '../common/agentPhysicalPath.js';
+import { isProtectedAgentConfigPath } from '../common/agentConfigWriteGuard.js';
 import { IFileService, TooLargeFileOperationError } from '../../../../platform/files/common/files.js';
 import { IVibeConstraintsService, ConstraintViolationError } from '../common/vibeConstraintsService.js';
 import { IVibeExternalAccessService, ExternalAccessRequiredError, SourceFolderReadOnlyError } from '../common/vibeExternalAccessService.js';
@@ -521,6 +522,16 @@ export class ToolsService extends Disposable implements IToolsService {
 		};
 		const gateWrite = async (uri: URI, entryOnly = false): Promise<void> => {
 			const names = await namesOfAgentPath(uri, entryOnly);
+			// Конфигурация агента — не его файл: даже если рабочая область разрешает запись, а
+			// symlink привёл к другому имени, все имена проверяются здесь и отказ не спрашивает
+			const home = await this.pathService.userHome().catch(() => undefined);
+			const workspaceRoots = workspaceContextService.getWorkspace().folders.map(folder => folder.uri.fsPath);
+			for (const name of names.all) {
+				const protectedReason = isProtectedAgentConfigPath(name.fsPath, { workspaceRoots, home: home?.fsPath });
+				if (protectedReason) {
+					throw new Error(protectedReason);
+				}
+			}
 			if (names.outside && requireWorkspaceForWrite() && !isAllowedToWrite(names.outside)) {
 				throw new Error(localize('vibeide.agentPath.writeOutside', "Запись отклонена: путь {0} через символическую ссылку ведёт в {1} — это вне рабочей области. Разрешите папку явно или включите `vibeide.agent.allowWriteOutsideWorkspace`, если так и задумано.", uri.fsPath, names.outside.fsPath));
 			}
