@@ -572,6 +572,16 @@ const openSourceModelOptions_assumingOAICompat = {
 		// Qwen3 series (including Qwen3-Coder) supports 128K out of the box.
 		contextWindow: 128_000, reservedOutputTokenSpace: 8_192,
 	},
+	// Qwen4-Max: выход 16.11.2026, цена вендора Alibaba — $1.50/$4.50 за 1M токенов вход/выход
+	// Источник: сводка 19.11, Alibaba Cloud International
+	// Окна у соседнего qwen3.8-max в таблице нет: он идёт через профиль qwen3, поэтому окно и запас вывода те же — 128K
+	'qwen4Max': {
+		supportsFIM: false,
+		supportsSystemMessage: 'system-role',
+		reasoningCapabilities: { supportsReasoning: true, canTurnOffReasoning: true, canIOReasoning: true, openSourceThinkTags: ['<think>', '</think>'] },
+		contextWindow: 128_000, reservedOutputTokenSpace: 8_192,
+		cost: { input: 1.50, output: 4.50 },
+	},
 	// GLM (z.ai) and Kimi (Moonshot) are reached through aggregators and BYOK configs alike. Prices
 	// are the vendors' own list rates (docs.z.ai / platform.moonshot.ai) — an aggregator may charge
 	// less, and its catalog overrides this anyway. What matters is that they are NOT zero: the
@@ -755,6 +765,8 @@ const extensiveModelOptionsFallback: VoidStaticProviderInfo['modelOptionsFallbac
 		};
 	};
 
+	// Gemini 4 Hydrogen идёт до общего gemini-4: у него своя цена $1.50/$7.50, а не аргоновские $2/$10
+	if (lower.includes('gemini-4') && lower.includes('hydrogen')) { return toFallback(geminiModelOptions, 'gemini-4-hydrogen'); }
 	// Gemini 4: профиль один, поэтому он стоит до всех веток третьего поколения и до общей ветки `gemini` внизу
 	// Без него любой id Argon получил бы цену и уровни мышления Flash третьего поколения
 	if (lower.includes('gemini-4')) { return toFallback(geminiModelOptions, 'gemini-4-argon'); }
@@ -810,6 +822,9 @@ const extensiveModelOptionsFallback: VoidStaticProviderInfo['modelOptionsFallbac
 	if (lower.includes('llama')) { return toFallback(openSourceModelOptions_assumingOAICompat, 'llama4-scout'); }
 
 	if (lower.includes('qwen') && lower.includes('2.5') && lower.includes('coder')) { return toFallback(openSourceModelOptions_assumingOAICompat, 'qwen2.5coder'); }
+	// Ветка Qwen4 стоит выше общего qwen3: без неё `qwen4-max` получал профиль qwen3 — чужую цену и окно
+	// Ловим именно `qwen4`/`qwen-4`: «4» в `qwen3-coder-480b` — это размер, а не поколение
+	if (lower.includes('qwen4') || lower.includes('qwen-4')) { return toFallback(openSourceModelOptions_assumingOAICompat, 'qwen4Max'); }
 	if (lower.includes('qwen') && lower.includes('3')) { return toFallback(openSourceModelOptions_assumingOAICompat, 'qwen3'); }
 	if (lower.includes('qwen')) { return toFallback(openSourceModelOptions_assumingOAICompat, 'qwen3'); }
 	if (lower.includes('qwq')) { return toFallback(openSourceModelOptions_assumingOAICompat, 'qwq'); }
@@ -1669,6 +1684,19 @@ export const geminiModelOptions = { // https://ai.google.dev/gemini-api/docs/pri
 			after: { input: 4.00, output: 20.00, cache_read: 0.20 },
 			note: 'вводная цена до 30.11.2026 включительно, дальше вдвое выше (ai.google.dev/gemini-api/docs/pricing)',
 		},
+		downloadable: false,
+		supportsFIM: false,
+		supportsSystemMessage: 'separated',
+		specialToolFormat: 'gemini-style',
+		reasoningCapabilities: gemini3Thinking(['low', 'medium', 'high'], 'medium'),
+	},
+	// Gemini 4 Hydrogen: выход 12.11.2026, цена вендора $1.50/$7.50 за 1M токенов вход/выход
+	// Профиль свой, а не Argon: без него `gemini-4-hydrogen` получал цену Argon, вдвое дороже на выходе
+	// Окно, запас вывода и уровни мышления — как у Argon: вендор их для Hydrogen не менял
+	'gemini-4-hydrogen': {
+		contextWindow: 1_048_576,
+		reservedOutputTokenSpace: 65_536,
+		cost: { input: 1.50, output: 7.50 },
 		downloadable: false,
 		supportsFIM: false,
 		supportsSystemMessage: 'separated',

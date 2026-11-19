@@ -399,4 +399,19 @@ suite('builtin model profiles — имя на проводе, профиль, п
 			{ modelName: 'mistral-large-latest', recognized: 'mistral-large-latest', window: 131_000, cost: { input: 2, output: 6 }, vision: undefined, tools: 'openai-style', reasoning: false },
 		]);
 	});
+
+	/**
+	 * Свои профили вместо соседних: без них `qwen4-max` падал в qwen3 и считался по чужой цене,
+	 * а `gemini-4-hydrogen` брал аргоновские $2/$10 — вендор называет другие числа (сводки 19.11 и 12.11)
+	 */
+	test('Qwen4-Max и Gemini 4 Hydrogen: цена из сводки, а не от соседнего профиля', () => {
+		const cost = (modelName: string) => {
+			const caps = getModelCapabilities('openAICompatible', modelName, undefined);
+			return { model: caps.recognizedModelName, input: caps.cost.input, output: caps.cost.output };
+		};
+		assert.deepStrictEqual(['qwen4-max', 'gemini-4-hydrogen'].map(cost), [
+			{ model: 'qwen4Max', input: 1.50, output: 4.50 },
+			{ model: 'gemini-4-hydrogen', input: 1.50, output: 7.50 },
+		]);
+	});
 });

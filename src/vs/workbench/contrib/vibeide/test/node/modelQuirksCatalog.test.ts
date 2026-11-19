@@ -58,10 +58,13 @@ suite('ModelQuirks — настоящий каталог resources/model-quirks.
 		['kimi-k2.7-code-highspeed', { temperature: 1.0, topP: 0.95, mirrorReasoningContent: true }],
 		['kimi-for-coding', { temperature: 1.0, topP: 0.95, mirrorReasoningContent: true }],
 		['kimi-k2', { temperature: 0.6 }],
-		['minimax-m2.7', { temperature: 1.0, topP: 0.95, topK: 40 }],
+		// M2.5 и M2.7 вендор снял 18.11.2026: id падает на базовое правило minimax-m2 с его topK=20
+		['minimax-m2.7', { temperature: 1.0, topP: 0.95, topK: 20 }],
+		['minimax-m2.5', { temperature: 1.0, topP: 0.95, topK: 20 }],
 		// M3.1 sends reasoning in its own field, not in <think> tags like the rest of the family; thinks adaptively
-		['minimax-m3.1-flash-preview', { mirrorReasoningContent: true, reasoningAsThinkTags: false, adaptiveThinking: true, forcedToolChoiceUnsupported: true }],
-		['minimax-m3.1-flash', { mirrorReasoningContent: true, reasoningAsThinkTags: false, adaptiveThinking: true, forcedToolChoiceUnsupported: true }],
+		// top_p вендор просит не задавать вовсе (сводка 19.11): правило снимает унаследованные 0.95
+		['minimax-m3.1-flash-preview', { mirrorReasoningContent: true, reasoningAsThinkTags: false, adaptiveThinking: true, forcedToolChoiceUnsupported: true, topP: undefined }],
+		['minimax-m3.1-flash', { mirrorReasoningContent: true, reasoningAsThinkTags: false, adaptiveThinking: true, forcedToolChoiceUnsupported: true, topP: undefined }],
 		['minimax-m3', { mirrorReasoningContent: true, reasoningAsThinkTags: true }],
 		// Text-01 does not think: the family's empty reasoning slot, mirroring and <think> parsing are switched off for it
 		['minimax-text-01', { forceEmptyReasoning: false, mirrorReasoningContent: false, reasoningAsThinkTags: false, forcedToolChoiceUnsupported: true, topK: 40 }],

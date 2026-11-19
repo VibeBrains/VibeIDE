@@ -73,6 +73,20 @@ suite('Project hooks — config', () => {
 			{ runCommand: ['a', 'b'], readFile: ['b'], prefix: ['b'], post: ['c'], turn: ['d'] },
 		);
 	});
+
+	// Синтаксис верный, а имя инструмента — опечатка: хук, который не сработает ни разу, лучше назвать вслух
+	test('matcher, не совпавший ни с одним инструментом агента, предупреждает о себе', () => {
+		const parsed = parseHookConfig(JSON.stringify({
+			hooks: [
+				{ event: 'preToolUse', command: 'node guard.js', tools: ['reed_file'], label: 'защита чтения' },
+				{ event: 'preToolUse', command: 'echo ok', tools: ['read_file'] },
+			],
+		}));
+		assert.deepStrictEqual({ kept: parsed.hooks.length, problems: parsed.problems }, {
+			kept: 2,
+			problems: ['Хук №1 «защита чтения» никогда не сработает: matcher «reed_file» не совпадает ни с одним инструментом агента.'],
+		});
+	});
 });
 
 suite('Project hooks — verdicts', () => {

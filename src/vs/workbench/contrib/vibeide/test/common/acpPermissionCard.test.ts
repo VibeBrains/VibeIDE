@@ -27,10 +27,24 @@ suite('acpPermissionCard', () => {
 		// Правка на двести строк, вываленная в чат, решение обоснованнее не делает.
 		const long = Array.from({ length: 40 }, (_, index) => `строка ${index}`).join('\n');
 		const card = formatAcpPermissionCard({
-			agentName: 'Агент', title: 'Edit', paths: [], diffs: [{ path: '/app/big.ts', oldText: long, newText: long }],
+			agentName: 'Агент', title: 'Edit', paths: [], diffs: [{ path: '/app/big.ts', oldText: long, newText: `${long}\nстрока 40` }],
 		});
 		const shownLines = card.split('\n').filter(line => line.startsWith('− ') || line.startsWith('+ '));
 		assert.deepStrictEqual([shownLines.length, card.includes('Показано начало правки')], [ACP_CARD_DIFF_LINES * 2, true]);
+	});
+
+	// Гость вправе прислать дифф, где «стало» не отличается от «было» (ACP v1.33): окно «было → стало» на него пустое
+	test('пустые диффы не попадают в карточку, а создание и удаление текста остаются', () => {
+		const card = formatAcpPermissionCard({
+			agentName: 'Агент', title: 'Правка', paths: [], diffs: [
+				{ path: '/app/same.ts', oldText: 'одно и то же', newText: 'одно и то же' },
+				{ path: '/app/none.ts', oldText: '', newText: '' },
+				{ path: '/app/new.ts', oldText: '', newText: 'первая строка' },
+			],
+		});
+		assert.deepStrictEqual(
+			['/app/same.ts', '/app/none.ts', '/app/new.ts'].map(path => card.includes(`\`${path}\``)),
+			[false, false, true]);
 	});
 
 	test('много файлов сворачиваются в счётчик, а не в простыню', () => {

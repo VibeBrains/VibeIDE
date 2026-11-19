@@ -2075,7 +2075,8 @@ export const sendViaAISdk = async (params: SendChatParams_Internal): Promise<voi
 	if (caps.defaultTopP !== undefined) { modelParams.topP = caps.defaultTopP; }
 	if (caps.defaultTopK !== undefined) { modelParams.topK = caps.defaultTopK; }
 	if (quirks.temperature !== undefined) { modelParams.temperature = quirks.temperature; }
-	if (quirks.topP !== undefined) { modelParams.topP = quirks.topP; }
+	// Только число: `null` в квирке означает «снять поле», и такой квирк не должен превращаться в `top_p: null`
+	if (typeof quirks.topP === 'number') { modelParams.topP = quirks.topP; }
 	if (quirks.topK !== undefined) { modelParams.topK = quirks.topK; }
 
 	// Five-stage repair for tool-call mismatches (name AND args):

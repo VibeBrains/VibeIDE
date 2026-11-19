@@ -341,6 +341,8 @@ export const AcpPermissionRequestCard = ({ sessionId, agentName, request, reason
 const CONFIG_CATEGORY_NAMES: Record<string, { readonly label: string; readonly hint: string }> = {
 	model: { label: 'Модель', hint: 'Модель самого агента. Меняется сразу и действует со следующего хода' },
 	thought_level: { label: 'Мышление', hint: 'Сколько агент думает перед ответом. Меняется сразу и действует со следующего хода' },
+	// Категория `speed` — ACP v1.32: темп ответа агент объявляет сам, и меняется он тем же setConfigOption
+	speed: { label: 'Скорость', hint: 'Темп ответа агента. Меняется сразу и действует со следующего хода' },
 };
 
 const MODE_CATEGORY = 'mode';
