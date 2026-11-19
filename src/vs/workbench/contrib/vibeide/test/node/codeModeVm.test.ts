@@ -43,6 +43,17 @@ suite('Code Mode — песочница vm', () => {
 		assert.deepStrictEqual(outcome.valueText, '"заблокировано"');
 	});
 
+	test('мост инструментов не отдаёт объекты хоста: через его ответ и сам мост process не достать', async () => {
+		const outcome = await run([
+			'var found = [];',
+			'try { var r = __bridge("read_file", "{}", function () { }); found.push(r === undefined ? "нет ответа" : typeof r.constructor.constructor("return process")()); } catch (e) { found.push("заблокировано"); }',
+			'try { found.push(typeof __bridge.constructor); } catch (e) { found.push("заблокировано"); }',
+			'try { await tools.read_file({}); found.push("вызов прошёл"); } catch (e) { found.push(typeof e.constructor.constructor("return typeof process")()); }',
+			'return found;',
+		].join(' '));
+		assert.deepStrictEqual(outcome.valueText, '["нет ответа","undefined","вызов прошёл"]');
+	});
+
 	test('Function и eval не создают код', async () => {
 		const outcome = await run('try { return typeof Function("return process")(); } catch (e) { try { return typeof eval("process"); } catch (e2) { return "заблокировано"; } }');
 		assert.deepStrictEqual(outcome.valueText, '"заблокировано"');

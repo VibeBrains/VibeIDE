@@ -39,10 +39,10 @@ function main(parentPort: ParentPort): void {
 				script: message.script,
 				timeoutMs: message.timeoutMs,
 				maxCalls: message.maxCalls,
-				callTool: call => new Promise<ICodeModeVmToolAnswer>(resolve => {
+				callTool: (tool, argsJson) => new Promise<ICodeModeVmToolAnswer>(resolve => {
 					const callId = generateUuid();
 					pending.set(callId, resolve);
-					post({ t: 'toolCall', executionId: message.executionId, callId, tool: call.tool, argsJson: call.argsJson });
+					post({ t: 'toolCall', executionId: message.executionId, callId, tool, argsJson });
 				}),
 			});
 		} catch (error) {

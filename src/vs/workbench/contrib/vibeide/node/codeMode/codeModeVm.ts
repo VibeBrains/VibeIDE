@@ -45,8 +45,10 @@ interface ICodeModeSandboxApi {
 /**
  * Тело обёртки: собирает `tools` и `console` изнутри realm и запускает скрипт пользователя
  *
- * `__bridge` приходит аргументом и удаляется из globalThis до первого шага пользовательского
- * кода; сам он создан в хосте с прототипом `null`, поэтому `.constructor` на нём не существует
+ * `__bridge` приходит аргументом и удаляется из globalThis до первого шага пользовательского кода
+ * Скрипт всё равно видит его по имени — поэтому мост безопасен сам по себе: функция хоста без прототипа,
+ * ничего не возвращает и не бросает, а ответ отдаёт строкой в колбэк, созданный внутри realm
+ * Promise хоста наружу не уходит: его `.constructor.constructor` — это `Function` хоста и полный Node
  */
 function buildSandboxSource(script: string): string {
 	return `(function (__bridge) {
@@ -76,7 +78,9 @@ function buildSandboxSource(script: string): string {
 			}
 			return async function (args) {
 				var payload = args === undefined ? '{}' : __stringify(args);
-				var answer = JSON.parse(await __bridge(prop, payload));
+				var answer = JSON.parse(await new Promise(function (resolve) {
+					__bridge(prop, payload, resolve);
+				}));
 				if (answer.ok === true) {
 					return answer.text;
 				}
@@ -125,7 +129,7 @@ export async function runCodeModeScript(options: ICodeModeVmOptions): Promise<IC
 	const records: Array<{ tool: string; ok: boolean; error?: string }> = [];
 	let usedCalls = 0;
 
-	const bridge = async (name: unknown, argsJson: unknown): Promise<string> => {
+	const answerFor = async (name: unknown, argsJson: unknown): Promise<string> => {
 		const tool = typeof name === 'string' ? name : '';
 		const payload = typeof argsJson === 'string' ? argsJson : '{}';
 		const refusal = codeModeToolRefusal(tool)
@@ -145,6 +149,21 @@ export async function runCodeModeScript(options: ICodeModeVmOptions): Promise<IC
 			records.push({ tool, ok: false, error: text });
 			return JSON.stringify({ ok: false, text });
 		}
+	};
+	// Мост отдаёт ответ только строкой в колбэк из песочницы: ни Promise хоста, ни ошибка хоста
+	// не попадают в realm скрипта — через их `.constructor` достаётся Function хоста
+	const bridge = function (name: unknown, argsJson: unknown, done: unknown): void {
+		if (typeof done !== 'function') {
+			return;
+		}
+		const deliver = (text: string) => {
+			try {
+				(done as (text: string) => void)(text);
+			} catch {
+				// Колбэк из песочницы бросил — это её дело, хосту отвечать нечего
+			}
+		};
+		answerFor(name, argsJson).then(deliver, error => deliver(JSON.stringify({ ok: false, text: codeModeErrorMessage(error) })));
 	};
 	// Без прототипа у моста нет `.constructor` — иначе через него достаётся Function хоста
 	Object.setPrototypeOf(bridge, null);
