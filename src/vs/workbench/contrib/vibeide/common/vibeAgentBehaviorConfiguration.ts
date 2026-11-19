@@ -17,6 +17,7 @@ import { Registry } from '../../../../platform/registry/common/platform.js';
 import { IConfigurationRegistry, Extensions as ConfigurationExtensions, ConfigurationScope } from '../../../../platform/configuration/common/configurationRegistry.js';
 import { localize } from '../../../../nls.js';
 import { QUESTION_AUTO_CONTINUE_DEFAULT } from './agentLoopHeuristics.js';
+import { CODE_MODE_TIMEOUT_SEC_DEFAULT, CODE_MODE_TIMEOUT_SEC_MAX, CODE_MODE_TIMEOUT_SEC_MIN } from './codeMode/codeMode.js';
 
 Registry.as<IConfigurationRegistry>(ConfigurationExtensions.Configuration).registerConfiguration({
 	id: 'vibeide.agent',
@@ -37,6 +38,18 @@ Registry.as<IConfigurationRegistry>(ConfigurationExtensions.Configuration).regis
 			type: 'boolean',
 			default: false,
 			description: localize('vibeide.agent.thinkingOutLoud', 'Показывать промежуточные progress-сообщения агента между tool-call`ами в чате (`думаю над …`, `проверяю …`). Увеличивает «шум» в transcript`е, но даёт ощутимое чувство прогресса в долгих многошаговых задачах.'),
+		},
+		'vibeide.agent.codeMode': {
+			type: 'boolean',
+			default: false,
+			description: localize('vibeide.agent.codeMode', 'Code Mode: агент пишет один JavaScript-скрипт, который сам вызывает инструменты, вместо серии отдельных вызовов. Песочница — отдельный процесс без доступа к файлам, сети и `process`; каждый вложенный вызов идёт обычным путём с теми же подтверждениями. Off-by-default — экспериментальная возможность.'),
+		},
+		'vibeide.agent.codeModeTimeoutSec': {
+			type: 'number',
+			default: CODE_MODE_TIMEOUT_SEC_DEFAULT,
+			minimum: CODE_MODE_TIMEOUT_SEC_MIN,
+			maximum: CODE_MODE_TIMEOUT_SEC_MAX,
+			description: localize('vibeide.agent.codeModeTimeoutSec', 'Сколько секунд даётся скрипту Code Mode. При превышении процесс-песочница снимается, а агенту возвращается ошибка.'),
 		},
 		'vibeide.agent.runTestsAfterApply.enabled': {
 			type: 'boolean',

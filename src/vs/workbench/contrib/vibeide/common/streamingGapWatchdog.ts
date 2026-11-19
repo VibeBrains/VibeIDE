@@ -48,7 +48,9 @@ export type WatchdogSideEffect =
 	| { kind: 'no-op' };
 
 export interface WatchdogConfig {
-	/** Default 30 000 ms — gap before "waiting…". */
+	/** До первого фрагмента: ожидание растёт с размером запроса и историей модели (default 30 000) */
+	firstTokenTimeoutMs: number;
+	/** Default 30 000 ms — gap between chunks before "waiting…". */
 	gapTimeoutMs: number;
 	/** First auto-retry delay (default 5 000). */
 	retry1AfterMs: number;
@@ -59,6 +61,7 @@ export interface WatchdogConfig {
 }
 
 export const WATCHDOG_DEFAULTS: WatchdogConfig = {
+	firstTokenTimeoutMs: 30_000,
 	gapTimeoutMs: 30_000,
 	retry1AfterMs: 5_000,
 	retry2AfterMs: 15_000,
@@ -115,7 +118,9 @@ export function transitionWatchdog(
 		case 'tick': {
 			if (state.kind === 'streaming') {
 				const gap = event.now - state.lastChunkAt;
-				if (gap > config.gapTimeoutMs) {
+				// До первого фрагмента ждём дольше: старт большого запроса не зависание
+				const timeoutMs = state.chunkCount === 0 ? config.firstTokenTimeoutMs : config.gapTimeoutMs;
+				if (gap > timeoutMs) {
 					return {
 						state: { kind: 'waiting', lastChunkAt: state.lastChunkAt, chunkCount: state.chunkCount, waitingSince: event.now },
 						effects: [{ kind: 'show-waiting' }],

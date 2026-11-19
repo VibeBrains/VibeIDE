@@ -48,6 +48,21 @@ suite('Streaming gap watchdog FSM (K.4 / 958, 959, 960)', () => {
 		assert.deepStrictEqual(t.effects, [{ kind: 'show-waiting' }]);
 	});
 
+	test('before the first fragment the firstTokenTimeout applies, not the gap timeout', () => {
+		const s: WatchdogState = { kind: 'streaming', lastChunkAt: NOW, chunkCount: 0 };
+		const t = transitionWatchdog(s, { kind: 'tick', now: NOW + 60_000 }, cfg({ firstTokenTimeoutMs: 90_000, gapTimeoutMs: 30_000 }));
+		assert.deepStrictEqual(t, { state: s, effects: [] });
+	});
+
+	test('after the first fragment the gap timeout applies again', () => {
+		const s: WatchdogState = { kind: 'streaming', lastChunkAt: NOW, chunkCount: 5 };
+		const t = transitionWatchdog(s, { kind: 'tick', now: NOW + 31_000 }, cfg({ firstTokenTimeoutMs: 90_000, gapTimeoutMs: 30_000 }));
+		assert.deepStrictEqual(t, {
+			state: { kind: 'waiting', lastChunkAt: NOW, chunkCount: 5, waitingSince: NOW + 31_000 },
+			effects: [{ kind: 'show-waiting' }],
+		});
+	});
+
 	test('chunk in waiting moves to streaming + show-typing + audit gap_recovered', () => {
 		const s: WatchdogState = { kind: 'waiting', lastChunkAt: NOW, chunkCount: 5, waitingSince: NOW + 31_000 };
 		const t = transitionWatchdog(s, { kind: 'chunk', now: NOW + 32_000 });

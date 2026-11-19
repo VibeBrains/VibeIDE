@@ -881,6 +881,14 @@ export class VibeideGlobalSettingsConfigurationContribution extends Disposable i
 					description: localize('vibeide.chat.streamFirstTokenStallSeconds', 'Toast-уровень порог — показать предупреждение «модель ещё думает» когда первый токен не пришёл за указанное число секунд. Срабатывает один раз. По умолчанию 30. Для reasoning-моделей с длинной фазой размышления (o1, Claude reasoning) поднимите до 60+.'),
 					scope: ConfigurationScope.APPLICATION,
 				},
+				'vibeide.chat.streamFirstTokenTimeoutSeconds': {
+					type: 'number',
+					default: 30,
+					minimum: 10,
+					maximum: 600,
+					description: localize('vibeide.chat.streamFirstTokenTimeoutSeconds', 'Нижняя граница ожидания первого токена в секундах — сторож обрывает и перезапускает запрос, только если первый фрагмент не пришёл за это время. Дальше порог растёт сам: +10 с на каждые 50 000 токенов запроса сверх первых 50 000 и не меньше 1,5× самой долгой задержки первого токена этой модели, но не выше порога hard-stall. По умолчанию 30. Медленно начинающие модели (Kimi, reasoning-модели, большие переписки) не обрываются на полуслове, а мягкое «Агент ждёт ответ модели» продолжает показываться отдельно и запрос не рвёт.'),
+					scope: ConfigurationScope.APPLICATION,
+				},
 				'vibeide.chat.streamMidStreamStallSeconds': {
 					type: 'number',
 					default: 45,

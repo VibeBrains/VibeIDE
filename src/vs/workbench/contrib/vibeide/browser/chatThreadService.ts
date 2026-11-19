@@ -183,9 +183,16 @@ import {
 import {
 	transitionWatchdog,
 	WATCHDOG_DEFAULTS,
+	WatchdogConfig,
 	WatchdogState,
 	WatchdogSideEffect,
 } from '../common/streamingGapWatchdog.js';
+import {
+	firstTokenTimeoutMs,
+	FIRST_TOKEN_CEILING_MS,
+	FIRST_TOKEN_FLOOR_MS,
+	FIRST_TOKEN_HISTORY_SIZE,
+} from '../common/firstTokenTimeout.js';
 import { classifyAndBuildToast } from '../common/agentErrorClassifier.js';
 import { decideResume, appendChunk, PartialResponse } from '../common/responseRetryCache.js';
 import { IVibeSessionMemoryService } from '../common/vibeSessionMemoryService.js';
@@ -339,6 +346,8 @@ const buildToolSchemaHint = (canonicalToolName: string, rawParamKeys: readonly s
 // config returns NaN/undefined (transient race during settings reload).
 const DEFAULT_EARLY_STALL_SECONDS = 15;      // soft signal: show inline "stalled" banner in chat
 const DEFAULT_FIRST_TOKEN_STALL_SECONDS = 30;     // no first token received after sending request
+// Сколько сторож ждёт первого фрагмента, если настройка не задана — нижняя граница динамического порога
+const DEFAULT_FIRST_TOKEN_TIMEOUT_SECONDS = FIRST_TOKEN_FLOOR_MS / 1000;
 const DEFAULT_MID_STREAM_STALL_SECONDS = 45;      // no new token received during active streaming
 const DEFAULT_HARD_STALL_SECONDS = 120;     // 120s — default auto-abort threshold
 // Hard ceilings on the layers that re-send a turn: the chat loop, the gap watchdog, the hard-stall retry and the rate-limit pause
@@ -1095,6 +1104,9 @@ class ChatThreadService extends Disposable implements IChatThreadService {
 	// Consecutive hard-stall auto-retries per thread (`vibeide.chat.hardStallAutoRetry`).
 	// Capped at HARD_STALL_AUTO_RETRY_MAX; reset on any successful reply.
 	private readonly _hardStallAutoRetryStreak = new Map<string, number>();
+	// Последние задержки первого токена по `провайдер:модель` — сторож берёт по ним 1.5×
+	// Только в памяти: медленный старт конкретной модели не стоит переживать перезапуск
+	private readonly _firstTokenLatencyByModel = new Map<string, number[]>();
 	// Sends per thread since the last answer, whoever re-sent: the loop, the gap watchdog, the hard-stall retry, the rate-limit pause
 	// Capped at MAX_SENDS_PER_TURN; reset on any answer and on a send the person starts
 	private readonly _sendsSinceAnswer = new Map<string, number>();
@@ -1598,6 +1610,22 @@ class ChatThreadService extends Disposable implements IChatThreadService {
 
 	}
 
+
+	/** Запомнить задержку первого токена этой модели — только последние N значений, без записи на диск. */
+	private _noteFirstTokenLatency(modelKey: string, afterMs: number): void {
+		if (!Number.isFinite(afterMs) || afterMs < 0) { return; }
+		const history = this._firstTokenLatencyByModel.get(modelKey) ?? [];
+		history.push(afterMs);
+		if (history.length > FIRST_TOKEN_HISTORY_SIZE) {
+			history.splice(0, history.length - FIRST_TOKEN_HISTORY_SIZE);
+		}
+		this._firstTokenLatencyByModel.set(modelKey, history);
+	}
+
+	/** История задержек первого токена этой модели, новые в конце; пустой массив — модель ещё не стартовала. */
+	private _firstTokenLatencyHistory(modelKey: string): readonly number[] {
+		return this._firstTokenLatencyByModel.get(modelKey) ?? [];
+	}
 
 	/** True when some OTHER thread is still mid-turn — its grants must not be dropped with this one. */
 	private _anyThreadStillRunning(exceptThreadId: string): boolean {
@@ -6059,6 +6087,8 @@ Output ONLY the JSON, no other text. Start with { and end with }.`;
 			// Restarts the watchdog made without an answer in between, and whether its last abort gave up instead of restarting
 			let watchdogRestarts = 0;
 			let watchdogGaveUp = false;
+			// Сколько на самом деле ждала попытка, на которой сторож сдался — это число называем пользователю
+			let watchdogGaveUpWaitSeconds = 0;
 
 			// O.9 — per-call probe state. Set when the LLM call for this iteration
 			// strips the auto-detected override (one-shot native-FC retry); cleared
@@ -6347,6 +6377,30 @@ Output ONLY the JSON, no other text. Start with { and end with }.`;
 				// Streaming-gap watchdog FSM (common/streamingGapWatchdog.ts).
 				let watchdogState: WatchdogState = { kind: 'idle' };
 				let watchdogAbortFn: (() => void) | undefined;  // set after sendLLMMessage returns
+				// Попытка началась — от этой точки мерим реальное ожидание для сообщения «Модель не ответила»
+				const watchdogAttemptStartedAt = Date.now();
+				// Порог до первого фрагмента растёт с запросом и историей модели: общие 30 с подходили
+				// короткой переписке, но не 400-сообщенческой, где первый токен приходит через 40 с
+				const firstTokenTimeoutFloorMs = readClampedNumberSetting(
+					this._configurationService,
+					'vibeide.chat.streamFirstTokenTimeoutSeconds',
+					DEFAULT_FIRST_TOKEN_TIMEOUT_SECONDS,
+					10,
+					600,
+				) * 1000;
+				const watchdogModelKey = `${modelSelection.providerName}:${modelSelection.modelName}`;
+				const watchdogConfig: WatchdogConfig = {
+					...WATCHDOG_DEFAULTS,
+					// Потолок — порог hard-stall: ждать первого фрагмента дольше него бессмысленно, оборвёт первым
+					firstTokenTimeoutMs: firstTokenTimeoutMs({
+						promptTokensEstimate: promptTokens,
+						observedFirstTokenMs: this._firstTokenLatencyHistory(watchdogModelKey),
+						// Повтор с тем же порогом бесполезен: оборванная модель начинает заново и снова не успеет
+						// Каждая следующая попытка ждёт дольше — так медленная модель доходит до ответа и без истории
+						floorMs: firstTokenTimeoutFloorMs * (1 + watchdogRestarts),
+						ceilingMs: hardStallEnabled ? Math.max(firstTokenTimeoutFloorMs, hardStallSeconds * 1000) : FIRST_TOKEN_CEILING_MS,
+					}),
+				};
 				const applyWatchdogEffects = (effects: readonly WatchdogSideEffect[]) => {
 					for (const fx of effects) {
 						if (fx.kind === 'show-waiting') {
@@ -6357,6 +6411,8 @@ Output ONLY the JSON, no other text. Start with { and end with }.`;
 							// A stream silent for good is not cured by more of the same sends: the abort ends the turn
 							if (watchdogRestarts >= MAX_WATCHDOG_RESTARTS_PER_RUN) {
 								watchdogGaveUp = true;
+								// Карточка назовёт то, сколько ждала эта попытка, а не фиксированные 35 с
+								watchdogGaveUpWaitSeconds = Math.round((Date.now() - watchdogAttemptStartedAt) / 1000);
 							} else {
 								watchdogRestarts += 1;
 								watchdogRetry = true;
@@ -6370,7 +6426,7 @@ Output ONLY the JSON, no other text. Start with { and end with }.`;
 				};
 				const watchdogTimerWindow = getActiveWindow();
 				let watchdogTickTimer: number | undefined = watchdogTimerWindow.setInterval(() => {
-					const { state, effects } = transitionWatchdog(watchdogState, { kind: 'tick', now: Date.now() });
+					const { state, effects } = transitionWatchdog(watchdogState, { kind: 'tick', now: Date.now() }, watchdogConfig);
 					watchdogState = state;
 					applyWatchdogEffects(effects);
 				}, 5_000);
@@ -6387,7 +6443,7 @@ Output ONLY the JSON, no other text. Start with { and end with }.`;
 					clearStallNotification();
 					clearWatchdogTimer();
 				};
-				const { state: wds0, effects: wde0 } = transitionWatchdog(watchdogState, { kind: 'start', now: Date.now() });
+				const { state: wds0, effects: wde0 } = transitionWatchdog(watchdogState, { kind: 'start', now: Date.now() }, watchdogConfig);
 				watchdogState = wds0;
 				applyWatchdogEffects(wde0);
 
@@ -6510,6 +6566,8 @@ Output ONLY the JSON, no other text. Start with { and end with }.`;
 							firstTokenReceived = true;
 							chatLatencyAudit.markNetworkEnd(finalRequestId); // Network complete when first token arrives
 							vibeLog.debug('llmTurn', 'first-activity', { afterMs: Date.now() - _turnStartMs, kind: fullText.length > 0 ? 'text' : 'reasoning' }); recordChatTrace('llmTurn:first-activity', { turn: traceTurn, afterMs: Date.now() - _turnStartMs });
+							// Медленный старт этой модели — не зависание: запоминаем, чтобы следующий порог был не ниже 1.5×
+							this._noteFirstTokenLatency(iterationModelKey, Date.now() - _turnStartMs);
 							chatLatencyAudit.markFirstToken(finalRequestId);
 						}
 
@@ -6531,7 +6589,7 @@ Output ONLY the JSON, no other text. Start with { and end with }.`;
 
 						// Streaming gap watchdog: record incoming chunk.
 						{
-							const { state, effects } = transitionWatchdog(watchdogState, { kind: 'chunk', now: Date.now() });
+							const { state, effects } = transitionWatchdog(watchdogState, { kind: 'chunk', now: Date.now() }, watchdogConfig);
 							watchdogState = state;
 							applyWatchdogEffects(effects);
 						}
@@ -6719,7 +6777,7 @@ Output ONLY the JSON, no other text. Start with { and end with }.`;
 
 						clearIterationTimers();
 						{
-							const { state, effects } = transitionWatchdog(watchdogState, { kind: 'complete', now: Date.now() });
+							const { state, effects } = transitionWatchdog(watchdogState, { kind: 'complete', now: Date.now() }, watchdogConfig);
 							watchdogState = state;
 							applyWatchdogEffects(effects);
 						}
@@ -6788,7 +6846,7 @@ Output ONLY the JSON, no other text. Start with { and end with }.`;
 						messageIsDone = true;
 						clearIterationTimers();
 						{
-							const { state, effects } = transitionWatchdog(watchdogState, { kind: 'provider-error', now: Date.now() });
+							const { state, effects } = transitionWatchdog(watchdogState, { kind: 'provider-error', now: Date.now() }, watchdogConfig);
 							watchdogState = state;
 							applyWatchdogEffects(effects);
 						}
@@ -7171,7 +7229,7 @@ Output ONLY the JSON, no other text. Start with { and end with }.`;
 						// stop the loop to free up the promise, but don't modify state (already handled by whatever stopped it)
 						messageIsDone = true;
 						clearIterationTimers();
-						const { state: _ws, effects: _we } = transitionWatchdog(watchdogState, { kind: 'cancel', now: Date.now() });
+						const { state: _ws, effects: _we } = transitionWatchdog(watchdogState, { kind: 'cancel', now: Date.now() }, watchdogConfig);
 						watchdogState = _ws;
 						applyWatchdogEffects(_we);
 						resMessageIsDonePromise({ type: 'llmAborted' });
@@ -7227,7 +7285,7 @@ Output ONLY the JSON, no other text. Start with { and end with }.`;
 						settleRouting({ success: false });
 						keepStreamedPartial();
 						const silenceError: ThreadStreamError = {
-							message: localize('vibeide.chatThread.watchdogGaveUp', 'Модель не ответила: отправлено запросов — {0}, и ни на один не пришло ни одного токена (ожидание на каждый — {1} с). Провайдер может быть недоступен или перегружен — повторите попытку или переключите модель.', String(watchdogRestarts + 1), String(Math.round((WATCHDOG_DEFAULTS.gapTimeoutMs + WATCHDOG_DEFAULTS.retry1AfterMs) / 1000))),
+							message: localize('vibeide.chatThread.watchdogGaveUp', 'Модель не ответила: отправлено запросов — {0}, и ни на один не пришло ни одного токена (ожидание на каждый — {1} с). Провайдер может быть недоступен или перегружен — повторите попытку или переключите модель.', String(watchdogRestarts + 1), String(watchdogGaveUpWaitSeconds)),
 							fullError: null,
 							recoverable: 'retry',
 						};

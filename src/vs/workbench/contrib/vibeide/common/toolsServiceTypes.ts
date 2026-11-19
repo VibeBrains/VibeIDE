@@ -127,6 +127,8 @@ export type BuiltinToolCallParams = {
 	'watch_media': { source: string; question: string | null };
 	// ---
 	'vibe_complete': { summary: string };
+	// Один скрипт вместо серии вызовов: внутри он сам зовёт `tools.<имя>(args)`
+	'run_code_mode': { script: string };
 };
 
 // RESULT OF TOOL CALL
@@ -316,6 +318,8 @@ export type BuiltinToolResultType = {
 	'extract_structured': { data: unknown; url: string; model: string; truncated: boolean };
 	// `text` is the whole answer for the model; the rest is what the chat shows in the card.
 	'watch_media': { text: string; kind: 'video' | 'audio'; title?: string; durationSec?: number; frameCount: number; describedBy?: string };
+	// `output` — уже собранный отчёт (вывод, значение, ошибки), `calls` — для аудита и карточки в чате
+	'run_code_mode': { output: string; calls: Array<{ tool: string; ok: boolean; error?: string }>; truncated: boolean };
 	// ---
 	'vibe_complete': { summary: string };
 };
