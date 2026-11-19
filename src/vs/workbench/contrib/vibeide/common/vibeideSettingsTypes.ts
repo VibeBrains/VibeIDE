@@ -198,6 +198,8 @@ export type AnyProviderSettings = CommonProviderSettings & { [k in CustomSetting
 	keyStatus?: 'valid' | 'invalid' | 'error' | 'pending' | 'unverified' | 'none';
 	keySource?: 'gui' | 'env' | 'ref' | 'none';
 	keyless?: true;
+	/** Файл провайдеров объявил `"interactiveOnly": true` — автоматический трафик тарифом запрещён */
+	interactiveOnly?: true;
 };
 
 // part of state — built-ins are precisely typed; any other `ProviderId` key is a config-provider

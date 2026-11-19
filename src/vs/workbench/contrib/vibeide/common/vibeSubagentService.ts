@@ -114,6 +114,8 @@ export interface SubagentHandoff {
 	 * модели»; absent = the usual resolution (per-role → chat).
 	 */
 	modelSelection?: ModelSelection | null;
+	/** Автоматический путь запуска: роль оркестрации или шаг пайплайна — для отказа тарифа «только вручную» */
+	launchSource?: 'orchestration' | 'pipeline';
 	/** Run this is a replay of — recorded so the two can be compared afterwards. */
 	replayOfRunId?: string;
 	/**
@@ -751,6 +753,7 @@ export class VibeSubagentService extends Disposable implements IVibeSubagentServ
 			maxTokensEst: Math.max(0, maxTokens),
 			maxWallClockMs: handoff.maxWallClockMs ?? 0,
 			modelSelection: handoff.modelSelection,
+			launchSource: handoff.launchSource,
 			cancellationToken: this._ctsById.get(entry.id)?.token,
 			...(handoff.continuesRunId ? { transcript: this._transcripts.get(handoff.continuesRunId) } : {}),
 			...(handoff.diff ? { diff: handoff.diff } : {}),

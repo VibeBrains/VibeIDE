@@ -437,6 +437,11 @@ export interface VibeProviderActiveOverrides {
 	 * Merged into the built-in's settings as a derived field, which `_storeState` never persists
 	 */
 	readonly builtinLocality?: Record<string, boolean>;
+	/**
+	 * `interactiveOnly` declared by files that patch a BUILT-IN provider — the tariff forbids automatic traffic
+	 * Merged into the built-in's settings as a derived field, which `_storeState` never persists
+	 */
+	readonly builtinInteractiveOnly?: Record<string, true>;
 	/** First-class settings entries seeded for active dynamic providers so the Settings UI renders them
 	 *  like built-ins (provider card + «Модели» tab). Merged into `settingsOfProvider` in
 	 *  `_validatedModelState`. Derived (reapplied each load), never persisted in the settings blob. */
@@ -472,6 +477,8 @@ export type DynamicProviderSeed = {
 	paramsMissing?: readonly string[];
 	/** `"auth": "google-adc"` — карточка не просит ключ, а говорит про вход через Google. */
 	googleAdc?: true;
+	/** `"interactiveOnly": true` — тариф разрешает только ручную работу в IDE, автоматический трафик запрещён. */
+	interactiveOnly?: true;
 };
 
 /**
@@ -528,6 +535,28 @@ export function withBuiltinLocality<T extends object>(settingsOfProvider: T, loc
 }
 
 /**
+ * `interactiveOnly` файла на встроенном провайдере — Derived-поле, как `runsLocally`
+ * Правленый файл снял флаг — поле снимается вместе с ним, иначе запрет пережил бы свой источник
+ */
+export function withBuiltinInteractiveOnly<T extends object>(settingsOfProvider: T, flags: Readonly<Record<string, true>>): T {
+	let next: Record<string, unknown> | undefined;
+	for (const [id, value] of Object.entries(settingsOfProvider)) {
+		if (!isBuiltinProviderId(id) || !value || typeof value !== 'object') { continue; }
+		const declared = Object.hasOwn(flags, id);
+		if ((value as { interactiveOnly?: true }).interactiveOnly === (declared ? true : undefined)) { continue; }
+		const updated: Record<string, unknown> = next ?? { ...(settingsOfProvider as Record<string, unknown>) };
+		if (declared) {
+			updated[id] = { ...value, interactiveOnly: true };
+		} else {
+			const { interactiveOnly: _dropped, ...rest } = value as Record<string, unknown>;
+			updated[id] = rest;
+		}
+		next = updated;
+	}
+	return (next ?? settingsOfProvider) as T;
+}
+
+/**
  * Встроенные провайдеры и сиды файловых провайдеров — в порядке оверлея.
  * Прежние сиды не остаются: их порядок задавал первый оверлей (при первом запуске — десять комплектных, а засеянные файлы
  * дописывались в хвост, мимо `order`), а провайдер, удалённый из файлов, висел в списке до перезапуска.
@@ -571,6 +600,7 @@ const _validatedModelState = (state: Omit<VibeideSettingsState, '_modelOptions'>
 
 	// A file's `runsLocally` on a built-in: set where declared, removed where the file no longer says it
 	newSettingsOfProvider = withBuiltinLocality(newSettingsOfProvider, _providerActiveOverrides?.builtinLocality ?? {});
+	newSettingsOfProvider = withBuiltinInteractiveOnly(newSettingsOfProvider, _providerActiveOverrides?.builtinInteractiveOnly ?? {});
 
 	// The `static` models a file declares for a built-in join its model list: Settings shows them next to the
 	// catalogue, switchable like any other, and the picker reads the same list. Derived each time, never stored.

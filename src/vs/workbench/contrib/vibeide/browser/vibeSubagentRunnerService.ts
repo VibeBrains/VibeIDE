@@ -20,6 +20,7 @@ import { tokenQuotaForUsd } from '../common/agentRoleBudget.js';
 import { observedOutputShare } from '../common/cascadeEconomics.js';
 import { IVibeAgentRunLedgerService } from '../common/vibeAgentRunLedgerService.js';
 import { isModelVisionCapable } from '../common/modelVisionHeuristics.js';
+import { interactiveOnlyVerdictForSelection, isInteractiveOnlyProvider } from '../common/interactiveOnlyProvider.js';
 import { IVibeideSettingsService } from '../common/vibeideSettingsService.js';
 import { ChatMessage } from '../common/chatThreadServiceTypes.js';
 import { BuiltinToolName, ToolName } from '../common/toolsServiceTypes.js';
@@ -138,6 +139,16 @@ class VibeSubagentRunnerService extends Disposable implements IVibeSubagentRunne
 			return this._outcome(req, 'failed', localize('vibeide.subagentRunner.noModel', "Не выбрана модель для субагента (настройте модель чата)."), [], 0, false, 'нет модели', [], req.transcript ?? []);
 		}
 
+		// Тариф «только вручную»: роль и шаг пайплайна — автоматический трафик, человек их не запускает
+		const launch = interactiveOnlyVerdictForSelection(
+			this._settings.state.settingsOfProvider,
+			modelSelection,
+			req.launchSource === 'pipeline' ? 'pipeline' : 'orchestration',
+		);
+		if (!launch.allowed) {
+			return this._outcome(req, 'failed', launch.reason, [], 0, false, 'тариф «только вручную»', [], req.transcript ?? []);
+		}
+
 		// Vision routing model resolution. `sees` = can this selection accept image input; `firstVision`
 		// = the first enabled vision-capable model. Shared by звено 4 (default) and звено 3 (guarantee)
 		// so the two never drift; the decision itself lives in common/modelVisionHeuristics.ts.
@@ -147,7 +158,9 @@ class VibeSubagentRunnerService extends Disposable implements IVibeSubagentRunne
 		// Picked on the user's behalf, so a model the vendor already turned off is never the one handed over
 		const now = Date.now();
 		const firstVision = (): ModelSelection | undefined => this._settings.state._modelOptions.find(o => sees(o.selection)
-			&& !retiredForAutoPick(getModelCapabilities(o.selection.providerName, o.selection.modelName, overridesOfModel), now))?.selection;
+			&& !retiredForAutoPick(getModelCapabilities(o.selection.providerName, o.selection.modelName, overridesOfModel), now)
+			// Автоматический подбор vision-модели тоже не вправе взять тариф «только вручную»
+			&& !isInteractiveOnlyProvider(o.selection.providerName, this._settings.state.settingsOfProvider))?.selection;
 
 		// Звено 4: the vision-sink role (designer) defaults to a vision-capable model when the user
 		// left its per-role model unset and the chat fallback can't see — so it is vision-ready by

@@ -62,6 +62,11 @@ export interface SubagentRunRequest {
 	/** Per-role model (roadmap VA.2 «модель на роль»); null/undefined → the session's Chat model. */
 	readonly modelSelection?: ModelSelection | null;
 	/**
+	 * Откуда пришёл автоматический прогон: роль оркестрации или шаг пайплайна
+	 * Нужен отказу тарифа «только вручную»: у шага пайплайна своя формулировка причины
+	 */
+	readonly launchSource?: 'orchestration' | 'pipeline';
+	/**
 	 * Cooperative cancellation (audit A): checked at every hop boundary AND aborts the
 	 * in-flight LLM request. Without it a disposed subagent kept burning tokens to its limits.
 	 */
