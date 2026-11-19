@@ -4,6 +4,7 @@
  *--------------------------------------------------------------------------------------------*/
 
 import { safeParseConfigJson } from '../vibeConfigJsonParser.js';
+import { builtinToolDefs } from '../prompt/tools/index.js';
 
 /**
  * Project hooks — deterministic commands the project runs around the agent's own loop.
@@ -65,6 +66,14 @@ export interface VibeHookConfig {
 }
 
 const EMPTY: VibeHookConfig = { hooks: [], problems: [] };
+
+/**
+ * Имена инструментов, которые агент на самом деле вызывает.
+ *
+ * Реестр один — тот же, из которого строятся описания инструментов для модели: второй список
+ * разошёлся бы с первым, и предупреждение ругалось бы на живой инструмент
+ */
+const KNOWN_AGENT_TOOL_NAMES: ReadonlySet<string> = new Set(Object.keys(builtinToolDefs));
 
 function asString(value: unknown): string | undefined {
 	return typeof value === 'string' && value.trim() ? value.trim() : undefined;
@@ -130,7 +139,15 @@ export function parseHookConfig(raw: string): VibeHookConfig {
 			timeoutMs = VIBE_HOOK_MAX_TIMEOUT_MS;
 		}
 		const toolsApply = event !== 'turnEnd' && event !== 'pipelineStepEnd';
-		hooks.push({ event, command, tools: toolsApply ? tools : [], timeoutMs, label: asString(record?.['label']) });
+		const label = asString(record?.['label']);
+		// Хук с чужим именем инструмента не сработает никогда: предупреждаем, но не выбрасываем —
+		// имя может принадлежать инструменту будущей версии, а файл обязан пережить обновление
+		for (const tool of toolsApply ? tools : []) {
+			if (!KNOWN_AGENT_TOOL_NAMES.has(tool)) {
+				problems.push(`Хук №${index + 1} «${label ?? command}» никогда не сработает: matcher «${tool}» не совпадает ни с одним инструментом агента.`);
+			}
+		}
+		hooks.push({ event, command, tools: toolsApply ? tools : [], timeoutMs, label });
 	});
 
 	return { hooks, problems };

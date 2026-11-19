@@ -61,6 +61,7 @@ import {
 } from '../../common/acp/acpProtocol.js';
 import { AcpEvent, IAcpAgentLaunch, IAcpReconnection, IAcpSession, IVibeAcpMain } from '../../common/acp/acpTypes.js';
 import { ACP_EDIT_TOOL_KIND, AcpFileBefore, isInsideRoot } from '../../common/acp/acpEditBaseline.js';
+import { visibleDiffs } from '../../common/acp/acpPermissionCard.js';
 import { readFileBefore } from './acpFileBefore.js';
 
 /** Отказ агента на вызов: код нужен, чтобы отличать «не авторизован» от прочих бед. */
@@ -623,7 +624,8 @@ export class VibeAcpMainService extends Disposable implements IVibeAcpMain {
 					toolKind: update.toolKind,
 					status: update.status,
 					paths: update.paths,
-					diffs: update.diffs,
+					// Дифф без правки («было» совпало со «стало») не доходит до окна «было → стало»
+					diffs: visibleDiffs(update.diffs),
 					output: update.output,
 					...(update.exitCode === undefined ? {} : { exitCode: update.exitCode }),
 				});
@@ -732,7 +734,7 @@ export class VibeAcpMainService extends Disposable implements IVibeAcpMain {
 				command: facts.command,
 				detail: describeToolCall(toolCall),
 				paths: facts.paths,
-				diffs: facts.diffs,
+				diffs: visibleDiffs(facts.diffs),
 				options,
 			},
 		});

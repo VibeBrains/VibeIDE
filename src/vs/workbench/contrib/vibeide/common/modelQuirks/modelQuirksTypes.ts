@@ -60,8 +60,12 @@ export interface ModelQuirksRule {
 	// ---------- Generation parameters ----------
 	/** `temperature` for streamText / completion. Range typically 0..2. */
 	readonly temperature?: number;
-	/** `topP` (nucleus sampling). Range 0..1. */
-	readonly topP?: number;
+	/**
+	 * `topP` (nucleus sampling). Range 0..1.
+	 * `null` — явное «поле не отправлять вовсе»: правило снимает значение, унаследованное от менее точного
+	 * (MiniMax M3.1 просит не задавать свой top_p, а семейное правило `minimax` его задаёт)
+	 */
+	readonly topP?: number | null;
 	/** `topK` (only some providers respect this). Positive integer. */
 	readonly topK?: number;
 
@@ -278,12 +282,15 @@ export function matchQuirks(
 	// `provider` set dominates any match length; among equals, longer match string is more specific.
 	const specificity = (r: ModelQuirksRule): number => (r.provider ? 1_000_000 : 0) + (r.match?.length ?? 0);
 	const sorted = [...matched].sort((a, b) => specificity(a) - specificity(b));
-	let merged: ResolvedModelQuirks = {};
+	let merged: Record<string, unknown> = {};
 	for (const rule of sorted) {
 		const { match: _m, provider: _p, note: _n, ...rest } = rule;
 		merged = { ...merged, ...rest };
+		// Явный null — не значение, а «снять»: он вычищает поле, пришедшее от менее точного правила
+		// Через spread он бы лёг в результат сам и ушёл бы на провод как `top_p: null`
+		if (rest.topP === null) { delete merged['topP']; }
 	}
-	return merged;
+	return merged as unknown as ResolvedModelQuirks;
 }
 
 /**
@@ -324,7 +331,7 @@ export function validateCatalog(raw: unknown): ModelQuirksCatalog {
 			match,
 			...readString(rr, 'provider'),
 			...readNumber(rr, 'temperature', 0, 2),
-			...readNumber(rr, 'topP', 0, 1),
+			...readNumberOrNull(rr, 'topP', 0, 1),
 			...readIntPositive(rr, 'topK'),
 			...readBool(rr, 'forceEmptyReasoning'),
 			...readBool(rr, 'mirrorReasoningContent'),
@@ -359,6 +366,15 @@ function readNumber(obj: Record<string, unknown>, key: string, min: number, max:
 	if (typeof v !== 'number' || !Number.isFinite(v) || v < min || v > max) { return {}; }
 	const result: Partial<Record<keyof ModelQuirksRule, unknown>> = { [key]: v };
 	return result as Partial<ModelQuirksRule>;
+}
+
+/**
+ * Число в диапазоне или явный `null` — «поле не отправлять».
+ * null осмысленен только у `topP`, но проверка общая: значение всё равно сверяется с типом поля.
+ */
+function readNumberOrNull(obj: Record<string, unknown>, key: string, min: number, max: number): Partial<ModelQuirksRule> {
+	if (obj[key] === null) { return { [key]: null } as unknown as Partial<ModelQuirksRule>; }
+	return readNumber(obj, key, min, max);
 }
 
 function readIntPositive(obj: Record<string, unknown>, key: string): Partial<ModelQuirksRule> {
@@ -410,10 +426,10 @@ export function applyUserOverride(catalogQuirks: ResolvedModelQuirks, userOverri
 	const oo = userOverride as Record<string, unknown>;
 	// Run user override through the same field-level validators as catalog rules.
 	// Reuse readNumber etc. by wrapping into a fake "rule" matcher.
-	const sanitized: ResolvedModelQuirks = {
+	const sanitized: Record<string, unknown> = {
 		...catalogQuirks,
 		...readNumber(oo, 'temperature', 0, 2),
-		...readNumber(oo, 'topP', 0, 1),
+		...readNumberOrNull(oo, 'topP', 0, 1),
 		...readIntPositive(oo, 'topK'),
 		...readBool(oo, 'forceEmptyReasoning'),
 		...readBool(oo, 'mirrorReasoningContent'),
@@ -429,7 +445,9 @@ export function applyUserOverride(catalogQuirks: ResolvedModelQuirks, userOverri
 		...readBool(oo, 'adaptiveThinking'),
 		...readBool(oo, 'roundtripThoughtSignature'),
 	};
-	return sanitized;
+	// Пользователь тоже вправе снять поле, а не только заменить его числом
+	if (oo['topP'] === null) { delete sanitized['topP']; }
+	return sanitized as unknown as ResolvedModelQuirks;
 }
 
 /**

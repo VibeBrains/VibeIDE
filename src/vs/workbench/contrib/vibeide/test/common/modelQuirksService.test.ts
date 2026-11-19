@@ -68,6 +68,18 @@ suite('ModelQuirks — matchQuirks', () => {
 		assert.ok(!Object.hasOwn(q, 'note'));
 		assert.strictEqual(q?.forceToolCallFormat, 'xml');
 	});
+
+	// `topP: null` — не значение, а команда «снять»: семейное правило задаёт 0.95, точное правило его убирает
+	test('явный null в поле снимает значение, унаследованное от семейного правила', () => {
+		const withUnset: ModelQuirksRule[] = [
+			{ match: 'minimax', temperature: 1.0, topP: 0.95 },
+			{ match: 'minimax-m3.1', topP: null },
+		];
+		assert.deepStrictEqual(
+			{ m31: matchQuirks(withUnset, 'minimax-m3.1'), m3: matchQuirks(withUnset, 'minimax-m3') },
+			{ m31: { temperature: 1.0 }, m3: { temperature: 1.0, topP: 0.95 } },
+		);
+	});
 });
 
 suite('ModelQuirks — matchQuirks per-provider', () => {
@@ -178,6 +190,12 @@ suite('ModelQuirks — validateCatalog', () => {
 		});
 		assert.strictEqual(cat.rules.length, 1);
 		assert.strictEqual(cat.rules[0].match, 'ok');
+	});
+
+	// null — законное значение topP («не отправлять поле»), в отличие от мусора вроде строки или числа вне 0..1
+	test('topP: null проходит проверку каталога как «снять поле»', () => {
+		const cat = validateCatalog({ version: 1, rules: [{ match: 'a', topP: null }, { match: 'b', topP: 'нет' }] });
+		assert.deepStrictEqual(cat.rules.map(rule => rule.topP), [null, undefined]);
 	});
 
 	test('out-of-range numeric fields dropped (forward compat with sane defaults)', () => {
