@@ -23,7 +23,7 @@ import { InstantiationType, registerSingleton } from '../../../../../platform/in
 import { IConfigurationService } from '../../../../../platform/configuration/common/configuration.js';
 import { INotificationService } from '../../../../../platform/notification/common/notification.js';
 import { AcpEvent, IAcpAgentLaunch, IAcpPermissionRequest, IAcpReconnection, IAcpSession } from '../../common/acp/acpTypes.js';
-import { AcpReconnectMode, AcpStopReason, agentCommandOf, IAcpCommand, IAcpConfigOption, IAcpDiff, IAcpPromptCapabilities, isCompactionSettled } from '../../common/acp/acpProtocol.js';
+import { AcpReconnectMode, AcpStopReason, agentCommandOf, IAcpCommand, IAcpConfigOption, IAcpDiff, IAcpInitialConfigOption, IAcpPromptCapabilities, IAcpPromptSuggestion, isCompactionSettled } from '../../common/acp/acpProtocol.js';
 import { ACP_EMBED_MAX_CHARS_DEFAULT, ACP_EMBED_MAX_CHARS_KEY, AcpContextItem, IAcpEditorState, buildAcpPromptBlocks } from '../../common/acp/acpPromptContext.js';
 import { AcpLogEntry, AcpSessionLog, IAcpSessionSnapshot } from '../../common/acp/acpSessionLog.js';
 import { buildAcpCompactionAudit, buildAcpNoticeAudit, buildAcpPermissionAudit, buildAcpSessionAudit, buildAcpToolCallAudit } from '../../common/acp/acpAudit.js';
@@ -91,6 +91,8 @@ export interface IVibeAcpSessionView {
 	readonly configuring: boolean;
 	/** The agent's own slash commands; one runs by being the task's text, `/name arguments` */
 	readonly commands: readonly IAcpCommand[];
+	/** Подсказки следующего промпта (v1.32): агент прислал их сам, поверхность показывает кнопками */
+	readonly suggestions: readonly IAcpPromptSuggestion[];
 	/** Where the current (or the last) prompt began in `log.entries` */
 	readonly turnStart: number;
 	/** The origin the agent attached to its latest usage update, when it supplied one */
@@ -187,6 +189,9 @@ interface ISessionState {
 	configOptions: readonly IAcpConfigOption[];
 	configuring: boolean;
 	commands: readonly IAcpCommand[];
+	suggestions: readonly IAcpPromptSuggestion[];
+	/** Дочерние сессии, о которых лента уже сказала: повтор той же ссылки — не новость */
+	readonly childSessions: Set<string>;
 	/** What the agent accepts in a prompt, as it declared in the greeting */
 	promptCapabilities: IAcpPromptCapabilities;
 	turnStart: number;
@@ -206,6 +211,8 @@ export class VibeAcpSessionsService extends Disposable implements IVibeAcpSessio
 	private readonly _sessions = new Map<string, ISessionState>();
 	/** The commands each agent last announced, by agent id: they outlive the session and the window */
 	private _knownCommands: Readonly<Record<string, readonly IAcpCommand[]>>;
+	/** Настройки, выбранные человеком по каждому агенту: следующая сессия начинается с них, а не с умолчаний */
+	private _savedOptions: Readonly<Record<string, readonly IAcpInitialConfigOption[]>>;
 	/** Questions withdrawn while their checkpoint was still being taken: they must not open a card afterwards */
 	private readonly _withdrawnBeforeShown = new Set<string>();
 
@@ -226,6 +233,7 @@ export class VibeAcpSessionsService extends Disposable implements IVibeAcpSessio
 		super();
 		this._register(this._acpService.onEvent(event => this._observe(event)));
 		this._knownCommands = parseKnownCommands(this._storageService.get(KNOWN_COMMANDS_STORAGE_KEY, StorageScope.WORKSPACE));
+		this._savedOptions = parseSavedOptions(this._storageService.get(SAVED_OPTIONS_STORAGE_KEY, StorageScope.WORKSPACE));
 	}
 
 	get sessions(): readonly IVibeAcpSessionView[] {
@@ -249,6 +257,7 @@ export class VibeAcpSessionsService extends Disposable implements IVibeAcpSessio
 			configOptions: state.configOptions,
 			configuring: state.configuring,
 			commands: state.commands,
+			suggestions: state.suggestions,
 			turnStart: state.turnStart,
 			turnOrigin: state.turnOrigin,
 			promptCapabilities: state.promptCapabilities,
@@ -263,7 +272,7 @@ export class VibeAcpSessionsService extends Disposable implements IVibeAcpSessio
 		const ideMcp = await this._ideMcp.issue();
 		let session: IAcpSession;
 		try {
-			session = await this._acpService.startSession(withIdeMcp(launch, ideMcp));
+			session = await this._acpService.startSession(withIdeMcp(this._withSavedOptions(launch, agent.id), ideMcp));
 		} catch (err) {
 			if (ideMcp) { void this._ideMcp.revoke(ideMcp.token); }
 			throw err;
@@ -280,7 +289,7 @@ export class VibeAcpSessionsService extends Disposable implements IVibeAcpSessio
 		const ideMcp = await this._ideMcp.issue();
 		let back: IAcpReconnection;
 		try {
-			back = await this._acpService.reconnectSession(previousSessionId, withIdeMcp(launch, ideMcp));
+			back = await this._acpService.reconnectSession(previousSessionId, withIdeMcp(this._withSavedOptions(launch, agent.id), ideMcp));
 		} catch (err) {
 			if (ideMcp) { void this._ideMcp.revoke(ideMcp.token); }
 			throw err;
@@ -304,6 +313,8 @@ export class VibeAcpSessionsService extends Disposable implements IVibeAcpSessio
 			configuring: false,
 			pending: new Map(),
 			commands: session.commands ?? [],
+			suggestions: [],
+			childSessions: new Set(),
 			promptCapabilities: session.promptCapabilities,
 			turnStart: 0,
 			permissionMode: DEFAULT_ACP_PERMISSION_MODE,
@@ -331,6 +342,8 @@ export class VibeAcpSessionsService extends Disposable implements IVibeAcpSessio
 		state.error = undefined;
 		state.lastStopReason = undefined;
 		state.turnOrigin = undefined;
+		// Подсказки относились к прошлому ходу: после отправки они уже не «следующий промпт»
+		state.suggestions = [];
 		this._onDidChange.fire();
 		// The agent keeps its own history, so the style goes once and again only on a change of level
 		// An agent command runs only as the first word of the task: the note waits for the next ordinary task
@@ -452,6 +465,19 @@ export class VibeAcpSessionsService extends Disposable implements IVibeAcpSessio
 		return live?.commands ?? this._knownCommands[agentId] ?? [];
 	}
 
+	/** Выбор человека переживает сессию: следующая сессия этого агента начинается с него */
+	private _rememberOption(agentId: string, configId: string, value: string | boolean): void {
+		const others = (this._savedOptions[agentId] ?? []).filter(option => option.configId !== configId);
+		this._savedOptions = { ...this._savedOptions, [agentId]: [...others, { configId, value }] };
+		this._storageService.store(SAVED_OPTIONS_STORAGE_KEY, JSON.stringify(this._savedOptions), StorageScope.WORKSPACE, StorageTarget.MACHINE);
+	}
+
+	/** Сохранённые значения едут в запуск: слать ли их агенту, решает главный процесс по его приветствию */
+	private _withSavedOptions(launch: IAcpAgentLaunch, agentId: string): IAcpAgentLaunch {
+		const saved = this._savedOptions[agentId];
+		return saved && saved.length > 0 ? { ...launch, initialConfigOptions: saved } : launch;
+	}
+
 	private _rememberCommands(agentId: string, commands: readonly IAcpCommand[]): void {
 		if (commands.length === 0) { return; }
 		this._knownCommands = { ...this._knownCommands, [agentId]: commands };
@@ -477,6 +503,8 @@ export class VibeAcpSessionsService extends Disposable implements IVibeAcpSessio
 		this._onDidChange.fire();
 		try {
 			state.configOptions = await this._acpService.setConfigOption(sessionId, configId, value);
+			// Запоминаем только принятое агентом: отвергнутое значение следующая сессия получила бы зря
+			this._rememberOption(state.agentId, configId, value);
 		} catch (err) {
 			// The control goes back to what the agent last reported: it still holds that value
 			state.error = localize('vibeide.acp.config.failed', "Агент не принял настройку: {0}", err instanceof Error ? err.message : String(err));
@@ -504,7 +532,7 @@ export class VibeAcpSessionsService extends Disposable implements IVibeAcpSessio
 		this._onDidChange.fire();
 		let current = state;
 		try {
-			const back = await this._acpService.reconnectSession(sessionId, withIdeMcp(launch, state.ideMcp));
+			const back = await this._acpService.reconnectSession(sessionId, withIdeMcp(this._withSavedOptions(launch, state.agentId), state.ideMcp));
 			if (back.sessionId !== sessionId) {
 				current = { ...state, sessionId: back.sessionId };
 				this._rekey(sessionId, current);
@@ -679,6 +707,21 @@ export class VibeAcpSessionsService extends Disposable implements IVibeAcpSessio
 				this._onDidChange.fire();
 				return;
 			}
+			case 'suggestions': {
+				const state = this._sessions.get(event.sessionId);
+				if (state) { state.suggestions = event.suggestions; }
+				this._onDidChange.fire();
+				return;
+			}
+			case 'subagent': {
+				const state = this._sessions.get(event.sessionId);
+				if (!state || state.childSessions.has(event.childSessionId)) { return; }
+				state.childSessions.add(event.childSessionId);
+				// Ссылок на одну и ту же дочернюю сессию приходит много, а новость в ней одна
+				state.log.appendNotice(localize('vibeide.acp.subagent', "Дочерняя сессия «{0}»", event.title || event.childSessionId));
+				this._onDidChange.fire();
+				return;
+			}
 		}
 	}
 
@@ -835,6 +878,27 @@ export class VibeAcpSessionsService extends Disposable implements IVibeAcpSessio
 }
 
 const KNOWN_COMMANDS_STORAGE_KEY = 'vibeide.acp.knownAgentCommands';
+
+/** В этом хранилище живут и выбранные настройки: они тоже переживают сессию и окно */
+const SAVED_OPTIONS_STORAGE_KEY = 'vibeide.acp.savedConfigOptions';
+
+/** The stored option values of every agent; an entry of another shape is dropped, not trusted */
+function parseSavedOptions(raw: string | undefined): Record<string, readonly IAcpInitialConfigOption[]> {
+	if (!raw) { return {}; }
+	try {
+		const value: unknown = JSON.parse(raw);
+		if (!value || typeof value !== 'object' || Array.isArray(value)) { return {}; }
+		const result: Record<string, readonly IAcpInitialConfigOption[]> = {};
+		for (const [agentId, options] of Object.entries(value)) {
+			if (!Array.isArray(options)) { continue; }
+			result[agentId] = options.filter((option): option is IAcpInitialConfigOption =>
+				!!option && typeof option.configId === 'string' && (typeof option.value === 'string' || typeof option.value === 'boolean'));
+		}
+		return result;
+	} catch {
+		return {};
+	}
+}
 
 /** The stored commands of every agent; a record of another shape is dropped, not trusted */
 function parseKnownCommands(raw: string | undefined): Record<string, readonly IAcpCommand[]> {

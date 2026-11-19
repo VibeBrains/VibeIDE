@@ -11,9 +11,11 @@ import {
 	agentCommandOf,
 	agentSupportsAuthStatus,
 	agentSupportsClose,
+	agentSupportsSessionOptions,
 	agentSupportsSystemPrompt,
 	cancelledRequestIdOf,
 	configOptionsOf,
+	initialConfigOptionsOf,
 	initializeParams,
 	isNotification,
 	isRequest,
@@ -23,6 +25,7 @@ import {
 	promptParams,
 	reconnectModesOf,
 	returnToSessionParams,
+	sessionRefsOf,
 	setConfigOptionParams,
 	authMethodsOf,
 	authStatusOf,
@@ -99,7 +102,8 @@ suite('acpProtocol', () => {
 			// The card shows an on/off setting as a checkbox, so a boolean option is welcome
 			// Notices и compaction — объекты, не булевы: проверки поддержки у адаптера смотрят именно на
 			// объект (`clientSupportsNotices`/`clientSupportsCompactionUpdates` в @agentclientprotocol/claude-agent-acp)
-			assert.deepStrictEqual(fs['session'], { configOptions: { boolean: {} }, notices: {}, compaction: {} });
+			// promptSuggestions — v1.32: подсказки шлют только тому, кто объявил их приём
+			assert.deepStrictEqual(fs['session'], { configOptions: { boolean: {} }, notices: {}, compaction: {}, promptSuggestions: {} });
 			// The marker is what makes a guest send a command's output and exit code in the call's `_meta`
 			assert.deepStrictEqual(fs['_meta'], { terminal_output: true });
 		});
@@ -116,6 +120,36 @@ suite('acpProtocol', () => {
 			assert.deepStrictEqual(
 				[withRules['systemPrompt'], empty['systemPrompt'], none['systemPrompt']],
 				[{ mode: 'append', content: [{ type: 'text', text: 'Отвечай по-русски' }] }, undefined, undefined]);
+		});
+
+		test('начальные настройки: флажок отдельной формой, строка — просто значением; пустое не шлётся', () => {
+			const options = initialConfigOptionsOf([
+				{ configId: 'model', value: 'm1' },
+				{ configId: 'brave', value: true },
+				// Опцию без имени агенту не назвать: такая запись пропускается, а не портит весь запрос
+				{ configId: '', value: 'мусор' },
+			]);
+			const created = newSessionParams('/ws', [], undefined, options) as Record<string, JsonValue>;
+			const resumed = returnToSessionParams('s-1', '/ws', [], undefined, options) as Record<string, JsonValue>;
+			const empty = newSessionParams('/ws', [], undefined, []) as Record<string, JsonValue>;
+			assert.deepStrictEqual([created['configOptions'], resumed['configOptions'], empty['configOptions']], [
+				[{ configId: 'model', value: 'm1' }, { configId: 'brave', type: 'boolean', value: true }],
+				[{ configId: 'model', value: 'm1' }, { configId: 'brave', type: 'boolean', value: true }],
+				undefined,
+			]);
+		});
+
+		test('настройки сессии: объявленный объект и true — поддержка, null и отсутствие — нет', () => {
+			const greeting = (sessionCapabilities: JsonValue): JsonValue => ({ agentCapabilities: { sessionCapabilities } });
+			assert.deepStrictEqual(
+				[
+					agentSupportsSessionOptions(greeting({ options: {} })),
+					agentSupportsSessionOptions(greeting({ options: true })),
+					agentSupportsSessionOptions(greeting({ options: null })),
+					agentSupportsSessionOptions(greeting({})),
+					agentSupportsSessionOptions(undefined),
+				],
+				[true, true, false, false, false]);
 		});
 
 		test('системный промпт: объявленную возможность видно, отсутствие и null — нет', () => {
@@ -306,6 +340,61 @@ suite('acpProtocol', () => {
 					parseSessionUpdate(undefined),
 				],
 				[undefined, undefined, undefined]);
+		});
+
+		test('подсказки промпта: текст и имя ссылки склеиваются; чужой блок отбрасывает подсказку целиком', () => {
+			assert.deepStrictEqual(
+				parseSessionUpdate({
+					update: {
+						sessionUpdate: 'prompt_suggestions_update',
+						suggestions: [
+							{ prompt: [{ type: 'text', text: 'Починить сборку' }] },
+							{ prompt: [{ type: 'text', text: 'Посмотри' }, { type: 'resource_link', uri: 'file:///a.ts', name: 'a.ts' }] },
+							// Картинку мы не объявляли: подсказка без неё значила бы другое
+							{ prompt: [{ type: 'text', text: 'С картинкой' }, { type: 'image', data: '…', mimeType: 'image/png' }] },
+							{ prompt: [] },
+							{ prompt: [{ type: 'text', text: '   ' }] },
+						],
+					},
+				}),
+				{
+					kind: 'suggestions',
+					suggestions: [
+						{ prompt: [{ type: 'text', text: 'Починить сборку' }], text: 'Починить сборку' },
+						{ prompt: [{ type: 'text', text: 'Посмотри' }, { type: 'resource_link', uri: 'file:///a.ts', name: 'a.ts' }], text: 'Посмотри a.ts' },
+					],
+				});
+		});
+
+		test('дочерняя сессия: id обязателен, заголовок и описание — нет', () => {
+			assert.deepStrictEqual(
+				[
+					parseSessionUpdate({ update: { sessionUpdate: 'subagent_update', sessionId: 'child-1', title: 'Поиск причины', description: 'Ищет в логах' } }),
+					parseSessionUpdate({ update: { sessionUpdate: 'subagent_update', sessionId: 'child-2', title: null, description: null } }),
+					parseSessionUpdate({ update: { sessionUpdate: 'subagent_update', title: 'Без id' } }),
+				],
+				[
+					{ kind: 'subagent', sessionId: 'child-1', title: 'Поиск причины', description: 'Ищет в логах' },
+					{ kind: 'subagent', sessionId: 'child-2' },
+					undefined,
+				]);
+		});
+
+		test('дочерняя сессия в контенте вызова: только type "session", повтор не дублируется', () => {
+			assert.deepStrictEqual(
+				[
+					sessionRefsOf({
+						content: [
+							{ type: 'content', content: { type: 'text', text: 'готово' } },
+							{ type: 'session', sessionId: 'child-1' },
+							{ type: 'session', sessionId: 'child-1' },
+							{ type: 'session' },
+						],
+					}),
+					sessionRefsOf({ content: 'мусор' }),
+					sessionRefsOf(undefined),
+				],
+				[['child-1'], [], []]);
 		});
 
 		test('notice: тяжесть, заголовок и описание; без заголовка показывать нечего', () => {

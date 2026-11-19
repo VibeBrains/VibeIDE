@@ -5,7 +5,7 @@
 
 import { AcpMcpServer } from './acpMcpExport.js';
 import { Event } from '../../../../../base/common/event.js';
-import { AcpCompactionStatus, AcpContentBlock, AcpNoticeSeverity, AcpReconnectMode, AcpStopReason, AcpToolStatus, IAcpAuthMethod, IAcpCommand, IAcpConfigOption, IAcpDiff, IAcpPromptCapabilities } from './acpProtocol.js';
+import { AcpCompactionStatus, AcpContentBlock, AcpNoticeSeverity, AcpReconnectMode, AcpStopReason, AcpToolStatus, IAcpAuthMethod, IAcpCommand, IAcpConfigOption, IAcpDiff, IAcpInitialConfigOption, IAcpPromptCapabilities, IAcpPromptSuggestion } from './acpProtocol.js';
 import { AcpFileBefore } from './acpEditBaseline.js';
 
 /**
@@ -35,6 +35,13 @@ export interface IAcpAgentLaunch {
 	 * рукопожатии: узнать это раньше неоткуда.
 	 */
 	readonly mcpServers?: readonly AcpMcpServer[];
+	/**
+	 * Настройки, которые человек выбрал для этого агента в прошлый раз (ACP v1.31)
+	 *
+	 * Уходят только тому, кто объявил `sessionCapabilities.options`: поддержку видно лишь в
+	 * рукопожатии, поэтому решение принимает главный процесс, а не окно
+	 */
+	readonly initialConfigOptions?: readonly IAcpInitialConfigOption[];
 }
 
 /** Запрос разрешения от агента, ждущий ответа человека. */
@@ -107,6 +114,10 @@ export type AcpEvent =
 	| { readonly kind: 'compaction'; readonly sessionId: string; readonly compactionId: string; readonly status: AcpCompactionStatus; readonly summary?: string; readonly error?: string }
 	/** Кусок сводки сжатия (compaction_summary_chunk), дописывается к сущности */
 	| { readonly kind: 'compactionChunk'; readonly sessionId: string; readonly compactionId: string; readonly text: string }
+	/** Подсказки следующего промпта (v1.32): список заменяет прежний, пустой снимает его */
+	| { readonly kind: 'suggestions'; readonly sessionId: string; readonly suggestions: readonly IAcpPromptSuggestion[] }
+	/** Гость назвал дочернюю сессию: строка в ленте, история её самой идёт своим чередом */
+	| { readonly kind: 'subagent'; readonly sessionId: string; readonly childSessionId: string; readonly title?: string }
 	/** Связь с агентом оборвалась. */
 	| { readonly kind: 'failed'; readonly sessionId?: string; readonly error: string };
 

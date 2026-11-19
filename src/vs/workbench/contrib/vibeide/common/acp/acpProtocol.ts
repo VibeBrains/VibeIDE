@@ -179,7 +179,9 @@ export const initializeParams = (): JsonValue => ({
 		// Шапка сессии показывает булеву настройку флажком: без этого объявления агент её не пришлёт
 		// Notices и compaction — объекты, а не булевы: проверки поддержки у адаптера смотрят именно на
 		// объект. Оба кадра разобраны и показаны ниже, поэтому объявление capability ничего не теряет
-		session: { configOptions: { boolean: {} }, notices: {}, compaction: {} },
+		// Подсказки промптов (v1.32): агент шлёт их только тому, кто объявил `promptSuggestions`.
+		// Пустой объект — согласие на `text` и `resource_link`, других блоков в подсказках мы не умеем
+		session: { configOptions: { boolean: {} }, notices: {}, compaction: {}, promptSuggestions: {} },
 		// A command's output comes in `_meta.terminal_output` and its exit code in `_meta.terminal_exit` of the call
 		// Without the marker an agent folds the output into a text block, and the exit code is lost
 		_meta: { terminal_output: true },
@@ -231,6 +233,40 @@ export function agentSupportsSystemPrompt(greeting: JsonValue | undefined): bool
 	const session = asObject(asObject(asObject(greeting)?.['agentCapabilities'])?.['sessionCapabilities']);
 	const supported = session?.['systemPrompt'];
 	return supported === true || !!asObject(supported);
+}
+
+/**
+ * Объявил ли агент поддержку `session/options` (`agentCapabilities.sessionCapabilities.options`).
+ *
+ * Тот же флаг разрешает и начальные значения настроек в запросе создания сессии: без него
+ * `configOptions` в параметрах — поле, которого агент не ждёт
+ */
+export function agentSupportsSessionOptions(greeting: JsonValue | undefined): boolean {
+	const options = asObject(objectAt(asObject(greeting)?.['agentCapabilities'], 'sessionCapabilities'))?.['options'];
+	return options === true || !!asObject(options);
+}
+
+/** Выбор человека, который хост запомнил для агента: настройка и её значение */
+export interface IAcpInitialConfigOption {
+	readonly configId: string;
+	readonly value: string | boolean;
+}
+
+/**
+ * Начальные значения настроек в форме `InitialSessionConfigOption`
+ *
+ * Схема просит `type` только у булевых: у строкового значения тип `value_id` подразумевается сам.
+ * Запись без идентификатора пропускается — агенту нечего с ней делать
+ */
+export function initialConfigOptionsOf(options: readonly IAcpInitialConfigOption[] | undefined): readonly JsonValue[] {
+	const entries: JsonValue[] = [];
+	for (const option of options ?? []) {
+		if (!option.configId) { continue; }
+		entries.push(typeof option.value === 'boolean'
+			? { configId: option.configId, type: 'boolean', value: option.value }
+			: { configId: option.configId, value: option.value });
+	}
+	return entries;
 }
 
 /** Поле `systemPrompt` запроса жизненного цикла сессии: правила проекта в режиме `append` */
@@ -341,6 +377,7 @@ export const newSessionParams = (
 	cwd: string,
 	mcpServers: readonly JsonValue[] = [],
 	systemPrompt?: string,
+	initialConfigOptions?: readonly JsonValue[],
 ): JsonValue => {
 	const prompt = systemPromptField(systemPrompt);
 	return {
@@ -348,6 +385,8 @@ export const newSessionParams = (
 		mcpServers: [...mcpServers],
 		// Поле уходит только когда агент объявил возможность — решает вызывающий
 		...(prompt === undefined ? {} : { systemPrompt: prompt }),
+		// Настройки, выбранные человеком в прошлый раз: сессия начинается с них, а не с чужих умолчаний
+		...configOptionsField(initialConfigOptions),
 	};
 };
 
@@ -480,6 +519,7 @@ export const returnToSessionParams = (
 	cwd: string,
 	mcpServers: readonly JsonValue[] = [],
 	systemPrompt?: string,
+	initialConfigOptions?: readonly JsonValue[],
 ): JsonValue => {
 	const prompt = systemPromptField(systemPrompt);
 	return {
@@ -488,8 +528,19 @@ export const returnToSessionParams = (
 		mcpServers: [...mcpServers],
 		// Возвращаясь в сессию, шлём то же, что при создании: иначе агент может потерять правила
 		...(prompt === undefined ? {} : { systemPrompt: prompt }),
+		...configOptionsField(initialConfigOptions),
 	};
 };
+
+/**
+ * Поле начальных настроек: пустой список агенту не нужен, а `null` и отсутствие для него равны
+ *
+ * Объявление функции, а не `const`: `newSessionParams` выше ссылается на неё при вызове, и порядок
+ * строк в файле не должен решать, будет ли она к этому моменту определена
+ */
+function configOptionsField(initialConfigOptions: readonly JsonValue[] | undefined): { readonly configOptions?: readonly JsonValue[] } {
+	return initialConfigOptions && initialConfigOptions.length > 0 ? { configOptions: [...initialConfigOptions] } : {};
+}
 
 /**
  * A block of a prompt, as the spec shapes it
@@ -590,7 +641,79 @@ export type AcpUpdate =
 	 */
 	| { readonly kind: 'compaction'; readonly compactionId: string; readonly status: AcpCompactionStatus; readonly summary?: string; readonly error?: string }
 	/** Кусок сводки сжатия, дописываемый к сущности; первый увиденный id создаёт её в работе */
-	| { readonly kind: 'compactionChunk'; readonly compactionId: string; readonly text: string };
+	| { readonly kind: 'compactionChunk'; readonly compactionId: string; readonly text: string }
+	/** Подсказки следующего промпта (v1.32): список заменяет прежний, пустой снимает его */
+	| { readonly kind: 'suggestions'; readonly suggestions: readonly IAcpPromptSuggestion[] }
+	/** Гость объявил дочернюю сессию (v1.31): в ленте это строка, а не молчание */
+	| { readonly kind: 'subagent'; readonly sessionId: string; readonly title?: string; readonly description?: string };
+
+/**
+ * Подсказка промпта: то, что человек, возможно, отправит следующим
+ *
+ * `prompt` хранится блоками, как их примет `session/prompt`: принятую подсказку можно отправить без
+ * переделки. `text` — то, что встаёт в поле ввода, и только он есть у нас на поверхности
+ */
+export interface IAcpPromptSuggestion {
+	readonly prompt: readonly AcpContentBlock[];
+	readonly text: string;
+}
+
+/**
+ * Подсказки из кадра
+ *
+ * Подсказка с блоком, которого мы не объявляли, отбрасывается целиком: выброшенный блок меняет
+ * смысл промпта, и показать остальное значило бы предложить человеку не то, что сказал агент
+ */
+function promptSuggestionsOf(raw: JsonValue | undefined): readonly IAcpPromptSuggestion[] {
+	if (!Array.isArray(raw)) { return []; }
+	const suggestions: IAcpPromptSuggestion[] = [];
+	for (const entry of raw) {
+		const blocks = asObject(entry)?.['prompt'];
+		if (!Array.isArray(blocks) || blocks.length === 0) { continue; }
+		const prompt: AcpContentBlock[] = [];
+		const parts: string[] = [];
+		let usable = true;
+		for (const block of blocks) {
+			const record = asObject(block);
+			if (record?.['type'] === 'text') {
+				const text = stringAt(record, 'text');
+				if (text === undefined) { usable = false; break; }
+				prompt.push({ type: 'text', text });
+				parts.push(text);
+			} else if (record?.['type'] === 'resource_link') {
+				const uri = stringAt(record, 'uri');
+				const name = stringAt(record, 'name');
+				if (!uri || !name) { usable = false; break; }
+				prompt.push({ type: 'resource_link', uri, name });
+				parts.push(name);
+			} else {
+				usable = false;
+				break;
+			}
+		}
+		const text = parts.join(' ').trim();
+		if (!usable || !text) { continue; }
+		suggestions.push({ prompt, text });
+	}
+	return suggestions;
+}
+
+/**
+ * Дочерние сессии, на которые ссылается вызов инструмента: у блока содержимого `type: "session"`
+ * Ссылка ничего не открывает и не запускает — по ней в ленте видно, что вызов работает с ребёнком
+ */
+export function sessionRefsOf(update: JsonValue | undefined): readonly string[] {
+	const content = asObject(update)?.['content'];
+	if (!Array.isArray(content)) { return []; }
+	const found: string[] = [];
+	for (const entry of content) {
+		const record = asObject(entry);
+		if (record?.['type'] !== 'session') { continue; }
+		const sessionId = stringAt(record, 'sessionId');
+		if (sessionId) { found.push(sessionId); }
+	}
+	return [...new Set(found)];
+}
 
 /**
  * Тяжесть notice. Схема (ACP v1.26.0, `NoticeSeverity`) называет info/warning/error и оставляет
@@ -703,6 +826,18 @@ export function parseSessionUpdate(params: JsonValue | undefined): AcpUpdate | u
 		const text = stringAt(objectAt(update, 'content'), 'text');
 		if (!compactionId || !text) { return undefined; }
 		return { kind: 'compactionChunk', compactionId, text };
+	}
+
+	if (kind === 'prompt_suggestions_update') {
+		return { kind: 'suggestions', suggestions: promptSuggestionsOf(update['suggestions']) };
+	}
+
+	if (kind === 'subagent_update') {
+		const sessionId = stringAt(update, 'sessionId');
+		if (!sessionId) { return undefined; }
+		const title = stringAt(update, 'title');
+		const description = stringAt(update, 'description');
+		return { kind: 'subagent', sessionId, ...(title === undefined ? {} : { title }), ...(description === undefined ? {} : { description }) };
 	}
 
 	return undefined;
