@@ -85,6 +85,7 @@ suite('VibeSkillsLibraryService — одобрение скилла по отп�
 				library,
 				new PassThroughPromptGuard(),
 				dialog,
+				new TestNotificationService(),
 			));
 			return { service, dialog };
 		};

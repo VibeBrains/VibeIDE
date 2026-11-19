@@ -722,6 +722,12 @@ export interface IChatThreadService {
 	forceCreateNewThread(): string;
 	/** Create a thread WITHOUT making it current or opening a tab — for runs started from outside the window. */
 	createBackgroundThread(): string;
+	/**
+	 * Пометить прогон в треде как запущенный без человека. `false` возвращает обычный режим
+	 * Признак нужен навыкам, которые просят инструменты или хуки: такой навык без одобрения в IDE
+	 * не запускается, а не спрашивает в пустоту
+	 */
+	setThreadAutonomous(threadId: string, autonomous: boolean): void;
 	/** Chat mode for one thread, overriding the window-wide setting. Pass `undefined` to clear. */
 	setThreadChatMode(threadId: string, mode: ChatMode | undefined): void;
 	switchToThread(threadId: string): void;
@@ -1163,6 +1169,14 @@ class ChatThreadService extends Disposable implements IChatThreadService {
 	// PERFORMANCE: Cache prepared LLM messages to avoid expensive re-preparation when messages haven't changed
 	// Key: hash of (chatMessages content + modelSelection + chatMode + repoIndexer results)
 	// Value: { messages, separateSystemMessage, tokenCount, contextSize, timestamp }
+	/**
+	 * Треды, запущенные без человека: HTTP API, бот, расписание
+	 *
+	 * Живёт в памяти окна и не персистится — это свойство прогона, а не разговора. Такой тред
+	 * не получает молчаливого одобрения навыков, которым нужны инструменты или хуки
+	 */
+	private readonly _autonomousThreads = new Set<string>();
+
 	private readonly _messagePrepCache: Map<string, {
 		messages: LLMChatMessage[];
 		separateSystemMessage: string | undefined;
@@ -2598,7 +2612,8 @@ class ChatThreadService extends Disposable implements IChatThreadService {
 		chatMessages: ChatMessage[],
 		modelSelection: ModelSelection | null,
 		chatMode: ChatMode,
-		repoIndexerResults: { results: string[]; metrics: QueryMetrics } | null | undefined
+		repoIndexerResults: { results: string[]; metrics: QueryMetrics } | null | undefined,
+		interactive: boolean
 	): string {
 		// Create stable hash from inputs
 		const modelKey = modelSelection ? `${modelSelection.providerName}:${modelSelection.modelName}` : 'null';
@@ -2614,7 +2629,7 @@ class ChatThreadService extends Disposable implements IChatThreadService {
 			};
 		}));
 		const repoIndexerKey = repoIndexerResults ? JSON.stringify(repoIndexerResults.results.slice(0, 10)) : 'null';
-		return `${modelKey}|${chatMode}|${messagesHash}|${repoIndexerKey}`;
+		return `${modelKey}|${chatMode}|${interactive}|${messagesHash}|${repoIndexerKey}`;
 	}
 
 	/**
@@ -3392,7 +3407,9 @@ Output ONLY the JSON, no other text. Start with { and end with }.`;
 		const { messages } = await this._convertToLLMMessagesService.prepareLLMChatMessages({
 			chatMessages: [...chatMessages, planRequest],
 			modelSelection,
-			chatMode: 'normal' // Use 'normal' mode to prevent tool execution during plan generation
+			chatMode: 'normal', // Use 'normal' mode to prevent tool execution during plan generation
+			// План может строиться внутри фонового прогона: тогда спрашивать человека некого
+			interactive: !this._autonomousThreads.has(threadId)
 		});
 
 		this._setStreamState(threadId, { isRunning: 'LLM', llmInfo: { displayContentSoFar: 'Составляю план выполнения…', reasoningSoFar: '', toolCallSoFar: null }, interrupt: Promise.resolve(() => { }) });
@@ -5867,7 +5884,7 @@ Output ONLY the JSON, no other text. Start with { and end with }.`;
 				}
 			}
 
-			const cacheKey = this._getMessagePrepCacheKey(preprocessedMessages, modelSelection, chatMode, repoIndexerResults);
+			const cacheKey = this._getMessagePrepCacheKey(preprocessedMessages, modelSelection, chatMode, repoIndexerResults, !this._autonomousThreads.has(threadId));
 			const cached = this._messagePrepCache.get(cacheKey);
 			const now = Date.now();
 
@@ -5891,7 +5908,8 @@ Output ONLY the JSON, no other text. Start with { and end with }.`;
 					modelSelection,
 					chatMode,
 					repoIndexerPromise: repoIndexerResults ? Promise.resolve(repoIndexerResults) : repoIndexerPromise,
-					taskSource
+					taskSource,
+					interactive: !this._autonomousThreads.has(threadId)
 				});
 				messages = prepResult.messages;
 				separateSystemMessage = prepResult.separateSystemMessage;
@@ -6084,7 +6102,7 @@ Output ONLY the JSON, no other text. Start with { and end with }.`;
 						try {
 							vibeLog.info('chatThread', `[ChatThreadService] Re-preparing messages for new model: ${modelKey}`);
 							// PERFORMANCE: Use cache for model switch too
-							const switchCacheKey = this._getMessagePrepCacheKey(preprocessedMessages, modelSelection, chatMode, repoIndexerResults);
+							const switchCacheKey = this._getMessagePrepCacheKey(preprocessedMessages, modelSelection, chatMode, repoIndexerResults, !this._autonomousThreads.has(threadId));
 							const switchCached = this._messagePrepCache.get(switchCacheKey);
 							const switchNow = Date.now();
 
@@ -6103,7 +6121,8 @@ Output ONLY the JSON, no other text. Start with { and end with }.`;
 									modelSelection,
 									chatMode,
 									repoIndexerPromise: repoIndexerResults ? Promise.resolve(repoIndexerResults) : repoIndexerPromise,
-									taskSource
+									taskSource,
+									interactive: !this._autonomousThreads.has(threadId)
 								});
 								messages = prepResult.messages;
 								separateSystemMessage = prepResult.separateSystemMessage;
@@ -10386,7 +10405,17 @@ We only need to do it for files that were edited since `from`, ie files between 
 		this._storeAllThreads(newThreads);
 		// `currentThreadId` и `openTabIds` не трогаем — в этом весь смысл метода.
 		this._setState({ allThreads: newThreads });
+		// Тред создан для внешнего запуска, значит человека у него нет по определению
+		this._autonomousThreads.add(newThread.id);
 		return newThread.id;
+	}
+
+	setThreadAutonomous(threadId: string, autonomous: boolean): void {
+		if (autonomous) {
+			this._autonomousThreads.add(threadId);
+		} else {
+			this._autonomousThreads.delete(threadId);
+		}
 	}
 
 	/**

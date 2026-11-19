@@ -56,7 +56,7 @@ export function formatAcpPermissionCard(input: IAcpCardInput): string {
 		if (hidden > 0) { lines.push(`…и ещё ${hidden}`); }
 	}
 
-	for (const diff of input.diffs) {
+	for (const diff of visibleDiffs(input.diffs)) {
 		const removed = splitLines(diff.oldText);
 		const added = splitLines(diff.newText);
 		lines.push('', `\`${diff.path}\` — −${removed.length}/+${added.length} строк`);
@@ -77,6 +77,22 @@ export function formatAcpPermissionCard(input: IAcpCardInput): string {
 
 /** Пустой текст — это ноль строк: так выглядит создание файла и удаление содержимого. */
 const splitLines = (text: string): readonly string[] => (text ? text.split('\n') : []);
+
+/**
+ * Пустой дифф — это не правка.
+ *
+ * Гость вправе прислать дифф, у которого «стало» не отличается от «было» (ACP v1.33): окно
+ * «было → стало» показало бы пустую рамку, а человек прочитал бы её как правку, которой нет
+ * Оба пустых текста — тот же случай: файл, к которому агент не притронулся
+ */
+export function hasVisibleDiff(diff: IAcpDiff): boolean {
+	return diff.oldText !== diff.newText;
+}
+
+/** Диффы, которым место на экране: порядок и пути сохраняются, пустые выпадают */
+export function visibleDiffs(diffs: readonly IAcpDiff[]): readonly IAcpDiff[] {
+	return diffs.filter(hasVisibleDiff);
+}
 
 /**
  * Какой вариант агента означает «да».

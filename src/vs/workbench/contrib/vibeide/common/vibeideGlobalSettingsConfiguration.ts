@@ -395,7 +395,8 @@ export class VibeideGlobalSettingsConfigurationContribution extends Disposable i
 						type: 'object',
 						properties: {
 							temperature: { type: 'number', minimum: 0, maximum: 2 },
-							topP: { type: 'number', minimum: 0, maximum: 1 },
+							// `null` — «поле в запрос не отправлять»: так модель снимает top_p, заданный семейным правилом
+							topP: { type: ['number', 'null'], minimum: 0, maximum: 1 },
 							topK: { type: 'integer', minimum: 1 },
 							forceEmptyReasoning: { type: 'boolean' },
 							mirrorReasoningContent: { type: 'boolean' },
@@ -404,7 +405,7 @@ export class VibeideGlobalSettingsConfigurationContribution extends Disposable i
 							toolCallsInText: { type: 'boolean' },
 						},
 					},
-					description: localize('vibeide.modelQuirks', 'User-уровневые override каталога `resources/model-quirks.json`. Ключ — точный id модели (как в выпадающем меню чата, например `qwen3.6-plus`), значение — объект с полями: `temperature` (0..2), `topP` (0..1), `topK` (натуральное число), `forceEmptyReasoning` (boolean), `mirrorReasoningContent` (boolean), `reasoningAsThinkTags` (boolean: рассуждение возвращается тегами <think> внутри текста, а не полем), `forceToolCallFormat` (`native` / `xml` / `auto`), `toolCallsInText` (boolean, по умолчанию включено: вызов, который модель при нативных инструментах написала текстом разметкой своего семейства, разбирается и исполняется; `false` выключает разбор для модели). Заполненные поля перекрывают каталог; пустые наследуются. Изменение требует перезапуска IDE.'),
+					description: localize('vibeide.modelQuirks', 'User-уровневые override каталога `resources/model-quirks.json`. Ключ — точный id модели (как в выпадающем меню чата, например `qwen3.6-plus`), значение — объект с полями: `temperature` (0..2), `topP` (0..1 или `null` — поле не отправлять), `topK` (натуральное число), `forceEmptyReasoning` (boolean), `mirrorReasoningContent` (boolean), `reasoningAsThinkTags` (boolean: рассуждение возвращается тегами <think> внутри текста, а не полем), `forceToolCallFormat` (`native` / `xml` / `auto`), `toolCallsInText` (boolean, по умолчанию включено: вызов, который модель при нативных инструментах написала текстом разметкой своего семейства, разбирается и исполняется; `false` выключает разбор для модели). Заполненные поля перекрывают каталог; пустые наследуются. Изменение требует перезапуска IDE.'),
 					scope: ConfigurationScope.APPLICATION,
 				},
 				'vibeide.modelQuirks.catalogUrl': {

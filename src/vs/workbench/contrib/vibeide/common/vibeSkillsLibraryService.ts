@@ -78,6 +78,11 @@ export interface VibeSkillEntry {
 	/** Optional relative path to a validation hook script inside the skill directory (YAML `precheck`). Execution is backlog — validated path-only today. */
 	precheck?: string;
 	/**
+	 * В шапке объявлены хуки (`hooks`). Значение не разбирается: для гейта автономного запуска
+	 * важен сам факт — навык просит исполнение, которое человек должен увидеть до запуска
+	 */
+	hooks?: boolean;
+	/**
 	 * Trigger phrases / keywords that cause implicit skill retrieval.
 	 * Format: YAML list or comma-separated string under `triggers:`.
 	 * Augments the Jaccard-based implicit retrieval with explicit triggers.
@@ -361,6 +366,9 @@ export function parseSkillMarkdown(raw: string, relativePath: string, defaultId:
 		const compatibility = readFrontmatterScalar(block, 'compatibility');
 		const vibeVersion = readSkillVibeVersion(block);
 		const precheckLine = block.match(/^\s*precheck:\s*(.+)\s*$/im);
+		// `hooks` может быть и строкой, и вложенным блоком — для запрета молчаливого запуска
+		// достаточно самого объявления, поэтому значение не разбираем
+		const hooksLine = block.match(/^\s*hooks\s*:/im);
 		const tagsLine = block.match(/^\s*tags:\s*(.+)\s*$/im);
 		// `requires-tools` — наше исходное имя, `allowed-tools` — то же самое в спецификации
 		// Agent Skills (space-separated). Принимаются оба: свои скиллы продолжают работать,
@@ -449,6 +457,7 @@ export function parseSkillMarkdown(raw: string, relativePath: string, defaultId:
 			locale: localeLine?.[1].trim(),
 			vibeVersion,
 			precheck,
+			hooks: hooksLine ? true : undefined,
 			triggers,
 			glob,
 			keywords,

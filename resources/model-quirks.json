@@ -106,22 +106,6 @@
 			"note": "Future kimi versions — defaults to 'new-style' preset"
 		},
 		{
-			"match": "minimax-m2.7",
-			"temperature": 1.0,
-			"topP": 0.95,
-			"topK": 40,
-			"forceEmptyReasoning": true,
-			"mirrorReasoningContent": true
-		},
-		{
-			"match": "minimax-m2.5",
-			"temperature": 1.0,
-			"topP": 0.95,
-			"topK": 40,
-			"forceEmptyReasoning": true,
-			"mirrorReasoningContent": true
-		},
-		{
 			"match": "minimax-m2",
 			"temperature": 1.0,
 			"topP": 0.95,
@@ -134,9 +118,10 @@
 			"match": "minimax-m3.1",
 			"reasoningAsThinkTags": false,
 			"adaptiveThinking": true,
-			"note": "MiniMax M3.1 присылает рассуждение полем reasoning_content, а не тегами <think> в content, как M3 и ранние: на OpenAI-проводе оно возвращается тем же полем, на Anthropic-проводе — блоками thinking. Мышление не выключается; уровни — low…max, по умолчанию max; на Anthropic-проводе уровень задаётся output_config.effort. Остальное (сэмплинг, пустой слот рассуждения, возврат, отказ от принудительного выбора инструмента) наследуется от правила minimax.",
+			"topP": null,
+			"note": "MiniMax M3.1 присылает рассуждение полем reasoning_content, а не тегами <think> в content, как M3 и ранние: на OpenAI-проводе оно возвращается тем же полем, на Anthropic-проводе — блоками thinking. Мышление не выключается; уровни — low…max, по умолчанию max; на Anthropic-проводе уровень задаётся output_config.effort. Остальное (сэмплинг, пустой слот рассуждения, возврат, отказ от принудительного выбора инструмента) наследуется от правила minimax. topP: null — вендор просит не задавать свой top_p (сводка 19.11), поэтому унаследованные от minimax 0.95 снимаются и поле в запрос не попадает.",
 			"source": "https://platform.minimax.io/docs/api-reference/text-openai-api + https://platform.minimax.io/docs/api-reference/text-anthropic-api",
-			"observedAt": "2026-10-01"
+			"observedAt": "2026-11-19"
 		},
 		{
 			"match": "minimax-text-01",
