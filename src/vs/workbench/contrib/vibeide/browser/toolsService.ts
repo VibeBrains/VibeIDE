@@ -24,7 +24,12 @@ import { IVibePromptGuardService } from '../common/vibePromptGuardService.js';
 import { IVibePerFilePermissionsService } from '../common/vibePerFilePermissionsService.js';
 import { IVibeIgnoreService } from './vibeIgnoreService.js';
 import { registerSingleton, InstantiationType } from '../../../../platform/instantiation/common/extensions.js';
-import { createDecorator, IInstantiationService } from '../../../../platform/instantiation/common/instantiation.js';
+import { createDecorator, IInstantiationService, optional } from '../../../../platform/instantiation/common/instantiation.js';
+import { buildToolCallAudit } from '../common/toolCallAudit.js';
+import { approvalTypeOfBuiltinToolName } from '../common/prompt/tools/index.js';
+import { CODE_MODE_MAX_SCRIPT_CHARS, CODE_MODE_MAX_OUTPUT_CHARS, CODE_MODE_SETTING_ENABLED, CODE_MODE_SETTING_TIMEOUT_SEC, buildCodeModeReport, codeModeLimits, codeModeNeedsApproval, codeModeToolRefusal } from '../common/codeMode/codeMode.js';
+import { IVibeCodeModeSandboxService } from '../common/codeMode/codeModeSandboxService.js';
+import { codeModeErrorMessage } from '../common/codeMode/codeModeIpc.js';
 import { IWorkspaceContextService } from '../../../../platform/workspace/common/workspace.js';
 import { IVibeTaskLedgerService } from './vibeTaskLedgerService.js';
 import { Task, TaskStatus } from '../common/taskLedger/taskModel.js';
@@ -357,6 +362,8 @@ export class ToolsService extends Disposable implements IToolsService {
 		@ILLMMessageService private readonly _llmMessageService: ILLMMessageService,
 		@IVibeWatchMediaService private readonly watchMediaService: IVibeWatchMediaService,
 		@IPathService private readonly pathService: IPathService,
+		// Песочницы нет в веб-сборке: там Code Mode просто не может выполнить скрипт
+		@optional(IVibeCodeModeSandboxService) private readonly _codeModeSandbox: IVibeCodeModeSandboxService | undefined,
 	) {
 		super();
 		this._offlineGate = new OfflinePrivacyGate();
@@ -1216,6 +1223,22 @@ export class ToolsService extends Disposable implements IToolsService {
 				return { summary };
 			},
 
+			run_code_mode: (params: RawToolParamsObj) => {
+				// Настройка проверяется на входе, а не только при показе списка инструментов:
+				// вызов мог прийти из истории, повтора или другого транспорта
+				if (this._configurationService.getValue<boolean>(CODE_MODE_SETTING_ENABLED) !== true) {
+					throw new Error('Code Mode выключен настройкой `vibeide.agent.codeMode` — инструмент не выполняется');
+				}
+				const script = (params as { script?: unknown }).script;
+				if (typeof script !== 'string' || script.trim().length === 0) {
+					throw new Error('run_code_mode: параметр `script` обязателен и должен быть непустой строкой');
+				}
+				if (script.length > CODE_MODE_MAX_SCRIPT_CHARS) {
+					throw new Error(`run_code_mode: скрипт длиннее ${CODE_MODE_MAX_SCRIPT_CHARS} символов`);
+				}
+				return { script };
+			},
+
 		};
 
 		// VibeIDE D.12: writing to a path that is an existing *directory* previously
@@ -1232,6 +1255,60 @@ export class ToolsService extends Disposable implements IToolsService {
 					hint: 'Use a file path (add a filename under this directory), or delete_file_or_folder if you meant to remove the directory.',
 				});
 			}
+		};
+
+		// Вложенный вызов из Code Mode — обычный вызов инструмента, только попрошенный из песочницы
+		// Здесь нет своего пути исполнения: те же validateParams, те же одобрения, те же запреты
+		const runCodeModeNestedCall = async (toolName: string, argsJson: string): Promise<{ ok: boolean; text: string }> => {
+			const refusal = codeModeToolRefusal(toolName);
+			if (refusal) {
+				return { ok: false, text: refusal };
+			}
+			if (!Object.hasOwn(this.validateParams, toolName)) {
+				return { ok: false, text: `Инструмента «${toolName}» нет среди встроенных` };
+			}
+			const name = toolName as BuiltinToolName;
+			let params: unknown;
+			try {
+				const parsed = argsJson.trim() === '' ? {} : JSON.parse(argsJson);
+				if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) {
+					return { ok: false, text: 'Аргументы вызова должны быть объектом' };
+				}
+				params = this.validateParams[name](parsed as RawToolParamsObj);
+			} catch (error) {
+				return { ok: false, text: codeModeErrorMessage(error) };
+			}
+
+			// Одобрение спрашивается по той же категории, что у обычного вызова: скрипт не ярлык
+			const approvalType = approvalTypeOfBuiltinToolName[name];
+			if (codeModeNeedsApproval(approvalType, this.vibeideSettingsService.state.globalSettings)) {
+				const { confirmed } = await this.dialogService.confirm({
+					message: localize('vibeide.codeMode.approve', "Скрипт Code Mode запрашивает инструмент «{0}»", toolName),
+					detail: localize('vibeide.codeMode.approveDetail', "Вызов идёт обычным путём: правила путей, запреты проекта и защита конфигурации действуют."),
+					primaryButton: localize('vibeide.codeMode.approveButton', "Разрешить"),
+				});
+				if (!confirmed) {
+					return { ok: false, text: `Пользователь отклонил вызов инструмента «${toolName}»` };
+				}
+			}
+
+			let answer: { ok: boolean; text: string };
+			try {
+				const { result } = await this.callTool[name](params as never);
+				answer = { ok: true, text: this.stringOfResult[name](params as never, result as never) };
+			} catch (error) {
+				answer = { ok: false, text: codeModeErrorMessage(error) };
+			}
+
+			// Аудит с пометкой: в журнале видно, что вызов пришёл из скрипта, а не из хода напрямую
+			if (this._auditLogService.isEnabled()) {
+				const audit = buildToolCallAudit({ toolName, params: (params ?? {}) as Record<string, unknown> });
+				void this._auditLogService.append({
+					actor: 'agent', ts: Date.now(), action: 'tool_call:done', ok: answer.ok,
+					files: audit.files, meta: { ...audit.meta, codeMode: true }, toolCallId: generateUuid(),
+				}).catch(() => { /* аудит — наблюдение, не управление */ });
+			}
+			return answer;
 		};
 
 		this.callTool = {
@@ -3541,6 +3618,32 @@ export class ToolsService extends Disposable implements IToolsService {
 				// run BEFORE dispatch reaches here. Implemented for type-completeness / safety.
 				return { result: { summary } };
 			},
+			run_code_mode: async ({ script }) => {
+				if (!this._codeModeSandbox) {
+					throw new Error('Code Mode доступен только в настольной версии VibeIDE: песочницы нет в этой сборке');
+				}
+				const limits = codeModeLimits(this._configurationService.getValue<number>(CODE_MODE_SETTING_TIMEOUT_SEC));
+				const outcome = await this._codeModeSandbox.run(script, {
+					timeoutSec: limits.timeoutSec,
+					maxCalls: limits.maxCalls,
+					callTool: runCodeModeNestedCall,
+				});
+				const output = buildCodeModeReport({
+					logs: outcome.logs,
+					valueText: outcome.valueText,
+					valueError: outcome.valueError,
+					calls: outcome.calls,
+					error: outcome.error,
+				});
+				return {
+					result: {
+						output,
+						calls: outcome.calls.map(call => ({ tool: call.tool, ok: call.ok, ...(call.error ? { error: call.error } : {}) })),
+						// Отчёт обрезан — сказать об этом прямо, иначе модель считает вывод полным
+						truncated: output.length >= CODE_MODE_MAX_OUTPUT_CHARS,
+					},
+				};
+			},
 		};
 
 
@@ -4107,6 +4210,10 @@ ${lines.join('\n\n')}`;
 			vibe_complete: (_params, result) => {
 				// Normally unreached (loop short-circuits before dispatch); harmless otherwise.
 				return result.summary ? `Ход завершён. Итог: ${result.summary}` : 'Ход завершён.';
+			},
+			run_code_mode: (_params, result) => {
+				// Отчёт собран заранее: значение скрипта, вывод и список вызовов уже размечены
+				return result.output;
 			},
 		};
 

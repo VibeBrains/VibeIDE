@@ -105,6 +105,7 @@ import { IVibeSlashCommandService, buildCommandInvocationBlock } from '../common
 import { parsePromptSlashInvocation } from '../common/chatSlashCommands.js';
 import { IAuditLogService } from '../common/auditLogService.js';
 import { IConfigurationService } from '../../../../platform/configuration/common/configuration.js';
+import { CODE_MODE_SETTING_ENABLED } from '../common/codeMode/codeMode.js';
 import { VIBE_DOTVIBE_AGENT_PLAYBOOK } from '../common/vibeDotVibeAgentPlaybook.js';
 import { IVibeContextGuardService } from './vibeContextGuardService.js';
 import { IRemoteCatalogService } from '../common/remoteCatalogService.js';
@@ -1712,7 +1713,7 @@ class ConvertToLLMMessageService extends Disposable implements IConvertToLLMMess
 		// The tool budget of this model; `providerName`/`modelName` are part of the cache key, so it cannot leak into another
 		// model's cached prompt.
 		const { maxTools } = this._promptBudgets(providerName, modelName);
-		const systemMessage = chat_systemMessage({ workspaceFolders, chatMode, mcpTools, includeXMLToolDefinitions, strictJsonToolArguments: preferJsonToolArguments, minimalismMode, brevity, modelFamily, memoryProjects, maxTools, modelIdentity: this._modelIdentity(providerName, modelName) });
+		const systemMessage = chat_systemMessage({ workspaceFolders, chatMode, mcpTools, includeXMLToolDefinitions, strictJsonToolArguments: preferJsonToolArguments, minimalismMode, brevity, modelFamily, memoryProjects, maxTools, modelIdentity: this._modelIdentity(providerName, modelName), codeMode: this.configurationService.getValue<boolean>(CODE_MODE_SETTING_ENABLED) === true });
 
 		// Cache the result
 		this._systemMessageCache.set(cacheKey, { message: systemMessage, timestamp: now });
@@ -1961,7 +1962,7 @@ class ConvertToLLMMessageService extends Disposable implements IConvertToLLMMess
 		const fullSystem = await this._generateChatMessagesSystemMessage('agent', specialToolFormat, sel?.providerName, sel?.modelName);
 		// Native function-calling models receive tools via the SDK, NOT in the prompt. We still
 		// estimate the XML tool-schema size to show how heavy the tool surface is for this model.
-		const toolsStr = systemToolsXMLPrompt('agent', this.mcpService.getMCPTools());
+		const toolsStr = systemToolsXMLPrompt('agent', this.mcpService.getMCPTools(), undefined, this.configurationService.getValue<boolean>(CODE_MODE_SETTING_ENABLED) === true);
 		const toolsViaSdk = !!specialToolFormat;
 		const frameTokens = Math.max(0, est(fullSystem) - (toolsViaSdk ? 0 : est(toolsStr)));
 
@@ -2056,7 +2057,7 @@ class ConvertToLLMMessageService extends Disposable implements IConvertToLLMMess
 			const modelFamily = detectModelFamily(validProviderName, modelName, specialToolFormat);
 			const mcpTools = this.mcpService.getMCPTools();
 			const memoryProjects = await this._memoryProjects(workspaceFolders);
-			systemMessage = chat_systemMessage_local({ memoryProjects, workspaceFolders, chatMode, mcpTools, includeXMLToolDefinitions, strictJsonToolArguments: preferJsonToolArguments, minimalismMode: this.vibeideSettingsService.state.globalSettings.minimalismMode ?? 'lite', brevity: brevityLevelOf(this.configurationService.getValue(BREVITY_SETTING)), modelFamily, maxTools: this._promptBudgets(providerName, modelName).maxTools, modelIdentity: this._modelIdentity(validProviderName, modelName) });
+			systemMessage = chat_systemMessage_local({ memoryProjects, workspaceFolders, chatMode, mcpTools, includeXMLToolDefinitions, strictJsonToolArguments: preferJsonToolArguments, minimalismMode: this.vibeideSettingsService.state.globalSettings.minimalismMode ?? 'lite', brevity: brevityLevelOf(this.configurationService.getValue(BREVITY_SETTING)), modelFamily, maxTools: this._promptBudgets(providerName, modelName).maxTools, modelIdentity: this._modelIdentity(validProviderName, modelName), codeMode: this.configurationService.getValue<boolean>(CODE_MODE_SETTING_ENABLED) === true });
 		} else {
 			// Use full system message for cloud models
 			systemMessage = await this._generateChatMessagesSystemMessage(chatMode, specialToolFormat, validProviderName, modelName);

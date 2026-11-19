@@ -27,6 +27,8 @@ export const workbenchDesktop = [
 	createModuleDescription('vs/platform/terminal/node/ptyHostMain'),
 	// VibeIDE: STT utility process (voice input / dictation)
 	createModuleDescription('vs/workbench/contrib/vibeide/node/voice/vibeVoiceWorkerMain'),
+	// VibeIDE: Code Mode sandbox — a separate Node process, so the script never runs in the window
+	createModuleDescription('vs/workbench/contrib/vibeide/node/codeMode/codeModeSandboxMain'),
 	createModuleDescription('vs/workbench/api/node/extensionHostProcess'),
 	createModuleDescription('vs/workbench/workbench.desktop.main'),
 ];

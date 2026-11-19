@@ -245,6 +245,7 @@ import './contrib/vibeide/electron-browser/video/vibeVideoChatService.js';
 import './contrib/vibeide/electron-browser/acp/vibeAcpService.js';
 import './contrib/vibeide/electron-browser/acp/vibeAcpRegistryImportService.js';
 import './contrib/vibeide/electron-browser/acp/vibeAcpIdeMcpService.js';
+import './contrib/vibeide/electron-browser/codeMode/codeModeSandboxService.js';
 // System-wide (OS global) Keybindings
 import './contrib/keybindings/electron-browser/systemWideKeybindings.contribution.js';
 

@@ -365,6 +365,8 @@ export type LLMRuntimeOptions = {
 	 * a floating alias too. Unknown on the first turn — the build is learnt from the first answer
 	 */
 	servedModel?: string;
+	/** Включён ли Code Mode: от этого зависит, показывать ли модели инструмент `run_code_mode` */
+	codeMode?: boolean;
 	timeoutMs?: {
 		local?: number;
 		cloud?: number;
