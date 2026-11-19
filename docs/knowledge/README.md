@@ -243,6 +243,7 @@
 | [volumesFileWatcher.md](runtimeQuirks/volumesFileWatcher.md) | **[квирк→решение]** Раньше любой путь под `/Volumes/` считался сетевым; с 28.10.2026 сетевость определяется по `statfs.type` (SMB/NFS/WebDAV), локальный APFS наблюдается штатно |
 | [extensionsLocalizationCache.md](runtimeQuirks/extensionsLocalizationCache.md) | **[баг→решение]** Сканирование с явным языком и без него использует один `resolvedLanguage`: builtin extension cache больше не инвалидируется из-за английских и русских манифестов; дубли настроек из vibeide-neon удалены |
 | [modelSelfIdentity.md](runtimeQuirks/modelSelfIdentity.md) | **[квирк]** Без имени в системном сообщении модель на вопрос «кто ты» отвечает по памяти обучения и называет себя Claude; `modelIdentityLine` называет модель, id и провайдера в обоих шаблонах |
+| [firstTokenTimeout.md](runtimeQuirks/firstTokenTimeout.md) | **[дефект→решение]** Сторож рвал медленно начинающие модели: один `gapTimeoutMs` до первого фрагмента и между фрагментами. Теперь порог до первого фрагмента — floor из `streamFirstTokenTimeoutSeconds` + 10 с за каждые 50k токенов сверх 50k и не меньше 1,5× истории модели (10 значений в памяти), потолок — hard-stall |
 | [openRouterFrontierModels.md](runtimeQuirks/openRouterFrontierModels.md) | LongCat-2.0 (плавающие 33–56B активных, OpenAI+Anthropic API) и Inkling (reasoning-effort 0.2–0.99 как драйвер цены) как BYOK-провайдеры; правило «один LLM ненадёжен для security-скана → ансамбль провайдеров + мерж находок» |
 
 ### [roadmap/](roadmap/) — run logs (long sessions)
