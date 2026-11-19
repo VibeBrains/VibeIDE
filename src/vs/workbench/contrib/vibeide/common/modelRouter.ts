@@ -7,6 +7,7 @@
 import { vibeLog } from './vibeLog.js';
 import { ModelSelection } from './vibeideSettingsTypes.js';
 import { isLocalProvider } from './isLocalProvider.js';
+import { isInteractiveOnlyProvider } from './interactiveOnlyProvider.js';
 import { getModelCapabilities, VibeideStaticModelInfo } from './modelCapabilities.js';
 import { retiredForAutoPick } from './modelDeprecation.js';
 import { ModelAvailabilityRegistry, ModelUnavailability, providerSetupKey } from './modelAvailability.js';
@@ -915,7 +916,9 @@ export class TaskAwareModelRouter extends Disposable implements ITaskAwareModelR
 	 */
 	private isAutoPickable(model: ModelSelection, settingsState: VibeideSettingsState): boolean {
 		return !retiredForAutoPick(getModelCapabilities(model.providerName, model.modelName, settingsState.overridesOfModel), Date.now())
-			&& !this.isUnavailable(model);
+			&& !this.isUnavailable(model)
+			// Тариф «только вручную»: «Авто» не вправе выбрать модель за человека
+			&& !isInteractiveOnlyProvider(model.providerName, settingsState.settingsOfProvider);
 	}
 
 	/**

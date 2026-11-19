@@ -26,7 +26,7 @@ import { IDisposable } from '../../../../../../../base/common/lifecycle.js';
 import { ErrorDisplay } from './ErrorDisplay.js';
 import { BlockCode, TextAreaFns, VibeCustomDropdownBox, VibeInputBox2, VibeSlider, VibeSwitch, VibeDiffEditor } from '../util/inputs.js';
 import { ModelDropdown, } from '../vibe-settings-tsx/ModelDropdown.js';
-import { AcpModeControl, AcpCompactionLine, AcpNoticeLine, AcpPermissionCard, AcpToolCard, useAcpAgentCommands } from './AcpChat.js';
+import { AcpModeControl, AcpCompactionLine, AcpNoticeLine, AcpPermissionCard, AcpPromptSuggestions, AcpToolCard, useAcpAgentCommands } from './AcpChat.js';
 import { agentCommandOf } from '../../../../common/acp/acpProtocol.js';
 import { chatLeaderOf } from '../../../../common/chatLeader.js';
 import { PastThreadsList, ChatHistoryToolbarDropdown } from './SidebarThreadSelector.js';
@@ -7247,6 +7247,7 @@ export const SidebarChat = () => {
 			) : null
 		}
 	>
+		<AcpPromptSuggestions onPick={(text) => { onChangeText(text); textAreaRef.current?.focus(); }} />
 		<VibeInputBox2
 			enableAtToMention
 			appearance="chatTransparent"

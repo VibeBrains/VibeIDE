@@ -710,6 +710,18 @@ const openSourceModelOptions_assumingOAICompat = {
 		contextWindow: 262_144, reservedOutputTokenSpace: 32_768,
 		cost: { input: 0.60, output: 2.50 },
 	},
+	// Meta Muse Ember (09.11.2026): the lightest Muse for bulk agent steps, $0.10/$0.50, 1M window, up to 512K out, takes
+	// images. Served by the same Meta Model API as Muse Spark (`muse-ember-1.0`). Without a profile it fell to the zero-price
+	// default, and the router read it as free. Reasoning knobs are not documented, so none are declared (сводка 19.11)
+	'museEmber': {
+		supportsFIM: false,
+		supportsSystemMessage: 'system-role',
+		specialToolFormat: 'openai-style',
+		supportsVision: true,
+		reasoningCapabilities: false,
+		contextWindow: 1_000_000, reservedOutputTokenSpace: 32_768,
+		cost: { input: 0.10, output: 0.50 },
+	},
 	// FIM only
 	'starcoder2': {
 		supportsFIM: true,
@@ -858,6 +870,7 @@ const extensiveModelOptionsFallback: VoidStaticProviderInfo['modelOptionsFallbac
 	if (lower.includes('kimi-k2.7')) { return toFallback(openSourceModelOptions_assumingOAICompat, lower.includes('highspeed') ? 'kimiK2.7Highspeed' : 'kimiK2.7'); }
 	if (lower.includes('kimi-k2.6')) { return toFallback(openSourceModelOptions_assumingOAICompat, 'kimiK2.6'); }
 	if (lower.includes('kimi')) { return toFallback(openSourceModelOptions_assumingOAICompat, 'kimiK2.5'); }
+	if (lower.includes('muse-ember')) { return toFallback(openSourceModelOptions_assumingOAICompat, 'museEmber'); }
 	if (lower.includes('phi4')) { return toFallback(openSourceModelOptions_assumingOAICompat, 'phi4'); }
 	if (lower.includes('codestral')) { return toFallback(openSourceModelOptions_assumingOAICompat, 'codestral'); }
 	if (lower.includes('devstral')) { return toFallback(openSourceModelOptions_assumingOAICompat, 'devstral'); }

@@ -10,7 +10,7 @@ import { GatedOutcome, gateVerdictOf, GateVerdict, StepStart, stepStart, verdict
 import { buildStepInput, PipelineStepOutcome, stepCountsAsDone, VibePipelineStep } from '../../common/pipeline/vibePipelineFile.js';
 
 const run = (over: { exitCode?: number | undefined; stdout?: string; stderr?: string; timedOut?: boolean } = {}) => ({
-	hook: { event: 'pipelineStepEnd' as const, command: 'node gate.js', tools: [], timeoutMs: 1000, label: undefined },
+	hook: { event: 'pipelineStepEnd' as const, command: 'node gate.js', tools: [], timeoutMs: 1000, label: undefined, onFailure: 'continue' as const },
 	exitCode: 0, stdout: '', stderr: '', timedOut: false, durationMs: 5, ...over,
 });
 

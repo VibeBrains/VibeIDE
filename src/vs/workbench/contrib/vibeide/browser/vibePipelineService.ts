@@ -720,6 +720,7 @@ export class VibePipelineService extends Disposable implements IVibePipelineServ
 					...(step.maxTokens !== undefined ? { maxTokens: step.maxTokens } : {}),
 					...(step.maxSteps !== undefined ? { maxSteps: step.maxSteps } : {}),
 					...(model ? { modelSelection: { providerName: model.providerName as ProviderId, modelName: model.modelName } } : {}),
+					launchSource: 'pipeline',
 					// Границы записи шага — независимо от роли: роль решает «пишет ли вообще»,
 					// это решает «пишет ли СЮДА».
 					...(step.paths || step.denyPaths ? {

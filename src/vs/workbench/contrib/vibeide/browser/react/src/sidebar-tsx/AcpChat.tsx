@@ -209,6 +209,8 @@ const useAcpSessionView = (sessionId: string | undefined) => {
 				&& previous?.grants === next?.grants
 				&& previous?.configOptions === next?.configOptions
 				&& previous?.configuring === next?.configuring
+				// Подсказки приходят новым массивом на каждый кадр: иначе строка кнопок застыла бы на первом
+				&& previous?.suggestions === next?.suggestions
 				? previous : next;
 		});
 		sync();
@@ -433,6 +435,31 @@ export const AcpModeControl = ({ className }: { className: string }) => {
 			{`Сбросить разрешения сессии (${grants})`}
 		</button>}
 	</>;
+};
+
+// ── Подсказки промпта ─────────────────────────────────────────────────────────
+
+/**
+ * Что человек, возможно, отправит следующим: подсказки прислал сам агент (v1.32)
+ * Нажатие только кладёт текст в поле ввода: отправляет его человек, а не кнопка
+ */
+export const AcpPromptSuggestions = ({ onPick }: { readonly onPick: (text: string) => void }) => {
+	const threadsState = useChatThreadsState();
+	const thread = threadsState.allThreads[threadsState.currentThreadId];
+	const view = useAcpSessionView(thread?.acpAgent?.sessionId);
+	const suggestions = view?.suggestions ?? [];
+	if (suggestions.length === 0) { return null; }
+	return <div className='flex flex-wrap gap-1.5 px-1 pb-1' role='group' aria-label='Подсказки для следующего сообщения'>
+		{suggestions.map((suggestion, index) => <button
+			key={`${index}:${suggestion.text}`}
+			type='button'
+			className='max-w-full truncate rounded-full border border-vibe-border-3 px-2.5 py-1 text-xs text-vibe-fg-2 transition-colors hover:bg-vibe-bg-2-hover hover:text-vibe-fg-1 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-vibe-border-1'
+			title={suggestion.text}
+			onClick={() => onPick(suggestion.text)}
+		>
+			{suggestion.text}
+		</button>)}
+	</div>;
 };
 
 // ── Команды агента ────────────────────────────────────────────────────────────

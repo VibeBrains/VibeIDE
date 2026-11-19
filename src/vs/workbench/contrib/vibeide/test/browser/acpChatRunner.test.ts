@@ -57,6 +57,7 @@ class FakeSessions {
 			log: this.log.snapshot,
 			pendingPermissions: [],
 			permissionMode: this.mode,
+			suggestions: [],
 			grants: [],
 			configOptions: [],
 			configuring: false,
