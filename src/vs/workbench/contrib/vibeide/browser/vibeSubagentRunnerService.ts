@@ -272,6 +272,8 @@ class VibeSubagentRunnerService extends Disposable implements IVibeSubagentRunne
 				chatMessages: history,
 				chatMode,
 				modelSelection,
+				// Субагент — это пайплайн, фон и расписание: человека рядом нет, спросить некого
+				interactive: false,
 				// Do not clobber the parent thread's context meter with this role's prompt size.
 				skipContextGuardUpdate: true,
 			});

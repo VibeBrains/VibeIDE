@@ -775,8 +775,12 @@ export class VibeTelegramBridgeContribution extends Disposable implements IWorkb
 		}
 
 		try {
+			// Прогон из Telegram идёт без человека у IDE: навык с инструментами/хуками не должен
+			// молча получить одобрение, которого никто не давал
+			this._chatThreadService.setThreadAutonomous(threadId, true);
 			await this._chatThreadService.addUserMessageAndStreamResponse({ userMessage: prompt, threadId });
 		} catch (e) {
+			this._chatThreadService.setThreadAutonomous(threadId, false);
 			this._activeRuns.delete(threadId);
 			await this._reply(chatId, `Не смог запустить: ${(e as Error).message}`);
 			return;
@@ -798,9 +802,18 @@ export class VibeTelegramBridgeContribution extends Disposable implements IWorkb
 			token: this._lifetime.token,
 		});
 		const run = this._activeRuns.get(threadId);
-		if (!outcome || !run || run.startedAtMs !== startedAtMs) {
+		if (!run || run.startedAtMs !== startedAtMs) {
+			// Тред уже занят более новым прогоном: его отметку снимает он сам
 			return;
 		}
+		if (!outcome) {
+			// Итог не пришёл (отмена или таймаут ожидания): без снятия отметки тред навсегда
+			// остался бы автономным и молча отказывал человеку в навыках с инструментами
+			this._chatThreadService.setThreadAutonomous(threadId, false);
+			return;
+		}
+		// Прогон из Telegram закончился — тред снова обычный, человек может продолжить в IDE
+		this._chatThreadService.setThreadAutonomous(threadId, false);
 		this._activeRuns.delete(threadId);
 		switch (outcome.phase) {
 			case 'failed':

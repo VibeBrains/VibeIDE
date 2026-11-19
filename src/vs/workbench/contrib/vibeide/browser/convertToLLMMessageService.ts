@@ -1389,8 +1389,10 @@ export interface IConvertToLLMMessageService {
 	 * models; the caller keeps it on the answer so a later request can tell its thinking blocks are still valid
 	 *
 	 * `taskSource` — бриф задачи; при сжатии истории его текст попадает в `<task_source>` рядом с исходной задачей
+	 *
+	 * `interactive` — рядом ли человек, который может одобрить навык; `false` в пайплайне, HTTP API и Telegram
 	 */
-	prepareLLMChatMessages: (opts: { chatMessages: ChatMessage[]; chatMode: ChatMode; modelSelection: ModelSelection | null; repoIndexerPromise?: Promise<{ results: string[]; metrics: QueryMetrics } | null>; skipContextGuardUpdate?: boolean; taskSource?: CompactionTaskSource }) => Promise<{ messages: LLMChatMessage[]; separateSystemMessage: string | undefined; turnContext?: string; reasoningPrefix?: string }>;
+	prepareLLMChatMessages: (opts: { chatMessages: ChatMessage[]; chatMode: ChatMode; modelSelection: ModelSelection | null; repoIndexerPromise?: Promise<{ results: string[]; metrics: QueryMetrics } | null>; skipContextGuardUpdate?: boolean; taskSource?: CompactionTaskSource; interactive?: boolean }) => Promise<{ messages: LLMChatMessage[]; separateSystemMessage: string | undefined; turnContext?: string; reasoningPrefix?: string }>;
 	prepareFIMMessage(opts: { messages: LLMFIMMessage; modelSelection: ModelSelection | null; featureName: FeatureName; languageId?: string }): { prefix: string; suffix: string; stopTokens: string[] };
 	startRepoIndexerQuery: (chatMessages: ChatMessage[], chatMode: ChatMode) => Promise<{ results: string[]; metrics: QueryMetrics } | null>;
 	/** Feed back a provider-reported prompt token count so the token-budget estimator can self-calibrate per (provider×model). No-op until a prompt has been built for that model this session. */
@@ -2009,7 +2011,7 @@ class ConvertToLLMMessageService extends Disposable implements IConvertToLLMMess
 		};
 	};
 
-	prepareLLMChatMessages: IConvertToLLMMessageService['prepareLLMChatMessages'] = async ({ chatMessages, chatMode, modelSelection, repoIndexerPromise, skipContextGuardUpdate, taskSource }) => {
+	prepareLLMChatMessages: IConvertToLLMMessageService['prepareLLMChatMessages'] = async ({ chatMessages, chatMode, modelSelection, repoIndexerPromise, skipContextGuardUpdate, taskSource, interactive }) => {
 		if (modelSelection === null) { return { messages: [], separateSystemMessage: undefined }; }
 
 		// Subagents run against the SAME context-guard singleton as the main thread. Writing this
@@ -2179,7 +2181,7 @@ class ConvertToLLMMessageService extends Disposable implements IConvertToLLMMess
 		let commandInvocationPrefix = '';
 		if (promptCommand) {
 			try {
-				const expanded = await this.slashCommandService.expand(`/${promptCommand.command}`, promptCommand.args);
+				const expanded = await this.slashCommandService.expand(`/${promptCommand.command}`, promptCommand.args, { interactive });
 				commandInvocationPrefix = buildCommandInvocationBlock(promptCommand.command, expanded);
 			} catch (err) {
 				vibeLog.warn('SlashCommands', 'expand threw', { command: promptCommand.command, err: String(err) });
@@ -2204,7 +2206,7 @@ class ConvertToLLMMessageService extends Disposable implements IConvertToLLMMess
 		if (explicitSkillIdsForExpand.length > 0) {
 			for (const skillId of explicitSkillIdsForExpand) {
 				try {
-					const expanded = await this.slashCommandService.expand(`/skill:${skillId}`);
+					const expanded = await this.slashCommandService.expand(`/skill:${skillId}`, undefined, { interactive });
 
 					vibeLog.debug('Skill', 'expand result', { skillId, isNull: expanded === null, isEmpty: expanded === '', bodyLen: expanded?.length ?? 0, headSnippet: expanded?.slice(0, 120) ?? null });
 					if (expanded) {

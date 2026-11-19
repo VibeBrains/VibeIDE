@@ -15,7 +15,8 @@ import { IVibeWorkflowService, VibeWorkflow } from './vibeWorkflowService.js';
 import { IVibeSkillsLibraryService, VibeSkillEntry } from './vibeSkillsLibraryService.js';
 import { IVibePromptGuardService } from './vibePromptGuardService.js';
 import { IDialogService } from '../../../../platform/dialogs/common/dialogs.js';
-import { describeSkillForApproval } from './skillApproval.js';
+import { INotificationService } from '../../../../platform/notification/common/notification.js';
+import { decideSkillLaunch, describeSkillForApproval } from './skillApproval.js';
 import { PROMPT_SLASH_COMMAND_NAMES, PromptSlashCommandName, isSlashCommandFileName } from './chatSlashCommands.js';
 import { CONVENTIONAL_COMMIT_TYPES } from './conventionalCommitFormat.js';
 
@@ -97,6 +98,12 @@ export interface SlashCommand {
 
 export const IVibeSlashCommandService = createDecorator<IVibeSlashCommandService>('vibeSlashCommandService');
 
+/** Откуда пришёл запуск: человек рядом или режим без человека */
+export interface SkillExpansionOptions {
+	/** Не задано — считается интерактивным: человек может ответить на вопрос */
+	readonly interactive?: boolean;
+}
+
 export interface IVibeSlashCommandService {
 	readonly _serviceBrand: undefined;
 
@@ -104,7 +111,7 @@ export interface IVibeSlashCommandService {
 	getCommands(): Promise<SlashCommand[]>;
 
 	/** Expand a slash command to prompt text */
-	expand(command: string, args?: string): Promise<string | null>;
+	expand(command: string, args?: string, options?: SkillExpansionOptions): Promise<string | null>;
 
 	/** Check if input starts with a slash command */
 	isSlashCommand(input: string): boolean;
@@ -182,6 +189,7 @@ export class VibeSlashCommandService extends Disposable implements IVibeSlashCom
 		@IVibeSkillsLibraryService private readonly _skillsLibrary: IVibeSkillsLibraryService,
 		@IVibePromptGuardService private readonly _promptGuard: IVibePromptGuardService,
 		@IDialogService private readonly _dialogService: IDialogService,
+		@INotificationService private readonly _notifications: INotificationService,
 	) {
 		super();
 	}
@@ -191,7 +199,27 @@ export class VibeSlashCommandService extends Disposable implements IVibeSlashCom
 	 * in included, since their text reaches the model just the same. Approving here approves these
 	 * files as they are now; any later change asks again.
 	 */
-	private async _confirmSkillsForUse(chain: readonly VibeSkillEntry[]): Promise<boolean> {
+	private async _confirmSkillsForUse(chain: readonly VibeSkillEntry[], interactive: boolean): Promise<boolean> {
+		// Навык, просящий инструменты или хуки, без человека не запускается молча: отпечаток
+		// должен быть одобрен именно в IDE. Интерактивный запуск идёт прежним путём — вопросом
+		const refused = chain
+			.map(skill => ({
+				skill,
+				verdict: decideSkillLaunch({
+					declaresTools: (skill.requiresTools?.length ?? 0) > 0,
+					declaresHooks: skill.hooks === true,
+					interactive,
+					digest: skill.package?.digest,
+					approvedDigest: skill.package?.trust === 'approved' ? skill.package.digest : undefined,
+				}),
+			}))
+			.find(entry => entry.verdict.decision === 'reject');
+		if (refused) {
+			const reason = refused.verdict.reason ?? localize('vibeide.skills.launch.refusedShort', "Навык просит инструменты/хуки — одобрите его в IDE.");
+			this._notifications.warn(localize('vibeide.skills.launch.refused', "Навык «{0}» не запущен: {1}", refused.skill.skillId, reason));
+			vibeLog.warn('SlashCommands', `Skill ${refused.skill.skillId} refused in an unattended run: ${reason}`);
+			return false;
+		}
 		const pending = chain.filter(skill => !this._skillsLibrary.isSkillAvailableToModel(skill));
 		if (pending.length === 0) {
 			return true;
@@ -260,7 +288,7 @@ export class VibeSlashCommandService extends Disposable implements IVibeSlashCom
 		return commands;
 	}
 
-	async expand(command: string, args: string = ''): Promise<string | null> {
+	async expand(command: string, args: string = '', options?: SkillExpansionOptions): Promise<string | null> {
 		const cmdName = command.startsWith('/') ? command.slice(1) : command;
 
 		// Built-in command
@@ -301,7 +329,7 @@ export class VibeSlashCommandService extends Disposable implements IVibeSlashCom
 						deps.push(dep);
 					}
 				}
-				if (!(await this._confirmSkillsForUse([...deps, skill]))) {
+				if (!(await this._confirmSkillsForUse([...deps, skill], options?.interactive !== false))) {
 					return null;
 				}
 				const chunks = [...deps.map(dep => buildSkillExpansion(dep)), buildSkillExpansion(skill, args)];

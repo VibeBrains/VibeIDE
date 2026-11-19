@@ -140,6 +140,8 @@ export class VibeHttpApiContribution extends Disposable implements IWorkbenchCon
 			// работает в этом же окне, и раньше уводил у него разговор из-под рук посреди фразы.
 			const sessionId = known ?? this._chatThreadService.createBackgroundThread();
 			threadId = sessionId;
+			// Внешний вызов идёт без человека: навык с инструментами/хуками без одобрения в IDE не запускается
+			this._chatThreadService.setThreadAutonomous(sessionId, true);
 			this._watches.set(sessionId, watchEntry);
 			// Внешний вызов работает в агентском режиме: в «Обзоре» и «Плане» инструменты правки
 			// модели не выдаются, и задача из CI тихо превращалась в рассказ «такого инструмента
@@ -193,6 +195,8 @@ export class VibeHttpApiContribution extends Disposable implements IWorkbenchCon
 		} finally {
 			// Drop the entry only if it is still this watch; a newer request may already have taken the session
 			if (threadId && this._watches.get(threadId) === watchEntry) {
+				// Прогон закончился — тред снова обычный, человек может продолжить в IDE
+				this._chatThreadService.setThreadAutonomous(threadId, false);
 				this._watches.deleteAndDispose(threadId);
 			} else {
 				watch.dispose();
