@@ -56,6 +56,7 @@ import { BROWSE_URL_TOOL } from './browse_url.js';
 import { EXTRACT_STRUCTURED_TOOL } from './extract_structured.js';
 import { WATCH_MEDIA_TOOL } from './watch_media.js';
 import { VIBE_COMPLETE_TOOL } from './vibe_complete.js';
+import { RUN_CODE_MODE_TOOL } from './run_code_mode.js';
 
 /**
  * Unified registry of all built-in tools — Kilo-style: each tool's full
@@ -132,6 +133,8 @@ export const builtinToolDefs = {
 	watch_media: WATCH_MEDIA_TOOL,
 	// agent control
 	vibe_complete: VIBE_COMPLETE_TOOL,
+	// один скрипт вместо серии вызовов; включается настройкой vibeide.agent.codeMode
+	run_code_mode: RUN_CODE_MODE_TOOL,
 } satisfies { [T in BuiltinToolName]: ToolDef<T> };
 
 /**
@@ -169,6 +172,8 @@ export const carriesExternalContentOfBuiltinToolName: Readonly<{ [T in BuiltinTo
 	handoff: true,
 	learning_state: true,
 	automated_code_review: true,
+	// скрипт возвращает результаты вложенных инструментов — чужой текст, а не слова агента
+	run_code_mode: true,
 	// терминал: вывод команд и фоновых процессов
 	run_command: true,
 	run_nl_command: true,

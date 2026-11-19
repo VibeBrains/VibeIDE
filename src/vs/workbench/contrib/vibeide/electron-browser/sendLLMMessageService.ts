@@ -39,6 +39,7 @@ import { INotificationService, Severity } from '../../../../platform/notificatio
 import { ICommandService } from '../../../../platform/commands/common/commands.js';
 import { localize } from '../../../../nls.js';
 import { ConfigurationTarget, IConfigurationService } from '../../../../platform/configuration/common/configuration.js';
+import { CODE_MODE_SETTING_ENABLED } from '../common/codeMode/codeMode.js';
 import { NormalizeCounterKey } from '../common/xmlToolNormalize.js';
 import type { LlmSendTraceEvent } from '../common/llmSendTrace.js';
 import { ILLMMessageService, TransportDiagnostics } from '../common/sendLLMMessageService.js';
@@ -466,6 +467,7 @@ export class LLMMessageService extends Disposable implements ILLMMessageService 
 			...(promptCacheKey ? { promptCacheKey } : {}), // conversation cache key; the adapter sends it only where declared
 			...(previousResponseId ? { previousResponseId } : {}), // Anthropic's cache diagnostics compare against it
 			...(servedModel ? { servedModel } : {}), // quirks follow the dated build behind a floating alias
+			codeMode: this.configurationService.getValue<boolean>(CODE_MODE_SETTING_ENABLED) === true, // скрипт-инструмент виден модели только при включённой настройке
 		};
 
 		// Transiently overlay dynamic-provider transport configs (.vibe/providers.json) so a dynamic

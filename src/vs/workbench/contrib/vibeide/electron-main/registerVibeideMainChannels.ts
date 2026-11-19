@@ -59,6 +59,9 @@ import { VIBE_LOG_ADMIN_CHANNEL } from '../common/vibeLogAdminIpc.js';
 import { VibeVoiceMainService } from './voice/vibeVoiceMainService.js';
 import { VibeVoiceChannel } from './voice/vibeVoiceChannel.js';
 import { VIBE_VOICE_CHANNEL } from '../common/voice/vibeVoiceTypes.js';
+import { VibeCodeModeMainService } from './codeMode/codeModeMainService.js';
+import { VibeCodeModeChannel } from './codeMode/codeModeChannel.js';
+import { VIBE_CODE_MODE_CHANNEL } from '../common/codeMode/codeModeIpc.js';
 import { VibeVideoMainService } from './video/vibeVideoMainService.js';
 import { VibeVideoChannel } from './video/vibeVideoChannel.js';
 import { VIBE_VIDEO_CHANNEL } from '../common/video/vibeVideoTypes.js';
@@ -200,6 +203,12 @@ export function registerVibeideMainProcessChannels(
 		accessor.get(ILifecycleMainService),
 	));
 	mainProcessElectronServer.registerChannel(VIBE_VOICE_CHANNEL, new VibeVoiceChannel(vibeVoiceMainService));
+
+	// Code Mode — песочница скриптов: процесс поднимается здесь, потому что окно не имеет
+	// права запускать произвольный Node-код, а главный процесс — имеет
+	mainProcessElectronServer.registerChannel(VIBE_CODE_MODE_CHANNEL, new VibeCodeModeChannel(
+		disposables.add(new VibeCodeModeMainService(accessor.get(ILogService), accessor.get(ILifecycleMainService))),
+	));
 
 	// Video analysis (/watch) — tools store + yt-dlp/ffmpeg pipeline in main; the renderer
 	// facade (electron-browser/video/) drives it and feeds frames to the chat vision request.

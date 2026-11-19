@@ -463,10 +463,11 @@ export const extractXMLToolsWrapper = (
 	chatMode: ChatMode | null,
 	mcpTools: InternalToolInfo[] | undefined,
 	attribution?: NormalizeAttribution,
+	codeMode?: boolean,
 ): { newOnText: OnText; newOnFinalMessage: OnFinalMessage } => {
 
 	if (!chatMode) { return { newOnText: onText, newOnFinalMessage: onFinalMessage }; }
-	const tools = availableTools(chatMode, mcpTools);
+	const tools = availableTools(chatMode, mcpTools, { codeMode });
 	if (!tools) { return { newOnText: onText, newOnFinalMessage: onFinalMessage }; }
 
 	const toolOfToolName: ToolOfToolName = {};
