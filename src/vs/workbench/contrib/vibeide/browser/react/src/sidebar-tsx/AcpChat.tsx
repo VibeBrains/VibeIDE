@@ -10,6 +10,7 @@ import { IAcpCommand, IAcpConfigChoice, IAcpConfigOption, IAcpDiff, isCompaction
 import { IAcpPermissionRequest } from '../../../../common/acp/acpTypes.js';
 import { ACP_PERMISSION_MODES, AcpDecisionReason, AcpGrant, AcpPermissionMode, DEFAULT_ACP_PERMISSION_MODE, describeAsking, describeGrant, permissionOptionLabel } from '../../../../common/acp/acpPermissionPolicy.js';
 import { acpToolStatusLabel, questionOfCall, splitAcpQuestions } from '../../../../common/acp/acpParallelPermissions.js';
+import { CHAT_MODE_CHOICE_LABEL } from '../../../../common/chatModeChoiceLabels.js';
 import { useAccessor, useChatThreadsState } from '../util/services.js';
 import { VibeCustomDropdownBox } from '../util/inputs.js';
 import { ToolHeaderWrapper, ToolChildrenWrapper } from './SidebarChat.js';
@@ -386,12 +387,11 @@ const AcpConfigPills = ({ sessionId, options, locked, className }: { sessionId: 
 
 // ── Режим ─────────────────────────────────────────────────────────────────────
 
-const MODE_NAMES: Record<AcpPermissionMode, string> = {
-	manual: 'Вручную',
-	edits: 'Правки',
-	plan: 'План',
-	auto: 'Автопилот',
-};
+/**
+ * Имена режимов — те же, что у встроенных моделей: каждый режим ACP есть пунктом общего списка «Режим»
+ * Описания свои: у внешнего агента режим исполняет он сам, а IDE только отвечает на его вопросы
+ */
+const modeName = (mode: AcpPermissionMode): string => CHAT_MODE_CHOICE_LABEL[mode];
 
 const MODE_DETAILS: Record<AcpPermissionMode, string> = {
 	manual: 'Каждое действие агента спрашивается',
@@ -420,8 +420,8 @@ export const AcpModeControl = ({ className }: { className: string }) => {
 			options={[...ACP_PERMISSION_MODES]}
 			selectedOption={mode}
 			onChangeOption={next => chatThreadService.setThreadAcpMode(thread.id, next)}
-			getOptionDisplayName={value => MODE_NAMES[value]}
-			getOptionDropdownName={value => MODE_NAMES[value]}
+			getOptionDisplayName={modeName}
+			getOptionDropdownName={modeName}
 			getOptionDropdownDetail={value => MODE_DETAILS[value]}
 			getOptionsEqual={(a, b) => a === b}
 			detailPresentation='tooltip'

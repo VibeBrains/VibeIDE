@@ -4,27 +4,10 @@
  *--------------------------------------------------------------------------------------------*/
 
 
-import type { ChatMode } from '../../../../common/vibeideSettingsTypes.js';
 import type { ChatJournalCategory } from '../../../../common/chatJournal.js';
 import { VIBE_WORKSPACE_FORMAT_VERSION } from '../../../../common/vibeDefaultWorkspaceReadme.js';
 
 const VV = VIBE_WORKSPACE_FORMAT_VERSION;
-
-/** Sidebar chat: mode labels in the dropdown. */
-export const chatModeDisplayName: Record<ChatMode, string> = {
-	normal: 'Чат',
-	gather: 'Обзор',
-	plan: 'План',
-	agent: 'Агент',
-};
-
-/** Sidebar chat: mode tooltips in the dropdown. */
-export const chatModeDetail: Record<ChatMode, string> = {
-	normal: 'Обычный диалог',
-	gather: 'Обход кодовой базы, только чтение',
-	plan: 'Сначала план, потом действие',
-	agent: 'Правит файлы и вызывает инструменты',
-};
 
 /** Plural helper: «N файлов с изменениями». */
 export function chatFilesWithChangesLabel(n: number): string {
@@ -176,7 +159,7 @@ export const chatS = {
 	questionNudgesOffLabel: '∞ подпин?',
 	questionNudgesOffHint: 'без лимита',
 	questionNudgesTitle:
-		'Автоподпин при вопросе (vibeide.agent.autoContinueOnQuestion): если при включённом автопилоте модель завершила ход ВОПРОСОМ (последний символ «?»), агент подтолкнёт её продолжить — не тратит лимит обычных подпинов слева и работает даже при их 0. Значение — сколько вопрос-подпинов ПОДРЯД допускается (счётчик сбрасывается на каждом выполненном инструменте). 0 = без лимита (∞). Дефолт 3.',
+		'Автоподпин при вопросе (vibeide.agent.autoContinueOnQuestion): только для прогонов без человека (пайплайны, HTTP API, Telegram); в чате с человеком ход с вопросом всегда ждёт ответа. Сколько вопрос-подпинов ПОДРЯД допускается (счётчик сбрасывается на каждом выполненном инструменте). 0 = без лимита (∞). Дефолт 3.',
 	subpinLabel: 'субпин.',
 	subpinOffLabel: 'без субпин.',
 	subpinOffHint: 'авто-резюм роли выключен',
@@ -796,12 +779,15 @@ export const VIBE_GENERIC_ROOT_JSON_EXAMPLE = `{\n\t"vibeVersion": "${VV}",\n\t"
 /** Tool approval type labels (shown next to auto-approve switches). */
 export const toolApprovalLabel = (t: string): string => {
 	switch (t) {
-		case 'edits': return 'Авто-подтверждение правок файлов';
-		case 'terminal': return 'Авто-подтверждение терминала';
-		case 'MCP tools': return 'Авто-подтверждение инструментов MCP';
-		default: return `Авто-подтверждение ${t}`;
+		case 'terminal': return 'Всегда разрешать команды терминала';
+		case 'MCP tools': return 'Всегда разрешать инструменты MCP';
+		default: return `Всегда разрешать ${t}`;
 	}
 };
+
+/** Подсказка под постоянными разрешениями: где вообще выбирают режим агента */
+export const toolApprovalModeHint = 'Режим агента выбирается в списке «Режим» под полем ввода';
+
 
 export const appearanceS = {
 	themesTitle: 'Тема оформления',

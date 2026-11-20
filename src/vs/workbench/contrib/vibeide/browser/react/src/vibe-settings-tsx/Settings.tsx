@@ -80,7 +80,7 @@ import type { ProviderParamField } from '../../../../common/vibeProviderParams.j
 import { StorageScope, StorageTarget } from '../../../../../../../platform/storage/common/storage.js';
 import { generateUuid } from '../../../../../../../base/common/uuid.js';
 import { generatePairingCode } from '../../../../common/telegram/telegramPairing.js';
-import { nav, modelsS, providersS, generalS, ollamaS, miscS, toolApprovalLabel, safetyS, modelDdS, notifyS, telegramS } from './vibeSettingsRu.js';
+import { nav, modelsS, providersS, generalS, ollamaS, miscS, toolApprovalLabel, toolApprovalModeHint, safetyS, modelDdS, notifyS, telegramS } from './vibeSettingsRu.js';
 import { NOTIFY_DEFAULT_SOUND_IDS } from '../../../vibeNotifySoundService.js';
 import { AppearancePanel } from './AppearancePanel.js';
 
@@ -2593,11 +2593,12 @@ const FeatureOptionsSettingsBody = () => {
 				<div className='my-2'>
 					{/* Auto Accept Switch */}
 					<ErrorBoundary>
-						{[...toolApprovalTypes].map((approvalType) => {
+						{[...toolApprovalTypes].filter(approvalType => approvalType !== 'edits').map((approvalType) => {
 							return <div key={approvalType} className="flex items-center gap-x-2 my-2">
 								<ToolApprovalTypeSwitch size='xs' approvalType={approvalType} desc={toolApprovalLabel(approvalType)} />
 							</div>;
 						})}
+						<div className='text-xs text-vibe-fg-4 mt-1'>{toolApprovalModeHint}</div>
 
 					</ErrorBoundary>
 

@@ -16,7 +16,7 @@
  * and the built-in one skips `.gitignore`d files; a forced push and code fetched from the network are asked
  * whatever the mode says
  *
- * The mode the person picks (Вручную, Правки, План, Автопилот) is set on the agent where the agent can keep it, and
+ * The mode the person picks (Вручную, Принимать правки, План, Авто) is set on the agent where the agent can keep it, and
  * is enforced here for the rest: in the agent's own «auto» and «bypass» modes it asks nothing at all, so a command
  * that cannot be undone, or an edit with no checkpoint under it, would go through unseen. That is why only `plan` is
  * set on the agent as such; the other three keep it asking, and this policy answers for the person

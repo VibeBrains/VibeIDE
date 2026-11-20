@@ -32,7 +32,7 @@
 - **Точки в цикле:** `chatThreadService.ts` хук-точки `:4998` (первый тул) и `:7136` (цикл), только `resolveToolClass(name)==='edits'`. Грабля: на первой точке доступны validated params (URI-объект), на второй — только `rawParams` (строка пути, часто относительная). Отсюда `_normalizeEditedUri(raw, root)`: URI-объект → как есть; строка с схемой → parse; абсолютная → `URI.file`; относительная → `joinPath(rootUri)`.
 - **UI бесплатно, но с оговоркой:** пауза ставит `step.status='paused'` у текущего шага плана (чип появляется сам) — НО если плана нет, остаётся только warning-тост. Потому дрейф и триггерим внутри implement, где план обычно есть.
 - **Перф:** `readSpecs` мемоизируется (`_cache`, инвалидация в `_fireChanged`) — проверка зовётся на каждой правке, читать все спеки с диска каждый раз нельзя.
-- Настройка `vibeide.specs.driftPause` — рядом с `vibeide.plans.toolDriftPause`, тот же enum/логика автопилота.
+- Настройка `vibeide.specs.driftPause` — рядом с `vibeide.plans.toolDriftPause`, тот же enum/логика автономного режима.
 
 **Создание спек — модалки, не строка-поиск.** «Новая спека» и «Спека из задачи» открывают `IVibeModalService.showModal` (не `IQuickInputService.input`): первая — одно поле + `validator`; вторая — `input.multiline` + `imageInput:true` (📎 картинки→vision через `addUserMessageAndStreamResponse({images})`, PDF→инлайн `extractedText`). Модалки уже умеют input/imageInput/numberFields — bespoke React не нужен. API-шпаргалка модалок — [[vibeModal]].
 

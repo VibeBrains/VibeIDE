@@ -72,7 +72,7 @@ VibeIDE хранил один ожидающий вопрос на сессию,
 не трогаются: без раскрытия `cwd` их легко принять за внешние и спрашивать лишнего.
 
 **Применение:** `cat /etc/passwd` и `Read /etc/passwd` теперь дают один вердикт; `cat /ws/app/README.md`
-в «Автопилоте» по-прежнему проходит. Регрессия: `acpPermissionPolicy.test.ts` — read-only Bash за границей
+в «Авто» по-прежнему проходит. Регрессия: `acpPermissionPolicy.test.ts` — read-only Bash за границей
 спрашивается, внутри — режим.
 
 **Связано:** [[acpHost]], [[shellLineVerdict]].

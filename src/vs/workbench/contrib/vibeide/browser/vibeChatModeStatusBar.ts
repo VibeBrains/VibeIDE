@@ -10,32 +10,23 @@ import { IWorkbenchContribution, registerWorkbenchContribution2, WorkbenchPhase 
 import { IStatusbarEntry, IStatusbarEntryAccessor, IStatusbarService, StatusbarAlignment } from '../../../services/statusbar/browser/statusbar.js';
 import { IVibeideSettingsService } from '../common/vibeideSettingsService.js';
 import { ChatMode } from '../common/vibeideSettingsTypes.js';
+import { ChatModeChoice, chatModeChoiceOf } from '../common/chatPermissionMode.js';
+import { CHAT_MODE_CHOICE_DETAIL, CHAT_MODE_CHOICE_LABEL } from '../common/chatModeChoiceLabels.js';
 import { CommandsRegistry } from '../../../../platform/commands/common/commands.js';
 import { IVibeUnifiedStatusBarService } from '../common/vibeUnifiedStatusBarService.js';
 import { IConfigurationService } from '../../../../platform/configuration/common/configuration.js';
 
 const MODE_ORDER: ChatMode[] = ['agent', 'gather', 'plan', 'normal'];
 
-// Mirrors the mode names in the chat dropdown (vibeSettingsRu.ts) — single terminology.
-const MODE_LABEL: Record<ChatMode, string> = {
-	agent: 'Агент',
-	gather: 'Обзор',
-	plan: 'План',
-	normal: 'Чат',
-};
-
-const MODE_ICON: Record<ChatMode, string> = {
-	agent: '$(rocket)',
+// Имена и описания — из общего списка «Режим»: статус-бар не заводит своих слов для тех же режимов
+const CHOICE_ICON: Record<ChatModeChoice, string> = {
+	normal: '$(comment-discussion)',
 	gather: '$(search)',
 	plan: '$(checklist)',
-	normal: '$(comment-discussion)',
-};
-
-const MODE_TOOLTIP: Record<ChatMode, string> = {
-	agent: 'Агент — выполняет инструменты и правит файлы, с учётом Trust Score и ограничений.',
-	gather: 'Обзор — исследование кодовой базы, только чтение, без записи.',
-	plan: 'План — исследование и Markdown-план, без изменений в коде.',
-	normal: 'Чат — обычный вопрос-ответ, без инструментов.',
+	manual: '$(account)',
+	edits: '$(edit)',
+	auto: '$(rocket)',
+	bypass: '$(zap)',
 };
 
 const CYCLE_COMMAND = 'vibeide.chat.cycleMode';
@@ -104,25 +95,38 @@ export class VibeChatModeStatusBarContribution extends Disposable implements IWo
 		}
 	}
 
+	/** Текущий пункт списка «Режим»: у агента это режим разрешений, у остальных — сам режим чата */
+	private _choice(): ChatModeChoice {
+		const globals = this._settingsService.state.globalSettings;
+		return chatModeChoiceOf(globals.chatMode, globals.chatPermissionMode);
+	}
+
+	/** Что переберёт щелчок: режимы чата по кругу, имя агентского пункта — выбранный режим разрешений */
+	private _cycleHint(): string {
+		const permissionMode = this._settingsService.state.globalSettings.chatPermissionMode;
+		return MODE_ORDER.map(mode => CHAT_MODE_CHOICE_LABEL[chatModeChoiceOf(mode, permissionMode)]).join(' → ');
+	}
+
 	private _rowLabel(): string {
-		const mode = this._settingsService.state.globalSettings.chatMode;
-		return `${MODE_ICON[mode]} ${MODE_LABEL[mode]}`;
+		const choice = this._choice();
+		return `${CHOICE_ICON[choice]} ${CHAT_MODE_CHOICE_LABEL[choice]}`;
 	}
 
 	private _tooltip(): string {
-		const mode = this._settingsService.state.globalSettings.chatMode;
-		return MODE_TOOLTIP[mode];
+		const choice = this._choice();
+		return `${CHAT_MODE_CHOICE_LABEL[choice]} — ${CHAT_MODE_CHOICE_DETAIL[choice]}`
+			+ '\n\n' + localize('vibeideChatModeSbCycle', 'Нажмите для перебора: {0}. Режим разрешений щелчок не меняет.', this._cycleHint());
 	}
 
 	private _entryProps(): IStatusbarEntry {
-		const mode = this._settingsService.state.globalSettings.chatMode;
-		const label = MODE_LABEL[mode];
-		const icon = MODE_ICON[mode];
+		const choice = this._choice();
+		const label = CHAT_MODE_CHOICE_LABEL[choice];
+		const icon = CHOICE_ICON[choice];
 		return {
 			name: localize('vibeideChatModeSbName', 'VibeIDE режим чата'),
 			text: `${icon} ${label}`,
-			ariaLabel: localize('vibeideChatModeSbAria', 'Режим чата: {0}. Нажмите для переключения.', label),
-			tooltip: MODE_TOOLTIP[mode] + '\n\n' + localize('vibeideChatModeSbCycle', 'Нажмите для перебора: Agent → Explore → Plan → Chat.'),
+			ariaLabel: localize('vibeideChatModeSbAria', 'Режим: {0}. Нажмите для переключения.', label),
+			tooltip: this._tooltip(),
 			command: CYCLE_COMMAND,
 		};
 	}

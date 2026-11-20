@@ -45,7 +45,8 @@ import { parseChatSlashCommand, splitWatchArgs, CHAT_SLASH_COMMANDS, SLASH_COMMA
 import { historyKeyApplies, navigateHistory } from '../../../../common/promptHistory.js';
 import { BuiltinToolCallParams, BuiltinToolName, ToolName, LintErrorItem, ToolApprovalType, toolApprovalTypes } from '../../../../common/toolsServiceTypes.js';
 import { approvalTypeOfBuiltinToolName } from '../../../../common/prompt/tools/index.js';
-import { permissionModeOfThreadConfig } from '../../../../common/chatPermissionMode.js';
+import { CHAT_MODE_CHOICES, ChatModeChoice, chatModeChoiceOf, permissionModeOfThreadConfig, settingsOfChatModeChoice, softCheckpointIterationsFor } from '../../../../common/chatPermissionMode.js';
+import { CHAT_MODE_CHOICE_DETAIL, CHAT_MODE_CHOICE_LABEL } from '../../../../common/chatModeChoiceLabels.js';
 import { CopyButton, EditToolAcceptRejectButtonsHTML, IconShell1, JumpToFileButton, JumpToTerminalButton, StatusIndicator, StatusIndicatorForApplyButton, useApplyStreamState, useEditToolStreamState } from '../markdown/ApplyBlockHoverButtons.js';
 import { IsRunningType, ThreadPauseInfo, WAITING_FOR_MODEL_RESPONSE_SENTINEL } from '../../../chatThreadService.js';
 import { acceptAllBg, acceptBorder, buttonFontSize, buttonTextColor, rejectAllBg, rejectBg, rejectBorder } from '../../../../common/helpers/colors.js';
@@ -55,7 +56,7 @@ import { RawToolCallObj } from '../../../../common/sendLLMMessageTypes.js';
 import { resolveAgentPath } from '../../../../common/agentPathResolution.js';
 import ErrorBoundary from './ErrorBoundary.js';
 import { ToolApprovalTypeSwitch } from '../vibe-settings-tsx/Settings.js';
-import { chatDiffCountLabel, chatFilesWithChangesLabel, chatModeDetail, chatModeDisplayName, chatS } from '../vibe-settings-tsx/vibeSettingsRu.js';
+import { chatDiffCountLabel, chatFilesWithChangesLabel, chatS, toolApprovalLabel } from '../vibe-settings-tsx/vibeSettingsRu.js';
 
 import { persistentTerminalNameOfId } from '../../../terminalToolService.js';
 import { removeMCPToolNamePrefix } from '../../../../common/mcpServiceTypes.js';
@@ -569,22 +570,33 @@ const ChatModeDropdown = ({ className }: { className: string }) => {
 	const accessor = useAccessor();
 
 	const vibeideSettingsService = accessor.get('IVibeideSettingsService');
+	const configurationService = accessor.get('IConfigurationService');
 	const settingsState = useSettingsState();
 
-	const options: ChatMode[] = useMemo(() => ['normal', 'gather', 'plan', 'agent'], []);
+	const options: ChatModeChoice[] = useMemo(() => [...CHAT_MODE_CHOICES], []);
 
-	const onChangeOption = useCallback((newVal: ChatMode) => {
-		vibeideSettingsService.setGlobalSetting('chatMode', newVal);
-	}, [vibeideSettingsService]);
+	const permissionMode = settingsState.globalSettings.chatPermissionMode;
+	const selected = chatModeChoiceOf(settingsState.globalSettings.chatMode, permissionMode);
+
+	const onChangeOption = useCallback((newVal: ChatModeChoice) => {
+		const current = vibeideSettingsService.state.globalSettings.chatPermissionMode;
+		const settings = settingsOfChatModeChoice(newVal, current);
+		vibeideSettingsService.setGlobalSetting('chatMode', settings.chatMode);
+		vibeideSettingsService.setGlobalSetting('chatPermissionMode', settings.permissionMode);
+		// Автономный режим снимает мягкую паузу, управляемый возвращает: иначе агент либо стоит без дела, либо идёт молча
+		if (settings.permissionMode !== current) {
+			void configurationService.updateValue(SOFT_CHECKPOINT_KEY, softCheckpointIterationsFor(settings.permissionMode));
+		}
+	}, [vibeideSettingsService, configurationService]);
 
 	return <VibeCustomDropdownBox
 		className={className}
 		options={options}
-		selectedOption={settingsState.globalSettings.chatMode}
+		selectedOption={selected}
 		onChangeOption={onChangeOption}
-		getOptionDisplayName={(val) => chatModeDisplayName[val]}
-		getOptionDropdownName={(val) => chatModeDisplayName[val]}
-		getOptionDropdownDetail={(val) => chatModeDetail[val]}
+		getOptionDisplayName={(val) => CHAT_MODE_CHOICE_LABEL[val]}
+		getOptionDropdownName={(val) => CHAT_MODE_CHOICE_LABEL[val]}
+		getOptionDropdownDetail={(val) => CHAT_MODE_CHOICE_DETAIL[val]}
 		getOptionsEqual={(a, b) => a === b}
 		detailPresentation="tooltip"
 	/>;
@@ -3212,7 +3224,7 @@ const ToolRequestAcceptRejectButtons = ({ toolName }: { toolName: ToolName }) =>
                 text-sm font-medium
             `}
 		>
-			Approve
+			Подтвердить
 		</button>
 	);
 
@@ -3228,13 +3240,15 @@ const ToolRequestAcceptRejectButtons = ({ toolName }: { toolName: ToolName }) =>
                 text-sm font-medium
             `}
 		>
-			Cancel
+			Отмена
 		</button>
 	);
 
 	const approvalType = isABuiltinToolName(toolName) ? approvalTypeOfBuiltinToolName[toolName] : 'MCP tools';
-	const approvalToggle = approvalType ? <div key={approvalType} className="flex items-center ml-2 gap-x-1" title={'Deletes and other high-risk edits always require confirmation unless Autopilot is enabled (next to the model). This switch only auto-approves lower-risk steps when turned on.'}>
-		<ToolApprovalTypeSwitch size='xs' approvalType={approvalType} desc={`Auto ${approvalType}`} />
+	// «Принимать правки» уже разрешает правки файлов: галочка там была бы вторым ответом на тот же вопрос
+	const showApprovalSwitch = approvalType === 'terminal' || approvalType === 'MCP tools';
+	const approvalToggle = showApprovalSwitch ? <div key={approvalType} className="flex items-center ml-2 gap-x-1" title={'Всегда разрешать этот тип во «Вручную» и «Принимать правки». Разрушительные команды и выход за проект всё равно спросят'}>
+		<ToolApprovalTypeSwitch size='xs' approvalType={approvalType} desc={toolApprovalLabel(approvalType)} />
 	</div> : null;
 
 	return <div className="flex gap-2 mx-0.5 items-center">
@@ -5706,16 +5720,15 @@ export const SidebarChat = () => {
 	// this tab. Writes go to the thread (not the globals), so there's no apply→save→apply loop.
 	const vibeideSettingsService = accessor.get('IVibeideSettingsService');
 	const configurationService = accessor.get('IConfigurationService');
-	const SOFT_CHECKPOINT_ITER_KEY = 'vibeide.agent.softCheckpointIterations';
 	const readIter = useCallback((): number => {
-		const r = configurationService.getValue<unknown>(SOFT_CHECKPOINT_ITER_KEY);
+		const r = configurationService.getValue<unknown>(SOFT_CHECKPOINT_KEY);
 		// Fallback mirrors the registered config default (0 = ∞ / no pauses).
 		return (typeof r === 'number' && Number.isFinite(r) && r >= 0) ? Math.floor(r) : 0;
 	}, [configurationService]);
 	const [iterValue, setIterValue] = useState<number>(readIter);
 	useEffect(() => {
 		const d = configurationService.onDidChangeConfiguration(e => {
-			if (e.affectsConfiguration(SOFT_CHECKPOINT_ITER_KEY)) { setIterValue(readIter()); }
+			if (e.affectsConfiguration(SOFT_CHECKPOINT_KEY)) { setIterValue(readIter()); }
 		});
 		return () => d.dispose();
 	}, [configurationService, readIter]);
@@ -5744,7 +5757,7 @@ export const SidebarChat = () => {
 			}
 			// Тред, сохранённый до режимов, несёт булев autopilot: его переводит тот же разбор
 			void vibeideSettingsService.setGlobalSetting('chatPermissionMode', permissionModeOfThreadConfig(cfg) ?? curPermissionMode);
-			void configurationService.updateValue(SOFT_CHECKPOINT_ITER_KEY, cfg.iterations);
+			void configurationService.updateValue(SOFT_CHECKPOINT_KEY, cfg.iterations);
 		} else {
 			chatThreadsService.setThreadChatConfig(currentThread.id, readChatConfig());
 		}

@@ -17,7 +17,7 @@
 - **Рекурсия — по настройке** `vibeide.projectRules.resolveLinksRecursive` (дефолт `false`): вкл → BFS по ссылкам внутри подтянутых файлов до `MAX_LINK_RECURSION_DEPTH=4` с visited-set (цикл-гард); выкл → один уровень. Мастер-выключатель — `vibeide.projectRules.resolveLinks` (дефолт `true`).
 - **Лимиты (no silent cap):** `MAX_LINKED_FILES=20`, `MAX_LINKED_TOTAL_BYTES=256KB`, на файл — `maxFileBytes`. При превышении — `log.warn`.
 - **Инвалидация:** резолвнутые пути кладутся в `_linkedPaths`; file-watcher по ним инвалидирует кэш (правка `docs/knowledge/README.md` → reload).
-- **UI:** тогл рекурсии продублирован в тулбаре чата (`ChatRuleLinksRecursiveToggle`, рядом с автопилотом) — чистое зеркало настройки через `IConfigurationService.updateValue`, источник правды — конфиг. Прячется, когда `resolveLinks` выключен.
+- **UI:** тогл рекурсии продублирован в тулбаре чата (`ChatRuleLinksRecursiveToggle`, рядом с ручками агентского тулбара) — чистое зеркало настройки через `IConfigurationService.updateValue`, источник правды — конфиг. Прячется, когда `resolveLinks` выключен.
 
 **Применение:**
 
