@@ -3185,6 +3185,22 @@ const toolNameToDesc = (toolName: BuiltinToolName, _toolParams: BuiltinToolCallP
 	}
 };
 
+/**
+ * Что агент просит и почему — над кнопками ожидающего вызова
+ * Обёртки чтения ожидающий вызов не рисуют вовсе, а обёртка команды не говорит причину: без этой строки решение вслепую
+ */
+const ToolApprovalQuestion = ({ toolMessage }: { toolMessage: ToolMessage<ToolName> & { type: 'tool_request' } }) => {
+	const accessor = useAccessor();
+	const title = getTitle(toolMessage);
+	const { desc1 } = isABuiltinToolName(toolMessage.name)
+		? toolNameToDesc(toolMessage.name, toolMessage.params as BuiltinToolCallParams[BuiltinToolName], accessor)
+		: { desc1: '' };
+	return <div className='flex flex-col gap-0.5 mx-0.5 mb-1 text-xs'>
+		<span className='text-vibe-fg-2'>{chatS.toolApprovalAsk} {title}{desc1 ? <> — {desc1}</> : null}</span>
+		{toolMessage.content ? <span className='text-vibe-fg-3 whitespace-pre-wrap break-words'>{toolMessage.content}</span> : null}
+	</div>;
+};
+
 const ToolRequestAcceptRejectButtons = ({ toolName }: { toolName: ToolName }) => {
 	const accessor = useAccessor();
 	const chatThreadsService = accessor.get('IChatThreadService');
@@ -5141,6 +5157,7 @@ const _ChatBubble = React.memo(({ threadId, acpSessionId, chatMessage, currCheck
 				</div>
 				{chatMessage.type === 'tool_request' ?
 					<div className={`${isCheckpointGhost ? 'opacity-50 pointer-events-none' : ''}`}>
+						<ToolApprovalQuestion toolMessage={chatMessage} />
 						<ToolRequestAcceptRejectButtons toolName={chatMessage.name} />
 					</div> : null}
 			</>;}

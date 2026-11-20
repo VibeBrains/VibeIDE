@@ -4171,9 +4171,15 @@ Output ONLY the JSON, no other text. Start with { and end with }.`;
 		}
 	}
 
-	/** Текст карточки ожидающего инструмента: для команды — почему и где, для правки — её риск */
-	private _toolApprovalRequestContent(decision: IToolApprovalDecision, riskScore: EditRiskScore | undefined): string {
+	/**
+	 * Почему вызов ждёт человека — строка над кнопками карточки
+	 * Обёртки чтения и команд ожидающий вызов не расписывают: без этой строки человек жал бы кнопку вслепую
+	 */
+	private _toolApprovalRequestContent(decision: IToolApprovalDecision, facts: IToolCallFacts, riskScore: EditRiskScore | undefined): string {
 		const outsideDetail = decision.outsidePaths && decision.outsidePaths.length > 0 ? describeOutsidePaths(decision.outsidePaths) : '';
+		const riskNote = riskScore && riskScore.riskLevel !== 'LOW'
+			? localize('vibeide.toolRequest.risk', "Риск правки: {0} (оценка {1}, уверенность {2}).", riskScore.riskLevel, riskScore.riskScore.toFixed(2), riskScore.confidenceScore.toFixed(2))
+			: '';
 		switch (decision.reason) {
 			case 'destructive':
 				return localize('vibeide.toolRequest.destructive', "Разрушительная команда (признаки: {0}). Действие может уничтожить данные, и отменить его нечем.", (decision.destructiveReasons ?? []).join(', '));
@@ -4181,10 +4187,14 @@ Output ONLY the JSON, no other text. Start with { and end with }.`;
 				return localize('vibeide.toolRequest.commandOutsideProject', "Команда работает с путями вне проекта:\n{0}", outsideDetail);
 			case 'criticalPath':
 				return localize('vibeide.toolRequest.criticalPath', "Среди путей — корень диска или домашней папки, очистка уничтожит всё, что на нём есть:\n{0}", outsideDetail);
+			case 'outsideProject':
+				return localize('vibeide.toolRequest.outsideProject', "Путь вне папок проекта: {0}. Выход за проект разрешает человек, а не режим.", facts.paths.join(', '));
+			case 'highRiskEdit':
+				return localize('vibeide.toolRequest.highRiskEdit', "Правка высокого риска: «Принимать правки» такие сам не пропускает. {0}", riskNote).trim();
+			case 'modeEdits':
+				return localize('vibeide.toolRequest.modeEdits', "Режим «Принимать правки» сам пропускает только правки файлов проекта. {0}", riskNote).trim();
 			default:
-				return riskScore && riskScore.riskLevel !== 'LOW'
-					? `(Risk: ${riskScore.riskLevel}, Score: ${riskScore.riskScore.toFixed(2)}, Confidence: ${riskScore.confidenceScore.toFixed(2)})`
-					: '(Awaiting user permission...)';
+				return localize('vibeide.toolRequest.modeManual', "Режим «Вручную»: агент спрашивает про каждое действие с последствиями. {0}", riskNote).trim();
 		}
 	}
 
@@ -4506,7 +4516,7 @@ Output ONLY the JSON, no other text. Start with { and end with }.`;
 					this._addMessageToThread(threadId, {
 						role: 'tool',
 						type: 'tool_request',
-						content: this._toolApprovalRequestContent(decision, riskScore),
+						content: this._toolApprovalRequestContent(decision, facts, riskScore),
 						result: null,
 						name: toolName,
 						params: toolParams,

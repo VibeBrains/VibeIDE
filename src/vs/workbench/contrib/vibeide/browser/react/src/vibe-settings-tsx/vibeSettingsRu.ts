@@ -258,6 +258,7 @@ export const chatS = {
 	zenModeAria: 'Переключить Zen-режим чата',
 	bottomChildrenLintErrors: 'Ошибки линтера',
 	bottomChildrenError: 'Ошибка',
+	toolApprovalAsk: 'Агент ждёт вашего решения:',
 	reasoningHeader: 'Рассуждение',
 	streamingContentAria: 'Стрим контента',
 	planRejectTitle: 'Отклонить план',
