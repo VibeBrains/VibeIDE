@@ -24,6 +24,7 @@ import type { ProviderVendor } from './providerVendor.js';
 import type { ProviderParamField } from './vibeProviderParams.js';
 import type { BuiltinWireHints } from './builtinWireHints.js';
 import { withBuiltinFileModels, withoutFileModels } from './builtinFileModels.js';
+import { isChatPermissionMode, migratedPermissionMode } from './chatPermissionMode.js';
 import { autoFallbackProviderIds, defaultSettingsOfProvider, FeatureName, isBuiltinProviderId, ProviderId, ProviderName, ModelSelectionOfFeature, SettingsOfProvider, SettingName, providerNames, ModelSelection, modelSelectionsEqual, featureNames, VibeideStatefulModelInfo, GlobalSettings, GlobalSettingName, defaultGlobalSettings, ModelSelectionOptions, OptionsOfModelSelection, ChatMode, OverridesOfModel, defaultOverridesOfModel, MCPUserStateOfName as MCPUserStateOfName, MCPUserState, MinimalismMode } from './vibeideSettingsTypes.js';
 
 
@@ -77,9 +78,15 @@ type LegacyProviderSettings = {
 	models: LegacyStatefulModelInfo[];
 };
 
-/** Global settings as stored by older builds — `autoApprove` could be a boolean before 1.2.5. */
-type LegacyGlobalSettings = DeepWritable<Omit<GlobalSettings, 'autoApprove'>> & {
+/** Global settings as stored by older builds — `autoApprove` could be a boolean before 1.2.5, а вместо режима
+ *  разрешений лежали флаг автопилота и поля YOLO */
+type LegacyGlobalSettings = DeepWritable<Omit<GlobalSettings, 'autoApprove' | 'chatPermissionMode'>> & {
 	autoApprove: GlobalSettings['autoApprove'] | boolean;
+	chatPermissionMode?: unknown;
+	chatAgentAutopilot?: unknown;
+	enableYOLOMode?: unknown;
+	yoloRiskThreshold?: unknown;
+	yoloConfidenceThreshold?: unknown;
 };
 
 /** Mutable, legacy-augmented view of a persisted settings blob, used only during the one-time
@@ -91,6 +98,22 @@ type LegacyMigrationState = {
 	optionsOfModelSelection: DeepWritable<OptionsOfModelSelection>;
 	globalSettings: LegacyGlobalSettings;
 };
+
+/** Переносит старые настройки одобрения в режим разрешений и стирает ключи, которых больше нет в типе */
+function migratePermissionMode(globalSettings: LegacyGlobalSettings): void {
+	// Невалидное или отсутствующее значение — выводим из автопилота и галочки «правки»
+	if (!isChatPermissionMode(globalSettings.chatPermissionMode)) {
+		globalSettings.chatPermissionMode = migratedPermissionMode(globalSettings);
+	}
+	delete globalSettings.chatAgentAutopilot;
+	delete globalSettings.enableYOLOMode;
+	delete globalSettings.yoloRiskThreshold;
+	delete globalSettings.yoloConfidenceThreshold;
+	// Галочка «правки» стала режимом; терминал и MCP-инструменты остаются постоянными разрешениями
+	if (typeof globalSettings.autoApprove === 'object' && globalSettings.autoApprove !== null) {
+		delete globalSettings.autoApprove.edits;
+	}
+}
 
 
 export type VibeideSettingsState = {
@@ -843,6 +866,10 @@ export class VoidSettingsService extends Disposable implements IVibeideSettingsS
 
 			// autoapprove is now an obj not a boolean (1.2.5)
 			if (typeof rw.globalSettings.autoApprove === 'boolean') { rw.globalSettings.autoApprove = {}; }
+
+			// Флаг автопилота и поля YOLO заменены одним режимом разрешений; старые ключи убираем из сохранённого,
+			// чтобы следующий запуск не считал их действующими настройками. Галочка autoApprove.edits тоже больше не читается
+			migratePermissionMode(rw.globalSettings);
 
 			// 1.3.5 add source control feature
 			if (rw.modelSelectionOfFeature && !rw.modelSelectionOfFeature['SCM']) {

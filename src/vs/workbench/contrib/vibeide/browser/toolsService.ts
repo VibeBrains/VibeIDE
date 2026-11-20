@@ -37,7 +37,7 @@ import { QueryBuilder } from '../../../services/search/common/queryBuilder.js';
 import { ISearchService } from '../../../services/search/common/search.js';
 import { IEditCodeService } from './editCodeServiceInterface.js';
 import { ITerminalToolService } from './terminalToolService.js';
-import { LintErrorItem, BuiltinToolCallParams, BuiltinToolResultType, BuiltinToolName, TerminalResolveReason } from '../common/toolsServiceTypes.js';
+import { LintErrorItem, BuiltinToolCallParams, BuiltinToolResultType, BuiltinToolName, TerminalResolveReason, IBuiltinToolCallOptions } from '../common/toolsServiceTypes.js';
 import { IVibeideModelService } from '../common/vibeideModelService.js';
 import { IErrorDetectionService } from '../common/errorDetectionService.js';
 import { blocksApply, captureFileBase, FileBaseSignature, FileBaseSource, FileBaseVerdict, verifyFileBase } from '../common/fileBaseSignature.js';
@@ -69,6 +69,7 @@ import { IDialogService } from '../../../../platform/dialogs/common/dialogs.js';
 import { analyzeShellLine } from '../common/nlShellSafetyAnalyzer.js';
 import { commandPathsOutsideScope, describeOutsidePaths } from '../common/commandPathsOutsideScope.js';
 import { isMacintosh, isWindows } from '../../../../base/common/platform.js';
+import { ChatPermissionMode, toolCallFactsOf } from '../common/chatPermissionMode.js';
 import { ReviewChecklist } from '../common/chatThreadServiceTypes.js';
 import { HANDOFF_DIR, renderHandoff, validateHandoff } from '../common/agentHandoff.js';
 import { LEARNING_DIR, LESSONS_SUBDIR, MISSION_FILE, NOTES_FILE, RECORDS_SUBDIR, RESOURCES_FILE, renderRecord, summarizeLearning, type IDifficultyThresholds, type ILearningRecord } from '../common/learningWorkspace.js';
@@ -127,7 +128,7 @@ import { ModelSelection, ProviderName } from '../common/vibeideSettingsTypes.js'
 
 // tool use for AI
 type ValidateBuiltinParams = { [T in BuiltinToolName]: (p: RawToolParamsObj) => BuiltinToolCallParams[T] };
-type CallBuiltinTool = { [T in BuiltinToolName]: (p: BuiltinToolCallParams[T]) => Promise<{ result: BuiltinToolResultType[T] | Promise<BuiltinToolResultType[T]>; interruptTool?: () => void }> };
+type CallBuiltinTool = { [T in BuiltinToolName]: (p: BuiltinToolCallParams[T], opts?: IBuiltinToolCallOptions) => Promise<{ result: BuiltinToolResultType[T] | Promise<BuiltinToolResultType[T]>; interruptTool?: () => void }> };
 type BuiltinToolResultToString = { [T in BuiltinToolName]: (p: BuiltinToolCallParams[T], result: Awaited<BuiltinToolResultType[T]>) => string };
 
 /**
@@ -151,6 +152,9 @@ interface DuckDuckGoInstantAnswer {
 	RelatedTopics?: Array<{ Text?: string; FirstURL?: string }>;
 }
 
+
+/** Режимы, в которых правку не спрашивают по одной: блокировка территории тогда только пишется в аудит */
+const EDIT_APPROVAL_FREE_PERMISSION_MODES: readonly ChatPermissionMode[] = ['edits', 'auto', 'bypass'];
 
 const isFalsy = (u: unknown) => {
 	return !u || u === 'null' || u === 'undefined';
@@ -1281,7 +1285,21 @@ export class ToolsService extends Disposable implements IToolsService {
 
 			// Одобрение спрашивается по той же категории, что у обычного вызова: скрипт не ярлык
 			const approvalType = approvalTypeOfBuiltinToolName[name];
-			if (codeModeNeedsApproval(approvalType, this.vibeideSettingsService.state.globalSettings)) {
+			const globalSettings = this.vibeideSettingsService.state.globalSettings;
+			const approvalFacts = toolCallFactsOf(name, approvalType, params as { uri?: unknown; searchInFolder?: unknown; command?: unknown });
+			// Флаг взводится только диалогом: он и говорит инструменту, что человек видел именно эту строку
+			let humanApproved = false;
+			// Скрипт Code Mode — инструмент хода агента: режим разрешений берётся как есть, без режима чата
+			if (codeModeNeedsApproval(approvalFacts, {
+				mode: globalSettings.chatPermissionMode,
+				roots: this.workspaceContextService.getWorkspace().folders.map(folder => folder.uri.fsPath),
+				caseInsensitivePaths: isMacintosh || isWindows,
+				grants: {
+					terminal: globalSettings.autoApprove.terminal === true,
+					mcp: globalSettings.autoApprove['MCP tools'] === true,
+				},
+				confirmDestructiveCommands: this._configurationService.getValue<boolean>('vibeide.agent.confirmDestructiveCommands') !== false,
+			})) {
 				const { confirmed } = await this.dialogService.confirm({
 					message: localize('vibeide.codeMode.approve', "Скрипт Code Mode запрашивает инструмент «{0}»", toolName),
 					detail: localize('vibeide.codeMode.approveDetail', "Вызов идёт обычным путём: правила путей, запреты проекта и защита конфигурации действуют."),
@@ -1290,11 +1308,12 @@ export class ToolsService extends Disposable implements IToolsService {
 				if (!confirmed) {
 					return { ok: false, text: `Пользователь отклонил вызов инструмента «${toolName}»` };
 				}
+				humanApproved = true;
 			}
 
 			let answer: { ok: boolean; text: string };
 			try {
-				const { result } = await this.callTool[name](params as never);
+				const { result } = await this.callTool[name](params as never, { humanApproved });
 				answer = { ok: true, text: this.stringOfResult[name](params as never, result as never) };
 			} catch (error) {
 				answer = { ok: false, text: codeModeErrorMessage(error) };
@@ -2801,8 +2820,8 @@ export class ToolsService extends Disposable implements IToolsService {
 				return { result: lintErrorsPromise };
 			},
 			// ---
-			run_command: async ({ command, cwd, terminalId, timeoutMs, runInBackground }) => {
-				await this._gateDestructiveCommand(command);
+			run_command: async ({ command, cwd, terminalId, timeoutMs, runInBackground }, opts) => {
+				await this._gateDestructiveCommand(command, opts?.humanApproved === true);
 
 				const env = await this._slotEnvOf(cwd);
 				// Background mode: spin up a persistent (but hidden) terminal, kick off the command,
@@ -3159,8 +3178,8 @@ export class ToolsService extends Disposable implements IToolsService {
 
 				return { result: maskedResPromise, interruptTool: interrupt };
 			},
-			run_persistent_command: async ({ command, persistentTerminalId, timeoutMs }) => {
-				await this._gateDestructiveCommand(command);
+			run_persistent_command: async ({ command, persistentTerminalId, timeoutMs }, opts) => {
+				await this._gateDestructiveCommand(command, opts?.humanApproved === true);
 				const { resPromise, interrupt } = await this.terminalToolService.runCommand(command, { type: 'persistent', persistentTerminalId, timeoutMs: timeoutMs ?? undefined });
 				return { result: resPromise, interruptTool: interrupt };
 			},
@@ -4253,12 +4272,12 @@ ${lines.join('\n\n')}`;
 		if (!conflict) {
 			return;
 		}
-		const autopilot = this.vibeideSettingsService.state.globalSettings.chatAgentAutopilot === true;
-		const autoEdits = this.vibeideSettingsService.state.globalSettings.autoApprove.edits === true;
+		const mode = this.vibeideSettingsService.state.globalSettings.chatPermissionMode;
+		const autoEdits = EDIT_APPROVAL_FREE_PERMISSION_MODES.includes(mode);
 		const holders = conflict.holders.join(', ');
 		const patterns = conflict.patterns.join(', ');
 		const detail = `holders=${holders}; patterns=${patterns}`;
-		if (autopilot || autoEdits) {
+		if (autoEdits) {
 			if (this._auditLogService.isEnabled()) {
 				void this._auditLogService.append({
 					ts: Date.now(),
@@ -4318,7 +4337,11 @@ ${lines.join('\n\n')}`;
 	 * Risky-but-not-destructive commands still only get a notification. Code fetched from the network
 	 * and handed to an interpreter (`curl … | sh`) is destructive and stops here like `rm -rf`.
 	 */
-	private async _gateDestructiveCommand(command: string): Promise<void> {
+	private async _gateDestructiveCommand(command: string, humanApproved = false): Promise<void> {
+		// Человек уже одобрил именно эту строку в карточке, видя команду и причину вопроса: второй диалог — тот же вопрос
+		if (humanApproved) {
+			return;
+		}
 		const roots = this.workspaceContextService.getWorkspace().folders.map(folder => folder.uri.fsPath);
 		const outside = commandPathsOutsideScope(command, { roots, caseInsensitive: isMacintosh || isWindows });
 		const critical = outside.some(item => item.critical);

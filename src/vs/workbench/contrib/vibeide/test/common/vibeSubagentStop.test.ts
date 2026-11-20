@@ -48,7 +48,7 @@ suite('VibeSubagentService — stopping a run under way', () => {
 			{} as IVibeConstraintsService,
 			runner as IVibeSubagentRunner,
 			{ epoch: 1, allocateFence: () => 1, recordStarted: () => { }, recordUpdate: () => { }, getRuns: async () => [] } as unknown as IVibeAgentRunLedgerService,
-			{ state: { tokenBudgetOfRole: {}, usdBudgetOfRole: {}, globalSettings: { chatAgentAutopilot: false } } } as unknown as IVibeideSettingsService,
+			{ state: { tokenBudgetOfRole: {}, usdBudgetOfRole: {}, globalSettings: { chatPermissionMode: 'manual' } } } as unknown as IVibeideSettingsService,
 			{ getPreset: () => ({ displayName: 'Ревьюер' }) } as unknown as IVibeSubagentRegistryService,
 			{ isBlocking: () => false } as unknown as IVibeCircuitBreakerService,
 			{} as IFileService,

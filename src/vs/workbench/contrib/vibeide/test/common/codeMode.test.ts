@@ -15,6 +15,18 @@ import {
 	codeModeNeedsApproval,
 	codeModeToolRefusal,
 } from '../../common/codeMode/codeMode.js';
+import { ChatPermissionMode, IToolApprovalContext, IToolCallFacts } from '../../common/chatPermissionMode.js';
+
+/** Контекст решения для теста: один корень проекта и никаких постоянных разрешений */
+function approvalContext(mode: ChatPermissionMode): IToolApprovalContext {
+	return {
+		mode,
+		roots: ['/project'],
+		caseInsensitivePaths: false,
+		grants: { terminal: false, mcp: false },
+		confirmDestructiveCommands: true,
+	};
+}
 
 suite('Code Mode — чистые правила', () => {
 
@@ -57,15 +69,18 @@ suite('Code Mode — чистые правила', () => {
 		);
 	});
 
-	test('вызов, требующий одобрения, требует его и из скрипта', () => {
+	test('вложенный вызов решается тем же правилом, что и обычный', () => {
+		const editFacts: IToolCallFacts = { kind: 'edit', paths: ['/project/a.ts'] };
+		const readFacts: IToolCallFacts = { kind: 'read', paths: ['/project/a.ts'] };
+		const outsideReadFacts: IToolCallFacts = { kind: 'read', paths: ['/other/a.ts'] };
 		assert.deepStrictEqual(
 			[
-				codeModeNeedsApproval(undefined, { autoApprove: {} }),
-				codeModeNeedsApproval('edits', { autoApprove: {} }),
-				codeModeNeedsApproval('edits', { autoApprove: { edits: true } }),
-				codeModeNeedsApproval('edits', { chatAgentAutopilot: true, autoApprove: {} }),
+				codeModeNeedsApproval(editFacts, approvalContext('manual')),
+				codeModeNeedsApproval(editFacts, approvalContext('auto')),
+				codeModeNeedsApproval(readFacts, approvalContext('manual')),
+				codeModeNeedsApproval(outsideReadFacts, approvalContext('auto')),
 			],
-			[false, true, false, false],
+			[true, false, false, true],
 		);
 	});
 

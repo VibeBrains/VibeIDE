@@ -12,7 +12,7 @@
  * а правила собраны здесь, чтобы их можно было проверить без запуска песочницы
  */
 
-import { ToolApprovalType } from '../toolsServiceTypes.js';
+import { decideToolApproval, IToolApprovalContext, IToolCallFacts } from '../chatPermissionMode.js';
 
 /** Имя инструмента, который модель получает при включённой настройке */
 export const CODE_MODE_TOOL_NAME = 'run_code_mode';
@@ -84,23 +84,14 @@ export function codeModeCallBudgetError(usedCalls: number, maxCalls: number = CO
 	return usedCalls >= maxCalls ? `Исчерпан предел вложенных вызовов (${maxCalls})` : undefined;
 }
 
-/** Решение «спрашивать ли человека» — то же, что у обычного вызова и у роли-субагента */
-export interface ICodeModeApprovalSettings {
-	readonly chatAgentAutopilot?: boolean;
-	readonly autoApprove: Partial<Record<ToolApprovalType, boolean>>;
-}
-
 /**
  * Нужно ли подтверждение для вложенного вызова
  *
- * Вложенность не повод ослабить правила: автоодобрение берётся из тех же настроек,
- * а без него вопрос задаётся человеку, как в обычном ходе агента
+ * Вложенность не повод ослабить правила: решение то же, что у обычного вызова, — та же функция
+ * и тот же контекст, иначе скрипт стал бы обходным путём режима разрешений
  */
-export function codeModeNeedsApproval(approvalType: ToolApprovalType | undefined, settings: ICodeModeApprovalSettings): boolean {
-	if (!approvalType) {
-		return false;
-	}
-	return settings.chatAgentAutopilot !== true && settings.autoApprove[approvalType] !== true;
+export function codeModeNeedsApproval(facts: IToolCallFacts, context: IToolApprovalContext): boolean {
+	return decideToolApproval(facts, context).action === 'ask';
 }
 
 export interface ICodeModeReportInput {

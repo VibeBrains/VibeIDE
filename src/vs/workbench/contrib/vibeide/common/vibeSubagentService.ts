@@ -39,6 +39,7 @@ import { AgentRunStatus } from './agentRunLedger.js';
 import { describeRoleBudgetRefusal, describeRoleUsdRefusal, evaluateRoleBudget, evaluateRoleUsdBudget } from './agentRoleBudget.js';
 import { getModelCapabilities } from './modelCapabilities.js';
 import { IVibeideSettingsService } from './vibeideSettingsService.js';
+import { isAutonomousPermissionMode } from './chatPermissionMode.js';
 import { IVibeSubagentRegistryService } from './vibeSubagentRegistryService.js';
 import { breakerName, IVibeCircuitBreakerService, PROTECTIVE_BREAKERS } from './agentCircuitBreakers.js';
 import { effectiveWriteScope, WriteScope } from './pipeline/vibePipelineFile.js';
@@ -822,7 +823,7 @@ export class VibeSubagentService extends Disposable implements IVibeSubagentServ
 			// Работа есть, но она не зафиксирована — сливать нечего, и молчать об этом нельзя.
 			return { note: `\n\nЗафиксировать работу в ветке ${worktree.branch} не удалось — она лежит НЕЗАФИКСИРОВАННОЙ в дереве ${worktree.path}. Причина — в журнале «Worktree».`, committed: false, merged: false };
 		}
-		const autopilot = this._settings.state.globalSettings.chatAgentAutopilot === true;
+		const autopilot = isAutonomousPermissionMode(this._settings.state.globalSettings.chatPermissionMode);
 		if (status !== 'success' || !autopilot) {
 			return { note: `\n\nРабота зафиксирована в ветке ${worktree.branch} (дерево ${worktree.path}) и НЕ влита в проект.`, committed: true, merged: false };
 		}

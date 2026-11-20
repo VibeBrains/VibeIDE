@@ -44,6 +44,12 @@ export type ToolApprovalType = 'edits' | 'terminal' | 'MCP tools';
 
 export const toolApprovalTypes = new Set<ToolApprovalType>(['edits', 'terminal', 'MCP tools']);
 
+/** Что вызывающий знает о человеке сверх решения: одобрил ли он уже именно этот вызов */
+export interface IBuiltinToolCallOptions {
+	/** человек одобрил этот вызов в карточке, видя команду и причину вопроса */
+	readonly humanApproved?: boolean;
+}
+
 
 
 

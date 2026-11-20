@@ -16,6 +16,7 @@ import { IConfigurationRegistry, Extensions as ConfigurationExtensions } from '.
 import { localize } from '../../../../nls.js';
 import { IVibeAgentTaskQueueService } from './vibeAgentTaskQueueService.js';
 import { IVibeideSettingsService } from './vibeideSettingsService.js';
+import { isAutonomousPermissionMode } from './chatPermissionMode.js';
 
 // ── Configuration ─────────────────────────────────────────────────────────────
 // Surface the token-budget safety knobs in VS Code's Settings UI. Without this
@@ -242,7 +243,7 @@ class VibeTokenBudgetService extends Disposable implements IVibeTokenBudgetServi
 			// Autopilot mode: user has opted into unattended execution. Throwing here would
 			// freeze the run waiting for a manual reset. Auto-reset with a clear log entry
 			// instead, but rate-limit to avoid pathological loops resetting every iteration.
-			const autopilotOn = this._vibeideSettingsService.state.globalSettings.chatAgentAutopilot === true;
+			const autopilotOn = isAutonomousPermissionMode(this._vibeideSettingsService.state.globalSettings.chatPermissionMode);
 			if (autopilotOn) {
 				const now = Date.now();
 				if (now - this._lastAutopilotResetAt >= VibeTokenBudgetService.AUTOPILOT_RESET_COOLDOWN_MS) {

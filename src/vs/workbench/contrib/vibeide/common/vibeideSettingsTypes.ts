@@ -6,6 +6,7 @@
 import { localize } from '../../../../nls.js';
 import { defaultModelsOfProvider, defaultProviderSettings, ModelOverrides } from './modelCapabilities.js';
 import { ToolApprovalType } from './toolsServiceTypes.js';
+import { ChatPermissionMode, DEFAULT_CHAT_PERMISSION_MODE } from './chatPermissionMode.js';
 import { VibeideSettingsState } from './vibeideSettingsService.js';
 import { CONFIG_ID_OF_VENDOR, ProviderVendor, vendorOfProviderId } from './providerVendor.js';
 
@@ -605,9 +606,6 @@ export type GlobalSettings = {
 	imageQAEnableHybridMode: boolean;
 	imageQADevMode: boolean;
 	enableMemories?: boolean; // Enable persistent project memories (default: true)
-	enableYOLOMode?: boolean; // Enable YOLO mode: auto-apply low-risk edits (default: false)
-	yoloRiskThreshold?: number; // Maximum risk score for auto-apply (default: 0.2)
-	yoloConfidenceThreshold?: number; // Minimum confidence score for auto-apply (default: 0.7)
 	enableInlineCodeReview?: boolean; // Enable inline code review annotations (default: true)
 	reviewSeverityFilter?: 'all' | 'warning+error'; // Filter annotations by severity (default: 'all')
 	// Audit log settings
@@ -637,8 +635,8 @@ export type GlobalSettings = {
 	};
 	// Local-First AI: When enabled, heavily bias router toward local models
 	localFirstAI?: boolean; // Prefer local models over cloud models (default: false)
-	/** When true, built-in and MCP tool calls run without per-step approval (incl. deletions & terminal). Default ON — most users want unattended runs; switch off for per-step control. */
-	chatAgentAutopilot?: boolean;
+	/** Режим разрешений встроенных моделей: что агент делает сам, а про что спрашивает человека (см. chatPermissionMode) */
+	chatPermissionMode: ChatPermissionMode;
 	/** When true, `.vibe/README.md` is created on workspace init if missing (together with other `.vibe/` defaults). */
 	createVibeReadmeOnWorkspaceInit: boolean;
 	/** When true, render date/time under each chat message and next to checkpoints. Single switch for all chat timestamps. */
@@ -671,9 +669,6 @@ export const defaultGlobalSettings: GlobalSettings = {
 	imageQAEnableHybridMode: true,
 	imageQADevMode: false,
 	enableMemories: true, // Enable memories by default
-	enableYOLOMode: false, // YOLO mode disabled by default (requires explicit opt-in)
-	yoloRiskThreshold: 0.2, // Auto-apply edits with risk < 0.2
-	yoloConfidenceThreshold: 0.7, // Auto-apply edits with confidence > 0.7
 	enableInlineCodeReview: true, // Enable inline code review annotations by default
 	reviewSeverityFilter: 'all', // Show all annotations by default
 	// Audit log defaults
@@ -702,7 +697,7 @@ export const defaultGlobalSettings: GlobalSettings = {
 		routerCacheTtlMs: 2000, // 2 second cache TTL (caching enabled)
 	},
 	localFirstAI: false, // Local-First AI disabled by default (users can enable for privacy/performance)
-	chatAgentAutopilot: true, // ON by default (paired with iterations counter defaulting to 0/∞); explicit user choice is persisted and wins
+	chatPermissionMode: DEFAULT_CHAT_PERMISSION_MODE, // 'auto' — как прежний автопилот, включённый по умолчанию
 	createVibeReadmeOnWorkspaceInit: true,
 	showChatTimestamps: true,
 	minimalismMode: 'lite', // Gentle reuse-first discipline by default; 'full'/'ultra' are explicit opt-ins

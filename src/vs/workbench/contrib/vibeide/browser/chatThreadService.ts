@@ -27,6 +27,9 @@ import { nextChatTraceTurn, recordChatTrace } from './vibeChatRunTrace.js';
 import { IChatJournalService } from './chatJournalService.js';
 import { AcpChatRunner, AcpThreadBinding } from './acp/acpChatRunner.js';
 import { AcpPermissionMode, DEFAULT_ACP_PERMISSION_MODE } from '../common/acp/acpPermissionPolicy.js';
+import { ChatPermissionMode, decideToolApproval, effectivePermissionMode, isAutonomousPermissionMode, IToolApprovalDecision, IToolCallFacts, toolCallFactsOf } from '../common/chatPermissionMode.js';
+import { describeOutsidePaths } from '../common/commandPathsOutsideScope.js';
+import { isMacintosh, isWindows } from '../../../../base/common/platform.js';
 import type { ChatJournalAction } from '../common/chatJournal.js';
 import { availableTools, builtinTools, builtinToolNames, chat_userMessageContent, isABuiltinToolName } from '../common/prompt/prompts.js';
 import { TOOL_NAME_ALIASES, applyParamAliases, detectToolByParamShape } from '../common/prompt/toolAliases.js';
@@ -439,14 +442,16 @@ type WhenMounted = {
 
 
 
-/** Per-tab chat config snapshot (multi-chat): each chat tab keeps its own model / mode / autopilot /
+/** Per-tab chat config snapshot (multi-chat): each chat tab keeps its own model / mode / permission mode /
  * iterations. Applied to the global stores when the tab becomes active, re-saved when the user changes
  * a control while it's active. `chatMode` is kept as a plain string here to avoid a type import cycle;
- * the React layer casts it to ChatMode. */
+ * the React layer casts it to ChatMode.
+ * Тред, сохранённый до режимов разрешений, несёт булев `autopilot` вместо `permissionMode`:
+ * его переводит permissionModeOfThreadConfig при применении, поэтому старое поле в типе не держим */
 export type ThreadChatConfig = {
 	model: { providerName: string; modelName: string } | null;
 	chatMode: string;
-	autopilot: boolean;
+	permissionMode: ChatPermissionMode;
 	iterations: number;
 };
 
@@ -3048,7 +3053,7 @@ class ChatThreadService extends Disposable implements IChatThreadService {
 		//                   over and over); without autopilot pause as before;
 		//   'never'       — log-only, never pause.
 		const driftMode = this._configurationService.getValue<unknown>('vibeide.plans.toolDriftPause');
-		const autopilotOn = this._settingsService.state.globalSettings.chatAgentAutopilot === true;
+		const autopilotOn = isAutonomousPermissionMode(this._settingsService.state.globalSettings.chatPermissionMode);
 		const shouldPause = driftMode === 'always' ? true : driftMode === 'never' ? false : !autopilotOn;
 		if (!shouldPause) {
 			// Every drifting call lands in the activity log, but the toast fires ONCE per plan
@@ -3135,7 +3140,7 @@ class ChatThreadService extends Disposable implements IChatThreadService {
 		// Policy mirrors `vibeide.plans.toolDriftPause`: always / manual-only (default: skip under
 		// autopilot) / never.
 		const driftMode = this._configurationService.getValue<unknown>('vibeide.specs.driftPause');
-		const autopilotOn = this._settingsService.state.globalSettings.chatAgentAutopilot === true;
+		const autopilotOn = isAutonomousPermissionMode(this._settingsService.state.globalSettings.chatPermissionMode);
 		const shouldPause = driftMode === 'always' ? true : driftMode === 'never' ? false : !autopilotOn;
 		const driftKey = `${threadId}:${spec.specId}:${uri.fsPath}`;
 		if (!shouldPause) {
@@ -4150,48 +4155,36 @@ Output ONLY the JSON, no other text. Start with { and end with }.`;
 		};
 	}
 
-	private _showAutoApplyNotification(
-		editContext: EditContext,
-		riskScore: EditRiskScore,
-		toolName: ToolName
-	): void {
-		const fileName = editContext.uri.path.split('/').pop() || editContext.uri.path;
-		const operationLabel = toolName === 'rewrite_file' ? 'rewritten' :
-			toolName === 'edit_file' ? 'edited' :
-				toolName === 'create_file_or_folder' ? 'created' :
-					'modified';
+	/** Оценка риска правки до вопроса человеку: и вход в решение о режиме, и объяснение карточке */
+	private async _scoreToolEditRisk(toolName: ToolName, toolParams: ToolCallParams<ToolName>, threadId: string): Promise<EditRiskScore | undefined> {
+		if (!MUTATING_TOOL_NAMES.has(toolName)) {
+			return undefined;
+		}
+		try {
+			const editContext = await this._buildEditContext(toolName, toolParams, threadId);
+			return await this._editRiskScoringService.scoreEdit(editContext);
+		} catch (error) {
+			// Неудачная оценка не повод выполнять правку молча: решение пройдёт без риска, режим решит сам
+			vibeLog.debug('chatThread', '[ChatThreadService] Risk scoring failed, using normal approval:', error);
+			return undefined;
+		}
+	}
 
-		// Show brief, non-intrusive notification
-		// Not sticky, auto-dismisses after a few seconds
-		// Info severity (not warning) to be less intrusive
-		this._notificationService.notify({
-			severity: Severity.Info,
-			message: localize('yolo.autoApplied', 'Автоприменено: {0} → {1}', operationLabel, fileName),
-			source: 'YOLO Mode',
-			sticky: false, // Auto-dismiss
-			actions: {
-				primary: [{
-					id: 'yolo.undo',
-					label: localize('yolo.undo', 'Отменить'),
-					tooltip: localize('yolo.undoTooltip', 'Отменить эту правку'),
-					class: undefined,
-					enabled: true,
-					run: async () => {
-						// Trigger undo for the file
-						try {
-							await this._commandService.executeCommand('undo', editContext.uri);
-							this._metricsService.capture('yolo_undo_clicked', {
-								operation: toolName,
-								riskScore: riskScore.riskScore,
-							});
-						} catch (error) {
-							// Undo failed, show error
-							this._notificationService.warn(localize('yolo.undoFailed', 'Не удалось отменить правку. Используйте Ctrl+Z вручную.'));
-						}
-					},
-				}],
-			},
-		});
+	/** Текст карточки ожидающего инструмента: для команды — почему и где, для правки — её риск */
+	private _toolApprovalRequestContent(decision: IToolApprovalDecision, riskScore: EditRiskScore | undefined): string {
+		const outsideDetail = decision.outsidePaths && decision.outsidePaths.length > 0 ? describeOutsidePaths(decision.outsidePaths) : '';
+		switch (decision.reason) {
+			case 'destructive':
+				return localize('vibeide.toolRequest.destructive', "Разрушительная команда (признаки: {0}). Действие может уничтожить данные, и отменить его нечем.", (decision.destructiveReasons ?? []).join(', '));
+			case 'commandOutsideProject':
+				return localize('vibeide.toolRequest.commandOutsideProject', "Команда работает с путями вне проекта:\n{0}", outsideDetail);
+			case 'criticalPath':
+				return localize('vibeide.toolRequest.criticalPath', "Среди путей — корень диска или домашней папки, очистка уничтожит всё, что на нём есть:\n{0}", outsideDetail);
+			default:
+				return riskScore && riskScore.riskLevel !== 'LOW'
+					? `(Risk: ${riskScore.riskLevel}, Score: ${riskScore.riskScore.toFixed(2)}, Confidence: ${riskScore.confidenceScore.toFixed(2)})`
+					: '(Awaiting user permission...)';
+		}
 	}
 
 	/**
@@ -4482,125 +4475,44 @@ Output ONLY the JSON, no other text. Start with { and end with }.`;
 			if (toolName === 'edit_file') { await this._addToolEditCheckpoint({ threadId, uri: (toolParams as BuiltinToolCallParams['edit_file']).uri }); }
 			if (toolName === 'rewrite_file') { await this._addToolEditCheckpoint({ threadId, uri: (toolParams as BuiltinToolCallParams['rewrite_file']).uri }); }
 
-			// 2. if tool requires approval, break from the loop, awaiting approval
+			// 2. одно решение на все инструменты: спрашивать человека или выполнять самому
+			// Ветка входа — не наличие approvalType, а само решение: чтение вне проекта тоже спрашивается
 
 			const approvalType = isBuiltInTool ? approvalTypeOfBuiltinToolName[toolName] : 'MCP tools';
-			if (approvalType) {
-				const chatAgentAutopilot = this._settingsService.state.globalSettings.chatAgentAutopilot === true;
-
-				// Check YOLO mode for edit operations
-				const isEditOperation = isBuiltInTool && (
-					toolName === 'edit_file' ||
-					toolName === 'rewrite_file' ||
-					toolName === 'create_file_or_folder' ||
-					toolName === 'delete_file_or_folder'
-				);
-
-				// Check YOLO mode for NL shell commands
-				const isNLCommand = isBuiltInTool && toolName === 'run_nl_command';
-
-				// Only explicit autoApprove[type] === true opts in; undefined/false → ask (safe default)
-				let shouldAutoApprove = this._settingsService.state.globalSettings.autoApprove[approvalType] === true;
-				let riskScore: { riskScore: number; confidenceScore: number; riskLevel: 'LOW' | 'MEDIUM' | 'HIGH'; riskFactors: string[]; confidenceFactors: string[] } | undefined;
-
-				// If YOLO mode is enabled and this is an NL command, check if it's safe
-				if (isNLCommand && this._settingsService.state.globalSettings.enableYOLOMode) {
-					try {
-						const nlParams = toolParams as BuiltinToolCallParams['run_nl_command'];
-						const nlInput = nlParams.nlInput.toLowerCase();
-
-						// Simple heuristics for safe commands (read-only, informational)
-						const safePatterns = ['list', 'show', 'check', 'status', 'get', 'display', 'print', 'view', 'read', 'cat', 'ls', 'pwd', 'whoami', 'date', 'time'];
-						const dangerousPatterns = ['delete', 'remove', 'rm', 'kill', 'destroy', 'format', 'reset', 'clear', 'drop', 'truncate', 'sudo', 'chmod', 'chown'];
-
-						const isSafe = safePatterns.some(pattern => nlInput.includes(pattern)) &&
-							!dangerousPatterns.some(pattern => nlInput.includes(pattern));
-
-						if (isSafe) {
-							shouldAutoApprove = true;
-							// Track YOLO auto-approval metric
-							this._metricsService.capture('yolo_auto_approved', {
-								operation: toolName,
-								nlInput: nlInput.substring(0, 50), // Truncate for privacy
-							});
-						}
-					} catch (error) {
-						// If check fails, fall back to normal approval flow
-						vibeLog.debug('chatThread', '[ChatThreadService] NL command safety check failed, using normal approval:', error);
-					}
-				}
-
-				// If this is an edit operation, score the risk (for both YOLO mode and to respect autoApprove safely)
-				if (isEditOperation) {
-					try {
-						const editContext = await this._buildEditContext(toolName, toolParams, threadId);
-						riskScore = await this._editRiskScoringService.scoreEdit(editContext);
-
-						// If autoApprove is enabled, respect it for LOW and MEDIUM risk operations
-						// HIGH risk still requires approval unless Autopilot is on (handled below)
-						if (shouldAutoApprove && riskScore.riskLevel === 'HIGH' && !chatAgentAutopilot) {
-							// High-risk edits require approval when not in Autopilot
-							shouldAutoApprove = false;
-							// Track high-risk blocked metric
-							this._metricsService.capture('high_risk_blocked_despite_autoapprove', {
-								riskScore: riskScore.riskScore,
-								confidenceScore: riskScore.confidenceScore,
-								operation: toolName,
-							});
-						}
-
-						// If YOLO mode is enabled, use risk thresholds for additional auto-approval
-						if (this._settingsService.state.globalSettings.enableYOLOMode) {
-							const yoloRiskThreshold = this._settingsService.state.globalSettings.yoloRiskThreshold ?? 0.2;
-							const yoloConfidenceThreshold = this._settingsService.state.globalSettings.yoloConfidenceThreshold ?? 0.7;
-
-							// Auto-approve if risk is low and confidence is high (even if autoApprove wasn't explicitly set)
-							if (riskScore.riskScore < yoloRiskThreshold && riskScore.confidenceScore > yoloConfidenceThreshold) {
-								shouldAutoApprove = true;
-								// Track YOLO auto-approval metric
-								this._metricsService.capture('yolo_auto_approved', {
-									riskScore: riskScore.riskScore,
-									confidenceScore: riskScore.confidenceScore,
-									riskLevel: riskScore.riskLevel,
-									operation: toolName,
-								});
-
-								// Show non-intrusive notification for medium-risk auto-applies (not very low risk)
-								// Very low risk (< 0.1) edits are silent to avoid notification fatigue
-								if (riskScore.riskScore >= 0.1) {
-									this._showAutoApplyNotification(editContext, riskScore, toolName);
-								}
-							}
-						}
-					} catch (error) {
-						// If risk scoring fails, fall back to normal approval flow
-						// If autoApprove was already true, keep it true (don't block due to scoring failure)
-						vibeLog.debug('chatThread', '[ChatThreadService] Risk scoring failed, using normal approval:', error);
-					}
-				}
-
-				// Autopilot: run tools without confirmation (incl. deletions, terminal, MCP)
-				if (chatAgentAutopilot) {
-					shouldAutoApprove = true;
-				}
-
-				// add a tool_request because we use it for UI if a tool is loading (this should be improved in the future)
-				const requestContent = riskScore && riskScore.riskLevel !== 'LOW'
-					? `(Risk: ${riskScore.riskLevel}, Score: ${riskScore.riskScore.toFixed(2)}, Confidence: ${riskScore.confidenceScore.toFixed(2)})`
-					: '(Awaiting user permission...)';
-				this._addMessageToThread(threadId, {
-					role: 'tool',
-					type: 'tool_request',
-					content: requestContent,
-					result: null,
-					name: toolName,
-					params: toolParams,
-					id: toolId,
-					rawParams: opts.unvalidatedToolParams,
-					mcpServerName
+			{
+				const globalSettings = this._settingsService.state.globalSettings;
+				// Режим треда берём так же, как остальной код хода: переопределение треда сильнее глобальной настройки
+				const chatMode = this._chatModeOverrideOfThread.get(threadId) ?? globalSettings.chatMode;
+				// Риск правки считаем до решения: он и вход в решение, и объяснение карточке
+				const riskScore = isBuiltInTool ? await this._scoreToolEditRisk(toolName, toolParams, threadId) : undefined;
+				const facts: IToolCallFacts = {
+					...toolCallFactsOf(toolName as string, approvalType, toolParams as { uri?: unknown; searchInFolder?: unknown; command?: unknown }),
+					...(riskScore ? { editRisk: riskScore.riskLevel } : {}),
+				};
+				const decision = decideToolApproval(facts, {
+					mode: effectivePermissionMode(chatMode, globalSettings.chatPermissionMode),
+					roots: this._workspaceContextService.getWorkspace().folders.map(folder => folder.uri.fsPath),
+					caseInsensitivePaths: isMacintosh || isWindows,
+					grants: {
+						terminal: globalSettings.autoApprove.terminal === true,
+						mcp: globalSettings.autoApprove['MCP tools'] === true,
+					},
+					confirmDestructiveCommands: this._configurationService.getValue<boolean>('vibeide.agent.confirmDestructiveCommands') !== false,
 				});
 
-				if (!shouldAutoApprove) {
+				if (decision.action === 'ask') {
+					// tool_request нужен интерфейсу, чтобы показать карточку ожидающего инструмента
+					this._addMessageToThread(threadId, {
+						role: 'tool',
+						type: 'tool_request',
+						content: this._toolApprovalRequestContent(decision, riskScore),
+						result: null,
+						name: toolName,
+						params: toolParams,
+						id: toolId,
+						rawParams: opts.unvalidatedToolParams,
+						mcpServerName
+					});
 					return { awaitingUserApproval: true };
 				}
 			}
@@ -4707,7 +4619,8 @@ Output ONLY the JSON, no other text. Start with { and end with }.`;
 			}
 
 			if (isBuiltInTool) {
-				const { result, interruptTool } = await this._toolsService.callTool[toolName](toolParams as never);
+				// preapproved приходит только из approveLatestToolRequest: карточку видел человек и нажал кнопку
+				const { result, interruptTool } = await this._toolsService.callTool[toolName](toolParams as never, { humanApproved: opts.preapproved });
 				const interruptor = () => { interrupted = true; interruptTool?.(); };
 				resolveInterruptor(interruptor);
 
@@ -6868,7 +6781,7 @@ Output ONLY the JSON, no other text. Start with { and end with }.`;
 							requestId: finalRequestId,
 							msgHead: (error?.message ?? '').slice(0, 100),
 							status: (error?.fullError as { statusCode?: number } | null | undefined)?.statusCode,
-							autopilot: this._settingsService.state.globalSettings.chatAgentAutopilot === true,
+							autopilot: isAutonomousPermissionMode(this._settingsService.state.globalSettings.chatPermissionMode),
 							rateWaitStreak: this._rateLimitAutoWaitStreak.get(threadId) ?? 0,
 							...(refusal ? {
 								httpStatus: refusal.httpStatus,
@@ -7918,7 +7831,7 @@ Output ONLY the JSON, no other text. Start with { and end with }.`;
 						this._setStreamState(threadId, { isRunning: undefined });
 						return;
 					}
-					const autopilotOn = this._settingsService.state.globalSettings.chatAgentAutopilot === true;
+					const autopilotOn = isAutonomousPermissionMode(this._settingsService.state.globalSettings.chatPermissionMode);
 					const rawMaxNudges = this._configurationService.getValue<unknown>('vibeide.agent.autoContinueMaxNudges');
 					const maxNudges = (typeof rawMaxNudges === 'number' && Number.isFinite(rawMaxNudges) && rawMaxNudges >= 0) ? Math.floor(rawMaxNudges) : 2;
 

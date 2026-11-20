@@ -495,6 +495,35 @@ suite('Вырезанные встроенные провайдеры — теп
 				{ custom: { openai: ['ft:gpt-4o:org::abc'] }, shown: { openai: { 'ft:gpt-4o:org::abc': false } }, removed: true, missing: false, customAfter: {} },
 			);
 		});
+
+		test('автопилот и галочка правок переезжают в режим разрешений, а поля YOLO из сохранённого исчезают', async () => {
+			const autopilot = await startService({
+				globalSettings: {
+					chatAgentAutopilot: true,
+					enableYOLOMode: true, yoloRiskThreshold: 0.3, yoloConfidenceThreshold: 0.5,
+					autoApprove: { terminal: true },
+				},
+			});
+			const edits = await startService({
+				globalSettings: { chatAgentAutopilot: false, autoApprove: { edits: true, 'MCP tools': true } },
+			});
+			// Сохранение само по себе не случается: толкаем его посторонней настройкой, чтобы увидеть, что уходит на диск
+			autopilot.service.setGlobalSetting('showChatTimestamps', true);
+			edits.service.setGlobalSetting('showChatTimestamps', true);
+			await timeout(0);
+			const persistedAutopilot = storedState(autopilot.storage).globalSettings;
+			const persistedEdits = storedState(edits.storage).globalSettings;
+			assert.deepStrictEqual(
+				{
+					modes: [persistedAutopilot.chatPermissionMode, persistedEdits.chatPermissionMode],
+					// Ключей, которых больше нет в типе, не должно остаться и в сохранённом состоянии
+					leftover: ['chatAgentAutopilot', 'enableYOLOMode', 'yoloRiskThreshold', 'yoloConfidenceThreshold']
+						.filter(key => Object.hasOwn(persistedAutopilot, key)),
+					grants: [persistedAutopilot.autoApprove.terminal, persistedEdits.autoApprove.edits, persistedEdits.autoApprove['MCP tools']],
+				},
+				{ modes: ['auto', 'edits'], leftover: [], grants: [true, undefined, true] },
+			);
+		});
 	});
 
 	test('слот ключа `opencode` из набора — это ключ встроенного Zen; остальные ссылки на ключ не меняются', () => {

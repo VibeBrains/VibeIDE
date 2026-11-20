@@ -45,6 +45,7 @@ import { parseChatSlashCommand, splitWatchArgs, CHAT_SLASH_COMMANDS, SLASH_COMMA
 import { historyKeyApplies, navigateHistory } from '../../../../common/promptHistory.js';
 import { BuiltinToolCallParams, BuiltinToolName, ToolName, LintErrorItem, ToolApprovalType, toolApprovalTypes } from '../../../../common/toolsServiceTypes.js';
 import { approvalTypeOfBuiltinToolName } from '../../../../common/prompt/tools/index.js';
+import { permissionModeOfThreadConfig } from '../../../../common/chatPermissionMode.js';
 import { CopyButton, EditToolAcceptRejectButtonsHTML, IconShell1, JumpToFileButton, JumpToTerminalButton, StatusIndicator, StatusIndicatorForApplyButton, useApplyStreamState, useEditToolStreamState } from '../markdown/ApplyBlockHoverButtons.js';
 import { IsRunningType, ThreadPauseInfo, WAITING_FOR_MODEL_RESPONSE_SENTINEL } from '../../../chatThreadService.js';
 import { acceptAllBg, acceptBorder, buttonFontSize, buttonTextColor, rejectAllBg, rejectBg, rejectBorder } from '../../../../common/helpers/colors.js';
@@ -590,38 +591,6 @@ const ChatModeDropdown = ({ className }: { className: string }) => {
 
 };
 
-/** Toolbar: auto-run all agent tools without per-step approval (incl. deletes & terminal). Off = confirm each tool. */
-const ChatAgentAutopilotToggle = ({ className }: { className?: string }) => {
-	const accessor = useAccessor();
-	const vibeideSettingsService = accessor.get('IVibeideSettingsService');
-	const configurationService = accessor.get('IConfigurationService');
-	const metricsService = accessor.get('IMetricsService');
-	const settingsState = useSettingsState();
-
-	const onChange = useCallback((v: boolean) => {
-		vibeideSettingsService.setGlobalSetting('chatAgentAutopilot', v);
-		// #5 — couple with the iterations counter: full autonomy ON → no pause (counter 0); OFF →
-		// controlled mode (bounded counter, pause + confirmations). Mirror of ChatAgentIterationsControl.
-		configurationService.updateValue(SOFT_CHECKPOINT_KEY, v ? 0 : SOFT_CHECKPOINT_CONTROLLED);
-		metricsService.capture('Chat Agent Autopilot Toggle', { enabled: v });
-	}, [vibeideSettingsService, configurationService, metricsService]);
-
-	const mode = settingsState.globalSettings.chatMode;
-	if (mode !== 'agent' && mode !== 'plan') {
-		return null;
-	}
-
-	return (
-		<div
-			className={`@@vibe-toolbar-pill flex items-center gap-1 flex-shrink-0 rounded-xl py-0.5 px-1.5 ${className ?? ''}`}
-			title={chatS.autopilotTitle}
-		>
-			<VibeSwitch size='xs' value={settingsState.globalSettings.chatAgentAutopilot === true} onChange={onChange} />
-			<span className='text-vibe-fg-3 text-xs whitespace-nowrap select-none pointer-events-none'>{chatS.autopilotLabel}</span>
-		</div>
-	);
-};
-
 const PROJECT_RULES_RESOLVE_LINKS_KEY = 'vibeide.projectRules.resolveLinks';
 const PROJECT_RULES_RESOLVE_LINKS_RECURSIVE_KEY = 'vibeide.projectRules.resolveLinksRecursive';
 
@@ -706,7 +675,6 @@ const ChatSessionResetButton = ({ className }: { className?: string }) => {
 
 /** Single agent-iterations control = soft-checkpoint pause (`vibeide.agent.softCheckpointIterations`). 0 = run to completion. */
 const SOFT_CHECKPOINT_DEFAULT = 0; // mirrors the registered config default: ∞ / no pauses (autopilot-on world)
-const SOFT_CHECKPOINT_CONTROLLED = 25; // value the counter snaps to when the user flips Autopilot OFF (controlled mode)
 const SOFT_CHECKPOINT_UPPER = 500;
 const SOFT_CHECKPOINT_KEY = 'vibeide.agent.softCheckpointIterations';
 /** Auto-continue nudges control (`vibeide.agent.autoContinueMaxNudges`): how many CONSECUTIVE
@@ -720,7 +688,7 @@ const AUTO_NUDGES_KEY = 'vibeide.agent.autoContinueMaxNudges';
  * Pointer events are stopped from bubbling so the composer's click/mousedown refocus can't yank focus
  * back to the chat textarea the moment you interact with these controls (the reported focus-steal bug).
  */
-const NumberStepperControl = ({ className, configKey, defaultValue, upper, label, offLabel, offHint, title, presets, onValueCommitted }: {
+const NumberStepperControl = ({ className, configKey, defaultValue, upper, label, offLabel, offHint, title, presets }: {
 	className?: string;
 	configKey: string;
 	defaultValue: number;
@@ -730,7 +698,6 @@ const NumberStepperControl = ({ className, configKey, defaultValue, upper, label
 	offHint: string;
 	title: string;
 	presets?: number[];
-	onValueCommitted?: (value: number) => void;
 }) => {
 	const accessor = useAccessor();
 	const configurationService = accessor.get('IConfigurationService');
@@ -761,8 +728,7 @@ const NumberStepperControl = ({ className, configKey, defaultValue, upper, label
 		setValue(clamped);
 		setDraft(String(clamped));
 		configurationService.updateValue(configKey, clamped);
-		onValueCommitted?.(clamped);
-	}, [configurationService, configKey, upper, onValueCommitted]);
+	}, [configurationService, configKey, upper]);
 
 	const onInputChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
 		setDraft(e.target.value);
@@ -855,21 +821,13 @@ const NumberStepperControl = ({ className, configKey, defaultValue, upper, label
  * Single agent-iterations control. Bound to the soft-checkpoint (`vibeide.agent.softCheckpointIterations`):
  * after N steps in one run the agent pauses and asks «продолжить?»; `0` = no pause, run to completion.
  * (The old hard `maxLoopIterations` cap is removed from the UI and defaults to 0 so it can't silently
- * stop before this — a single, predictable counter.) Coupled with Autopilot (#5): committing `0` turns
- * Autopilot ON (full autonomy: no pause + auto-approve); any value >0 turns it OFF (controlled mode).
+ * stop before this — a single, predictable counter.)
+ *
+ * Число итераций не меняет права агента: их задаёт режим в списке «Режим»
+ * Связь односторонняя — выбор режима ставит счётчику своё значение, а счётчик режим не трогает
  */
 const ChatAgentIterationsControl = ({ className }: { className?: string }) => {
-	const accessor = useAccessor();
-	const vibeideSettingsService = accessor.get('IVibeideSettingsService');
 	const settingsState = useSettingsState();
-
-	const onValueCommitted = useCallback((n: number) => {
-		// Two-way coupling: counter 0 ⟺ Autopilot ON (full autonomy). >0 ⟺ controlled (pause + confirm).
-		const autopilot = n === 0;
-		if ((settingsState.globalSettings.chatAgentAutopilot === true) !== autopilot) {
-			vibeideSettingsService.setGlobalSetting('chatAgentAutopilot', autopilot);
-		}
-	}, [vibeideSettingsService, settingsState.globalSettings.chatAgentAutopilot]);
 
 	const mode = settingsState.globalSettings.chatMode;
 	if (mode !== 'agent' && mode !== 'plan') { return null; }
@@ -884,7 +842,6 @@ const ChatAgentIterationsControl = ({ className }: { className?: string }) => {
 			offHint={chatS.maxLoopIterationsOffHint}
 			title={chatS.softCheckpointTitle}
 			presets={[0, 25, 50, 100]}
-			onValueCommitted={onValueCommitted}
 		/>
 	);
 };
@@ -1770,7 +1727,6 @@ export const VibeChatArea: React.FC<VibeideChatAreaProps> = ({
 						{featureName === 'Chat' && !ledByAgent && <ChatContextMeterButton />}
 						{/* The knobs sit one click away, each with its real value (ChatQuickSettings.tsx) */}
 						{ledByAgent ? null : featureName === 'Chat' ? <ChatQuickSettingsButton agentControls={<>
-							<ChatAgentAutopilotToggle />
 							<ChatRuleLinksRecursiveToggle />
 							<ChatSessionResetButton />
 							<ChatAgentIterationsControl />
@@ -5766,14 +5722,14 @@ export const SidebarChat = () => {
 
 	const curModelSel = settingsState.modelSelectionOfFeature['Chat'] ?? null;
 	const curChatMode = settingsState.globalSettings.chatMode;
-	const curAutopilot = settingsState.globalSettings.chatAgentAutopilot === true;
+	const curPermissionMode = settingsState.globalSettings.chatPermissionMode;
 
 	const readChatConfig = useCallback(() => ({
 		model: curModelSel ? { providerName: curModelSel.providerName, modelName: curModelSel.modelName } : null,
 		chatMode: curChatMode as string,
-		autopilot: curAutopilot,
+		permissionMode: curPermissionMode,
 		iterations: iterValue,
-	}), [curModelSel, curChatMode, curAutopilot, iterValue]);
+	}), [curModelSel, curChatMode, curPermissionMode, iterValue]);
 
 	// Apply saved config (or snapshot current) once on mount/tab-switch.
 	useEffect(() => {
@@ -5786,7 +5742,8 @@ export const SidebarChat = () => {
 			if (isChatMode(cfg.chatMode)) {
 				void vibeideSettingsService.setGlobalSetting('chatMode', cfg.chatMode);
 			}
-			void vibeideSettingsService.setGlobalSetting('chatAgentAutopilot', cfg.autopilot);
+			// Тред, сохранённый до режимов, несёт булев autopilot: его переводит тот же разбор
+			void vibeideSettingsService.setGlobalSetting('chatPermissionMode', permissionModeOfThreadConfig(cfg) ?? curPermissionMode);
 			void configurationService.updateValue(SOFT_CHECKPOINT_ITER_KEY, cfg.iterations);
 		} else {
 			chatThreadsService.setThreadChatConfig(currentThread.id, readChatConfig());
@@ -5800,7 +5757,7 @@ export const SidebarChat = () => {
 	useEffect(() => {
 		if (skipFirstCfgSaveRef.current) { skipFirstCfgSaveRef.current = false; return; }
 		chatThreadsService.setThreadChatConfig(currentThread.id, readChatConfig());
-	}, [curModelSel?.providerName, curModelSel?.modelName, curChatMode, curAutopilot, iterValue]);
+	}, [curModelSel?.providerName, curModelSel?.modelName, curChatMode, curPermissionMode, iterValue]);
 
 	// Image attachments management
 	const {

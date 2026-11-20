@@ -8,6 +8,7 @@ import { localize } from '../../../../nls.js';
 import { Disposable } from '../../../../base/common/lifecycle.js';
 import { generateUuid } from '../../../../base/common/uuid.js';
 import { registerSingleton, InstantiationType } from '../../../../platform/instantiation/common/extensions.js';
+import { IConfigurationService } from '../../../../platform/configuration/common/configuration.js';
 import { IDialogService } from '../../../../platform/dialogs/common/dialogs.js';
 import { INotificationService } from '../../../../platform/notification/common/notification.js';
 import { ILLMMessageService } from '../common/sendLLMMessageService.js';
@@ -33,6 +34,7 @@ import { IVibeSubagentRegistryService } from '../common/vibeSubagentRegistryServ
 import { IVibeSpendLedgerService } from './vibeSpendLedgerService.js';
 import { commandEscapesScope, describeCommandEscape } from '../common/commandEscapesScope.js';
 import { commandPathsOutsideScope, describeOutsidePaths } from '../common/commandPathsOutsideScope.js';
+import { decideToolApproval, isAutonomousPermissionMode, toolCallFactsOf } from '../common/chatPermissionMode.js';
 import { decideStop, hopTokenCost, truncateSummary, summaryTail, RESULT_SUMMARY_MAX_CHARS, chatModeForAllowedTools, collectPathsFromRawParams, buildExploreReport, buildSubagentTaskMessage, stopReasonToRussian, SUBAGENT_MAX_DENIED_ACTIONS, SubagentStopReason } from '../common/subagentLoopPolicy.js';
 import { IConvertToLLMMessageService } from './convertToLLMMessageService.js';
 import { IToolsService } from './toolsService.js';
@@ -123,6 +125,7 @@ class VibeSubagentRunnerService extends Disposable implements IVibeSubagentRunne
 		@IVibeAgentRunLedgerService private readonly _runLedger: IVibeAgentRunLedgerService,
 		@IFileService private readonly _fileService: IFileService,
 		@IVibePromptGuardService private readonly _promptGuard: IVibePromptGuardService,
+		@IConfigurationService private readonly _configurationService: IConfigurationService,
 	) {
 		super();
 	}
@@ -245,7 +248,7 @@ class VibeSubagentRunnerService extends Disposable implements IVibeSubagentRunne
 		let lastAutoResetAt = 0;
 
 		while (true) {
-			const autopilot = this._settings.state.globalSettings.chatAgentAutopilot === true;
+			const autopilot = isAutonomousPermissionMode(this._settings.state.globalSettings.chatPermissionMode);
 			const stop = decideStop({ stepsDone, tokensUsedEst, deniedActions, nowMs: Date.now(), cancelled: req.cancellationToken?.isCancellationRequested === true }, limits);
 			if (stop && autopilot && (stop === 'max-steps' || stop === 'deadline' || stop === 'token-budget')) {
 				const now = Date.now();
@@ -467,38 +470,50 @@ class VibeSubagentRunnerService extends Disposable implements IVibeSubagentRunne
 				}
 			}
 
-			// Approval gate: the runner bypasses the chat-thread approval flow, so approval-requiring
-			// tools (writes/terminal) get an explicit user confirm here — UNLESS the parent's own
-			// auto-approve gates already opt in. We mirror chatThreadService exactly (constraints are
-			// INHERITED from the parent, never weakened AND never strengthened): autopilot approves
-			// everything; otherwise the per-type `autoApprove` opt-in applies. So under autopilot a
-			// role runs tools without asking, same as the main agent.
+			// Одобрение роли — то же решение, что в треде: ограничения наследуются от родителя и не слабеют.
+			// Опасные команды и пути вне проекта спрашиваются тем же правилом, а не отдельным флагом
 			const approvalType = approvalTypeOfBuiltinToolName[toolName];
-			if (approvalType) {
-				const gs = this._settings.state.globalSettings;
-				const autoApproved = gs.chatAgentAutopilot === true || gs.autoApprove[approvalType] === true;
-				if (!autoApproved) {
-					const { confirmed } = await this._dialogService.confirm({
-						message: localize('vibeide.subagentRunner.approve', "Субагент-роль «{0}» запрашивает инструмент «{1}»", preset.displayName, toolName),
-						detail: localize('vibeide.subagentRunner.approveDetail', "Параметры: {0}", truncateSummary(JSON.stringify(toolCall.rawParams), 300)),
-						primaryButton: localize('vibeide.subagentRunner.approveBtn', "Разрешить"),
-					});
-					if (!confirmed) {
-						deniedActions++;
-						// eslint-disable-next-line local/code-no-dangerous-type-assertions -- internal ToolMessage builder widened to the ChatMessage union; tool params are loosely typed
-						history.push({
-							role: 'tool', type: 'rejected', result: null,
-							name: toolName as ToolName, params: params as never,
-							content: 'Пользователь отклонил вызов инструмента. Предложи другой путь или заверши задачу.',
-							id: toolCall.id || generateUuid(), rawParams: toolCall.rawParams, mcpServerName: undefined,
-						} as ChatMessage);
-						continue;
-					}
+			const gs = this._settings.state.globalSettings;
+			const approvalFacts = toolCallFactsOf(toolName, approvalType, params as { uri?: unknown; searchInFolder?: unknown; command?: unknown });
+			// Роль — работа агента, а не чата: режим чата («План», «Обзор») её вызовы не сужает
+			// Своё дерево роли — тоже проект: иначе каждая правка в нём шла бы как правка вне проекта
+			const approval = decideToolApproval(approvalFacts, {
+				mode: gs.chatPermissionMode,
+				roots: [...new Set([
+					...(req.runRoot ? [req.runRoot] : []),
+					...this._workspaceContextService.getWorkspace().folders.map(folder => folder.uri.fsPath),
+				])],
+				caseInsensitivePaths: isMacintosh || isWindows,
+				grants: {
+					terminal: gs.autoApprove.terminal === true,
+					mcp: gs.autoApprove['MCP tools'] === true,
+				},
+				confirmDestructiveCommands: this._configurationService.getValue<boolean>('vibeide.agent.confirmDestructiveCommands') !== false,
+			});
+			// Флаг взводится только диалогом: инструмент узнаёт, что человек видел параметры этого вызова
+			let humanApproved = false;
+			if (approval.action === 'ask') {
+				const { confirmed } = await this._dialogService.confirm({
+					message: localize('vibeide.subagentRunner.approve', "Субагент-роль «{0}» запрашивает инструмент «{1}»", preset.displayName, toolName),
+					detail: localize('vibeide.subagentRunner.approveDetail', "Параметры: {0}", truncateSummary(JSON.stringify(toolCall.rawParams), 300)),
+					primaryButton: localize('vibeide.subagentRunner.approveBtn', "Разрешить"),
+				});
+				if (!confirmed) {
+					deniedActions++;
+					// eslint-disable-next-line local/code-no-dangerous-type-assertions -- internal ToolMessage builder widened to the ChatMessage union; tool params are loosely typed
+					history.push({
+						role: 'tool', type: 'rejected', result: null,
+						name: toolName as ToolName, params: params as never,
+						content: 'Пользователь отклонил вызов инструмента. Предложи другой путь или заверши задачу.',
+						id: toolCall.id || generateUuid(), rawParams: toolCall.rawParams, mcpServerName: undefined,
+					} as ChatMessage);
+					continue;
 				}
+				humanApproved = true;
 			}
 
 			try {
-				const { result } = await this._tools.callTool[toolName](params as never);
+				const { result } = await this._tools.callTool[toolName](params as never, { humanApproved });
 				deniedActions = 0; // a tool ran cleanly — the «stuck» guard counts CONSECUTIVE misfires, not lifetime
 				// A role reads the web with the same tools as the chat, and its model is as exposed to a hostile page
 				const content = truncateHeadTail(prepareToolOutput({
