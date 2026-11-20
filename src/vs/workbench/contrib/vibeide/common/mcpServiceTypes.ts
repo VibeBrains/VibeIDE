@@ -4,6 +4,7 @@
  *--------------------------------------------------------------------------------------------*/
 
 import { MCP } from '../../mcp/common/modelContextProtocol.js';
+import { MCPWorkspaceOverrideOfName } from './mcpWorkspaceOverrides.js';
 
 /* -------------------------------------------------- */
 /* Core JSON‑RPC envelope                              */
@@ -212,8 +213,13 @@ export interface MCPNameConflicts {
 export interface MCPSyncParams {
 	/** Entries after Config Guard, the discovered memory server included. */
 	readonly entries: Record<string, MCPConfigFileEntryJSON>;
-	/** Whether each server should run, as this window's settings say. */
+	/** Whether each server should run, as the app-wide switch says: the same value in every window */
 	readonly enabledOfName: Record<string, boolean>;
+	/**
+	 * Серверы, включённость которых этот проект переопределил. Отдельно от `enabledOfName`: глобальный
+	 * переключатель общий, а проектное решение принадлежит окну и не должно гасить сервер у соседей
+	 */
+	readonly workspaceOverrideOfName: MCPWorkspaceOverrideOfName;
 	/** This window's MCP Apps setting; clients announce MCP Apps while any window has it on. */
 	readonly appsEnabled: boolean;
 }

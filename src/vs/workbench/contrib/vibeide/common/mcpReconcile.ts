@@ -14,6 +14,7 @@
  */
 
 import { MCPConfigFileEntryJSON } from './mcpServiceTypes.js';
+import { MCPWorkspaceOverrideOfName } from './mcpWorkspaceOverrides.js';
 
 /** A server the main process has seen: the launch it was last set up from, and whether it runs now. */
 export interface KnownMCPServer {
@@ -103,6 +104,8 @@ export function reconcileMCPServers(
 export interface WindowPicture {
 	readonly entries: Readonly<Record<string, MCPConfigFileEntryJSON>>;
 	readonly enabledOfName: Readonly<Record<string, boolean>>;
+	/** Проектные переопределения окна; нет поля — окно проектным переключателем не пользовалось */
+	readonly workspaceOverrideOfName?: MCPWorkspaceOverrideOfName;
 }
 
 export interface UnitedPictures {
@@ -159,4 +162,39 @@ export function unitePictures(
 		conflictsOfWindow[window] = conflicts.get(window) ?? [];
 	}
 	return { entries, enabledOfName, conflictsOfWindow };
+}
+
+/**
+ * Whether one window has a server on: its project override wins over the app-wide switch.
+ *
+ * The switch in the settings is shared by every window, so a server needed only outside the open project
+ * is switched off for that project alone. A window that never touched the project switch takes the app value.
+ */
+export function isMCPServerOnInWindow(picture: WindowPicture, name: string, appWideIsOn: boolean): boolean {
+	const override = picture.workspaceOverrideOfName?.[name];
+	return override ?? appWideIsOn;
+}
+
+/**
+ * Whether the server must run: some window that wants it has it on for itself.
+ *
+ * Clients are shared, so a project that switched a server off must not close it for the window that needs it —
+ * the server keeps running and only stops offering its tools to that project. `disabled` in the file stays final:
+ * it is not a setting of a window, and no window can turn such a server on.
+ */
+export function isMCPServerWantedByAnyWindow(
+	name: string,
+	entry: MCPConfigFileEntryJSON | undefined,
+	pictures: ReadonlyMap<string, WindowPicture>,
+	appWideIsOn: boolean,
+): boolean {
+	if (entry?.disabled === true) {
+		return false;
+	}
+	for (const picture of pictures.values()) {
+		if (Object.hasOwn(picture.entries, name) && isMCPServerOnInWindow(picture, name, appWideIsOn)) {
+			return true;
+		}
+	}
+	return false;
 }

@@ -13,6 +13,7 @@ import { MemoryProjectAnswer, TeamMemoryProject } from './vibeMemoryProject.js';
 import { InternalToolInfo } from './prompt/prompts.js';
 import { ConfigGuardFinding } from './vibeConfigGuard.js';
 import { McpToolDrift } from './mcpToolPins.js';
+import { MCPWorkspaceOverrideOfName } from './mcpWorkspaceOverrides.js';
 
 // Реализация — `electron-browser/mcpService.ts`: класс говорит с main-процессом по каналу
 // `vibe-channel-mcp` через `IMainProcessService`, запрещённый и в `common/**`, и в `browser/**`.
@@ -27,12 +28,26 @@ export type MCPServiceState = {
 	 * person looks at them. Part of the state, not a query: the UI re-renders when the state object changes.
 	 */
 	toolDriftOfName: { readonly [serverName: string]: McpToolDrift };
+	/**
+	 * Включённость сервера, переопределённая для этого проекта; нет записи — действует глобальный
+	 * переключатель из настроек. Часть состояния, а не запрос: UI перерисовывается по смене объекта
+	 */
+	workspaceOverrideOfName: MCPWorkspaceOverrideOfName;
 };
 
 export interface IMCPService {
 	readonly _serviceBrand: undefined;
 	revealMCPConfigFile(): Promise<void>;
 	toggleServerIsOn(serverName: string, isOn: boolean): Promise<void>;
+
+	/**
+	 * Включить или выключить сервер только в открытом проекте; `undefined` возвращает «как везде».
+	 *
+	 * Решение сразу уходит главному процессу в картине окна: сервер, нужный только этому проекту,
+	 * запускается, а ненужный больше никому — закрывается; общий переключатель не меняется. Карта
+	 * живёт в хранилище рабочей области и `mcp.json` не трогает.
+	 */
+	setServerWorkspaceOverride(serverName: string, isOn: boolean | undefined): Promise<void>;
 
 	readonly state: MCPServiceState; // NOT persisted
 	onDidChangeState: Event<void>;

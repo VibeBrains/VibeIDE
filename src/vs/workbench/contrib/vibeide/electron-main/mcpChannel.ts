@@ -21,7 +21,7 @@ import { ILifecycleMainService } from '../../../../platform/lifecycle/electron-m
 import { MCPConfigFileEntryJSON, MCPServer, MCPTool, RawMCPToolCall, MCPToolErrorResponse, MCPServerEventResponse, MCPToolCallParams, MCPReadResourceParams, MCPAppRequestOutcome, MCPSyncParams, MCPNameConflicts } from '../common/mcpServiceTypes.js';
 import { MCP } from '../../mcp/common/modelContextProtocol.js';
 import { mcpAppsClientCapabilities } from '../common/mcpApps.js';
-import { KnownMCPServer, MCPServerAction, mcpServerFingerprint, reconcileMCPServers, unitePictures, WantedMCPServer } from '../common/mcpReconcile.js';
+import { isMCPServerWantedByAnyWindow, KnownMCPServer, MCPServerAction, mcpServerFingerprint, reconcileMCPServers, unitePictures, WantedMCPServer } from '../common/mcpReconcile.js';
 import { describeUnauthorizedHelper, helperHeadersOf, mergeServerEnv, transportRequestInit } from '../common/mcpServerEnv.js';
 import { McpCacheableMeta, parseCacheableMeta, refreshDelayMs } from '../common/mcpCacheableResult.js';
 import { describeUnansweredInput, parseInputRequired, withInputResponses } from '../common/mcpMultiRoundTrip.js';
@@ -286,8 +286,10 @@ export class MCPChannel extends Disposable implements IServerChannel {
 		const united = unitePictures(this._pictureOfWindow, runningFingerprintOfName, appsEnabled);
 		const wanted: Record<string, WantedMCPServer> = {};
 		for (const [name, entry] of Object.entries(united.entries)) {
-			// `disabled` in the file is final: the settings switch cannot turn on what the file turned off
-			const isOn = entry.disabled !== true && (this._isOnOfName.get(name) ?? united.enabledOfName[name] !== false);
+			// The app-wide value: a switch thrown in this session wins over the picture of the window that holds the entry
+			const appWideIsOn = this._isOnOfName.get(name) ?? united.enabledOfName[name] !== false;
+			// Windows share the clients, so the server runs while any window that wants it has it on; `disabled` is final
+			const isOn = isMCPServerWantedByAnyWindow(name, entry, this._pictureOfWindow, appWideIsOn);
 			wanted[name] = { fingerprint: mcpServerFingerprint(entry, appsEnabled), isOn };
 		}
 		const actions = reconcileMCPServers(known, wanted);
@@ -708,23 +710,14 @@ export class MCPChannel extends Disposable implements IServerChannel {
 	}
 
 	/**
-	 * Switch one server on or off: the same reconciliation as a sync, for this server only. Switching on a
-	 * running server changes nothing; switching on one that failed tries it again.
+	 * Switch one server on or off app-wide, then bring the running set in line as a whole.
+	 *
+	 * Acting on this server alone would be wrong: a window whose project switched it on keeps it running, and
+	 * switching off here must not close the client under that window. A switch-on of a failed server retries it.
 	 */
 	private _toggleMCPServer(serverName: string, isOn: boolean): Promise<void> {
 		this._isOnOfName.set(serverName, isOn);
-		return this._enqueue(async () => {
-			const info = this.infoOfClientId[serverName];
-			if (!info) {
-				return;
-			}
-			const appsEnabled = this._effectiveAppsEnabled();
-			const actions = reconcileMCPServers(
-				{ [serverName]: this._knownOf(info) },
-				{ [serverName]: { fingerprint: mcpServerFingerprint(info.entry, appsEnabled), isOn: isOn && info.entry.disabled !== true } },
-			);
-			await this._applyAction(serverName, actions[serverName], info.entry, appsEnabled);
-		});
+		return this._enqueue(() => this._reconcileWindows());
 	}
 
 	// tool call functions

@@ -49,7 +49,8 @@ import { MCPUserStateOfName } from '../common/vibeideSettingsTypes.js';
 import { IVibeOutboundRingBuffer } from '../common/vibeOutboundRingBuffer.js';
 import { IConfigurationService } from '../../../../platform/configuration/common/configuration.js';
 import { INotificationHandle, INotificationService, Severity } from '../../../../platform/notification/common/notification.js';
-import { IStorageService } from '../../../../platform/storage/common/storage.js';
+import { IStorageService, StorageScope, StorageTarget } from '../../../../platform/storage/common/storage.js';
+import { isMcpServerOnInProject, MCP_WORKSPACE_OVERRIDES_KEY, MCPWorkspaceOverrideOfName, parseMcpWorkspaceOverrides, withMcpWorkspaceOverride } from '../common/mcpWorkspaceOverrides.js';
 import { InMemoryFileSystemProvider } from '../../../../platform/files/common/inMemoryFilesystemProvider.js';
 import { McpToolDefinitions, McpToolDrift, McpToolPinsStore, comparableDefinition, describeDefinitions, diffToolDefinitions, identicalDefinitions, serverPinKey, toolDefinitionsOf, withheldToolsOf } from '../common/mcpToolPins.js';
 import { MCP_REQUIRE_TOOL_REAPPROVAL_KEY } from '../common/mcpToolPinsConfiguration.js';
@@ -101,6 +102,7 @@ class MCPService extends Disposable implements IMCPService {
 		mcpServerOfName: {},
 		error: undefined,
 		toolDriftOfName: {},
+		workspaceOverrideOfName: {},
 	};
 
 	// Emitters for server events
@@ -125,6 +127,8 @@ class MCPService extends Disposable implements IMCPService {
 	private _lastConfiguredNames: ReadonlySet<string> = new Set();
 	/** Complaints already shown, so a file read again on every edit does not repeat the same notice */
 	private readonly _shownFileComplaints = new Set<string>();
+	/** The entries of the last picture sent: a project switch resends it whole instead of re-reading the files */
+	private _pictureEntries: Record<string, MCPConfigFileEntryJSON> | undefined;
 
 	// private readonly _onLoadingServersChange = new Emitter<MCPServerEventLoadingParam>();
 	// public readonly onLoadingServersChange = this._onLoadingServersChange.event;
@@ -144,10 +148,11 @@ class MCPService extends Disposable implements IMCPService {
 		@IWorkspaceContextService private readonly _workspace: IWorkspaceContextService,
 		@IShellEnvironmentService private readonly _shellEnvironmentService: IShellEnvironmentService,
 		@IWorkspaceTrustManagementService private readonly _trust: IWorkspaceTrustManagementService,
-		@IStorageService storageService: IStorageService,
+		@IStorageService private readonly _storageService: IStorageService,
 	) {
 		super();
-		this._toolPins = new McpToolPinsStore(storageService);
+		this._toolPins = new McpToolPinsStore(this._storageService);
+		this.state = { ...this.state, workspaceOverrideOfName: this._readWorkspaceOverrides() };
 		this.channel = this.mainProcessService.getChannel('vibe-channel-mcp');
 
 
@@ -173,6 +178,9 @@ class MCPService extends Disposable implements IMCPService {
 		// A project's own file is another set of servers: opening or closing a folder changes what to read and watch,
 		// and trusting the folder is what lets the servers of its file start.
 		this._register(this._workspace.onDidChangeWorkspaceFolders(() => {
+			// Хранилище рабочей области другое — проектные переопределения читаются заново
+			this.state = { ...this.state, workspaceOverrideOfName: this._readWorkspaceOverrides() };
+			this._onDidChangeState.fire();
 			void this._watchConfigFiles();
 			this._scheduleMcpConfigRefresh.schedule();
 		}));
@@ -592,6 +600,8 @@ class MCPService extends Disposable implements IMCPService {
 	public getMCPTools(): InternalToolInfo[] | undefined {
 		const allTools: InternalToolInfo[] = [];
 		for (const serverName in this.state.mcpServerOfName) {
+			// Сервер мог остаться запущенным ради другого окна: этому проекту его инструменты не показываем
+			if (!this._isServerOnInProject(serverName)) { continue; }
 			const server = this.state.mcpServerOfName[serverName];
 			const sanitizedServer = sanitizeMcpIdentifier(serverName);
 			const tooLong = server.tools?.find(tool => `${sanitizedServer}_${sanitizeMcpIdentifier(tool.name)}`.length > MODEL_TOOL_NAME_MAX);
@@ -1047,16 +1057,52 @@ class MCPService extends Disposable implements IMCPService {
 
 		// The whole picture, not a diff: the main process compares it with the clients that actually run,
 		// which every window shares (common/mcpReconcile.ts).
+		this._pictureEntries = newConfigFileJSON.mcpServers;
+		this._sendPicture();
+	}
+
+	/**
+	 * Send the main process this window's whole picture, entries and switches alike.
+	 *
+	 * One sender for the config refresh and for the project switch: the main process compares pictures,
+	 * so a picture built in two places would disagree with itself on what the entries are.
+	 */
+	private _sendPicture(): void {
+		if (!this._pictureEntries) {
+			return;
+		}
+		// `enabledOfName` is the app-wide switch, the same in every window; the project's own choice travels beside it
 		const enabledOfName: Record<string, boolean> = {};
-		for (const name of wantedNames) {
+		for (const name of Object.keys(this._pictureEntries)) {
 			enabledOfName[name] = this.vibeideSettingsService.state.mcpUserStateOfName[name]?.isOn !== false;
 		}
-		const params: MCPSyncParams = { entries: newConfigFileJSON.mcpServers, enabledOfName, appsEnabled: this._appsEnabled() };
+		const params: MCPSyncParams = {
+			entries: this._pictureEntries,
+			enabledOfName,
+			workspaceOverrideOfName: this.state.workspaceOverrideOfName,
+			appsEnabled: this._appsEnabled(),
+		};
 		this.channel.call('syncMCPServers', params);
 	}
 
 	private _appsEnabled(): boolean {
 		return this._configurationService.getValue<boolean>(mcpAppsEnabledConfig) !== false;
+	}
+
+	/** Карта переопределений открытого проекта; без папки она пуста, и всё решает глобальный переключатель */
+	private _readWorkspaceOverrides(): MCPWorkspaceOverrideOfName {
+		if (this._workspace.getWorkspace().folders.length === 0) {
+			return {};
+		}
+		return parseMcpWorkspaceOverrides(this._storageService.get(MCP_WORKSPACE_OVERRIDES_KEY, StorageScope.WORKSPACE));
+	}
+
+	/**
+	 * Действующее «включён»: проектное переопределение сильнее глобального переключателя.
+	 * Один вход для всех мест, где решается, работать серверу или нет.
+	 */
+	private _isServerOnInProject(name: string): boolean {
+		return isMcpServerOnInProject(name, this.state.workspaceOverrideOfName, this.vibeideSettingsService.state.mcpUserStateOfName);
 	}
 
 	/** A tool of a server by its model-facing `<server>_<tool>` name or by its raw name. */
@@ -1152,14 +1198,13 @@ class MCPService extends Disposable implements IMCPService {
 
 	public getAcpMcpServers(names: readonly string[] | undefined): AcpMcpExportResult {
 		// Выключатель читается оттуда же, откуда его пишет `toggleServerIsOn`: выключенный у нас сервер
-		// не должен оказаться включённым у гостя. Новый сервер без записи состояния считается включённым — так же,
-		// как при загрузке конфига.
-		const userState = this.vibeideSettingsService.state.mcpUserStateOfName;
+		// не должен оказаться включённым у гостя. Гость — по эту сторону окна, поэтому проектное
+		// переопределение тоже учитывается; новый сервер без записи считается включённым.
 		return buildAcpMcpServers({
 			entries: this._serverEntries,
 			allowed: names,
 			// `disabled` in the file switches a server off for the guest too, whatever the switch in the settings says
-			isEnabled: name => userState[name]?.isOn !== false && this._serverEntries[name]?.disabled !== true,
+			isEnabled: name => this._isServerOnInProject(name) && this._serverEntries[name]?.disabled !== true,
 		});
 	}
 
@@ -1168,7 +1213,36 @@ class MCPService extends Disposable implements IMCPService {
 		this._setMCPServerState(serverName, { status: 'loading', tools: [] });
 
 		await this.vibeideSettingsService.setMCPServerState(serverName, { isOn });
+		// The app-wide switch stays app-wide: a project's own choice is a separate, explicit thing and is left alone
 		this.channel.call('toggleMCPServer', { serverName, isOn });
+	}
+
+	/**
+	 * Переключатель «в этом проекте»: `undefined` возвращает «как везде».
+	 *
+	 * Пишем карту в хранилище рабочей области и пересылаем окну его картину целиком: главный процесс держит
+	 * клиенты общими, поэтому проектное решение едет в картине окна, а не общим переключателем `_isOnOfName`.
+	 * `mcp.json` не трогаем: его формат общий с VibeIDEA.
+	 */
+	public async setServerWorkspaceOverride(serverName: string, isOn: boolean | undefined): Promise<void> {
+		await this._writeWorkspaceOverride(serverName, isOn);
+		this._sendPicture();
+	}
+
+	/** Запись карты в одно место: хранилище рабочей области и состояние окна меняются вместе */
+	private async _writeWorkspaceOverride(serverName: string, isOn: boolean | undefined): Promise<void> {
+		// Без открытой папки переопределять нечего: хранилище рабочей области у окна отсутствует
+		if (this._workspace.getWorkspace().folders.length === 0) {
+			return;
+		}
+		const next = withMcpWorkspaceOverride(this.state.workspaceOverrideOfName, serverName, isOn);
+		this.state = { ...this.state, workspaceOverrideOfName: next };
+		if (Object.keys(next).length === 0) {
+			this._storageService.remove(MCP_WORKSPACE_OVERRIDES_KEY, StorageScope.WORKSPACE);
+		} else {
+			this._storageService.store(MCP_WORKSPACE_OVERRIDES_KEY, JSON.stringify(next), StorageScope.WORKSPACE, StorageTarget.MACHINE);
+		}
+		this._onDidChangeState.fire();
 	}
 
 

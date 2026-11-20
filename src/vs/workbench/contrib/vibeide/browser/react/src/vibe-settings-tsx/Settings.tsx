@@ -2176,13 +2176,22 @@ export const OneClickSwitchButton = ({ fromEditor = 'VS Code', className = '' }:
 
 // full settings
 
+/** Выбор «в этом проекте»: отсутствие записи — глобальный переключатель, иначе явное значение */
+type McpProjectScope = 'inherit' | 'on' | 'off';
+const MCP_PROJECT_SCOPES: McpProjectScope[] = ['inherit', 'on', 'off'];
+
 // MCP Server component
-const MCPServerComponent = ({ name, server, drift }: { name: string; server: MCPServer; drift: McpToolDrift | undefined }) => {
+const MCPServerComponent = ({ name, server, drift, workspaceOverride, showProjectScope }: { name: string; server: MCPServer; drift: McpToolDrift | undefined; workspaceOverride: boolean | undefined; showProjectScope: boolean }) => {
 	const accessor = useAccessor();
 	const mcpService = accessor.get('IMCPService');
 
 	const vibeSettings = useSettingsState();
+	// Переключатель справа остаётся общим для приложения; эта карточка показывает, что выйдет в этом проекте
 	const isOn = vibeSettings.mcpUserStateOfName[name]?.isOn;
+	const isOnHere = workspaceOverride ?? (isOn !== false);
+	const projectScope: McpProjectScope = workspaceOverride === undefined ? 'inherit' : workspaceOverride ? 'on' : 'off';
+	const projectScopeLabel = (scope: McpProjectScope) =>
+		scope === 'inherit' ? miscS.mcpScopeInherit : scope === 'on' ? miscS.mcpScopeOn : miscS.mcpScopeOff;
 
 	// The card is where the server lives, so a change waiting for a look is decided here too: the
 	// notification that announced it may already be gone.
@@ -2204,6 +2213,11 @@ const MCPServerComponent = ({ name, server, drift }: { name: string; server: MCP
 
 					{/* Server name */}
 					<div className="text-sm font-medium text-vibe-fg-1">{name}</div>
+
+					{/* Сервер выключен только здесь: пометка объясняет, почему он не работает при включённом переключателе */}
+					{workspaceOverride === false && (
+						<span className="px-1.5 py-0.5 bg-vibe-bg-2 text-vibe-fg-3 rounded-sm text-xs">{miscS.mcpOffInProject}</span>
+					)}
 				</div>
 
 				{/* Right side - power toggle switch */}
@@ -2214,6 +2228,22 @@ const MCPServerComponent = ({ name, server, drift }: { name: string; server: MCP
 					onChange={() => mcpService.toggleServerIsOn(name, !isOn)}
 				/>
 			</div>
+
+			{/* Включённость для открытого проекта: запись сильнее глобального переключателя, «как везде» её убирает */}
+			{showProjectScope && (
+				<div className="mt-3 flex items-center gap-2">
+					<span className="text-xs text-vibe-fg-3">{miscS.mcpProjectScope}</span>
+					<VibeCustomDropdownBox
+						options={MCP_PROJECT_SCOPES}
+						selectedOption={projectScope}
+						onChangeOption={(scope) => { void mcpService.setServerWorkspaceOverride(name, scope === 'inherit' ? undefined : scope === 'on'); }}
+						getOptionDisplayName={projectScopeLabel}
+						getOptionDropdownName={projectScopeLabel}
+						getOptionsEqual={(a, b) => a === b}
+						className='text-xs text-vibe-fg-3 bg-vibe-bg-1 border border-vibe-border-1 rounded-xl overflow-hidden p-0.5 px-1'
+					/>
+				</div>
+			)}
 
 			{withheld.size > 0 && (
 				<div className="mt-3 flex flex-col gap-2">
@@ -2230,7 +2260,7 @@ const MCPServerComponent = ({ name, server, drift }: { name: string; server: MCP
 			)}
 
 			{/* Tools section */}
-			{isOn && (
+			{isOnHere && (
 				<div className="mt-3">
 					<div className="flex flex-wrap gap-2 max-h-32 overflow-y-auto @@vibe-scroll">
 						{(server.tools ?? []).length > 0 ? (
@@ -2254,7 +2284,7 @@ const MCPServerComponent = ({ name, server, drift }: { name: string; server: MCP
 			)}
 
 			{/* Command badge */}
-			{isOn && server.command && (
+			{isOnHere && server.command && (
 				<div className="mt-3">
 					<div className="text-xs text-vibe-fg-3 mb-1">{miscS.mcpCommand}</div>
 					{/* Wrapped, not scrolled: an unbreakable line widened the whole settings page and pushed the toggle off-screen. */}
@@ -2276,7 +2306,10 @@ const MCPServerComponent = ({ name, server, drift }: { name: string; server: MCP
 
 // Main component that renders the list of servers
 const MCPServersList = () => {
+	const accessor = useAccessor();
 	const mcpServiceState = useMCPServiceState();
+	// Без открытой папки проекта нет, и выбора «в этом проекте» быть не должно
+	const hasProject = accessor.get('IWorkspaceContextService').getWorkspace().folders.length > 0;
 
 	let content: React.ReactNode;
 	if (mcpServiceState.error) {
@@ -2293,7 +2326,14 @@ const MCPServersList = () => {
 		}
 		else {
 			content = entries.map(([name, server]) => (
-				<MCPServerComponent key={name} name={name} server={server} drift={mcpServiceState.toolDriftOfName[name]} />
+				<MCPServerComponent
+					key={name}
+					name={name}
+					server={server}
+					drift={mcpServiceState.toolDriftOfName[name]}
+					workspaceOverride={mcpServiceState.workspaceOverrideOfName[name]}
+					showProjectScope={hasProject}
+				/>
 			));
 		}
 	}

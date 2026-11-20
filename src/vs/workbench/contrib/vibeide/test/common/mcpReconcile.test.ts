@@ -5,7 +5,7 @@
 
 import * as assert from 'assert';
 import { ensureNoDisposablesAreLeakedInTestSuite } from '../../../../../base/test/common/utils.js';
-import { KnownMCPServer, mcpServerFingerprint, reconcileMCPServers, unitePictures, WantedMCPServer, WindowPicture } from '../../common/mcpReconcile.js';
+import { isMCPServerOnInWindow, isMCPServerWantedByAnyWindow, KnownMCPServer, mcpServerFingerprint, reconcileMCPServers, unitePictures, WantedMCPServer, WindowPicture } from '../../common/mcpReconcile.js';
 import { MCPConfigFileEntryJSON } from '../../common/mcpServiceTypes.js';
 
 /**
@@ -144,5 +144,67 @@ suite('unitePictures — картины окон как одна', () => {
 	test('включён ли сервер, решает окно, чья запись действует', () => {
 		const united = unite({ a: picture({ db: billing }, { db: false }), b: picture({ db: shop }, { db: true }) }, { db: mcpServerFingerprint(shop, true) });
 		assert.deepStrictEqual(united.enabledOfName, { db: true });
+	});
+});
+
+/**
+ * Клиенты MCP общие для окон, а выключатель «в этом проекте» принадлежит одному окну.
+ * Отсюда два разных вопроса: включён ли сервер для окна и надо ли держать его запущенным вовсе.
+ */
+suite('isMCPServerWantedByAnyWindow — включённость для окна и запуск для всех окон', () => {
+
+	ensureNoDisposablesAreLeakedInTestSuite();
+
+	const shared: MCPConfigFileEntryJSON = { command: 'node', args: ['/shared/server.mjs'] };
+	const picture = (entries: Record<string, MCPConfigFileEntryJSON>, workspaceOverrideOfName: Record<string, boolean> = {}): WindowPicture =>
+		({ entries, enabledOfName: {}, workspaceOverrideOfName });
+	const windows = (...pictures: WindowPicture[]) => new Map(pictures.map((p, i) => [`w${i}`, p]));
+
+	test('два окна, одно выключило переопределением, — сервер работает ради второго', () => {
+		const offHere = picture({ shared }, { shared: false });
+		const onThere = picture({ shared });
+		assert.deepStrictEqual(
+			{
+				offWindow: isMCPServerOnInWindow(offHere, 'shared', true),
+				onWindow: isMCPServerOnInWindow(onThere, 'shared', true),
+				runs: isMCPServerWantedByAnyWindow('shared', shared, windows(offHere, onThere), true),
+			},
+			{ offWindow: false, onWindow: true, runs: true },
+		);
+	});
+
+	test('глобально выключен, одно окно включило — сервер работает, у соседа его нет', () => {
+		const onHere = picture({ shared }, { shared: true });
+		const quiet = picture({ shared });
+		assert.deepStrictEqual(
+			{
+				onWindow: isMCPServerOnInWindow(onHere, 'shared', false),
+				quietWindow: isMCPServerOnInWindow(quiet, 'shared', false),
+				runs: isMCPServerWantedByAnyWindow('shared', shared, windows(onHere, quiet), false),
+			},
+			{ onWindow: true, quietWindow: false, runs: true },
+		);
+	});
+
+	test('оба без переопределений — как глобальное значение', () => {
+		const first = picture({ shared });
+		const second = picture({ shared });
+		assert.deepStrictEqual(
+			{
+				on: isMCPServerWantedByAnyWindow('shared', shared, windows(first, second), true),
+				off: isMCPServerWantedByAnyWindow('shared', shared, windows(first, second), false),
+			},
+			{ on: true, off: false },
+		);
+	});
+
+	test('окно выключило здесь, соседнее не знает имени — сервер не работает', () => {
+		const other = picture({});
+		assert.strictEqual(isMCPServerWantedByAnyWindow('shared', shared, windows(picture({ shared }, { shared: false }), other), true), false);
+	});
+
+	test('disabled в файле окончателен: проектное включение его не поднимает', () => {
+		const disabled: MCPConfigFileEntryJSON = { ...shared, disabled: true };
+		assert.strictEqual(isMCPServerWantedByAnyWindow('shared', disabled, windows(picture({ shared: disabled }, { shared: true })), true), false);
 	});
 });
