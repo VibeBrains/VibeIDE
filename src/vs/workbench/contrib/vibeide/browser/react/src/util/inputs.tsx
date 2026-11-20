@@ -1435,9 +1435,18 @@ const dropdownBadgeToneClass = (tone: DropdownBadge['tone']) => tone === 'error'
 	: tone === 'warning' ? 'text-[var(--vscode-charts-yellow)]'
 		: 'text-vibe-fg-4';
 
+/**
+ * Задержка подсказки строки выпадающего списка
+ * Без неё описание мелькало бы у каждого пункта, мимо которого мышь едет к нужному
+ */
+const DROPDOWN_ROW_HINT_DELAY_MS = 300;
+
+// Подсказка — общая vibe-tooltip, а не нативный `title`: тот ждёт неподвижную мышь и в Electron срабатывает через раз
 const DropdownBadgeGlyph = ({ badge }: { badge: DropdownBadge }) => <span
 	className={`@@vibe-dropdown-row__badge flex-shrink-0 cursor-help leading-none select-none ${dropdownBadgeToneClass(badge.tone)}`}
-	title={badge.tooltip}
+	data-tooltip-id='vibe-tooltip'
+	data-tooltip-content={badge.tooltip}
+	data-tooltip-place='right'
 	aria-label={badge.tooltip}
 	onClick={(e) => e.stopPropagation()}
 	onMouseDown={(e) => e.stopPropagation()}
@@ -1476,7 +1485,7 @@ export const VibeCustomDropdownBox = <T extends NonNullable<any>>({
 	matchInputWidth?: boolean;
 	gapPx?: number;
 	offsetPx?: number;
-	/** 'tooltip' — secondary text only on hover over a ? hint (reduces row clutter). */
+	/** 'tooltip' — secondary text in a tooltip on hovering the whole row; the ? only marks that a detail exists (reduces row clutter). */
 	detailPresentation?: 'inline' | 'tooltip';
 	/** Filter row at top of the menu; matches name, detail, and optional `getOptionSearchText`. */
 	dropdownQuickSearch?: boolean;
@@ -1485,7 +1494,7 @@ export const VibeCustomDropdownBox = <T extends NonNullable<any>>({
 	dropdownSearchEmptyMessage?: string;
 	getOptionSearchText?: (option: T) => string;
 	/** Optional trailing badges (a `<glyph>` each) rendered after the option name. Each glyph carries a
-	 *  native tooltip (`title`) — used to flag provenance or state without cluttering the row text.
+	 *  tooltip (the shared vibe-tooltip) — used to flag provenance or state without cluttering the row text.
 	 *  A badge marked `onTrigger` is shown on the closed button too, for the selected option. */
 	getOptionBadges?: (option: T) => readonly DropdownBadge[];
 	/**
@@ -1734,6 +1743,15 @@ export const VibeCustomDropdownBox = <T extends NonNullable<any>>({
 							const optionDetail = getOptionDropdownDetail?.(option) || '';
 							const optionBadges = getOptionBadges?.(option) ?? [];
 							const showHint = detailPresentation === 'tooltip' && !!optionDetail;
+							// Подсказка вешается на всю строку, а не на кружок «?»: нативный `title` на мишени в 16 px
+							// появлялся, только если мышь замерла на ней секунду, и сбрасывался любым движением
+							const rowHint = showHint ? {
+								'data-tooltip-id': 'vibe-tooltip',
+								'data-tooltip-content': optionDetail,
+								'data-tooltip-place': 'right' as const,
+								'data-tooltip-delay-show': DROPDOWN_ROW_HINT_DELAY_MS,
+								'aria-description': optionDetail,
+							} : {};
 							const rowKey = `${optionName}\0${optionDetail}`;
 
 							return (<Fragment key={rowKey}>
@@ -1744,6 +1762,7 @@ export const VibeCustomDropdownBox = <T extends NonNullable<any>>({
 									@@vibe-dropdown-row
 									${thisOptionIsSelected ? '@@vibe-dropdown-row--selected' : ''}
 								`}
+									{...rowHint}
 									onClick={() => {
 										onChangeOption(option);
 										setIsOpen(false);
@@ -1769,16 +1788,13 @@ export const VibeCustomDropdownBox = <T extends NonNullable<any>>({
 											{optionBadges.map(badge => <DropdownBadgeGlyph key={badge.glyph} badge={badge} />)}
 										</span>
 										{showHint ? (
-											<button
-												type="button"
-												className="@@vibe-dropdown-row__hint flex-shrink-0 flex items-center justify-center size-4 text-[10px] leading-none rounded-full cursor-help p-0 border-0 bg-transparent font-inherit text-inherit"
-												title={optionDetail}
-												aria-label={optionDetail}
-												onClick={(e) => e.stopPropagation()}
-												onMouseDown={(e) => e.stopPropagation()}
+											// Только знак, что у пункта есть описание: само описание показывает строка целиком
+											<span
+												className="@@vibe-dropdown-row__hint flex-shrink-0 flex items-center justify-center size-4 text-[10px] leading-none rounded-full"
+												aria-hidden="true"
 											>
 												?
-											</button>
+											</span>
 										) : (
 											<span className="@@vibe-dropdown-row__detail">{optionDetail}</span>
 										)}
