@@ -128,7 +128,7 @@ suite('VibeAcpSessionsService — кто отвечает на вопрос вн
 		assert.deepStrictEqual([pendingOf(service)?.requestId, pendingReasonOf(service), answers], ['r1', 'irreversible', []]);
 	});
 
-	test('автопилот сам отвечает на удаление временной папки и папки проекта, а удаление вне них идёт человеку', async () => {
+	test('автопилот сам отвечает на удаление временной папки, а удаление в проекте и вне них идёт человеку', async () => {
 		const { service, events, answers } = setup();
 		await service.startSession(agent);
 		await service.setPermissionMode('s1', 'auto');
@@ -137,7 +137,9 @@ suite('VibeAcpSessionsService — кто отвечает на вопрос вн
 		run('r2', 'rm -rf build');
 		run('r3', 'rm -rf /Users/me/Documents');
 		await settle();
-		assert.deepStrictEqual([answers.map(a => a.requestId), pendingOf(service)?.requestId, pendingReasonOf(service)], [['r1', 'r2'], 'r3', 'irreversible']);
+		assert.deepStrictEqual(
+			[answers.map(a => a.requestId), pendingIds(service), pendingReasonOf(service)],
+			[['r1'], ['r2', 'r3'], 'irreversible']);
 	});
 
 	test('автопилот отвечает на обычную команду сам; запрос без разрешающего варианта всё равно идёт человеку', async () => {

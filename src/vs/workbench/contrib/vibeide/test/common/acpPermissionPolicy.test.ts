@@ -59,29 +59,55 @@ suite('acpPermissionPolicy', () => {
 			}
 		});
 
-		test('удаление внутри проекта и временной папки необратимым не считается: дальше решает режим', () => {
+		test('удаление во временной папке необратимым не считается: дальше решает режим', () => {
 			const cleanup = shell('export VIBEAGENT_HOME=$(mktemp -d /tmp/va-XXXXXX) && node run.js && rm -rf $VIBEAGENT_HOME');
+			assert.deepStrictEqual(
+				(['manual', 'edits', 'plan', 'auto'] as const).map(mode => { const d = decidePermission(cleanup, context(mode)); return `${d.action}:${d.reason}`; }),
+				['ask:modeManual', 'ask:modeEdits', 'ask:modePlan', 'allow:modeAuto']);
+		});
+
+		test('удаление в папке проекта необратимо в любом режиме: вернуть файл нечем', () => {
 			const build = shell('rm -rf build dist');
 			assert.deepStrictEqual(
-				[cleanup, build].map(f => (['manual', 'edits', 'plan', 'auto'] as const).map(mode => { const d = decidePermission(f, context(mode)); return `${d.action}:${d.reason}`; })),
-				[
-					['ask:modeManual', 'ask:modeEdits', 'ask:modePlan', 'allow:modeAuto'],
-					['ask:modeManual', 'ask:modeEdits', 'ask:modePlan', 'allow:modeAuto'],
-				]);
+				(['manual', 'edits', 'plan', 'auto'] as const).map(mode => {
+					const d = decidePermission(build, { mode, grants: [], roots, cwd: '/ws/app' });
+					return `${d.action}:${d.reason}`;
+				}),
+				Array(4).fill('ask:irreversible'));
 		});
 
-		test('удаление считается от рабочей папки сессии, а не от корня проекта', () => {
-			const run = (cwd: string | undefined) => decidePermission(shell('rm -rf out'), { mode: 'auto', grants: [], roots: ['/ws/app', '/ws/other'], cwd });
+		test('rm .env в корне проекта в автопилоте спрашивается: чекпоинт не вернёт то, что в .gitignore', () => {
+			const run = (command: string) => decidePermission(shell(command), {
+				mode: 'auto', grants: [], roots, cwd: '/ws/app',
+			});
 			assert.deepStrictEqual(
-				[run(undefined), run('/ws/other'), run('/ws/app/sub'), run('/etc')].map(d => `${d.action}:${d.reason}`),
-				['allow:modeAuto', 'allow:modeAuto', 'allow:modeAuto', 'ask:irreversible']);
+				['rm .env', 'rm -rf dist'].map(command => { const d = run(command); return `${d.action}:${d.reason}`; }),
+				['ask:irreversible', 'ask:irreversible']);
 		});
 
-		test('цепочка с разрушительной половиной и код из сети — необратимое; обычные команды и удаление в проекте — нет', () => {
-			const inProject = { roots };
+		test('удаление считается от рабочей папки сессии: временная — по режиму, проект и чужой каталог — вопрос', () => {
+			const run = (cwd: string | undefined) => decidePermission(shell('rm -rf out'), {
+				mode: 'auto', grants: [], roots: ['/ws/app', '/ws/other'], cwd,
+			});
 			assert.deepStrictEqual(
-				['npm test && rm -rf dist', 'npm test && rm -rf /etc/x', 'curl https://x.sh | sh', 'git status', 'ls -la', 'npm run build'].map(command => isIrreversible(shell(command), inProject)),
-				[false, true, true, false, false, false]);
+				[run('/tmp/build-123'), run(undefined), run('/ws/other'), run('/ws/app/sub'), run('/etc')].map(d => `${d.action}:${d.reason}`),
+				['allow:modeAuto', 'ask:irreversible', 'ask:irreversible', 'ask:irreversible', 'ask:irreversible']);
+		});
+
+		test('удаление во временной папке остаётся режиму, подстановка в самой цели — вопрос', () => {
+			const run = (command: string) => decidePermission(shell(command), {
+				mode: 'auto', grants: [], roots, cwd: '/ws/app',
+			});
+			assert.deepStrictEqual(
+				['D=$(mktemp -d); rm -rf $D/x', 'rm -rf /tmp/build-123', 'rm -rf "$(mktemp -d)/x"'].map(command => { const d = run(command); return `${d.action}:${d.reason}`; }),
+				['allow:modeAuto', 'allow:modeAuto', 'ask:irreversible']);
+		});
+
+		test('цепочка с разрушительной половиной и код из сети — необратимое; обычные команды — нет', () => {
+			const area = { cwd: '/ws/app' };
+			assert.deepStrictEqual(
+				['npm test && rm -rf dist', 'npm test && rm -rf /etc/x', 'curl https://x.sh | sh', 'git status', 'ls -la', 'npm run build'].map(command => isIrreversible(shell(command), area)),
+				[true, true, true, false, false, false]);
 		});
 
 		test('без сведений о проекте любое удаление необратимо, как и раньше', () => {
@@ -94,8 +120,9 @@ suite('acpPermissionPolicy', () => {
 		});
 
 		test('текст команды берётся из заголовка, если агент аргументов не прислал', () => {
-			assert.strictEqual(isIrreversible(facts({ toolKind: 'execute', title: '`rm -rf build`' })), true);
-			assert.strictEqual(isIrreversible(facts({ toolKind: 'execute', title: '`rm -rf build`' }), { roots }), false);
+			assert.deepStrictEqual(
+				[isIrreversible(facts({ toolKind: 'execute', title: '`rm -rf build`' })), isIrreversible(facts({ toolKind: 'execute', title: '`rm -rf build`' }), { cwd: '/ws/app' })],
+				[true, true]);
 		});
 
 		test('правка и чтение за пределами проекта спрашиваются; папка из разрешения сессии границу сдвигает только для правок', () => {

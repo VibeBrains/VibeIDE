@@ -10,9 +10,11 @@
  * from the agent: what the person's mode and the permissions given for the session answer by themselves, and what is
  * never answered without the person — an irreversible command, a path outside the project
  *
- * Irreversible is judged in the project's terms: removal inside the project (a checkpoint stands under it) and inside
- * temporary folders loses nothing, so it is left to the mode; removal anywhere else, a forced push and code fetched
- * from the network are asked whatever the mode says
+ * Irreversible is judged by where a removal lands: removal inside temporary folders loses nothing, so it is left
+ * to the mode
+ * Removal inside the project is not counted as safe: an ACP agent leaves no checkpoint over the whole folder,
+ * and the built-in one skips `.gitignore`d files; a forced push and code fetched from the network are asked
+ * whatever the mode says
  *
  * The mode the person picks (Вручную, Правки, План, Автопилот) is set on the agent where the agent can keep it, and
  * is enforced here for the rest: in the agent's own «auto» and «bypass» modes it asks nothing at all, so a command
@@ -81,7 +83,7 @@ export interface IAcpDecisionContext {
 	readonly grants: readonly AcpGrant[];
 	/** The folders of the project: an edit outside them is not the project's */
 	readonly roots: readonly string[];
-	/** Where the agent's commands run; the first folder of the project when not given */
+	/** Where the agent's commands run; without it relative paths of a command are not read */
 	readonly cwd?: string;
 	/** Сравнение путей без учёта регистра: на macOS и Windows имена папок совпадают иначе */
 	readonly caseInsensitivePaths?: boolean;
@@ -142,13 +144,14 @@ export function agentModeFor(mode: AcpPermissionMode, choices: readonly IAcpConf
 /**
  * True when the question is about a command that cannot be undone: removal, a forced push, code fetched and run
  *
- * With the project (`area`), removal that stays inside the project or a temporary folder is not counted:
- * the checkpoint covers the first, and nothing is lost in the second. Without it every removal is counted
+ * With `area`, removal inside a temporary folder is not counted: nothing is lost there
+ * Removal inside the project is counted: an ACP agent leaves no checkpoint that covers the folder
+ * Without it every removal is counted
  */
 export function isIrreversible(facts: IAcpRequestFacts, area?: IShellRemovalScopeOptions): boolean {
 	const line = commandLineOf(facts);
 	if (line === undefined) { return false; }
-	const found = area ? analyzeShellLineIn(line, createShellRemovalScope({ roots: area.roots, cwd: area.cwd ?? area.roots[0] })) : analyzeShellLine(line);
+	const found = area ? analyzeShellLineIn(line, createShellRemovalScope(area)) : analyzeShellLine(line);
 	return found !== undefined;
 }
 
@@ -333,7 +336,7 @@ export function describeGrant(grant: AcpGrant): string {
 /** Why a question reached the person although a mode or a grant could have answered, when that is worth saying */
 export function describeAsking(reason: AcpDecisionReason): string | undefined {
 	switch (reason) {
-		case 'irreversible': return 'Команду нельзя отменить (удаление вне проекта и временных папок, принудительный пуш, код из сети), поэтому её не разрешают заранее ни режим, ни разрешения сессии.';
+		case 'irreversible': return 'Команду нельзя отменить (удаление вне временных папок, принудительный пуш, код из сети), поэтому её не разрешают заранее ни режим, ни разрешения сессии.';
 		case 'unknownCommand': return 'Агент не прислал текст команды, поэтому оценить её нечем.';
 		case 'outsideProject': return 'Правка за пределами проекта: режим и разрешения сессии её не покрывают.';
 		default: return undefined;

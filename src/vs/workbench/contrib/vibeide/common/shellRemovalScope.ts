@@ -6,14 +6,21 @@
 /**
  * Область безопасного удаления для разбора командной строки
  *
- * `rm -rf $(mktemp -d …)` в конце скрипта и `rm -rf dist` в проекте под чекпоинтом — не потеря данных
+ * Удаление во временных каталогах потери не несёт: `rm -rf $(mktemp -d …)` в конце скрипта ничего не теряет
+ * И только временные каталоги считаются здесь обратимыми — папки проекта нет
+ *
+ * У ACP-агента нет чекпоинта всей папки: `_snapshotBefore` снимает только пути запроса, а у `rm -rf src/x`
+ * путей обычно нет, и снимок не снимается вовсе
+ * Чекпоинт встроенных моделей (`git add -A` во временный индекс) не берёт файлы из `.gitignore`:
+ * `.env`, `node_modules` и выход сборки он не вернёт, так что `rm .env` в автопилоте ушёл бы молча
+ *
  * Классификатор `analyzeShellLine` этого не знает: для него любое `rm` разрушительно
- * Область отвечает на один вопрос: все ли цели удаления лежат во временных каталогах или в проекте
+ * Область отвечает на один вопрос: все ли цели удаления лежат во временных каталогах
  *
  * Разрешение здесь выдаётся молча, поэтому всё неясное читается как «нет»:
  * - относительный путь, пока неизвестно, где командная строка стоит
  * - путь с `..`, переменная неизвестного происхождения, подстановка команды, `~`
- * - сам корень области и всё, что может оказаться `.git` (там чекпоинты)
+ * - сам корень временного каталога и всё, что может оказаться `.git` (там история, а не мусор)
  *
  * Разбор поверхностный, как и у классификатора: оболочку целиком он не исполняет
  * Поэтому среда отслеживается только по прямой цепочке простых команд
@@ -67,10 +74,8 @@ const ASSIGNMENT = /^([A-Za-z_][A-Za-z0-9_]*)(\+?)=(.*)$/s;
 /** Символы шаблона имён: цель с ними — не один файл, а набор */
 const GLOB_CHARS = /[*?[\]]/;
 
-/** Параметры области: что считается проектом и откуда идёт командная строка */
+/** Параметры области: откуда идёт командная строка */
 export interface IShellRemovalScopeOptions {
-	/** Папки проекта: удаление внутри них обратимо, потому что на ход снят чекпоинт */
-	readonly roots: readonly string[];
 	/** Каталог, в котором стоит командная строка; без него относительные пути не читаются */
 	readonly cwd?: string;
 }
@@ -88,24 +93,22 @@ interface IEnvironment {
 }
 
 /**
- * Область для `analyzeShellLine`: удаление внутри временных каталогов и проекта не считается разрушительным
- * Без папок проекта действуют только временные каталоги
+ * Область для `analyzeShellLine`: удаление внутри временных каталогов не считается разрушительным
+ * Каталог строки нужен только для чтения относительных путей: сам по себе он обратимости не даёт
  */
 export function createShellRemovalScope(options: IShellRemovalScopeOptions): IShellLineScope {
-	const roots = options.roots.map(root => normalizeAbsolute(slashed(root))).filter(root => root !== '/');
 	const cwd = options.cwd ? normalizeAbsolute(slashed(options.cwd)) : undefined;
-	return new RemovalScope(roots, { variables: new Map(), cwd, directoryLost: false, variablesLost: false });
+	return new RemovalScope({ variables: new Map(), cwd, directoryLost: false, variablesLost: false });
 }
 
 class RemovalScope implements IShellLineScope {
 
 	constructor(
-		private readonly _roots: readonly string[],
 		private readonly _env: IEnvironment,
 	) { }
 
 	fork(): IShellLineScope {
-		return new RemovalScope(this._roots, { ...this._env, variables: new Map(this._env.variables) });
+		return new RemovalScope({ ...this._env, variables: new Map(this._env.variables) });
 	}
 
 	excuses(stage: readonly string[], verdict: ShellSafetyResult): boolean {
@@ -243,18 +246,18 @@ class RemovalScope implements IShellLineScope {
 		}
 	}
 
-	/** Путь лежит в области или совпадает с её корнем: годится как каталог строки, но не как цель удаления */
+	/** Путь лежит во временном каталоге или совпадает с его корнем: годится как каталог строки, но не как цель удаления */
 	private _within(path: string): boolean {
-		return [...this._roots, ...TEMP_ROOTS].some(root => path === root || path.startsWith(`${root}/`)) || WINDOWS_TEMP.test(`${path}/`);
+		return TEMP_ROOTS.some(root => path === root || path.startsWith(`${root}/`)) || WINDOWS_TEMP.test(`${path}/`);
 	}
 
-	/** Цель удаления лежит строго внутри области, не сам её корень и не набор «всё в корне» */
+	/** Цель удаления лежит строго внутри временного каталога, не сам его корень и не набор «всё в корне» */
 	private _isContained(target: string): boolean {
 		const path = this._resolve(target);
 		if (path === undefined || path.split('/').some(mayBeGit)) {
 			return false;
 		}
-		const below = [...this._roots, ...TEMP_ROOTS]
+		const below = TEMP_ROOTS
 			.map(root => path.startsWith(`${root}/`) ? path.slice(root.length + 1) : undefined)
 			.concat(WINDOWS_TEMP.exec(`${path}/`)?.[1]);
 		// Первый уровень под корнем должен называть что-то определённое: `/tmp/*` — это всё, что во временной папке есть
@@ -301,8 +304,8 @@ function slashed(path: string): string {
 
 /**
  * Абсолютный путь без `.`, `..` и повторных слэшей; буква диска строчная — так её пишет `fsPath`
- * Путь Git Bash `/c/proj` приводится к `c:/proj`: на Windows это один и тот же каталог, а на других системах
- * корни проекта проходят через ту же замену, так что совпадение не появляется из ничего
+ * Путь Git Bash `/c/proj` приводится к `c:/proj`: на Windows это один и тот же каталог
+ * Временные корни и пути проходят через ту же замену, так что совпадение не появляется из ничего
  */
 function normalizeAbsolute(path: string): string {
 	const windows = /^([A-Za-z]):/.exec(path) ?? /^\/([A-Za-z])(?=\/|$)/.exec(path);
