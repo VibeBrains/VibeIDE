@@ -18,11 +18,23 @@ import { testWorkspace } from '../../../../../platform/workspace/test/common/tes
 import { TestContextService } from '../../../../test/common/workbenchTestServices.js';
 import { VibeProjectRulesService } from '../../browser/vibeProjectRulesService.js';
 import { IVibePromptGuardService, PromptGuardResult } from '../../common/vibePromptGuardService.js';
+import { IPathService } from '../../../../services/path/common/pathService.js';
+import { PROJECT_RULES_WIN_NOTE } from '../../common/personalRulesPaths.js';
 
 /** The sanitizer is not under test: what reaches the agent's rules is. */
 class PassThroughPromptGuard extends mock<IVibePromptGuardService>() {
 	override sanitizeFileContent(content: string): PromptGuardResult {
 		return { isSafe: true, warnings: [], sanitized: content };
+	}
+}
+
+/** Домашняя папка подменена: личный слой читается из того же in-memory дерева, что и проект */
+class TestPathService extends mock<IPathService>() {
+	override userHome(options: { preferLocal: true }): URI;
+	override userHome(options?: { preferLocal: boolean }): Promise<URI>;
+	override userHome(options?: { preferLocal: boolean }): URI | Promise<URI> {
+		const home = URI.file('/home/tester');
+		return options?.preferLocal ? home : Promise.resolve(home);
 	}
 }
 
@@ -46,6 +58,7 @@ suite('VibeProjectRulesService — правило пакета доходит д
 			new TestContextService(testWorkspace(URI.file('/ws'))),
 			new PassThroughPromptGuard(),
 			new TestConfigurationService(),
+			new TestPathService(),
 		));
 		await service.reloadRules();
 		const combined = service.getCombinedRules({ userText: 'Добавь в src/math.js функцию cube' });
@@ -79,6 +92,7 @@ suite('VibeProjectRulesService — правило пакета доходит д
 			new TestContextService(testWorkspace(URI.file('/ws'))),
 			new PassThroughPromptGuard(),
 			new TestConfigurationService(),
+			new TestPathService(),
 		));
 		await service.reloadRules();
 
@@ -98,6 +112,45 @@ suite('VibeProjectRulesService — правило пакета доходит д
 		});
 	});
 
+	// Личный слой VibeMemory кладёт в домашнюю папку, и без него агент не видел правил человека вовсе.
+	// Порядок проверяется явно: модель читает сверху вниз, и правило проекта должно стоять после личного.
+	test('личные правила из домашней папки идут до проектных, между слоями — пояснение о приоритете проекта', async () => {
+		const fileService = disposables.add(new FileService(new NullLogService()));
+		disposables.add(fileService.registerProvider(Schemas.file, disposables.add(new InMemoryFileSystemProvider())));
+		const write = (path: string, text: string) => fileService.writeFile(URI.file(path), VSBuffer.fromString(text));
+		await write('/home/tester/.vibe/AGENTS.md', '# Личное\n\nОтвечай мне по-русски.\n');
+		await write('/home/tester/.vibe/rules/ux.mdc', '---\ndescription: UX\n---\nКнопки подписывай глаголом.\n');
+		await write('/ws/.vibe/rules.md', '# Проект\n\nЗдесь только `src/`.\n');
+		await write('/ws/AGENTS.local.md', '# Локально\n\nМой стенд — 8080.\n');
+
+		const service = disposables.add(new VibeProjectRulesService(
+			new NullLogService(),
+			fileService,
+			new TestContextService(testWorkspace(URI.file('/ws'))),
+			new PassThroughPromptGuard(),
+			new TestConfigurationService(),
+			new TestPathService(),
+		));
+		await service.reloadRules();
+		const combined = service.getCombinedRules();
+		const личное = combined.indexOf('[Source: ~/.vibe/AGENTS.md]');
+		const личнаяПапка = combined.indexOf('[Source: ~/.vibe/rules/ux.mdc]');
+		const проект = combined.indexOf('[Source: .vibe/rules.md]');
+		const локальный = combined.indexOf('[Source: AGENTS.local.md]');
+
+		assert.deepStrictEqual({
+			источники: service.getLoadedSources().map(source => source.relativePath),
+			личныеПервыми: личное >= 0 && личнаяПапка > личное && проект > личнаяПапка,
+			локальныйПослеКорневого: локальный > проект,
+			пояснениеМеждуСлоями: combined.includes(PROJECT_RULES_WIN_NOTE) && combined.indexOf(PROJECT_RULES_WIN_NOTE) > личнаяПапка && combined.indexOf(PROJECT_RULES_WIN_NOTE) < проект,
+		}, {
+			источники: ['~/.vibe/AGENTS.md', '~/.vibe/rules/ux.mdc', '.vibe/rules.md', 'AGENTS.local.md'],
+			личныеПервыми: true,
+			локальныйПослеКорневого: true,
+			пояснениеМеждуСлоями: true,
+		});
+	});
+
 	// The system prompt is the cached prefix: a rule switched on by this request must not change it, it rides with the message
 	test('правила хода: постоянные и список условных — в системный промпт, сработавшие условные — к сообщению', async () => {
 		const fileService = disposables.add(new FileService(new NullLogService()));
@@ -113,6 +166,7 @@ suite('VibeProjectRulesService — правило пакета доходит д
 			new TestContextService(testWorkspace(URI.file('/ws'))),
 			new PassThroughPromptGuard(),
 			new TestConfigurationService(),
+			new TestPathService(),
 		));
 		await service.reloadRules();
 		const touchingSrc = service.getRulesForTurn({ userText: 'Сделай деплой на стенд' });

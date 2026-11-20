@@ -2902,14 +2902,15 @@ const PerfGuardrailsPanel = () => {
 // L992 / L1057 — Session-memory React panel.
 // Pulls in-memory snapshot from IVibeSessionMemoryService for the current
 // chat thread; manual refresh button so we don't subscribe to every append.
-// R.4.1 — Project rules panel: lists discovered rule sources (.vibe/rules.md, AGENTS.md,
-// .vibe/rules/** — .md/.mdc; foreign rule files are deliberately not read), with an enable/disable toggle (per-workspace,
-// honored in the prompt combine) and click-to-preview of the (frontmatter-stripped, sanitized) body.
+// R.4.1 — Project rules panel: lists discovered rule sources (personal ~/.vibe/AGENTS.md and ~/.vibe/rules/**,
+// project .vibe/rules.md, AGENTS.md, AGENTS.local.md, .vibe/rules/** — .md/.mdc; foreign rule files are deliberately
+// not read), with an enable/disable toggle (per-workspace, honored in the prompt combine) and click-to-preview of
+// the (frontmatter-stripped, sanitized) body. The personal layer is marked «личное».
 const ProjectRulesPanel = () => {
 	const accessor = useAccessor();
 	const rulesSvc = accessor.get('IVibeProjectRulesService');
 
-	type Src = { relativePath: string; content: string; sizeBytes: number; wasRedacted: boolean; alwaysApply?: boolean; triggers?: string[]; globs?: string[] };
+	type Src = { relativePath: string; content: string; sizeBytes: number; wasRedacted: boolean; alwaysApply?: boolean; triggers?: string[]; globs?: string[]; personal?: boolean };
 	// Activation mode badge (surfaces the R.7/R.2/R.3 engine): how a rule decides to apply.
 	const ruleMode = (r: Src): string => {
 		if (r.alwaysApply === true) { return safetyS.rulesModeAlways; }
@@ -2987,6 +2988,7 @@ const ProjectRulesPanel = () => {
 										onClick={() => setExpanded(isOpen ? null : r.relativePath)}
 									>
 										{r.relativePath}
+										{r.personal ? <span className='ml-2 text-vibe-fg-4 text-xs'>· {safetyS.rulesPanelPersonal}</span> : null}
 										<span className='ml-2 text-vibe-fg-4 text-xs'>· {ruleMode(r)}</span>
 										{r.wasRedacted ? ` ${safetyS.rulesPanelRedacted}` : ''}
 									</td>

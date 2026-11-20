@@ -5,26 +5,29 @@
 
 
 /**
- * VibeProjectRulesService — workspace project rules for AI context.
+ * VibeProjectRulesService — личные и проектные правила в контексте AI.
  *
- * Sources (our own conventions only — no foreign tools' rule files):
- *  - `.vibe/rules.md` (flat file)
- *  - `AGENTS.md` (workspace folder root)
- *  - `.vibe/rules/**\/*.{md,mdc}` (folder form — R.1). `.mdc` frontmatter
- *    (`description`/`globs`/`alwaysApply`/`triggers`) is stripped from the body and drives activation.
- *    Before R.1 only the two flat files were read, so Cursor-style rules sitting in a `rules/`
- *    folder were invisible to the model — it then hallucinated filenames (incident 2026-05-30).
+ * Два слоя, в одном сервисе, одним санитайзером и одним разбором шапки `.mdc`:
+ *  - личный слой (домашняя папка, `IPathService.userHome()`): `~/.vibe/AGENTS.md` — его собирает
+ *    VibeMemory, и `~/.vibe/rules/**\/*.{md,mdc}` — их человек ведёт руками;
+ *  - проектный слой: `.vibe/rules.md`, `AGENTS.md` в корне папки проекта, `AGENTS.local.md` рядом
+ *    с ним (пишет VibeMemory) и `.vibe/rules/**\/*.{md,mdc}` проекта. Файлы правил чужих
+ *    инструментов (`.cursor/rules`, `~/.claude/CLAUDE.md`) намеренно не читаются: VibeMemory кладёт
+ *    то же содержимое в `~/.vibe/AGENTS.md`, а чужая папка — файл другого агента.
+ * В собранном тексте личный слой идёт первым, между слоями одна строка `PROJECT_RULES_WIN_NOTE`:
+ * при конфликте правило проекта сильнее.
  *
- * Each block is prefixed with `[Source: path]`; content is sanitized via IVibePromptGuardService.
- * File watcher invalidates cache on changes. Command: `vibeide.projectRules.reload`.
- * Global Settings «AI Instructions» are merged elsewhere (not loaded here).
+ * Каждый блок начинается с `[Source: …]` (для личного — `~/.vibe/...`), содержимое проходит через
+ * IVibePromptGuardService. Кэш сбрасывают watcher'ы проектных файлов и отдельный watcher домашней
+ * папки. Команда: `vibeide.projectRules.reload`.
+ * Глобальные инструкции из настроек («Инструкции для ИИ») подмешиваются в другом месте.
  */
 
 import { Disposable } from '../../../../base/common/lifecycle.js';
 import { createDecorator, ServicesAccessor } from '../../../../platform/instantiation/common/instantiation.js';
 import { registerSingleton, InstantiationType } from '../../../../platform/instantiation/common/extensions.js';
 import { ILogService } from '../../../../platform/log/common/log.js';
-import { IFileService } from '../../../../platform/files/common/files.js';
+import { FileChangesEvent, IFileService } from '../../../../platform/files/common/files.js';
 import { DEFAULT_NESTED_RULE_DEPTH, NESTED_RULE_FILE_NAME, collectNestedAgentsUris, isNestedRuleFile } from '../common/nestedRulesScan.js';
 import { IWorkspaceContextService } from '../../../../platform/workspace/common/workspace.js';
 import { URI } from '../../../../base/common/uri.js';
@@ -42,6 +45,8 @@ import { ITextModelService } from '../../../../editor/common/services/resolverSe
 import { parseRuleFrontmatter, isRuleFileName, parseAlwaysApply, parseTriggers, parseGlobs, decideRuleActivation, ruleNameFromPath } from '../common/prompt/ruleFrontmatter.js';
 import { IConfigurationService, ConfigurationTarget } from '../../../../platform/configuration/common/configuration.js';
 import { VIBE_COMMAND_CATEGORY } from '../common/vibeCommandCategory.js';
+import { IPathService } from '../../../services/path/common/pathService.js';
+import { PERSONAL_AGENTS_FILE_PATH, PERSONAL_RULES_DIR_PATH, PROJECT_LOCAL_AGENTS_FILE_NAME, PROJECT_RULES_WIN_NOTE, personalSourceLabel } from '../common/personalRulesPaths.js';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -62,6 +67,8 @@ export interface LoadedRuleSource {
 	globs?: readonly string[];
 	/** `description` frontmatter — shown in the agent-requested "available rules" index. */
 	description?: string;
+	/** Личный слой (домашняя папка), а не папка проекта — для порядка в тексте и пометки «личное» в UI */
+	personal?: boolean;
 }
 
 export const IVibeProjectRulesService = createDecorator<IVibeProjectRulesService>('vibeProjectRulesService');
@@ -112,8 +119,9 @@ export interface IVibeProjectRulesService {
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
-/** Flat rule files to load in order. Only our own conventions — no foreign tools' rule files. */
-const RULE_FILE_NAMES = ['.vibe/rules.md', 'AGENTS.md'];
+/** Flat rule files to load in order. Only our own conventions — no foreign tools' rule files.
+ *  `AGENTS.local.md` идёт сразу после `AGENTS.md`: VibeMemory пишет туда уточнения к правилам проекта. */
+const RULE_FILE_NAMES = ['.vibe/rules.md', 'AGENTS.md', PROJECT_LOCAL_AGENTS_FILE_NAME];
 /** Folders scanned recursively for `*.md` / `*.mdc` rule files (R.1). Only `.vibe/rules/` — we
  *  deliberately do NOT read `.cursor/`-style foreign rule folders. */
 const RULE_FOLDER_NAMES = ['.vibe/rules'];
@@ -186,6 +194,12 @@ const PROJECT_RULES_TEMPLATE = `# Project rules
 
 // ── Implementation ─────────────────────────────────────────────────────────────
 
+/** Кусок собранного текста вместе со слоем: по нему решается, куда ставить пояснение между слоями */
+interface LayeredBlock {
+	readonly text: string;
+	readonly personal: boolean;
+}
+
 export class VibeProjectRulesService extends Disposable implements IVibeProjectRulesService {
 	declare readonly _serviceBrand: undefined;
 
@@ -194,6 +208,9 @@ export class VibeProjectRulesService extends Disposable implements IVibeProjectR
 	// R.x — combined linked-references block + the set of resolved file fsPaths (for watch invalidation).
 	private _cachedLinkedRefs = '';
 	private _linkedPaths = new Set<string>();
+	// Домашняя папка нужна и загрузке, и watcher'у: спрашиваем у IPathService один раз
+	private _homeUriPromise: Promise<URI> | undefined;
+	private _homeUri: URI | undefined;
 
 	private readonly _onRulesChanged = this._register(new Emitter<void>());
 	readonly onRulesChanged: Event<void> = this._onRulesChanged.event;
@@ -206,6 +223,7 @@ export class VibeProjectRulesService extends Disposable implements IVibeProjectR
 		@IWorkspaceContextService private readonly _workspace: IWorkspaceContextService,
 		@IVibePromptGuardService private readonly _guard: IVibePromptGuardService,
 		@IConfigurationService private readonly _config: IConfigurationService,
+		@IPathService private readonly _pathService: IPathService,
 	) {
 		super();
 		// Disabled sources + max-chars come from the registered config (`vibeide.projectRules.*`,
@@ -246,7 +264,8 @@ export class VibeProjectRulesService extends Disposable implements IVibeProjectR
 			const nestedDepth = this._config.getValue<number>(NESTED_DEPTH_KEY) ?? DEFAULT_NESTED_RULE_DEPTH;
 			const nestedChange = !relevantChange && !linkedChange && nestedDepth > 0
 				&& [...e.rawAdded, ...e.rawUpdated, ...e.rawDeleted].some(file => rootUris.some(root => isNestedRuleFile(root, file, nestedDepth)));
-			if (relevantChange || linkedChange || nestedChange) {
+			// Личный слой живёт в домашней папке: её изменения приходят сюда же рекурсивным watch
+			if (relevantChange || linkedChange || nestedChange || this._isPersonalChange(e)) {
 				this._debouncer.schedule();
 			}
 		}));
@@ -262,11 +281,14 @@ export class VibeProjectRulesService extends Disposable implements IVibeProjectR
 	}
 
 	getRulesForTurn(activation: { userText?: string; files?: readonly string[] }): { readonly standing: string; readonly activated: string } {
-		const standing: string[] = [];
-		const activated: string[] = [];
+		const standing: LayeredBlock[] = [];
+		const activated: LayeredBlock[] = [];
 		const indexed: LoadedRuleSource[] = [];
 		for (const { source, body } of this._injectableSources(this._cachedSources)) {
-			const block = `[Source: ${source.relativePath}${source.wasRedacted ? ' (secrets redacted)' : ''}]\n${body}`;
+			const block: LayeredBlock = {
+				text: `[Source: ${source.relativePath}${source.wasRedacted ? ' (secrets redacted)' : ''}]\n${body}`,
+				personal: source.personal === true,
+			};
 			const rule = { alwaysApply: source.alwaysApply, triggers: source.triggers ?? [], globs: source.globs ?? [] };
 			if (decideRuleActivation(rule, {}) === 'inject') {
 				standing.push(block);
@@ -279,12 +301,24 @@ export class VibeProjectRulesService extends Disposable implements IVibeProjectR
 			}
 		}
 		const parts: string[] = [];
-		if (standing.length > 0) { parts.push(standing.join('\n\n')); }
+		if (standing.length > 0) { parts.push(this._joinLayered(standing)); }
 		if (indexed.length > 0) {
 			const list = indexed.map(s => `- ${ruleNameFromPath(s.relativePath)}${s.description ? ` — ${s.description}` : ''}`).join('\n');
 			parts.push(`[Conditional project rules — the ones that apply to a request come with it in <activated_rules>; any of them loads with @rule:<name>]\n${list}`);
 		}
-		return { standing: this._capped(parts.join('\n\n').trim()), activated: activated.join('\n\n') };
+		return { standing: this._capped(parts.join('\n\n').trim()), activated: this._joinLayered(activated) };
+	}
+
+	/**
+	 * Склейка слоёв: личное сверху, проектное снизу, между ними одна строка о том, чей конфликт сильнее.
+	 * Пояснение ставится только когда есть оба слоя — иначе это шум в пустой половине текста.
+	 */
+	private _joinLayered(blocks: readonly LayeredBlock[]): string {
+		const personal = blocks.filter(b => b.personal).map(b => b.text);
+		const project = blocks.filter(b => !b.personal).map(b => b.text);
+		if (personal.length === 0) { return project.join('\n\n'); }
+		if (project.length === 0) { return personal.join('\n\n'); }
+		return `${personal.join('\n\n')}\n\n${PROJECT_RULES_WIN_NOTE}\n\n${project.join('\n\n')}`;
 	}
 
 	/** Sources that carry a rule: enabled, not empty after comments and headings, not a duplicate of an earlier one */
@@ -318,7 +352,7 @@ export class VibeProjectRulesService extends Disposable implements IVibeProjectR
 	private _combineSources(sources: readonly LoadedRuleSource[], activation: { userText?: string; files?: readonly string[] } | undefined): string {
 		const disabled = new Set((this._config.getValue<string[]>(DISABLED_SOURCES_KEY) ?? []).map(normalizeRuleKey));
 		const seen = new Set<string>();
-		const injected: string[] = [];
+		const injected: LayeredBlock[] = [];
 		const indexed: LoadedRuleSource[] = [];
 		for (const s of sources) {
 			if (disabled.has(normalizeRuleKey(s.relativePath))) { continue; } // disabled in settings (vibeide.projectRules.disabledSources)
@@ -335,7 +369,7 @@ export class VibeProjectRulesService extends Disposable implements IVibeProjectR
 			const act = decideRuleActivation({ alwaysApply: s.alwaysApply, triggers: s.triggers ?? [], globs: s.globs ?? [] }, activation ?? {});
 			if (act === 'inject') {
 				const label = `[Source: ${s.relativePath}${s.wasRedacted ? ' (secrets redacted)' : ''}]`;
-				injected.push(`${label}\n${body}`);
+				injected.push({ text: `${label}\n${body}`, personal: s.personal === true });
 			} else if (activation !== undefined) {
 				// Conditional + unmatched: list as "available" ONLY on the agent-chat path (activation
 				// provided). No-activation callers (Ctrl+K / Autocomplete / Settings combined view) drop
@@ -344,7 +378,7 @@ export class VibeProjectRulesService extends Disposable implements IVibeProjectR
 			}
 		}
 		const parts: string[] = [];
-		if (injected.length > 0) { parts.push(injected.join('\n\n')); }
+		if (injected.length > 0) { parts.push(this._joinLayered(injected)); }
 		if (indexed.length > 0) {
 			const list = indexed.map(s => `- ${ruleNameFromPath(s.relativePath)}${s.description ? ` — ${s.description}` : ''}`).join('\n');
 			parts.push(`[Available project rules — conditional, not loaded this turn; load with @rule:<name>]\n${list}`);
@@ -409,6 +443,11 @@ export class VibeProjectRulesService extends Disposable implements IVibeProjectR
 		const maxDepth = this._config.getValue<number>(MAX_FOLDER_DEPTH_KEY) ?? MAX_RULE_FOLDER_DEPTH;
 		const maxBytes = this._config.getValue<number>(MAX_FILE_BYTES_KEY) ?? MAX_RULE_FILE_BYTES;
 
+		// Личный слой читается первым и один раз на окно, а не на папку: домашняя папка одна
+		const home = await this._resolveHomeUri();
+		this._watchPersonalLayer(home);
+		sources.push(...await this._loadPersonalSources(home, maxBytes, maxDepth, maxFiles));
+
 		for (const folder of folders) {
 			// Load named flat rule files
 			for (const name of RULE_FILE_NAMES) {
@@ -461,7 +500,8 @@ export class VibeProjectRulesService extends Disposable implements IVibeProjectR
 			this._cachedLinkedRefs = await this._collectLinkedReferences(folders, sources, recursive, maxBytes);
 		}
 
-		this._log.info(`[VibeProjectRules] Loaded ${sources.length} rule sources; combined ${this._cachedCombined.length} chars; linked refs ${this._linkedPaths.size} files / ${this._cachedLinkedRefs.length} chars`);
+		const personalCount = sources.filter(s => s.personal === true).length;
+		this._log.info(`[VibeProjectRules] Loaded ${sources.length} rule sources (${personalCount} personal); combined ${this._cachedCombined.length} chars; linked refs ${this._linkedPaths.size} files / ${this._cachedLinkedRefs.length} chars`);
 	}
 
 	getLinkedReferences(): string {
@@ -529,6 +569,64 @@ export class VibeProjectRulesService extends Disposable implements IVibeProjectR
 			}
 		}
 		return blocks.join('\n\n');
+	}
+
+	/** Домашняя папка через IPathService: свой разбор `process.env.HOME` разошёлся бы с остальной IDE */
+	private _resolveHomeUri(): Promise<URI> {
+		this._homeUriPromise ??= this._pathService.userHome();
+		return this._homeUriPromise;
+	}
+
+	/**
+	 * Личный слой: `~/.vibe/AGENTS.md` (собирает VibeMemory) и дерево `~/.vibe/rules/**` (правит человек).
+	 * Метки источников — `~/.vibe/...`: модель видит слой, а не длинный абсолютный путь.
+	 */
+	private async _loadPersonalSources(home: URI, maxBytes: number, maxDepth: number, maxFiles: number): Promise<LoadedRuleSource[]> {
+		const out: LoadedRuleSource[] = [];
+		const agentsUri = joinPath(home, ...PERSONAL_AGENTS_FILE_PATH.split('/'));
+		const agents = await this._tryLoadRuleFile(agentsUri, personalSourceLabel(PERSONAL_AGENTS_FILE_PATH), maxBytes);
+		if (agents) { out.push({ ...agents, personal: true }); }
+
+		const dirUri = joinPath(home, ...PERSONAL_RULES_DIR_PATH.split('/'));
+		for (const uri of await this._collectFolderRuleUris(dirUri, 0, maxDepth)) {
+			if (out.length >= maxFiles) {
+				this._log.warn(`[VibeProjectRules] Hit maxFiles=${maxFiles}; remaining personal rules skipped`);
+				break;
+			}
+			const rel = relativePath(home, uri) ?? uri.path;
+			const source = await this._tryLoadRuleFile(uri, personalSourceLabel(rel), maxBytes);
+			if (source) { out.push({ ...source, personal: true }); }
+		}
+		return out;
+	}
+
+	/**
+	 * Домашняя папка лежит вне рабочей области, поэтому никто не сторожит её для нас: свой watcher.
+	 * Каталог `~/.vibe` — не рекурсивно (файл AGENTS.md), дерево `~/.vibe/rules` — рекурсивно, иначе
+	 * правка вложенного правила ждала бы перезапуска.
+	 */
+	private _watchPersonalLayer(home: URI): void {
+		if (this._homeUri) { return; }
+		this._homeUri = home;
+		const vibeDir = joinPath(home, '.vibe');
+		const agentsUri = joinPath(home, ...PERSONAL_AGENTS_FILE_PATH.split('/'));
+		const rulesDir = joinPath(home, ...PERSONAL_RULES_DIR_PATH.split('/'));
+		// Коррелированный watcher умеет только без рекурсии — для файла `~/.vibe/AGENTS.md` этого хватает
+		const vibeWatcher = this._register(this._fileService.createWatcher(vibeDir, { recursive: false, excludes: [] }));
+		this._register(vibeWatcher.onDidChange(e => {
+			if (e.contains(agentsUri)) { this._debouncer.schedule(); }
+		}));
+		// Дерево `~/.vibe/rules` — рекурсивно: рекурсия не коррелируется, поэтому событие приходит
+		// общим `onDidFilesChange`, а отбор по пути делает `_isPersonalChange`
+		this._register(this._fileService.watch(rulesDir, { recursive: true, excludes: [] }));
+	}
+
+	/** Изменение личного слоя: домашняя папка лежит вне рабочей области и в общем отборе не видна */
+	private _isPersonalChange(e: FileChangesEvent): boolean {
+		const home = this._homeUri;
+		if (!home) { return false; }
+		return e.contains(joinPath(home, ...PERSONAL_AGENTS_FILE_PATH.split('/')))
+			|| e.affects(joinPath(home, ...PERSONAL_RULES_DIR_PATH.split('/')));
 	}
 
 	private async _tryLoadRuleFile(uri: URI, relativePath: string, maxBytes: number): Promise<LoadedRuleSource | null> {
@@ -718,7 +816,7 @@ registerAction2(class extends Action2 {
 		const sources = rulesSvc.getLoadedSources();
 
 		const content = sources.length === 0
-			? '// No project rules files found.\n// Create: .vibe/rules.md | AGENTS.md | .vibe/rules/*.md(c)'
+			? '// No rules files found.\n// Personal: ~/.vibe/AGENTS.md | ~/.vibe/rules/*.md(c)\n// Project: .vibe/rules.md | AGENTS.md | AGENTS.local.md | .vibe/rules/*.md(c)'
 			: sources.map(s => `// ${s.relativePath} (${s.sizeBytes} bytes${s.wasRedacted ? ', secrets redacted' : ''})\n${s.content}`).join('\n\n---\n\n');
 
 		const uri = URI.parse(`untitled://project-rules-sources-${Date.now()}.md`);
