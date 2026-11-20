@@ -16,6 +16,7 @@ import { ReactNode, useCallback, useEffect, useState } from 'react';
 import { autoUpdate, flip, offset, shift, size, useFloating } from '@floating-ui/react';
 import { SlidersHorizontal } from 'lucide-react';
 import { useAccessor, useChatThreadsState, useSettingsState } from '../util/services.js';
+import { tooltipProps } from '../util/tooltipProps.js';
 import { chatS } from '../vibe-settings-tsx/vibeSettingsRu.js';
 import { displayInfoOfProviderName, isValidProviderModelSelection } from '../../../../common/vibeideSettingsTypes.js';
 import { chatLeaderOf } from '../../../../common/chatLeader.js';
@@ -42,7 +43,7 @@ function useConfigSetting<T>(key: string, parse: (raw: unknown) => T): [T, (valu
 
 /** One setting as a row of buttons: every choice visible at once, the current one marked */
 function ChoiceRow<T extends string>({ label, title, choices, value, onChange }: { label: string; title: string; choices: readonly { readonly value: T; readonly label: string }[]; value: T; onChange: (value: T) => void }) {
-	return <div className='flex flex-col gap-1 mb-2' title={title}>
+	return <div className='flex flex-col gap-1 mb-2' {...tooltipProps(title)}>
 		<div className='text-[11px] text-vibe-fg-3'>{label}</div>
 		<div className='flex flex-wrap gap-1' role='radiogroup' aria-label={label}>
 			{choices.map(choice => <button
@@ -71,7 +72,7 @@ const TrainingPolicyLine = () => {
 	if (leader.kind === 'agent') {
 		return <div
 			className='mt-3 pt-2 border-t border-vibe-border-3 text-[11px] text-vibe-fg-4'
-			title={chatS.trainingTipAgent(leader.agentName)}
+			{...tooltipProps(chatS.trainingTipAgent(leader.agentName))}
 		>
 			{chatS.trainingLine(chatS.trainingAgent)}
 		</div>;
@@ -97,7 +98,7 @@ const TrainingPolicyLine = () => {
 					: chatS.trainingTipMayTrain;
 	return <div
 		className='mt-3 pt-2 border-t border-vibe-border-3 text-[11px] text-vibe-fg-4'
-		title={`${displayInfoOfProviderName(sel.providerName).title}/${sel.modelName}\n${tip}`}
+		{...tooltipProps(`${displayInfoOfProviderName(sel.providerName).title}/${sel.modelName}\n${tip}`)}
 	>
 		{chatS.trainingLine(short)}
 	</div>;

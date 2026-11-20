@@ -7,6 +7,7 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { useSettingsState, useAccessor, useCtrlKZoneStreamingState } from '../util/services.js';
 import { TextAreaFns, VibeInputBox2 } from '../util/inputs.js';
+import { tooltipProps } from '../util/tooltipProps.js';
 import { QuickEditPropsType } from '../../../quickEditActions.js';
 import { ButtonStop, ButtonSubmit, IconX, VibeChatArea } from '../sidebar-tsx/SidebarChat.js';
 import { VIBEIDE_CTRL_K_ACTION_ID } from '../../../actionIDs.js';
@@ -155,7 +156,7 @@ export const QuickEditChat = ({
 							type='button'
 							className='px-1.5 py-0.5 rounded border border-vibe-border-1 hover:bg-vibe-bg-3 hover:text-vibe-fg-1 transition-colors font-mono'
 							onClick={() => onClickSlashChip(cmd)}
-							title={`Insert ${cmd}`}
+							{...tooltipProps(`Вставить ${cmd}`)}
 						>
 							{cmd}
 						</button>

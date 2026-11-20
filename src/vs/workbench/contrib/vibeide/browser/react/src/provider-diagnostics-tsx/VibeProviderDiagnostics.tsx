@@ -7,6 +7,7 @@
 import { vibeLog } from '../../../../common/vibeLog.js';
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { useAccessor } from '../util/services.js';
+import { tooltipProps } from '../util/tooltipProps.js';
 import { VibeModalForm } from '../components/VibeModalForm.js';
 import type { ProviderDiagnosticsTarget } from '../../../vibeDynamicProvidersService.js';
 import type { ProviderName } from '../../../../common/vibeideSettingsTypes.js';
@@ -450,12 +451,12 @@ export const VibeProviderDiagnostics: React.FC = () => {
 		>
 			<div className="@@vibeide-provdiag-toolbar">
 				<button className="@@vibeide-provdiag-btn" disabled={busy} onClick={() => runAll(enumerate())}>Проверить все</button>
-				<button className="@@vibeide-provdiag-btn" disabled={busy} onClick={resetClients} title="Очистить кэши клиентов и пересоздать соединение без перезапуска IDE">Сбросить клиентов</button>
+				<button className="@@vibeide-provdiag-btn" disabled={busy} onClick={resetClients} {...tooltipProps("Очистить кэши клиентов и пересоздать соединение без перезапуска IDE")}>Сбросить клиентов</button>
 				<button className="@@vibeide-provdiag-btn" onClick={exportMd}>Экспорт в Markdown</button>
 				<button
 					className="@@vibeide-provdiag-btn"
 					onClick={() => setAutoRefresh(v => !v)}
-					title="Автоматически перепроверять слои L1–L4 каждые 30 секунд, пока окно открыто (L5 не запускается — тратит токены)"
+					{...tooltipProps("Автоматически перепроверять слои L1–L4 каждые 30 секунд, пока окно открыто (L5 не запускается — тратит токены)")}
 				>
 					{autoRefresh ? '◉ Авто: вкл' : '○ Авто: выкл'}
 				</button>
@@ -477,13 +478,13 @@ export const VibeProviderDiagnostics: React.FC = () => {
 							<button
 								className="@@vibeide-provdiag-recheck"
 								disabled={r.checking || busy || r.l5Running}
-								title="L5: один настоящий запрос к модели через sendLLMMessage — тратит токены"
+								{...tooltipProps("L5: один настоящий запрос к модели через sendLLMMessage — тратит токены")}
 								onClick={() => runL5(r)}
 							>L5</button>
 							<button className="@@vibeide-provdiag-recheck" disabled={r.checking || busy} onClick={() => recheckOne(r.id)}>↻</button>
 							<button
 								className="@@vibeide-provdiag-recheck"
-								title="Скопировать отчёт по этому провайдеру (markdown)"
+								{...tooltipProps("Скопировать отчёт по этому провайдеру (markdown)", { accessibility: 'label' })}
 								onClick={() => { void copyProvider(r); }}
 							>⧉</button>
 						</div>
@@ -491,20 +492,20 @@ export const VibeProviderDiagnostics: React.FC = () => {
 							{(Object.keys(r.layers) as (keyof ProviderRow['layers'])[]).map((k) => {
 								const l = r.layers[k];
 								return (
-									<span key={k} className={`@@vibeide-provdiag-chip status-${l.status}`} title={l.detail || ''}>
+									<span key={k} className={`@@vibeide-provdiag-chip status-${l.status}`} {...tooltipProps(l.detail || '')}>
 										<span className="@@vibeide-provdiag-chip-glyph">{STATUS_GLYPH[l.status]}</span>
 										{LAYER_LABELS[k]}
 									</span>
 								);
 							})}
 							{r.l5 && (
-								<span className={`@@vibeide-provdiag-chip status-${r.l5.status}`} title={r.l5.detail || 'Сквозной запрос через sendLLMMessage'}>
+								<span className={`@@vibeide-provdiag-chip status-${r.l5.status}`} {...tooltipProps(r.l5.detail || 'Сквозной запрос через sendLLMMessage')}>
 									<span className="@@vibeide-provdiag-chip-glyph">{STATUS_GLYPH[r.l5.status]}</span>
 									Запрос (L5)
 								</span>
 							)}
 							{r.selectedModelPresent === false && (
-								<span className="@@vibeide-provdiag-chip status-warn" title="Выбранная в чате модель не найдена в каталоге провайдера">выбранной модели нет</span>
+								<span className="@@vibeide-provdiag-chip status-warn" {...tooltipProps("Выбранная в чате модель не найдена в каталоге провайдера")}>выбранной модели нет</span>
 							)}
 						</div>
 						{r.baseURL && <div className="@@vibeide-provdiag-url">{r.baseURL}</div>}

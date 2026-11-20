@@ -105,6 +105,7 @@
     "tools-doc-check": "npx tsx scripts/vibe-tools-doc.ts",
     "raw-nul-check": "node scripts/vibe-no-raw-nul.ts --all",
     "scroll-check": "node scripts/vibe-scroll-gate.ts --all",
+    "tooltip-check": "node scripts/vibe-tooltip-gate.ts --all",
     "entrypoints-check": "node scripts/vibe-entrypoints-check.ts",
     "seed-fields-check": "node scripts/vibe-seed-fields.ts",
     "deprecated-coverage-check": "node scripts/vibe-deprecated-coverage.ts",
@@ -463,6 +464,9 @@
     ],
     "src/vs/workbench/contrib/vibeide/**/*.{ts,tsx,css}": [
       "node scripts/vibe-scroll-gate.ts"
+    ],
+    "src/vs/workbench/contrib/vibeide/browser/react/src/**/*.tsx": [
+      "node scripts/vibe-tooltip-gate.ts"
     ],
     "build/{buildfile,next/index}.ts": [
       "node scripts/vibe-entrypoints-check.ts"

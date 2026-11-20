@@ -5,6 +5,7 @@
 
 import React from 'react';
 import { useAccessor, useSettingsState } from '../util/services.js';
+import { tooltipProps } from '../util/tooltipProps.js';
 import { BUILT_IN_PRESETS, VIBE_AGENT_ROLE_PRESETS } from '../../../../common/vibeSubagentRegistryService.js';
 import { ModelOption } from '../../../../common/vibeideSettingsService.js';
 import { OverridesOfModel } from '../../../../common/vibeideSettingsTypes.js';
@@ -108,7 +109,7 @@ export const AgentRoleModels = () => {
 									<span className='text-vibe-fg-3' style={roleBadgeStyle}>только чтение</span>
 								)}
 								{preset.receivesImages && (
-									<span className='text-vibe-fg-3' style={roleBadgeStyle} title='Роль разбирает приложенные картинки — по умолчанию берёт vision-модель'>🖼 картинки</span>
+									<span className='text-vibe-fg-3' style={roleBadgeStyle} {...tooltipProps('Роль разбирает приложенные картинки — по умолчанию берёт vision-модель')}>🖼 картинки</span>
 								)}
 							</div>
 							<select
@@ -136,7 +137,7 @@ export const AgentRoleModels = () => {
 								min={0}
 								step={10000}
 								placeholder='токены'
-								title='Потолок суммарного расхода роли в ТОКЕНАХ за окно бюджета. Пусто или 0 — без ограничения.'
+								{...tooltipProps('Потолок суммарного расхода роли в ТОКЕНАХ за окно бюджета. Пусто или 0 — без ограничения.')}
 								value={settingsState.tokenBudgetOfRole?.[preset.type] ?? ''}
 								onChange={(e) => {
 									const raw = e.target.value.trim();
@@ -150,7 +151,7 @@ export const AgentRoleModels = () => {
 								min={0}
 								step={0.5}
 								placeholder='$ / прогон'
-								title='Потолок ОДНОГО прогона в долларах. Превращается в квоту токенов по цене выбранной модели; у модели без известной цены не применяется.'
+								{...tooltipProps('Потолок ОДНОГО прогона в долларах. Превращается в квоту токенов по цене выбранной модели; у модели без известной цены не применяется.')}
 								value={settingsState.usdBudgetOfRole?.[preset.type]?.perRun ?? ''}
 								onChange={(e) => {
 									const raw = e.target.value.trim();
@@ -165,7 +166,7 @@ export const AgentRoleModels = () => {
 								min={0}
 								step={1}
 								placeholder='$ / окно'
-								title='Потолок суммарного расхода роли в долларах за окно бюджета. Прогоны с неизвестной ценой в сумму не входят и называются в отказе.'
+								{...tooltipProps('Потолок суммарного расхода роли в долларах за окно бюджета. Прогоны с неизвестной ценой в сумму не входят и называются в отказе.')}
 								value={settingsState.usdBudgetOfRole?.[preset.type]?.perDay ?? ''}
 								onChange={(e) => {
 									const raw = e.target.value.trim();

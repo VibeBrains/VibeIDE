@@ -13,6 +13,7 @@ import { acpToolStatusLabel, questionOfCall, splitAcpQuestions } from '../../../
 import { CHAT_MODE_CHOICE_LABEL } from '../../../../common/chatModeChoiceLabels.js';
 import { useAccessor, useChatThreadsState } from '../util/services.js';
 import { VibeCustomDropdownBox } from '../util/inputs.js';
+import { tooltipProps } from '../util/tooltipProps.js';
 import { ToolHeaderWrapper, ToolChildrenWrapper } from './SidebarChat.js';
 
 // ── Словарь ───────────────────────────────────────────────────────────────────
@@ -188,7 +189,7 @@ export const AcpCompactionLine = ({ message, isCheckpointGhost }: { message: Acp
  */
 const AcpButton = ({ children, onClick, title, quiet }: { children: React.ReactNode; onClick: () => void; title?: string; quiet?: boolean }) => <button
 	className={`rounded-md border px-3 py-1 text-xs text-vibe-fg-1 transition-colors hover:bg-vibe-bg-2-hover focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-vibe-border-1 ${quiet ? 'border-transparent' : 'border-vibe-border-3'}`}
-	title={title}
+	{...tooltipProps(title)}
 	onClick={onClick}
 >
 	{children}
@@ -360,14 +361,14 @@ const AcpConfigPills = ({ sessionId, options, locked, className }: { sessionId: 
 			const known = option.category ? CONFIG_CATEGORY_NAMES[option.category] : undefined;
 			const hint = [known?.label ?? option.name, known?.hint ?? option.description].filter(Boolean).join('. ');
 			if (option.type === 'boolean') {
-				return <label key={option.id} className={`${className} flex items-center gap-1 cursor-pointer`} title={hint}>
+				return <label key={option.id} className={`${className} flex items-center gap-1 cursor-pointer`} {...tooltipProps(hint)}>
 					<input type='checkbox' className='h-3 w-3' checked={option.currentValue} disabled={locked} onChange={event => void sessions.setConfigOption(sessionId, option.id, event.target.checked)} />
 					<span>{known?.label ?? option.name}</span>
 				</label>;
 			}
 			const selected = option.choices.find(choice => choice.value === option.currentValue);
 			if (!selected) { return null; }
-			return <span key={option.id} className='inline-flex' title={hint}>
+			return <span key={option.id} className='inline-flex' {...tooltipProps(hint)}>
 				<VibeCustomDropdownBox<IAcpConfigChoice>
 					className={className}
 					options={[...option.choices]}
@@ -429,7 +430,7 @@ export const AcpModeControl = ({ className }: { className: string }) => {
 		{view && <AcpConfigPills sessionId={view.sessionId} options={view.configOptions} locked={view.configuring || view.disconnected} className={className} />}
 		{grants > 0 && view && <button
 			className='text-[11px] text-vibe-fg-4 underline decoration-dotted hover:text-vibe-fg-2'
-			title='Разрешения, которые вы дали на эту сессию («На сессию» в вопросе агента). Сброс вернёт вопросы'
+			{...tooltipProps('Разрешения, которые вы дали на эту сессию («На сессию» в вопросе агента). Сброс вернёт вопросы')}
 			onClick={() => sessions.clearGrants(view.sessionId)}
 		>
 			{`Сбросить разрешения сессии (${grants})`}
@@ -454,7 +455,7 @@ export const AcpPromptSuggestions = ({ onPick }: { readonly onPick: (text: strin
 			key={`${index}:${suggestion.text}`}
 			type='button'
 			className='max-w-full truncate rounded-full border border-vibe-border-3 px-2.5 py-1 text-xs text-vibe-fg-2 transition-colors hover:bg-vibe-bg-2-hover hover:text-vibe-fg-1 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-vibe-border-1'
-			title={suggestion.text}
+			{...tooltipProps(suggestion.text, { accessibility: 'none' })}
 			onClick={() => onPick(suggestion.text)}
 		>
 			{suggestion.text}

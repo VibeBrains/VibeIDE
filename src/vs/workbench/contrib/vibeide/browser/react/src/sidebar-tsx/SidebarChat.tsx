@@ -71,6 +71,7 @@ import { PDFAttachmentList } from '../util/PDFAttachmentList.js';
 import { ImageAttachmentList } from '../util/ImageAttachmentList.js';
 import { ImageMessageRenderer } from '../util/ImageMessageRenderer.js';
 import { PDFMessageRenderer } from '../util/PDFMessageRenderer.js';
+import { LIST_ROW_TOOLTIP_DELAY_MS, tooltipProps } from '../util/tooltipProps.js';
 
 
 const CHAT_MODES: readonly ChatMode[] = ['normal', 'gather', 'plan', 'agent'];
@@ -139,7 +140,7 @@ const ChatTimestamp = ({ ts, align, streaming }: { ts: number | undefined; align
 	// NOTE: the session-token budget warning pulse lives on the context ring in the composer
 	// toolbar (ChatContextMeter.tsx) — NOT here. Chat timestamps stay neutral.
 	const timeNode = validTs
-		? <time dateTime={chatTimestampToISO(ts)} title={formatChatTimestamp(ts, CHAT_TIMESTAMP_TOOLTIP_PATTERN)} style={NEON_TIMESTAMP_STYLE}>{text}</time>
+		? <time dateTime={chatTimestampToISO(ts)} {...tooltipProps(formatChatTimestamp(ts, CHAT_TIMESTAMP_TOOLTIP_PATTERN))} style={NEON_TIMESTAMP_STYLE}>{text}</time>
 		: <span aria-hidden='true' style={NEON_TIMESTAMP_STYLE}>{text}</span>;
 	if (align === 'inline') {
 		return <span className='text-[11px] select-none'><span className='mx-1 opacity-70'>·</span>{timeNode}</span>;
@@ -638,7 +639,7 @@ const ChatRuleLinksRecursiveToggle = ({ className }: { className?: string }) => 
 	return (
 		<div
 			className={`@@vibe-toolbar-pill flex items-center gap-1 flex-shrink-0 rounded-xl py-0.5 px-1.5 ${className ?? ''}`}
-			title={chatS.rulesLinksRecursiveTitle}
+			{...tooltipProps(chatS.rulesLinksRecursiveTitle)}
 		>
 			<VibeSwitch size='xs' value={value} onChange={onChange} />
 			<span className='text-vibe-fg-3 text-xs whitespace-nowrap select-none pointer-events-none'>{chatS.rulesLinksRecursiveLabel}</span>
@@ -674,7 +675,7 @@ const ChatSessionResetButton = ({ className }: { className?: string }) => {
 			<button
 				type='button'
 				onClick={onClick}
-				title={chatS.sessionResetTitle(used.toLocaleString('ru-RU'))}
+				{...tooltipProps(chatS.sessionResetTitle(used.toLocaleString('ru-RU')), { accessibility: 'none' })}
 				aria-label={chatS.sessionResetAria}
 				className='flex items-center justify-center text-vibe-fg-3 hover:text-vibe-fg-1 leading-none select-none cursor-pointer'
 			>
@@ -774,7 +775,7 @@ const NumberStepperControl = ({ className, configKey, defaultValue, upper, label
 	return (
 		<div
 			className={`@@vibe-toolbar-pill flex items-center gap-0.5 flex-shrink-0 rounded-xl py-0.5 px-1.5 ${className ?? ''}`}
-			title={title + titleSuffix}
+			{...tooltipProps(title + titleSuffix)}
 			onMouseDown={stop}
 			onClick={stop}
 		>
@@ -818,7 +819,7 @@ const NumberStepperControl = ({ className, configKey, defaultValue, upper, label
 							key={p}
 							type='button'
 							className={`px-1 rounded text-[10px] leading-none select-none cursor-pointer ${p === value ? 'text-vibe-fg-1 bg-vibe-bg-2' : 'text-vibe-fg-4 hover:text-vibe-fg-2'}`}
-							title={p === 0 ? offLabel : `${label} ${p}`}
+							{...tooltipProps(p === 0 ? offLabel : `${label} ${p}`)}
 							onMouseDown={stop}
 							onClick={(e) => { stop(e); commit(p); }}
 						>{p === 0 ? '∞' : p}</button>
@@ -972,14 +973,14 @@ const ReviewChecklistCard = ({ threadId, checklist }: { threadId: string; checkl
 					<button
 						type="button"
 						aria-pressed={item.status === 'ok'}
-						title="Работает"
+						{...tooltipProps("Работает", { accessibility: 'label' })}
 						onClick={() => mark(item.id, 'ok')}
 						className={`flex-shrink-0 px-2 py-0.5 rounded border text-sm ${item.status === 'ok' ? 'border-green-500 text-green-500' : 'border-vibe-border-2 text-vibe-fg-2 hover:text-vibe-fg-1'}`}
 					>✓</button>
 					<button
 						type="button"
 						aria-pressed={item.status === 'fail'}
-						title="Не работает"
+						{...tooltipProps("Не работает", { accessibility: 'label' })}
 						onClick={() => mark(item.id, 'fail')}
 						className={`flex-shrink-0 px-2 py-0.5 rounded border text-sm ${item.status === 'fail' ? 'border-red-500 text-red-500' : 'border-vibe-border-2 text-vibe-fg-2 hover:text-vibe-fg-1'}`}
 					>✗</button>
@@ -1041,7 +1042,7 @@ const EditBatchCard = ({ threadId, batch }: { threadId: string; batch: EditBatch
 			<button
 				type="button"
 				onClick={() => chatThreadsService.setEditBatchCollecting(threadId, !batch.collecting)}
-				title={batch.collecting ? 'Клик прицела копит правки' : 'Клик прицела отправляет правку сразу'}
+				{...tooltipProps(batch.collecting ? 'Клик прицела копит правки' : 'Клик прицела отправляет правку сразу')}
 				className={`text-xs px-2 py-1 rounded border ${batch.collecting ? 'border-blue-500 text-blue-400' : 'border-vibe-border-2 text-vibe-fg-3'}`}
 			>{batch.collecting ? 'Сбор включён' : 'Сбор выключен'}</button>
 		</div>
@@ -1059,7 +1060,7 @@ const EditBatchCard = ({ threadId, batch }: { threadId: string; batch: EditBatch
 							onChange={e => chatThreadsService.setEditBatchNote(threadId, item.id, e.target.value)}
 							className="w-full text-xs px-2 py-1 rounded border border-vibe-border-2 bg-vibe-bg-1"
 						/>
-						<div className="text-xs text-vibe-fg-3 truncate" title={[item.selector, item.file].filter(Boolean).join(' · ')}>
+						<div className="text-xs text-vibe-fg-3 truncate" {...tooltipProps([item.selector, item.file].filter(Boolean).join(' · '), { accessibility: 'none', delayShowMs: LIST_ROW_TOOLTIP_DELAY_MS })}>
 							{/* Правка из превью опознаётся селектором, из кода — файлом со строкой. Показываем
 							    то, что есть: подставлять пустой селектор ради единообразия значит врать. */}
 							{item.source === 'code' ? '⌗ ' : '⌖ '}{[item.selector, item.file].filter(Boolean).join(' · ')}
@@ -1067,7 +1068,7 @@ const EditBatchCard = ({ threadId, batch }: { threadId: string; batch: EditBatch
 					</div>
 					<button
 						type="button"
-						title="Убрать из пакета"
+						{...tooltipProps("Убрать из пакета", { accessibility: 'none' })}
 						aria-label={`Убрать из пакета: ${item.selector ?? item.file ?? item.page}`}
 						onClick={() => chatThreadsService.removeEditBatchItem(threadId, item.id)}
 						className="flex-shrink-0 text-xs px-2 py-1 rounded border border-vibe-border-2 text-vibe-fg-3 hover:text-vibe-fg-1"
@@ -1486,7 +1487,7 @@ const ChatContinueButton = ({ onSend }: { onSend: (text: string) => void }) => {
 			onClick={() => onSend(text)}
 			className="flex-shrink-0 p-1.5 rounded-xl hover:bg-vibe-bg-2-alt text-vibe-fg-4 hover:text-vibe-fg-2 transition-colors"
 			aria-label={text}
-			title={text}
+			{...tooltipProps(text, { accessibility: 'none' })}
 		>
 			<StepForward size={16} />
 		</button>
@@ -1510,7 +1511,7 @@ const ChatModelHealthDropdown: React.FC<{ featureName: FeatureName; className: s
 	const degraded = !!sel && isValidProviderModelSelection(sel) && chatThreadsService.isProviderDegraded(sel.providerName, sel.modelName);
 	const dropdown = <ModelDropdown featureName={featureName} className={degraded ? `${className} ring-1 ring-orange-500/70 !text-orange-400` : className} />;
 	return degraded
-		? <span className='inline-flex' title={chatS.providerDegradedTooltip}>{dropdown}</span>
+		? <span className='inline-flex' {...tooltipProps(chatS.providerDegradedTooltip)}>{dropdown}</span>
 		: dropdown;
 };
 
@@ -1686,7 +1687,7 @@ export const VibeChatArea: React.FC<VibeideChatAreaProps> = ({
 						onClick={handleAttachUploadClick}
 						className="flex-shrink-0 p-1.5 rounded-xl hover:bg-vibe-bg-2-alt text-vibe-fg-4 hover:text-vibe-fg-2 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
 						aria-label={chatS.attachAria}
-						title={chatS.attachTitle}
+						{...tooltipProps(chatS.attachTitle, { accessibility: 'none' })}
 					>
 						<Paperclip size={16} />
 					</button>
@@ -1731,7 +1732,7 @@ export const VibeChatArea: React.FC<VibeideChatAreaProps> = ({
 						{ledByAgent && <AcpModeControl className='text-xs text-vibe-fg-3 @@vibe-toolbar-pill rounded-xl overflow-hidden py-0.5 px-1.5' />}
 						<ChatModelHealthDropdown featureName={featureName} className='text-xs text-vibe-fg-3 @@vibe-toolbar-pill rounded-xl overflow-hidden py-0.5 px-1.5' />
 						{/* The pill names the agent; this says what that changes: the chat's own checks do not reach a foreign loop */}
-						{ledByAgent && <span className='text-[11px] text-vibe-fg-4' title={chatS.agentLeadsTitle}>{chatS.agentLeads}</span>}
+						{ledByAgent && <span className='text-[11px] text-vibe-fg-4' {...tooltipProps(chatS.agentLeadsTitle)}>{chatS.agentLeads}</span>}
 						{/* Behaviour/paths — role-route (subagent) + scout, right after the model: interaction, not a chat knob */}
 						{featureName === 'Chat' && !ledByAgent && <ChatRunRouteButton />}
 						{featureName === 'Chat' && !ledByAgent && <ChatScoutToggleButton />}
@@ -2586,7 +2587,7 @@ const UserMessageComponent = ({ chatMessage, messageIdx, isCheckpointGhost, curr
 
 	const isMsgAfterCheckpoint = currCheckpointIdx !== undefined && currCheckpointIdx === messageIdx - 1;
 
-	const userTimeEl = userTime && <time dateTime={userTime.iso} title={userTime.title}>{userTime.text}</time>;
+	const userTimeEl = userTime && <time dateTime={userTime.iso} {...tooltipProps(userTime.title)}>{userTime.text}</time>;
 
 	return <div
 		// the row of the message: layout (margins, widths per panel width) is in media/vibeChatMessages.css
@@ -2632,7 +2633,7 @@ const UserMessageComponent = ({ chatMessage, messageIdx, isCheckpointGhost, curr
 				// The tooltip lives on the wrapper: Lucide icons do not accept a `title` prop,
 				// so putting it on <Pin> silently rendered no tooltip at all.
 				<span
-					title={chatMessage.pinned ? 'Открепить сообщение' : 'Закрепить сообщение (не обрезать при сжатии контекста)'}
+					{...tooltipProps(chatMessage.pinned ? 'Открепить сообщение' : 'Закрепить сообщение (не обрезать при сжатии контекста)', { accessibility: 'label' })}
 					className='flex items-center'
 					onClick={(e) => {
 						e.stopPropagation();
@@ -2657,7 +2658,7 @@ const UserMessageComponent = ({ chatMessage, messageIdx, isCheckpointGhost, curr
 			    destroying what the original thread recorded. */}
 			{mode === 'display' && (
 				<span
-					title='Ветка отсюда: копия разговора до этого сообщения, хвост отбрасывается'
+					{...tooltipProps('Ветка отсюда: копия разговора до этого сообщения, хвост отбрасывается', { accessibility: 'label' })}
 					className='flex items-center'
 					onClick={(e) => {
 						e.stopPropagation();
@@ -2880,7 +2881,7 @@ const AssistantMessageComponent = React.memo(({ chatMessage, isCheckpointGhost, 
 			<div className="mt-1.5">
 				<button
 					type="button"
-					title={chatS.agentContinueTitle}
+					{...tooltipProps(chatS.agentContinueTitle, { accessibility: 'none' })}
 					aria-label={chatS.agentContinueLabel}
 					onClick={() => { void chatThreadsService.addUserMessageAndStreamResponse({ userMessage: 'продолжи', threadId: thread.id }); }}
 					className="px-3 py-1.5 text-xs rounded bg-blue-500/10 text-blue-400 border border-blue-500/20 hover:bg-blue-500/20 transition-colors focus:outline-none focus:ring-2 focus:ring-blue-500/40"
@@ -3263,7 +3264,7 @@ const ToolRequestAcceptRejectButtons = ({ toolName }: { toolName: ToolName }) =>
 	const approvalType = isABuiltinToolName(toolName) ? approvalTypeOfBuiltinToolName[toolName] : 'MCP tools';
 	// «Принимать правки» уже разрешает правки файлов: галочка там была бы вторым ответом на тот же вопрос
 	const showApprovalSwitch = approvalType === 'terminal' || approvalType === 'MCP tools';
-	const approvalToggle = showApprovalSwitch ? <div key={approvalType} className="flex items-center ml-2 gap-x-1" title={'Всегда разрешать этот тип во «Вручную» и «Принимать правки». Разрушительные команды и выход за проект всё равно спросят'}>
+	const approvalToggle = showApprovalSwitch ? <div key={approvalType} className="flex items-center ml-2 gap-x-1" {...tooltipProps('Всегда разрешать этот тип во «Вручную» и «Принимать правки». Разрушительные команды и выход за проект всё равно спросят')}>
 		<ToolApprovalTypeSwitch size='xs' approvalType={approvalType} desc={toolApprovalLabel(approvalType)} />
 	</div> : null;
 
@@ -4667,7 +4668,7 @@ const PlanComponent = React.memo(({ message, isCheckpointGhost, threadId, messag
 									<div className="flex gap-2">
 										<button
 											type="button"
-											title={chatS.planRejectTitle}
+											{...tooltipProps(chatS.planRejectTitle, { accessibility: 'none' })}
 											aria-label={chatS.planRejectAria}
 											onClick={handleReject}
 											className="px-3 py-1.5 text-xs rounded bg-red-500/10 text-red-400 border border-red-500/20 hover:bg-red-500/20 transition-colors focus:outline-none focus:ring-2 focus:ring-red-500/40"
@@ -4677,7 +4678,7 @@ const PlanComponent = React.memo(({ message, isCheckpointGhost, threadId, messag
 										{isPlanMode ? (
 											<button
 												type="button"
-												title={chatS.planExecuteInAgentTitle}
+												{...tooltipProps(chatS.planExecuteInAgentTitle, { accessibility: 'none' })}
 												aria-label={chatS.planExecuteInAgentAria}
 												onClick={handleExecuteInAgent}
 												className="px-3 py-1.5 text-xs rounded bg-blue-500/10 text-blue-400 border border-blue-500/20 hover:bg-blue-500/20 transition-colors focus:outline-none focus:ring-2 focus:ring-blue-500/40 flex items-center gap-1"
@@ -4688,7 +4689,7 @@ const PlanComponent = React.memo(({ message, isCheckpointGhost, threadId, messag
 										) : (
 											<button
 												type="button"
-												title={chatS.planApproveTitle}
+												{...tooltipProps(chatS.planApproveTitle, { accessibility: 'none' })}
 												aria-label={chatS.planApproveAria}
 												onClick={handleApprove}
 												className="px-3 py-1.5 text-xs rounded bg-green-500/10 text-green-400 border border-green-500/20 hover:bg-green-500/20 transition-colors focus:outline-none focus:ring-2 focus:ring-green-500/40"
@@ -5085,7 +5086,7 @@ const ScoutComponent = ({ message, threadId, messageIdx }: { message: ScoutMessa
 				{message.leads.length > 0 && (
 					<div className='space-y-1 mb-2'>
 						{message.leads.map((l, i) => (
-							<div key={i} className='text-xs text-vibe-fg-3 truncate' title={l.note ? `${l.path} — ${l.note}` : l.path}>
+							<div key={i} className='text-xs text-vibe-fg-3 truncate' {...tooltipProps(l.note ? `${l.path} — ${l.note}` : l.path, { accessibility: 'none', delayShowMs: LIST_ROW_TOOLTIP_DELAY_MS })}>
 								<span className='text-vibe-fg-2'>{l.path}</span>{l.note ? ` — ${l.note}` : ''}
 							</div>
 						))}
@@ -6524,7 +6525,7 @@ export const SidebarChat = () => {
 						</div>
 						<button
 							type="button"
-							title={chatS.subagentSettingsTitle}
+							{...tooltipProps(chatS.subagentSettingsTitle, { accessibility: 'none' })}
 							aria-label={chatS.subagentSettingsTitle}
 							onClick={() => { commandService.executeCommand('workbench.action.openSettings', 'vibeide.subagent'); }}
 							className="flex-shrink-0 inline-flex items-center gap-1 text-xs text-vibe-fg-2 hover:text-vibe-fg-1 opacity-90 hover:opacity-100 transition-colors leading-none px-2 py-1 focus:outline-none focus:ring-1 focus:ring-blue-500/40 rounded border border-vibe-border-2 hover:border-vibe-border-1 hover:bg-vibe-bg-2"
@@ -6545,7 +6546,7 @@ export const SidebarChat = () => {
 				render: () => <div className="mt-1.5 px-2 flex items-center gap-2">
 					<button
 						type="button"
-						title={chatS.resumeRoleTitle}
+						{...tooltipProps(chatS.resumeRoleTitle, { accessibility: 'none' })}
 						aria-label={chatS.resumeRoleLabel(openHandoffCount)}
 						onClick={() => { commandService.executeCommand('vibeide.subagent.resumeHandoff'); }}
 						className="px-3 py-1.5 text-xs rounded bg-blue-500/10 text-blue-400 border border-blue-500/20 hover:bg-blue-500/20 transition-colors focus:outline-none focus:ring-2 focus:ring-blue-500/40"
@@ -6554,7 +6555,7 @@ export const SidebarChat = () => {
 					</button>
 					<button
 						type="button"
-						title={chatS.subagentSettingsTitle}
+						{...tooltipProps(chatS.subagentSettingsTitle, { accessibility: 'none' })}
 						aria-label={chatS.subagentSettingsTitle}
 						onClick={() => { commandService.executeCommand('workbench.action.openSettings', 'vibeide.subagent'); }}
 						className="flex-shrink-0 inline-flex items-center gap-1 text-xs text-vibe-fg-2 hover:text-vibe-fg-1 opacity-90 hover:opacity-100 transition-colors leading-none px-2 py-1 focus:outline-none focus:ring-1 focus:ring-blue-500/40 rounded border border-vibe-border-2 hover:border-vibe-border-1 hover:bg-vibe-bg-2"
@@ -7076,7 +7077,7 @@ export const SidebarChat = () => {
 						{note.text ? (
 							<div
 								className="text-xs text-vibe-fg-2"
-								title={note.text}
+								{...tooltipProps(note.text, { accessibility: 'none', delayShowMs: LIST_ROW_TOOLTIP_DELAY_MS })}
 								style={{
 									minWidth: 0,
 									whiteSpace: 'pre-wrap',
@@ -7099,7 +7100,7 @@ export const SidebarChat = () => {
 					<button
 						type="button"
 						onClick={() => chatThreadsService.removePendingInjection(threadId, i)}
-						title="Убрать из очереди"
+						{...tooltipProps("Убрать из очереди", { accessibility: 'none' })}
 						aria-label="Убрать из очереди"
 						style={{
 							flexShrink: 0,
@@ -7140,7 +7141,7 @@ export const SidebarChat = () => {
 			<button
 				type='button'
 				onClick={() => commandService.executeCommand('vibeide.chat.toggleMaximize')}
-				title={chatS.maximizeChatTitle}
+				{...tooltipProps(chatS.maximizeChatTitle, { accessibility: 'none' })}
 				aria-label={chatS.maximizeChatAria}
 				style={{
 					padding: '4px',
@@ -7162,7 +7163,7 @@ export const SidebarChat = () => {
 			<button
 				type='button'
 				onClick={() => commandService.executeCommand('vibeide.chat.toggleZen')}
-				title={chatS.zenModeTitle}
+				{...tooltipProps(chatS.zenModeTitle, { accessibility: 'none' })}
 				aria-label={chatS.zenModeAria}
 				style={{
 					padding: '4px',
@@ -7404,7 +7405,7 @@ export const SidebarChat = () => {
                         type="button"
                         className='@@vibe-pill-button @@vibe-focus-ring'
                         onClick={() => commandService.executeCommand(id)}
-                        title={kb ? `${label} (${kb})` : label}
+                        {...tooltipProps(kb ? `${label} (${kb})` : label, { accessibility: 'none' })}
                     >
                         <span>{label}</span>
                         {kb && <span className='ml-1 px-1 rounded bg-[var(--vscode-keybindingLabel-background)] text-[var(--vscode-keybindingLabel-foreground)] border border-[var(--vscode-keybindingLabel-border)]'>{kb}</span>}
@@ -7513,7 +7514,7 @@ export const SidebarChat = () => {
 				<button
 					type='button'
 					onClick={() => { isAtBottomRef.current = true; setAtBottom(true); scrollToBottomCallback(); }}
-					title='Вниз, к последнему сообщению'
+					{...tooltipProps('Вниз, к последнему сообщению', { accessibility: 'none' })}
 					aria-label='Прокрутить вниз'
 					className='@@vibe-focus-ring'
 					style={{

@@ -7,6 +7,7 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { useAccessor } from '../util/services.js';
 import { VibeButtonBgDarken } from '../util/inputs.js';
+import { tooltipProps, LIST_ROW_TOOLTIP_DELAY_MS } from '../util/tooltipProps.js';
 import { joinPath } from '../../../../../../../base/common/resources.js';
 import { URI } from '../../../../../../../base/common/uri.js';
 import { VSBuffer } from '../../../../../../../base/common/buffer.js';
@@ -1003,7 +1004,7 @@ export const VibeWorkspaceFormsPanel = () => {
 						type='button'
 						className='@@vibe-pill-button text-xs px-2 py-1 border border-vibe-border-1'
 						onClick={() => goToReadmeView()}
-						title={workspaceS.readmeTitle}
+						{...tooltipProps(workspaceS.readmeTitle)}
 					>
 						{workspaceS.readmeBtn}
 					</button>
@@ -1011,7 +1012,7 @@ export const VibeWorkspaceFormsPanel = () => {
 						type='button'
 						className={`@@vibe-pill-button text-xs px-2 py-1 ${subTab === 'vibeStructure' ? '@@vibe-pill-button--active' : ''}`}
 						onClick={() => trySwitchSubTab('vibeStructure')}
-						title={workspaceS.vibeStructureHint}
+						{...tooltipProps(workspaceS.vibeStructureHint)}
 					>
 						{workspaceS.vibeStructureTab}
 					</button>
@@ -1052,7 +1053,7 @@ export const VibeWorkspaceFormsPanel = () => {
 								<button
 									key={jn}
 									type='button'
-									title={workspaceS.runtimeJsonTooltip}
+									{...tooltipProps(workspaceS.runtimeJsonTooltip)}
 									className={`@@vibe-pill-button text-xs px-2 py-1 font-mono opacity-70 ${subTab === id ? '@@vibe-pill-button--active' : ''}`}
 									onClick={() => trySwitchSubTab(id)}
 								>
@@ -1372,25 +1373,25 @@ export const VibeWorkspaceFormsPanel = () => {
 							<button
 								type='button'
 								className='text-xs text-vibe-fg-2 border border-vibe-border-1 rounded px-2 py-1 hover:brightness-110'
-								title={workspaceS.pcJsonOpenFormTip}
+								{...tooltipProps(workspaceS.pcJsonOpenFormTip)}
 								onClick={() => { setSubTab('projectCommands'); setPcOpenAddTick(t => t + 1); }}
 							>{workspaceS.pcJsonOpenForm}</button>
 							<button
 								type='button'
 								className='text-xs text-vibe-fg-3 border border-vibe-border-1 rounded px-2 py-1 hover:brightness-110'
-								title={workspaceS.pcJsonOpenTableTip}
+								{...tooltipProps(workspaceS.pcJsonOpenTableTip)}
 								onClick={() => { setSubTab('projectCommands'); }}
 							>{workspaceS.pcJsonOpenTable}</button>
 							<button
 								type='button'
 								className='text-xs text-vibe-fg-3 border border-vibe-border-1 rounded px-2 py-1 hover:brightness-110'
-								title={workspaceS.pcJsonOpenPaletteTip}
+								{...tooltipProps(workspaceS.pcJsonOpenPaletteTip)}
 								onClick={() => { void commandService.executeCommand(PROJECT_COMMANDS_PALETTE_IDS.run); }}
 							>{workspaceS.pcJsonOpenPalette}</button>
 							<button
 								type='button'
 								className='text-xs text-vibe-fg-3 border border-vibe-border-1 rounded px-2 py-1 hover:brightness-110'
-								title={workspaceS.pcJsonReloadTip}
+								{...tooltipProps(workspaceS.pcJsonReloadTip)}
 								onClick={() => { void commandService.executeCommand('vibeide.commands.reload'); }}
 							>{workspaceS.pcJsonReload}</button>
 						</div>
@@ -1962,33 +1963,33 @@ const ProjectCommandsPanel: React.FC<{ openAddTick?: number }> = ({ openAddTick 
 												<button
 													type='button'
 													className={`@@vibe-pin-toggle codicon codicon-pinned ${isPinned ? '@@vibe-pin-toggle--active' : ''}`}
-													title={isPinned ? workspaceS.pcRowUnpinTip : workspaceS.pcRowPinTip}
+													{...tooltipProps(isPinned ? workspaceS.pcRowUnpinTip : workspaceS.pcRowPinTip, { accessibility: 'none' })}
 													aria-label={isPinned ? workspaceS.pcRowUnpin : workspaceS.pcRowPin}
 													onClick={() => void onPinToggleRow(c)}
 												/>
 											</td>
 											<td className='px-2 py-1 font-mono'>{c.id}</td>
 											<td className='px-2 py-1'>{c.name}</td>
-											<td className='px-2 py-1 font-mono truncate' style={{ maxWidth: 280 }} title={line}>{line}</td>
+											<td className='px-2 py-1 font-mono truncate' style={{ maxWidth: 280 }} {...tooltipProps(line, { delayShowMs: LIST_ROW_TOOLTIP_DELAY_MS, accessibility: 'none' })}>{line}</td>
 											<td className='px-2 py-1'>{typeof c.order === 'number' ? c.order : ''}</td>
 											<td className='px-2 py-1'>
 												<div className='flex justify-end gap-1 flex-nowrap'>
 													<button
 														type='button'
 														className='@@vibe-pill-button px-2 py-0.5 text-[11px]'
-														title={workspaceS.pcRowRunTip}
+														{...tooltipProps(workspaceS.pcRowRunTip)}
 														onClick={() => void onRunRow(c)}
 													>{workspaceS.pcRowRun}</button>
 													<button
 														type='button'
 														className='@@vibe-pill-button px-2 py-0.5 text-[11px]'
-														title={workspaceS.pcRowCopyTip}
+														{...tooltipProps(workspaceS.pcRowCopyTip)}
 														onClick={() => void onCopyRow(c)}
 													>{workspaceS.pcRowCopy}</button>
 													<button
 														type='button'
 														className='@@vibe-pill-button px-2 py-0.5 text-[11px]'
-														title={workspaceS.pcRowEditTip}
+														{...tooltipProps(workspaceS.pcRowEditTip)}
 														onClick={() => void commandService.executeCommand('vibeide.commands.editById', c.id)}
 													>{workspaceS.pcRowEdit}</button>
 													<button

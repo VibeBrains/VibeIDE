@@ -9,6 +9,7 @@ import { X, AlertCircle, Loader2 } from 'lucide-react';
 import { ChatImageAttachment } from '../../../../common/chatThreadServiceTypes.js';
 import { createImageDataUrl, revokeImageDataUrl, formatFileSize } from './imageUtils.js';
 import { attachmentsS } from '../vibe-settings-tsx/vibeSettingsRu.js';
+import { tooltipProps, LIST_ROW_TOOLTIP_DELAY_MS } from './tooltipProps.js';
 
 export interface ImageAttachmentChipProps {
 	attachment: ChatImageAttachment;
@@ -166,7 +167,7 @@ export const ImageAttachmentChip: React.FC<ImageAttachmentChipProps> = ({
 
 			{/* Filename and size */}
 			<div className="px-2 py-1 bg-vibe-bg-2-alt border-t border-vibe-border-3">
-				<div className="text-xs text-vibe-fg-1 truncate" title={attachment.filename}>
+				<div className="text-xs text-vibe-fg-1 truncate" {...tooltipProps(attachment.filename, { delayShowMs: LIST_ROW_TOOLTIP_DELAY_MS, accessibility: 'none' })}>
 					{attachment.filename}
 				</div>
 				<div className="text-xs text-vibe-fg-3">
@@ -177,7 +178,7 @@ export const ImageAttachmentChip: React.FC<ImageAttachmentChipProps> = ({
 			{/* Error message */}
 			{isFailed && attachment.error && (
 				<div className="px-2 py-1 bg-red-500/10 border-t border-red-500">
-					<div className="text-xs text-red-500 truncate" title={attachment.error}>
+					<div className="text-xs text-red-500 truncate" {...tooltipProps(attachment.error, { delayShowMs: LIST_ROW_TOOLTIP_DELAY_MS, accessibility: 'none' })}>
 						{attachment.error}
 					</div>
 					{onRetry && (

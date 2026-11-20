@@ -14,6 +14,7 @@ import { Check, Copy, LoaderCircle, MessageCircleQuestion, Trash2, History, X, F
 import { IsRunningType, ThreadType } from '../../../chatThreadService.js';
 import { threadMatchesWorkspace, HISTORY_SHOW_ALL_PROJECTS_KEY } from '../../../../common/chatHistoryScope.js';
 import { useThreadSearch } from '../util/threadSearch.js';
+import { tooltipProps } from '../util/tooltipProps.js';
 import { StorageScope } from '../../../../../../../platform/storage/common/storage.js';
 import { DisposableStore } from '../../../../../../../base/common/lifecycle.js';
 
@@ -64,7 +65,7 @@ export const HistoryScopeToggle = ({ showAll, setShowAll, otherCount = 0, classN
 				type="button"
 				className={`px-2 py-0.5 rounded-full transition-colors inline-flex items-center gap-1 ${showAll ? 'bg-vibe-bg-3 text-vibe-fg-1' : 'text-vibe-fg-3 hover:text-vibe-fg-2'}`}
 				onClick={() => setShowAll(true)}
-				title={!showAll && otherCount > 0 ? chatS.historyOtherProjectsHint(otherCount) : undefined}
+				{...tooltipProps(!showAll && otherCount > 0 ? chatS.historyOtherProjectsHint(otherCount) : undefined)}
 			>
 				{chatS.historyScopeAllProjects}
 				{!showAll && otherCount > 0 && (
@@ -374,7 +375,7 @@ export const PastThreadElement = memo(({
 				{showForeign && (
 					<span
 						className="shrink-0 inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full bg-vibe-bg-2 text-[9px] uppercase tracking-wide text-vibe-fg-3 max-w-[120px]"
-						title={projectBadgeLabel}
+						{...tooltipProps(projectBadgeLabel, { accessibility: 'none' })}
 					>
 						<FolderInput size={9} className="shrink-0 opacity-70" />
 						<span className="truncate">{projectBadgeLabel}</span>
@@ -416,7 +417,7 @@ export const PastThreadElement = memo(({
 		{match && (
 			<div
 				className="mt-1 flex items-baseline gap-1.5 min-w-0 text-[11px] text-vibe-fg-3 hover:text-vibe-fg-2"
-				title={chatS.historyMatchJumpHint}
+				{...tooltipProps(chatS.historyMatchJumpHint)}
 				onClick={event => {
 					event.stopPropagation();
 					chatThreadsService.revealMessageInThread(pastThread.id, match.messageIdx);
@@ -616,7 +617,7 @@ export const ChatHistoryToolbarDropdown: React.FC<{ className?: string }> = ({ c
 				type="button"
 				ref={refs.setReference}
 				className="flex items-center gap-0.5 h-full min-h-[18px] bg-transparent whitespace-nowrap hover:brightness-90"
-				title={chatS.historyToolbarTitle}
+				{...tooltipProps(chatS.historyToolbarTitle, { accessibility: 'none' })}
 				aria-label={chatS.historyToolbarTitle}
 				aria-expanded={isOpen}
 				onClick={() => setIsOpen(v => !v)}

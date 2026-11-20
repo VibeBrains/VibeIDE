@@ -7,6 +7,7 @@
 import { vibeLog } from '../../../../common/vibeLog.js';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useAccessor } from '../util/services.js';
+import { tooltipProps, LIST_ROW_TOOLTIP_DELAY_MS } from '../util/tooltipProps.js';
 import { VIBE_MODAL_MIN_AUTO_DISMISS_MS, VibeModalButton, VibeModalQueueEntry } from '../../../../common/vibeModalTypes.js';
 import { ChatMarkdownRender } from '../markdown/ChatMarkdownRender.js';
 import { AgentRoleModels } from '../vibe-settings-tsx/AgentRoleModels.js';
@@ -287,7 +288,7 @@ export const VibeModalSimple: React.FC<{ entry: VibeModalQueueEntry }> = ({ entr
 						type="button"
 						className="@@vibeide-modal-close @@codicon @@codicon-close"
 						aria-label="Закрыть"
-						title="Закрыть (Esc)"
+						{...tooltipProps("Закрыть (Esc)", { accessibility: 'none' })}
 						disabled={options.loading}
 						onClick={() => { void modalService.dismissHeadWithVeto(); }}
 					/>
@@ -345,7 +346,7 @@ export const VibeModalSimple: React.FC<{ entry: VibeModalQueueEntry }> = ({ entr
 							<div style={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: '6px', marginTop: '6px' }}>
 								<button
 									type="button"
-									title="Прикрепить картинку или PDF (или перетащите / вставьте в поле)"
+									{...tooltipProps("Прикрепить картинку или PDF (или перетащите / вставьте в поле)")}
 									onClick={() => fileInputRef.current?.click()}
 									style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', fontSize: '11px', cursor: 'pointer', padding: '2px 8px', borderRadius: '6px', border: '1px solid var(--vscode-input-border, var(--vscode-widget-border, transparent))', background: 'var(--vscode-input-background)', color: 'var(--vscode-input-foreground)' }}
 								>
@@ -362,21 +363,21 @@ export const VibeModalSimple: React.FC<{ entry: VibeModalQueueEntry }> = ({ entr
 								{images.map(img => (
 									<span
 										key={img.id}
-										title={img.filename}
+										{...tooltipProps(img.filename, { delayShowMs: LIST_ROW_TOOLTIP_DELAY_MS, accessibility: 'none' })}
 										style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', fontSize: '11px', maxWidth: '160px', padding: '2px 6px', borderRadius: '6px', border: '1px solid var(--vscode-input-border, var(--vscode-widget-border, transparent))', color: 'var(--vscode-input-foreground)', opacity: img.uploadStatus === 'failed' ? 0.6 : 1 }}
 									>
 										<span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>🖼 {img.filename}</span>
-										<button type="button" title="Убрать" onClick={() => removeImage(img.id)} style={{ cursor: 'pointer', border: 'none', background: 'transparent', color: 'inherit', padding: 0, lineHeight: 1 }}>✕</button>
+										<button type="button" {...tooltipProps("Убрать", { accessibility: 'label' })} onClick={() => removeImage(img.id)} style={{ cursor: 'pointer', border: 'none', background: 'transparent', color: 'inherit', padding: 0, lineHeight: 1 }}>✕</button>
 									</span>
 								))}
 								{pdfs.map(pdf => (
 									<span
 										key={pdf.id}
-										title={pdf.filename}
+										{...tooltipProps(pdf.filename, { delayShowMs: LIST_ROW_TOOLTIP_DELAY_MS, accessibility: 'none' })}
 										style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', fontSize: '11px', maxWidth: '180px', padding: '2px 6px', borderRadius: '6px', border: '1px solid var(--vscode-input-border, var(--vscode-widget-border, transparent))', color: 'var(--vscode-input-foreground)', opacity: pdf.uploadStatus === 'failed' ? 0.6 : 1 }}
 									>
 										<span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>📄 {pdf.filename}{pdf.uploadStatus === 'processing' ? ' …' : ''}</span>
-										<button type="button" title="Убрать" onClick={() => removePDF(pdf.id)} style={{ cursor: 'pointer', border: 'none', background: 'transparent', color: 'inherit', padding: 0, lineHeight: 1 }}>✕</button>
+										<button type="button" {...tooltipProps("Убрать", { accessibility: 'label' })} onClick={() => removePDF(pdf.id)} style={{ cursor: 'pointer', border: 'none', background: 'transparent', color: 'inherit', padding: 0, lineHeight: 1 }}>✕</button>
 									</span>
 								))}
 							</div>
@@ -460,7 +461,7 @@ export const VibeModalSimple: React.FC<{ entry: VibeModalQueueEntry }> = ({ entr
 								className={`@@vibeide-modal-button @@role-${role}`}
 								disabled={disabled}
 								onClick={() => onButtonClick(btn)}
-								title={btn.hotkey ? `${btn.label} (${btn.hotkey.toUpperCase()})` : undefined}
+								{...tooltipProps(btn.hotkey ? `${btn.label} (${btn.hotkey.toUpperCase()})` : undefined)}
 							>
 								{renderButtonLabel(btn.label, btn.hotkey)}
 							</button>

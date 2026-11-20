@@ -5,6 +5,7 @@
 
 
 import React, { useCallback, useEffect, useRef, useState } from 'react';
+import { tooltipProps } from '../util/tooltipProps.js';
 
 /**
  * Reusable resizable modal shell: dimmed backdrop + centred window draggable from a visible
@@ -87,7 +88,7 @@ export const VibeModalForm: React.FC<VibeModalFormProps> = ({
 				<div className="@@vibeide-rmodal-header">
 					<span className="@@vibeide-rmodal-title">{title}</span>
 					{headerRight}
-					<button className="@@vibeide-rmodal-close" title="Закрыть (ESC)" onClick={onClose}>✕</button>
+					<button className="@@vibeide-rmodal-close" {...tooltipProps("Закрыть (ESC)", { accessibility: 'label' })} onClick={onClose}>✕</button>
 				</div>
 
 				<div className={flushBody ? "@@vibeide-rmodal-body @@vibeide-rmodal-body--flush @@vibe-scroll" : "@@vibeide-rmodal-body @@vibe-scroll"}>
@@ -97,7 +98,7 @@ export const VibeModalForm: React.FC<VibeModalFormProps> = ({
 				{/* Visible bottom-right resize grip — diagonal hatching signals "drag me". */}
 				<div
 					className="@@vibeide-rmodal-grip"
-					title="Потяните, чтобы изменить размер"
+					{...tooltipProps("Потяните, чтобы изменить размер", { accessibility: 'label' })}
 					onPointerDown={onGripDown}
 					onPointerMove={onGripMove}
 					onPointerUp={onGripUp}

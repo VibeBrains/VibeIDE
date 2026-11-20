@@ -6,6 +6,7 @@
 
 import { useState, useEffect, useLayoutEffect, useRef, useCallback } from 'react';
 import { useIsDark, useAccessor, useChatThreadsState } from '../util/services.js';
+import { LIST_ROW_TOOLTIP_DELAY_MS, tooltipProps } from '../util/tooltipProps.js';
 import { X as IconClose, Plus as IconPlus, PanelRightClose, PanelRightOpen } from 'lucide-react';
 import { StorageScope, StorageTarget } from '../../../../../../../platform/storage/common/storage.js';
 import { Parts } from '../../../../../../../workbench/services/layout/browser/layoutService.js';
@@ -90,7 +91,7 @@ const ChatTabStrip = ({ historyCollapsed, onToggleHistory, boundaryRef }: { hist
 							onDrop={(e) => { e.preventDefault(); if (dragId && dragId !== id) { chatThreadsService.reorderOpenTabs(dragId, id); } setDragId(null); setOverId(null); }}
 							onDragEnd={() => { setDragId(null); setOverId(null); }}
 							onClick={() => chatThreadsService.switchToThread(id)}
-							title={label}
+							{...tooltipProps(label, { accessibility: 'none', delayShowMs: LIST_ROW_TOOLTIP_DELAY_MS })}
 							className={`group flex items-center gap-1 px-2 py-1 rounded-t text-xs cursor-pointer whitespace-nowrap max-w-[160px] border-b-2 transition-opacity ${isDragging ? 'opacity-40' : ''} ${isDropTarget ? 'border-l-2 border-l-blue-400 bg-vibe-bg-3' : 'border-l-2 border-l-transparent'} ${active
 								? 'bg-vibe-bg-1 text-vibe-fg-1 font-medium border-blue-400'
 								: 'text-vibe-fg-3 border-transparent hover:bg-vibe-bg-3 hover:text-vibe-fg-2'}`}
@@ -100,7 +101,7 @@ const ChatTabStrip = ({ historyCollapsed, onToggleHistory, boundaryRef }: { hist
 								<button
 									type="button"
 									className="opacity-0 group-hover:opacity-100 hover:text-vibe-fg-1 shrink-0"
-									title={chatS.chatTabCloseTooltip}
+									{...tooltipProps(chatS.chatTabCloseTooltip, { accessibility: 'label' })}
 									onClick={(e) => { e.stopPropagation(); chatThreadsService.closeTab(id); }}
 								><IconClose size={11} /></button>
 							)}
@@ -110,7 +111,7 @@ const ChatTabStrip = ({ historyCollapsed, onToggleHistory, boundaryRef }: { hist
 				<button
 					type="button"
 					className="shrink-0 px-1 py-0.5 rounded text-vibe-fg-3 hover:text-vibe-fg-1 hover:bg-vibe-bg-3"
-					title={chatS.chatTabNewTooltip}
+					{...tooltipProps(chatS.chatTabNewTooltip, { accessibility: 'label' })}
 					onClick={() => chatThreadsService.forceCreateNewThread()}
 				><IconPlus size={13} /></button>
 			</div>
@@ -120,7 +121,7 @@ const ChatTabStrip = ({ historyCollapsed, onToggleHistory, boundaryRef }: { hist
 				<button
 					type="button"
 					className="shrink-0 px-1 py-0.5 rounded text-vibe-fg-3 hover:text-vibe-fg-1 hover:bg-vibe-bg-3"
-					title={historyCollapsed ? chatS.historyExpandTooltip : chatS.historyCollapseTooltip}
+					{...tooltipProps(historyCollapsed ? chatS.historyExpandTooltip : chatS.historyCollapseTooltip, { accessibility: 'label' })}
 					onClick={onToggleHistory}
 				>{historyCollapsed ? <PanelRightOpen size={14} /> : <PanelRightClose size={14} />}</button>
 			</div>
@@ -216,7 +217,7 @@ export const Sidebar = ({ className }: { className: string }) => {
 							<button
 								type="button"
 								className="px-1 rounded text-vibe-fg-3 hover:text-vibe-fg-1 hover:bg-vibe-bg-3"
-								title={chatS.historyCollapseTooltip}
+								{...tooltipProps(chatS.historyCollapseTooltip, { accessibility: 'label' })}
 								onClick={toggleHistory}
 							><PanelRightClose size={13} /></button>
 						</div>

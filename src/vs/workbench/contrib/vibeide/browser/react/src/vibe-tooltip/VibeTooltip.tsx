@@ -74,6 +74,8 @@ export const VibeTooltip = () => {
 					z-index: 999999;
 					max-width: 300px;
 					word-wrap: break-word;
+					/* Перевод строки в тексте подсказки — перенос: нативный title переносил строки, и тексты на это рассчитаны */
+					white-space: pre-line;
 				}
 
 				#vibe-tooltip {

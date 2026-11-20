@@ -8,6 +8,7 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useState } from 'reac
 import { useFloating, autoUpdate, offset, flip, shift, size } from '@floating-ui/react';
 import { URI } from '../../../../../../../base/common/uri.js';
 import { useAccessor, useChatJournal } from '../util/services.js';
+import { tooltipProps } from '../util/tooltipProps.js';
 import { chatS } from '../vibe-settings-tsx/vibeSettingsRu.js';
 import {
 	ChatJournalAction,
@@ -35,7 +36,7 @@ const JournalActionButton = ({ action, onRun }: { action: ChatJournalAction; onR
 	const label = action.kind === 'openSetting' ? chatS.journalOpenSetting : action.kind === 'openFile' ? chatS.journalOpenFile : action.label;
 	const title = action.kind === 'openSetting' ? action.settingId : undefined;
 	return (
-		<button type='button' className='@@vibe-journal-action' title={title} onClick={() => onRun(action)}>{label}</button>
+		<button type='button' className='@@vibe-journal-action' {...tooltipProps(title)} onClick={() => onRun(action)}>{label}</button>
 	);
 };
 
@@ -80,16 +81,16 @@ const JournalEntryRow = ({ entry, isFresh, onRun }: { entry: ChatJournalEntry; i
 				className={`@@codicon ${isWarning ? '@@codicon-warning @@vibe-journal-icon-warning' : '@@codicon-info @@vibe-journal-icon-info'}`}
 				role='img'
 				aria-label={isWarning ? chatS.journalLevelWarning : chatS.journalLevelInfo}
-				title={isWarning ? chatS.journalLevelWarning : chatS.journalLevelInfo}
+				{...tooltipProps(isWarning ? chatS.journalLevelWarning : chatS.journalLevelInfo, { accessibility: 'none' })}
 			/>
 			<div className='min-w-0 flex flex-col gap-1'>
 				<div className='flex items-center gap-1.5 text-[11px] text-vibe-fg-3 select-none'>
-					<time dateTime={chatTimestampToISO(entry.at)} title={formatChatTimestamp(entry.at, CHAT_TIMESTAMP_TOOLTIP_PATTERN)}>
+					<time dateTime={chatTimestampToISO(entry.at)} {...tooltipProps(formatChatTimestamp(entry.at, CHAT_TIMESTAMP_TOOLTIP_PATTERN))}>
 						{formatChatJournalTime(entry.at, Date.now())}
 					</time>
 					<span className='@@vibe-journal-category'>{chatS.journalCategory[entry.category]}</span>
-					{entry.count > 1 && <span className='@@vibe-journal-repeat' title={chatS.journalRepeated(entry.count)}>×{entry.count}</span>}
-					{isFresh && <span className='@@vibe-journal-fresh-dot' title={chatS.journalNew} />}
+					{entry.count > 1 && <span className='@@vibe-journal-repeat' {...tooltipProps(chatS.journalRepeated(entry.count))}>×{entry.count}</span>}
+					{isFresh && <span className='@@vibe-journal-fresh-dot' {...tooltipProps(chatS.journalNew, { accessibility: 'label' })} />}
 				</div>
 				<div className='@@vibe-journal-text text-[12px] text-vibe-fg-1'>
 					{spans.map((span, i) => {
@@ -240,7 +241,7 @@ export const ChatJournalButton = ({ boundaryRef }: { boundaryRef: React.RefObjec
 				type='button'
 				ref={refs.setReference}
 				className={`@@vibe-journal-button shrink-0 px-1 py-0.5 rounded text-vibe-fg-3 hover:text-vibe-fg-1 hover:bg-vibe-bg-3 ${summary.total === 0 ? 'opacity-50' : ''}`}
-				title={title}
+				{...tooltipProps(title, { accessibility: 'none' })}
 				aria-label={title}
 				aria-haspopup='dialog'
 				aria-expanded={isOpen}
@@ -263,14 +264,14 @@ export const ChatJournalButton = ({ boundaryRef }: { boundaryRef: React.RefObjec
 						<button
 							type='button'
 							className='@@vibe-journal-action'
-							title={chatS.journalClearTitle}
+							{...tooltipProps(chatS.journalClearTitle)}
 							disabled={entries.length === 0}
 							onClick={() => { journal.clear(); setCategories(NO_ITEMS); setOnlyWarnings(false); setFreshIds(NO_ITEMS); }}
 						>{chatS.journalClear}</button>
 						<button
 							type='button'
 							className='@@vibe-journal-close'
-							title={chatS.journalClose}
+							{...tooltipProps(chatS.journalClose, { accessibility: 'none' })}
 							aria-label={chatS.journalClose}
 							onClick={close}
 						><span className='@@codicon @@codicon-close' aria-hidden='true' /></button>

@@ -5,6 +5,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useAccessor, useIsDark } from '../util/services.js';
+import { tooltipProps } from '../util/tooltipProps.js';
 import { AgentRunRecord, AgentRunStatus, isTerminalRunStatus, summariseAgentRuns } from '../../../../common/agentRunLedger.js';
 import { formatChatTimestamp } from '../../../../common/chatTimestampFormatter.js';
 import { SubagentStopReason, stopReasonToRussian } from '../../../../common/subagentLoopPolicy.js';
@@ -96,8 +97,8 @@ const Label = ({ children }: { children: React.ReactNode }) =>
 const Cell = ({ label, value, hint }: { label: string; value: string; hint?: string }) =>
 	<div className='rounded-md border border-vibe-border-4 bg-vibe-bg-1 px-3 py-2'>
 		<Label>{label}</Label>
-		<div className='mt-0.5 text-root text-vibe-fg-1 truncate' title={value}>{value}</div>
-		{hint && <div className='mt-0.5 text-root text-vibe-fg-2 truncate' title={hint}>{hint}</div>}
+		<div className='mt-0.5 text-root text-vibe-fg-1 truncate' {...tooltipProps(value, { accessibility: 'none' })}>{value}</div>
+		{hint && <div className='mt-0.5 text-root text-vibe-fg-2 truncate' {...tooltipProps(hint, { accessibility: 'none' })}>{hint}</div>}
 	</div>;
 
 const StatusPill = ({ status }: { status: AgentRunStatus }) =>
@@ -146,7 +147,7 @@ const RunCard = ({ run }: { run: AgentRunRecord }) => {
 		<div className='mt-3 flex flex-wrap items-center justify-between gap-2 border-t border-vibe-border-4 pt-2'>
 			<span className='font-mono text-root text-vibe-fg-2'>{run.runId}</span>
 			<div className='flex flex-wrap items-center gap-x-3 gap-y-1 text-root text-vibe-fg-2'>
-				{run.replayOfRunId && <span title={`повтор прогона ${run.replayOfRunId}`}>повтор</span>}
+				{run.replayOfRunId && <span {...tooltipProps(`повтор прогона ${run.replayOfRunId}`)}>повтор</span>}
 				{run.resumeReason && <span>{`продолжен на новом основании: ${sessionMismatchToRussian(run.resumeReason as AgentSessionMismatch)}`}</span>}
 				{outcome && <span>{outcome}</span>}
 			</div>
@@ -224,7 +225,7 @@ export const AgentsDispatch = () => {
 				<div className='flex items-center gap-2'>
 					<button
 						className='rounded-md border border-vibe-border-3 px-3 py-1.5 text-root text-vibe-fg-1 transition-colors hover:bg-vibe-bg-2-hover focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-vibe-border-1'
-						title='Показать, что агенту или роли будет разрешено — ничего не запуская'
+						{...tooltipProps('Показать, что агенту или роли будет разрешено — ничего не запуская')}
 						onClick={() => void accessor.get('ICommandService').executeCommand('vibeide.agents.preflight')}
 					>
 						Проверить запуск

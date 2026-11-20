@@ -7,6 +7,7 @@
 import { vibeLog } from '../../../../common/vibeLog.js';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useAccessor } from '../util/services.js';
+import { tooltipProps } from '../util/tooltipProps.js';
 import { collectVibeideCommands, VibeCommandEntry } from '../../../vibeideCommandCatalog.js';
 import { VibeModalForm } from '../components/VibeModalForm.js';
 
@@ -115,7 +116,7 @@ export const VibeCommandsPalette: React.FC = () => {
 						className={i === activeIndex ? '@@vibeide-cmdpalette-item is-active' : '@@vibeide-cmdpalette-item'}
 						onMouseMove={() => setActiveIndex(i)}
 						onClick={() => run(c.id)}
-						title={c.id}
+						{...tooltipProps(c.id)}
 					>
 						<span className="@@vibeide-cmdpalette-item-main">
 							{c.category && <span className="@@vibeide-cmdpalette-item-cat">{c.category}:</span>}

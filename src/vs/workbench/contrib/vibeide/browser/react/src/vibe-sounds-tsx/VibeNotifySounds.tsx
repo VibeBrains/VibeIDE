@@ -7,6 +7,7 @@
 import { vibeLog } from '../../../../common/vibeLog.js';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { useAccessor } from '../util/services.js';
+import { tooltipProps } from '../util/tooltipProps.js';
 import { VibeModalForm } from '../components/VibeModalForm.js';
 import { Play, Square, Trash2, Upload, Scissors, Save } from 'lucide-react';
 import Severity from '../../../../../../../base/common/severity.js';
@@ -307,12 +308,12 @@ export const VibeNotifySounds: React.FC = () => {
 			</div>
 			<div className='flex items-center gap-1 shrink-0'>
 				<button type='button' className='p-1 rounded hover:bg-[var(--vscode-toolbar-hoverBackground)] text-vibe-fg-2'
-					onClick={(e) => { e.stopPropagation(); onPreview(); }} title={notifyS.previewTooltip} aria-label={notifyS.previewTooltip}>
+					onClick={(e) => { e.stopPropagation(); onPreview(); }} {...tooltipProps(notifyS.previewTooltip, { accessibility: 'none' })} aria-label={notifyS.previewTooltip}>
 					<Play size={14} />
 				</button>
 				{onDelete && (
 					<button type='button' className='p-1 rounded hover:bg-[var(--vscode-toolbar-hoverBackground)] text-[var(--vscode-errorForeground)]'
-						onClick={(e) => { e.stopPropagation(); onDelete(); }} title={notifyS.deleteTooltip} aria-label={notifyS.deleteTooltip}>
+						onClick={(e) => { e.stopPropagation(); onDelete(); }} {...tooltipProps(notifyS.deleteTooltip, { accessibility: 'none' })} aria-label={notifyS.deleteTooltip}>
 						<Trash2 size={14} />
 					</button>
 				)}
@@ -362,7 +363,7 @@ export const VibeNotifySounds: React.FC = () => {
 									className='absolute top-0 bottom-0 rounded cursor-grab'
 									style={{ left: sel.start * pps, width: Math.max(12, (sel.end - sel.start) * pps), backgroundColor: cssVar('--vscode-focusBorder', '#4daafc'), opacity: 0.85 }}
 									onPointerDown={startDrag('move')}
-									title={notifyS.editorScrubTip}
+									{...tooltipProps(notifyS.editorScrubTip, { accessibility: 'label' })}
 								/>
 							</div>
 

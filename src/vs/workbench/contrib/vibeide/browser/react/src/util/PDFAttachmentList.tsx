@@ -8,6 +8,7 @@ import React, { useCallback } from 'react';
 import { FileText, X, AlertCircle, Loader2 } from 'lucide-react';
 import { ChatPDFAttachment } from '../../../../common/chatThreadServiceTypes.js';
 import { attachmentsS } from '../vibe-settings-tsx/vibeSettingsRu.js';
+import { tooltipProps, LIST_ROW_TOOLTIP_DELAY_MS } from './tooltipProps.js';
 
 const formatFileSize = (bytes: number): string => {
 	if (bytes < 1024) {return `${bytes} B`;}
@@ -156,7 +157,7 @@ export const PDFAttachmentList: React.FC<PDFAttachmentListProps> = ({
 
 						{/* Info section */}
 						<div className="px-2 py-1.5 bg-vibe-bg-2-alt border-t border-vibe-border-3">
-							<div className="text-xs font-medium text-vibe-fg-1 truncate" title={attachment.filename}>
+							<div className="text-xs font-medium text-vibe-fg-1 truncate" {...tooltipProps(attachment.filename, { delayShowMs: LIST_ROW_TOOLTIP_DELAY_MS, accessibility: 'none' })}>
 								{attachment.filename}
 							</div>
 							<div className="flex items-center justify-between mt-0.5">
@@ -164,7 +165,7 @@ export const PDFAttachmentList: React.FC<PDFAttachmentListProps> = ({
 									{attachment.pageCount ? attachmentsS.pagesCount(attachment.pageCount) : formatFileSize(attachment.size)}
 								</div>
 								{isFailed && attachment.error && (
-									<div className="text-[10px] text-red-500 truncate max-w-[120px]" title={attachment.error}>
+									<div className="text-[10px] text-red-500 truncate max-w-[120px]" {...tooltipProps(attachment.error, { delayShowMs: LIST_ROW_TOOLTIP_DELAY_MS, accessibility: 'none' })}>
 										{attachment.error}
 									</div>
 								)}

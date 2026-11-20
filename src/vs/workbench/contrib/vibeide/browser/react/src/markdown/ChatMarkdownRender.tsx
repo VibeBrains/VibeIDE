@@ -14,6 +14,7 @@ import { URI } from '../../../../../../../base/common/uri.js';
 import { isAbsolute } from '../../../../../../../base/common/path.js';
 import { separateOutFirstLine } from '../../../../common/helpers/util.js';
 import { BlockCode } from '../util/inputs.js';
+import { tooltipProps } from '../util/tooltipProps.js';
 import { CodespanLocationLink } from '../../../../common/chatThreadServiceTypes.js';
 import { getRelative, voidOpenFileFn } from '../sidebar-tsx/SidebarChat.js';
 import { presentInlineCodePath } from '../../../../common/inlineCodePathPresentation.js';
@@ -510,7 +511,7 @@ const RenderToken = ({ token, inPTag, codeURI, chatMessageLocation, tokenIdx, ..
 			<a
 				onClick={() => { window.open(href); }}
 				href={href}
-				title={t.title ?? undefined}
+				{...tooltipProps(t.title ?? undefined)}
 				className='underline cursor-pointer hover:brightness-90 transition-all duration-200 text-vibe-fg-2'
 			>
 				{text}
@@ -533,7 +534,7 @@ const RenderToken = ({ token, inPTag, codeURI, chatMessageLocation, tokenIdx, ..
 		return <img
 			src={src}
 			alt={alt}
-			title={t.title ?? undefined}
+			{...tooltipProps(t.title ?? undefined)}
 
 		/>;
 	}

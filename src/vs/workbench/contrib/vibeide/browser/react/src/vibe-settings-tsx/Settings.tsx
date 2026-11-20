@@ -57,6 +57,7 @@ import ErrorBoundary from '../sidebar-tsx/ErrorBoundary.js';
 import { VibeButtonBgDarken, VibeCustomDropdownBox, VibeInputBox2, VibeSimpleInputBox, VibeSwitch } from '../util/inputs.js';
 import { visibleProviderCards } from '../../../../common/providerCardVisibility.js';
 import { useAccessor, useIsDark, useIsOptedOut, useMCPServiceState, useRefreshModelListener, useRefreshModelState, useSettingsState } from '../util/services.js';
+import { tooltipProps } from '../util/tooltipProps.js';
 import { X, RefreshCw, Loader2, Check, Asterisk, Plus, ChevronRight, ChevronDown, ImageOff, Image, Play, Copy } from 'lucide-react';
 import { joinPath } from '../../../../../../../base/common/resources.js';
 import { ModelDropdown } from './ModelDropdown.js';
@@ -914,7 +915,7 @@ export const ModelDump = ({ filteredProviders }: { filteredProviders?: ProviderN
 				onChange={(v) => settingsStateService.setGlobalSetting('showEmptyLocalProviders', v)}
 			/>
 			<span className='text-vibe-fg-3 text-xs'>{modelsS.showEmptyLocal}</span>
-			<span className='text-vibe-fg-4 text-xs' title={modelsS.showEmptyLocalTitle}>(i)</span>
+			<span className='text-vibe-fg-4 text-xs' {...tooltipProps(modelsS.showEmptyLocalTitle, { accessibility: 'label' })}>(i)</span>
 		</div>
 		{visibleProviders.map(providerName => {
 			const allModels = modelsByProvider[providerName] ?? [];
@@ -949,7 +950,7 @@ export const ModelDump = ({ filteredProviders }: { filteredProviders?: ProviderN
 				>
 					{expanded ? <ChevronDown size={16} className='shrink-0 opacity-80' /> : <ChevronRight size={16} className='shrink-0 opacity-80' />}
 					<span className='font-medium'>{providerTitle}</span>
-					<span className='text-vibe-fg-4 text-xs' title={countTitle}>
+					<span className='text-vibe-fg-4 text-xs' {...tooltipProps(countTitle)}>
 						({countInParens})
 					</span>
 				</button>
@@ -968,7 +969,7 @@ export const ModelDump = ({ filteredProviders }: { filteredProviders?: ProviderN
 							) : null}
 							<div
 								className='flex items-center gap-1 flex-shrink-0'
-								title={modelsS.modelsOnlyActiveTitle}
+								{...tooltipProps(modelsS.modelsOnlyActiveTitle)}
 							>
 								<VibeSwitch
 									size='xs'
@@ -1736,7 +1737,7 @@ export const OllamaSetupInstructions = ({ sayWeAutoDetect }: { sayWeAutoDetect?:
                 className='text-xs bg-vibe-bg-1 text-vibe-fg-1 border border-vibe-border-1 rounded px-1 py-0.5'
                 value={method}
                 onChange={(e) => setMethod(e.target.value as 'auto' | 'brew' | 'curl' | 'winget' | 'choco')}
-                title={ollamaS.installMethodTitle}
+                {...tooltipProps(ollamaS.installMethodTitle)}
             >
                 <option value='auto'>{ollamaS.optAuto}</option>
                 <option value='brew'>{ollamaS.optBrew}</option>
@@ -1789,7 +1790,7 @@ export const OllamaSetupInstructions = ({ sayWeAutoDetect }: { sayWeAutoDetect?:
                     onChange={(v) => vibeideSettingsService.setGlobalSetting('useHeadlessBrowsing', v)}
                 />
                 <span className='text-vibe-fg-3 text-xs'>{ollamaS.headlessBrowse}</span>
-                <span className='text-vibe-fg-4 text-xs' title={ollamaS.headlessTitle}>
+                <span className='text-vibe-fg-4 text-xs' {...tooltipProps(ollamaS.headlessTitle, { accessibility: 'label' })}>
                     (i)
                 </span>
             </div>
@@ -2432,7 +2433,7 @@ const TelegramBridgeCard = () => {
 						role='button'
 						tabIndex={pairingCode ? 0 : -1}
 						aria-label={pairingCode ? `${telegramS.copyCode}: ${pairingCode}` : undefined}
-						title={pairingCode ? telegramS.copyCode : undefined}
+						{...tooltipProps(pairingCode ? telegramS.copyCode : undefined, { accessibility: 'none' })}
 						className={`text-sm px-2 py-1 rounded bg-vibe-bg-2 ${pairingCode ? 'cursor-pointer hover:brightness-125' : ''}`}
 						onClick={copyPairingCode}
 						onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); copyPairingCode(); } }}

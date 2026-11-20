@@ -8,6 +8,7 @@ import { vibeLog } from '../../../../common/vibeLog.js';
 import { useState, useEffect, useCallback, useRef, Fragment } from 'react';
 import { useAccessor, useChatThreadsState, useChatThreadsStreamState, useCommandBarState, useCommandBarURIListener, useSettingsState } from '../util/services.js';
 import { usePromise, useRefState } from '../util/helpers.js';
+import { tooltipProps } from '../util/tooltipProps.js';
 import { isFeatureNameDisabled } from '../../../../common/vibeideSettingsTypes.js';
 import { URI } from '../../../../../../../base/common/uri.js';
 import { Check, Copy, FileSymlink, LucideIcon, Play, RotateCw, Square, Terminal, X } from 'lucide-react';
@@ -31,7 +32,7 @@ type IconButtonProps = {
 	Icon: LucideIcon;
 };
 
-export const IconShell1 = ({ onClick, Icon, disabled, className, ...props }: IconButtonProps & React.ButtonHTMLAttributes<HTMLButtonElement>) => {
+export const IconShell1 = ({ onClick, Icon, disabled, className, title, ...props }: IconButtonProps & React.ButtonHTMLAttributes<HTMLButtonElement>) => {
 
 	return <button
 		disabled={disabled}
@@ -51,6 +52,7 @@ export const IconShell1 = ({ onClick, Icon, disabled, className, ...props }: Ico
 		${className}
         `}
 		{...props}
+		{...tooltipProps(title, { accessibility: 'label' })}
 	>
 		<Icon />
 	</button>;

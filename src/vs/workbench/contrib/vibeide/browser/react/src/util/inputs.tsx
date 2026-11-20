@@ -44,6 +44,7 @@ import { IAccessibilitySignalService } from '../../../../../../../platform/acces
 import { IEditorProgressService } from '../../../../../../../platform/progress/common/progress.js';
 import { detectLanguage } from '../../../../common/helpers/languageHelpers.js';
 import { inputsS } from '../vibe-settings-tsx/vibeSettingsRu.js';
+import { LIST_ROW_TOOLTIP_DELAY_MS, tooltipProps } from './tooltipProps.js';
 
 
 type GenerateNextOptions = (optionText: string) => Promise<Option[]>;
@@ -1435,19 +1436,9 @@ const dropdownBadgeToneClass = (tone: DropdownBadge['tone']) => tone === 'error'
 	: tone === 'warning' ? 'text-[var(--vscode-charts-yellow)]'
 		: 'text-vibe-fg-4';
 
-/**
- * Задержка подсказки строки выпадающего списка
- * Без неё описание мелькало бы у каждого пункта, мимо которого мышь едет к нужному
- */
-const DROPDOWN_ROW_HINT_DELAY_MS = 300;
-
-// Подсказка — общая vibe-tooltip, а не нативный `title`: тот ждёт неподвижную мышь и в Electron срабатывает через раз
 const DropdownBadgeGlyph = ({ badge }: { badge: DropdownBadge }) => <span
 	className={`@@vibe-dropdown-row__badge flex-shrink-0 cursor-help leading-none select-none ${dropdownBadgeToneClass(badge.tone)}`}
-	data-tooltip-id='vibe-tooltip'
-	data-tooltip-content={badge.tooltip}
-	data-tooltip-place='right'
-	aria-label={badge.tooltip}
+	{...tooltipProps(badge.tooltip, { place: 'right', accessibility: 'label' })}
 	onClick={(e) => e.stopPropagation()}
 	onMouseDown={(e) => e.stopPropagation()}
 >{badge.glyph}</span>;
@@ -1745,13 +1736,7 @@ export const VibeCustomDropdownBox = <T extends NonNullable<any>>({
 							const showHint = detailPresentation === 'tooltip' && !!optionDetail;
 							// Подсказка вешается на всю строку, а не на кружок «?»: нативный `title` на мишени в 16 px
 							// появлялся, только если мышь замерла на ней секунду, и сбрасывался любым движением
-							const rowHint = showHint ? {
-								'data-tooltip-id': 'vibe-tooltip',
-								'data-tooltip-content': optionDetail,
-								'data-tooltip-place': 'right' as const,
-								'data-tooltip-delay-show': DROPDOWN_ROW_HINT_DELAY_MS,
-								'aria-description': optionDetail,
-							} : {};
+							const rowHint = tooltipProps(showHint ? optionDetail : undefined, { place: 'right', delayShowMs: LIST_ROW_TOOLTIP_DELAY_MS });
 							const rowKey = `${optionName}\0${optionDetail}`;
 
 							return (<Fragment key={rowKey}>
@@ -1919,7 +1904,7 @@ export const BlockCode = ({ initValue, language, maxHeight, showScrollbars }: Bl
 export const VibeButtonBgDarken = ({ children, disabled, onClick, className, title, variant = 'secondary' }: { children: React.ReactNode; disabled?: boolean; onClick: () => void; className?: string; title?: string; variant?: 'primary' | 'secondary' }) => {
 	return <button disabled={disabled}
 		type="button"
-		title={title}
+		{...tooltipProps(title)}
 		className={`@@vibe-pill-button @@vibe-focus-ring ${variant === 'primary' ? '@@vibe-pill-button--primary' : '@@vibe-pill-button--secondary'} overflow-hidden whitespace-nowrap flex items-center justify-center ${className || ''}`}
 		onClick={onClick}
 	>{children}</button>;
