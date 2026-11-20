@@ -50,7 +50,9 @@ import { IMarkerService, MarkerSeverity } from '../../../../platform/markers/com
 import { ILanguageService } from '../../../../editor/common/languages/language.js';
 import { timeout } from '../../../../base/common/async.js';
 import { RawToolParamsObj } from '../common/sendLLMMessageTypes.js';
-import { MAX_CHILDREN_URIs_PAGE, MAX_FILE_CHARS_PAGE, MAX_TERMINAL_BG_COMMAND_TIME, MAX_TERMINAL_INACTIVE_TIME, READ_FILE_DEFAULT_LINE_LIMIT, READ_FILE_LARGE_FILE_CHARS, READ_FILE_LARGE_FILE_WINDOW_CHARS, READ_FILE_MAX_LINE_LIMIT, ORIGINAL, DIVIDER, FINAL } from '../common/prompt/prompts.js';
+import { availableTools, InternalToolInfo, MAX_CHILDREN_URIs_PAGE, MAX_FILE_CHARS_PAGE, MAX_TERMINAL_BG_COMMAND_TIME, MAX_TERMINAL_INACTIVE_TIME, READ_FILE_DEFAULT_LINE_LIMIT, READ_FILE_LARGE_FILE_CHARS, READ_FILE_LARGE_FILE_WINDOW_CHARS, READ_FILE_MAX_LINE_LIMIT, ORIGINAL, DIVIDER, FINAL } from '../common/prompt/prompts.js';
+import { searchTools, TOOL_SEARCH_MAX_RESULTS_DEFAULT, TOOL_SEARCH_MAX_RESULTS_LIMIT, TOOL_SEARCH_TOOL_NAME } from '../common/prompt/toolDeferral.js';
+import { IMCPService } from '../common/mcpService.js';
 import { agentWorktreeRootOf, parseSlotEnvFile, WORKTREE_SLOT_ENV_FILE } from '../common/worktreeSlots.js';
 import { WORKTREE_DIR } from '../common/worktreeNaming.js';
 import { IVibeideSettingsService } from '../common/vibeideSettingsService.js';
@@ -368,6 +370,8 @@ export class ToolsService extends Disposable implements IToolsService {
 		@IPathService private readonly pathService: IPathService,
 		// Песочницы нет в веб-сборке: там Code Mode просто не может выполнить скрипт
 		@IVibeCodeModeSandboxService private readonly _codeModeSandbox: IVibeCodeModeSandboxService,
+		// Кандидаты `tool_search` — тот же список MCP, что рендерер передаёт в запрос
+		@IMCPService private readonly _mcpService: IMCPService,
 	) {
 		super();
 		this._offlineGate = new OfflinePrivacyGate();
@@ -1241,6 +1245,18 @@ export class ToolsService extends Disposable implements IToolsService {
 					throw new Error(`run_code_mode: скрипт длиннее ${CODE_MODE_MAX_SCRIPT_CHARS} символов`);
 				}
 				return { script };
+			},
+
+			tool_search: (params: RawToolParamsObj) => {
+				const query = validateStr('query', (params as { query?: unknown }).query);
+				const rawMax = (params as { max_results?: unknown }).max_results;
+				const parsedMax = typeof rawMax === 'number' ? rawMax : typeof rawMax === 'string' ? Number.parseInt(rawMax, 10) : TOOL_SEARCH_MAX_RESULTS_DEFAULT;
+				// Мусор в max_results не отменяет поиск: модель просто получает выдачу по умолчанию
+				const maxResults = Math.min(
+					!Number.isFinite(parsedMax) || parsedMax <= 0 ? TOOL_SEARCH_MAX_RESULTS_DEFAULT : Math.floor(parsedMax),
+					TOOL_SEARCH_MAX_RESULTS_LIMIT,
+				);
+				return { query, maxResults };
 			},
 
 		};
@@ -3660,6 +3676,10 @@ export class ToolsService extends Disposable implements IToolsService {
 					},
 				};
 			},
+			tool_search: async ({ query, maxResults }) => {
+				const matches = searchTools(query, this._toolSearchCandidates(), maxResults);
+				return { result: { loaded: matches.map(match => match.name), matches } };
+			},
 		};
 
 
@@ -4231,10 +4251,33 @@ ${lines.join('\n\n')}`;
 				// Отчёт собран заранее: значение скрипта, вывод и список вызовов уже размечены
 				return result.output;
 			},
+			tool_search: (_params, result) => {
+				if (result.matches.length === 0) {
+					// Пустая выдача без списка кандидатов читается как «инструментов нет вовсе» — модель начинает выдумывать имена
+					const candidates = this._toolSearchCandidates().map(tool => tool.name);
+					return `No matching tools. Available candidates: ${candidates.join(', ') || '(none)'}`;
+				}
+				return [
+					`Loaded: ${result.loaded.join(', ')}`,
+					...result.matches.map(match => `${match.name} — ${match.description}`),
+				].join('\n');
+			},
 		};
 
 
 
+	}
+
+	/**
+	 * Кандидаты `tool_search`: всё, что `availableTools` отдал бы в текущем режиме чата без откладывания
+	 *
+	 * MCP приходят из `mcpService` — того же источника, из которого рендерер передаёт их в запрос,
+	 * поэтому выдача совпадает с тем, что модель увидела бы схемами
+	 */
+	private _toolSearchCandidates(): InternalToolInfo[] {
+		const chatMode = this.vibeideSettingsService.state.globalSettings.chatMode;
+		const tools = availableTools(chatMode, this._mcpService.getMCPTools()) ?? [];
+		return tools.filter(tool => tool.name !== TOOL_SEARCH_TOOL_NAME);
 	}
 
 	/**

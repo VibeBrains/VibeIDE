@@ -1437,7 +1437,7 @@ export const sendViaAISdk = async (params: SendChatParams_Internal): Promise<voi
 	// The tools this request offers: the wire's list and the names a call written as text may run
 	// `caps.maxTools` is the per-model tool budget from `.vibe/providers.json`. Undefined means
 	// no limit — a model without a declared budget must get exactly the list it got before.
-	const offeredTools = specialToolFormat ? availableTools(chatMode, mcpTools, { maxTools: caps.maxTools, codeMode: runtimeOptions?.codeMode }) : undefined;
+	const offeredTools = specialToolFormat ? availableTools(chatMode, mcpTools, { maxTools: caps.maxTools, codeMode: runtimeOptions?.codeMode, toolSearch: runtimeOptions?.toolSearch }) : undefined;
 	const offeredToolSchemas: OfferedToolSchemas = Object.fromEntries((offeredTools ?? []).filter(t => t.name).map(t => [t.name, toolInputSchema(t)]));
 	// Native tools, yet the model may write its call into the text in its family's markup (a server without the
 	// family's parser, or a slip). Read for every such model unless its quirk turns it off

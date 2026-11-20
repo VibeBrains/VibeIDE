@@ -49,6 +49,7 @@ import { dirname, isEqual } from '../../../../base/common/resources.js';
 import { promptCacheKeyOf } from '../common/promptCacheKey.js';
 import { isLinux, isMacintosh, isWindows } from '../../../../base/common/platform.js';
 import { lastRealUserIndex } from '../common/turnContext.js';
+import { loadedToolNamesOfMessages } from '../common/toolSearchConfiguration.js';
 
 /** In autonomous modes resource limits auto-extend rather than stop the role. This cooldown backstops a
  *  pathological tight loop (instant hops) from resetting the budget hundreds of times per second —
@@ -299,7 +300,7 @@ class VibeSubagentRunnerService extends Disposable implements IVibeSubagentRunne
 			if (turnMessage?.role === 'user' && turnContext !== undefined) {
 				history[turnIdx] = { ...turnMessage, turnContext };
 			}
-			const hop = await this._sendOnce({ req, messages, separateSystemMessage, chatMode, modelSelection, deadlineAtMs: limits.deadlineAtMs });
+			const hop = await this._sendOnce({ req, messages, separateSystemMessage, chatMode, modelSelection, deadlineAtMs: limits.deadlineAtMs, toolSearchLoadedToolNames: loadedToolNamesOfMessages(history) });
 			if (hop.kind === 'error') {
 				// A deadline firing MID-REQUEST aborts the stream and surfaces here as an error. Use the
 				// CURRENT (possibly auto-extended) deadline, not the stale original — otherwise an extended
@@ -554,6 +555,8 @@ class VibeSubagentRunnerService extends Disposable implements IVibeSubagentRunne
 		chatMode: 'agent' | 'gather';
 		modelSelection: ModelSelection;
 		deadlineAtMs: number;
+		/** Имена, уже загруженные в этом прогоне: промпт их отложил бы, а запрос обязан отложить так же */
+		toolSearchLoadedToolNames: readonly string[];
 	}): Promise<HopOutcome> {
 		return new Promise<HopOutcome>(resolve => {
 			let settled = false;
@@ -574,6 +577,8 @@ class VibeSubagentRunnerService extends Disposable implements IVibeSubagentRunne
 				chatMode: opts.chatMode,
 				modelSelection: opts.modelSelection,
 				modelSelectionOptions: undefined,
+				// Без этого промпт роли перечислил бы отложенные инструменты, а запрос прислал бы их схемы
+				toolSearchLoadedToolNames: opts.toolSearchLoadedToolNames,
 				overridesOfModel: this._settings.state.overridesOfModel,
 				// One subagent run is one conversation: every hop of it shares the cache key.
 				promptCacheKey: promptCacheKeyOf(opts.req.subagentId, opts.req.type),

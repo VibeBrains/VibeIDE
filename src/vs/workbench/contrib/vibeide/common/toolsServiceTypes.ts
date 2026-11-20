@@ -10,6 +10,7 @@ import { SnakeCaseKeys } from './prompt/snakeCase.js';
 import { RawToolParamsObj } from './sendLLMMessageTypes.js';
 import { ReviewChecklist } from './chatThreadServiceTypes.js';
 import { SlopReport } from './textSlop/textSlop.js';
+import type { IToolSearchMatch } from './prompt/toolDeferral.js';
 
 
 
@@ -135,6 +136,8 @@ export type BuiltinToolCallParams = {
 	'vibe_complete': { summary: string };
 	// Один скрипт вместо серии вызовов: внутри он сам зовёт `tools.<имя>(args)`
 	'run_code_mode': { script: string };
+	// Достаёт схемы отложенных инструментов; maxResults ограничен TOOL_SEARCH_MAX_RESULTS_LIMIT
+	'tool_search': { query: string; maxResults: number };
 };
 
 // RESULT OF TOOL CALL
@@ -326,6 +329,8 @@ export type BuiltinToolResultType = {
 	'watch_media': { text: string; kind: 'video' | 'audio'; title?: string; durationSec?: number; frameCount: number; describedBy?: string };
 	// `output` — уже собранный отчёт (вывод, значение, ошибки), `calls` — для аудита и карточки в чате
 	'run_code_mode': { output: string; calls: Array<{ tool: string; ok: boolean; error?: string }>; truncated: boolean };
+	// `loaded` — имена, которые теперь видны модели; `matches` — что она о них узнала
+	'tool_search': { loaded: string[]; matches: IToolSearchMatch[] };
 	// ---
 	'vibe_complete': { summary: string };
 };

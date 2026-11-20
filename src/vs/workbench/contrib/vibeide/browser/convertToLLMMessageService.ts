@@ -63,7 +63,8 @@ function uint8ArrayToBase64(data: Uint8Array): string {
 	}
 }
 import { getIsReasoningEnabledState, getReservedOutputTokenSpace, getModelCapabilities, providerVendor } from '../common/modelCapabilities.js';
-import { reParsedToolXMLString, ModelIdentity, chat_systemMessage, chat_systemMessage_local, chat_turnContext, systemToolsXMLPrompt } from '../common/prompt/prompts.js';
+import { reParsedToolXMLString, ModelIdentity, IToolSearchOptions, availableToolsWithDeferral, chat_systemMessage, chat_systemMessage_local, chat_turnContext, systemToolsXMLPrompt } from '../common/prompt/prompts.js';
+import { loadedToolNamesOfMessages, TOOL_SEARCH_SETTING, TOOL_SEARCH_THRESHOLD_CHARS_SETTING, toolSearchModeOf, toolSearchThresholdCharsOf } from '../common/toolSearchConfiguration.js';
 import { detectModelFamily } from '../common/prompt/modelFamily.js';
 import { computeLastExchangePinSet } from '../common/prompt/lastExchangePin.js';
 import { isPinnedContextMessage } from '../common/prompt/pinnedContext.js';
@@ -1662,6 +1663,20 @@ class ConvertToLLMMessageService extends Disposable implements IConvertToLLMMess
 	}
 
 	/**
+	 * Входы отложенной загрузки для этого разговора: настройки и имена, уже загруженные в треде
+	 *
+	 * Загруженным считается и вызванный инструмент, и всё, что вернул `tool_search` своим `loaded`:
+	 * схемы этих инструментов модель уже видела, откладывать их снова незачем
+	 */
+	private _toolSearchOptionsFor(chatMessages: readonly ChatMessage[]): IToolSearchOptions {
+		return {
+			mode: toolSearchModeOf(this.configurationService.getValue<unknown>(TOOL_SEARCH_SETTING)),
+			thresholdChars: toolSearchThresholdCharsOf(this.configurationService.getValue<unknown>(TOOL_SEARCH_THRESHOLD_CHARS_SETTING)),
+			loadedToolNames: loadedToolNamesOfMessages(chatMessages),
+		};
+	}
+
+	/**
 	 * VibeMemory project lines for the open folders, then the teams' memory; each server is the only authority on names
 	 * A team's host sees no folder: it is asked once, with the first folder, and answers with the projects its token may use
 	 */
@@ -1682,7 +1697,7 @@ class ConvertToLLMMessageService extends Disposable implements IConvertToLLMMess
 		return { name, id: modelName, provider: displayInfoOfProviderName(providerId).title };
 	}
 
-	private _generateChatMessagesSystemMessage = async (chatMode: ChatMode, specialToolFormat: 'openai-style' | 'anthropic-style' | 'gemini-style' | undefined, providerName?: string, modelName?: string) => {
+	private _generateChatMessagesSystemMessage = async (chatMode: ChatMode, specialToolFormat: 'openai-style' | 'anthropic-style' | 'gemini-style' | undefined, providerName?: string, modelName?: string, toolSearch?: IToolSearchOptions) => {
 		const workspaceFolders = this.workspaceContextService.getWorkspace().folders.map(f => f.uri.fsPath);
 		const preferJsonToolArguments = this.configurationService.getValue<boolean>('vibeide.agent.preferJsonToolArguments') ?? false;
 
@@ -1694,7 +1709,13 @@ class ConvertToLLMMessageService extends Disposable implements IConvertToLLMMess
 		// Part of the key: a folder the memory server has just named must not keep a prompt built without it.
 		const memoryProjects = await this._memoryProjects(workspaceFolders);
 		const mcpTools = this.mcpService.getMCPTools();
-		const cacheKey = `${chatMode}|${specialToolFormat}|${providerName ?? ''}|${modelName ?? ''}|${workspaceFolders.join(',')}|pj:${preferJsonToolArguments}|min:${minimalismMode}|brev:${brevity}|mem:${memoryProjects ?? ''}|mcp:${mcpTools?.map(t => t.name).join(',') ?? ''}`;
+		// The tool budget of this model; `providerName`/`modelName` are part of the cache key, so it cannot leak into another
+		// model's cached prompt.
+		const { maxTools } = this._promptBudgets(providerName, modelName);
+		const codeMode = this.configurationService.getValue<boolean>(CODE_MODE_SETTING_ENABLED) === true;
+		// Какие схемы отложены, зависит от разговора: промпт, собранный под другой набор, вернул бы модели не тот список
+		const deferredNames = availableToolsWithDeferral(chatMode, mcpTools, { maxTools, codeMode, toolSearch }).deferred.map(t => t.name).join(',');
+		const cacheKey = `${chatMode}|${specialToolFormat}|${providerName ?? ''}|${modelName ?? ''}|${workspaceFolders.join(',')}|pj:${preferJsonToolArguments}|min:${minimalismMode}|brev:${brevity}|mem:${memoryProjects ?? ''}|mcp:${mcpTools?.map(t => t.name).join(',') ?? ''}|ts:${toolSearch?.mode ?? 'off'}:${toolSearch?.thresholdChars ?? 0}:${deferredNames}`;
 
 		// Check cache
 		const cached = this._systemMessageCache.get(cacheKey);
@@ -1710,10 +1731,7 @@ class ConvertToLLMMessageService extends Disposable implements IConvertToLLMMess
 		const includeXMLToolDefinitions = !specialToolFormat;
 		const modelFamily = detectModelFamily(providerName, modelName, specialToolFormat);
 
-		// The tool budget of this model; `providerName`/`modelName` are part of the cache key, so it cannot leak into another
-		// model's cached prompt.
-		const { maxTools } = this._promptBudgets(providerName, modelName);
-		const systemMessage = chat_systemMessage({ workspaceFolders, chatMode, mcpTools, includeXMLToolDefinitions, strictJsonToolArguments: preferJsonToolArguments, minimalismMode, brevity, modelFamily, memoryProjects, maxTools, modelIdentity: this._modelIdentity(providerName, modelName), codeMode: this.configurationService.getValue<boolean>(CODE_MODE_SETTING_ENABLED) === true });
+		const systemMessage = chat_systemMessage({ workspaceFolders, chatMode, mcpTools, includeXMLToolDefinitions, strictJsonToolArguments: preferJsonToolArguments, minimalismMode, brevity, modelFamily, memoryProjects, maxTools, modelIdentity: this._modelIdentity(providerName, modelName), codeMode, toolSearch });
 
 		// Cache the result
 		this._systemMessageCache.set(cacheKey, { message: systemMessage, timestamp: now });
@@ -1959,10 +1977,12 @@ class ConvertToLLMMessageService extends Disposable implements IConvertToLLMMess
 
 		// System frame (workspace, environment) + (for XML models) tool defs. The file tree, memories and the editor's state
 		// ride in each message's <turn_context> and fall into the conversation share, measured as the remainder.
-		const fullSystem = await this._generateChatMessagesSystemMessage('agent', specialToolFormat, sel?.providerName, sel?.modelName);
+		// Отчёта о составе просят без разговора: загруженных имён нет, остальное — как в настройках
+		const toolSearch = this._toolSearchOptionsFor([]);
+		const fullSystem = await this._generateChatMessagesSystemMessage('agent', specialToolFormat, sel?.providerName, sel?.modelName, toolSearch);
 		// Native function-calling models receive tools via the SDK, NOT in the prompt. We still
 		// estimate the XML tool-schema size to show how heavy the tool surface is for this model.
-		const toolsStr = systemToolsXMLPrompt('agent', this.mcpService.getMCPTools(), undefined, this.configurationService.getValue<boolean>(CODE_MODE_SETTING_ENABLED) === true);
+		const toolsStr = systemToolsXMLPrompt('agent', this.mcpService.getMCPTools(), undefined, this.configurationService.getValue<boolean>(CODE_MODE_SETTING_ENABLED) === true, toolSearch).xml;
 		const toolsViaSdk = !!specialToolFormat;
 		const frameTokens = Math.max(0, est(fullSystem) - (toolsViaSdk ? 0 : est(toolsStr)));
 
@@ -2043,6 +2063,8 @@ class ConvertToLLMMessageService extends Disposable implements IConvertToLLMMess
 		// For local models, use minimal system message template instead of truncating
 		const isLocal = isLocalProvider(validProviderName, this.vibeideSettingsService.state.settingsOfProvider);
 		const preferJsonToolArguments = this.configurationService.getValue<boolean>('vibeide.agent.preferJsonToolArguments') ?? false;
+		// Загруженные имена — из этого же разговора: схемы уже виденных инструментов не откладываются
+		const toolSearch = this._toolSearchOptionsFor(chatMessages);
 
 		let systemMessage: string;
 		if (disableSystemMessage) {
@@ -2057,10 +2079,10 @@ class ConvertToLLMMessageService extends Disposable implements IConvertToLLMMess
 			const modelFamily = detectModelFamily(validProviderName, modelName, specialToolFormat);
 			const mcpTools = this.mcpService.getMCPTools();
 			const memoryProjects = await this._memoryProjects(workspaceFolders);
-			systemMessage = chat_systemMessage_local({ memoryProjects, workspaceFolders, chatMode, mcpTools, includeXMLToolDefinitions, strictJsonToolArguments: preferJsonToolArguments, minimalismMode: this.vibeideSettingsService.state.globalSettings.minimalismMode ?? 'lite', brevity: brevityLevelOf(this.configurationService.getValue(BREVITY_SETTING)), modelFamily, maxTools: this._promptBudgets(providerName, modelName).maxTools, modelIdentity: this._modelIdentity(validProviderName, modelName), codeMode: this.configurationService.getValue<boolean>(CODE_MODE_SETTING_ENABLED) === true });
+			systemMessage = chat_systemMessage_local({ memoryProjects, workspaceFolders, chatMode, mcpTools, includeXMLToolDefinitions, strictJsonToolArguments: preferJsonToolArguments, minimalismMode: this.vibeideSettingsService.state.globalSettings.minimalismMode ?? 'lite', brevity: brevityLevelOf(this.configurationService.getValue(BREVITY_SETTING)), modelFamily, maxTools: this._promptBudgets(providerName, modelName).maxTools, modelIdentity: this._modelIdentity(validProviderName, modelName), codeMode: this.configurationService.getValue<boolean>(CODE_MODE_SETTING_ENABLED) === true, toolSearch });
 		} else {
 			// Use full system message for cloud models
-			systemMessage = await this._generateChatMessagesSystemMessage(chatMode, specialToolFormat, validProviderName, modelName);
+			systemMessage = await this._generateChatMessagesSystemMessage(chatMode, specialToolFormat, validProviderName, modelName, toolSearch);
 		}
 
 		// Query repo indexer if enabled - get context from the LAST user message (most relevant)

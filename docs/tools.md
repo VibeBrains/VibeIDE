@@ -2,7 +2,7 @@
 
 # Инструменты агента
 
-Всего: 49. Порядок — как в реестре `src/vs/workbench/contrib/vibeide/common/prompt/tools/index.ts`.
+Всего: 51. Порядок — как в реестре `src/vs/workbench/contrib/vibeide/common/prompt/tools/index.ts`.
 
 | Инструмент | Согласие | Описание |
 | --- | --- | --- |
@@ -55,4 +55,5 @@
 | `extract_structured` | чтение | Extracts typed data from a web page by a JSON Schema, using a dedicated extraction model (setting vibeide.extract.model). Use it when you need specific fields from a page — prices, specs, lists, contacts — as JSON rather than readable text; use browse_url to read a page. The schema is the whole instruction: describe every field you want with its type, and add "description" to a field when its meaning is not obvious from the name. |
 | `watch_media` | чтение | Watches a video or listens to an audio recording and returns what is in it: the transcript with timecodes and the key frames. Works on a local file or a link (YouTube, Loom, a direct media URL, a podcast, a call recording, a voice message). |
 | `vibe_complete` | чтение | Завершает текущий ход агента: вызови ТОЛЬКО когда задача полностью выполнена и больше нечего делать. |
-| `run_code_mode` | чтение | Выполняет JavaScript-скрипт в изолированной песочнице, где доступны инструменты агента. |
+| `run_code_mode` | чтение | Выполняет JavaScript-скрипт в изолированной песочнице, где доступны инструменты агента. Один вызов заменяет серию последовательных вызовов — экономит раунды и токены на длинных цепочках. |
+| `tool_search` | чтение | Search the tools listed in <deferred_tools> and load them. Query "select:name1,name2" loads exact names; other text searches tool names and descriptions. Loaded tools become callable from the next step. |

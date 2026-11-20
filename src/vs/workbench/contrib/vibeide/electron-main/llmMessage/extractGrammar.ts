@@ -7,7 +7,8 @@
 import { generateUuid } from '../../../../../base/common/uuid.js';
 import { endsWithAnyPrefixOf, SurroundingsRemover } from '../../common/helpers/extractCodeFromResult.js';
 import { stripStandaloneThinkDelimiters } from '../../common/helpers/stripThinkDelimiters.js';
-import { availableTools, InternalToolInfo } from '../../common/prompt/prompts.js';
+import { availableTools, builtinTools, InternalToolInfo } from '../../common/prompt/prompts.js';
+import { TOOL_SEARCH_TOOL_NAME } from '../../common/prompt/toolDeferral.js';
 import { PARAM_ALIASES_BY_TOOL, TOOL_NAME_ALIASES } from '../../common/prompt/toolAliases.js';
 import { LLMFinishNotice, OnFinalMessage, OnText, RawToolCallObj, RawToolParamsObj } from '../../common/sendLLMMessageTypes.js';
 import { ToolName, ToolParamName } from '../../common/toolsServiceTypes.js';
@@ -467,8 +468,11 @@ export const extractXMLToolsWrapper = (
 ): { newOnText: OnText; newOnFinalMessage: OnFinalMessage } => {
 
 	if (!chatMode) { return { newOnText: onText, newOnFinalMessage: onFinalMessage }; }
-	const tools = availableTools(chatMode, mcpTools, { codeMode });
-	if (!tools) { return { newOnText: onText, newOnFinalMessage: onFinalMessage }; }
+	const offered = availableTools(chatMode, mcpTools, { codeMode });
+	if (!offered) { return { newOnText: onText, newOnFinalMessage: onFinalMessage }; }
+	// Разбор XML-вызова обязан знать все инструменты, включая отложенные, и `tool_search` среди них:
+	// без откладывания его нет в списке, но модель зовёт его по промпту, и вызов должен разобраться
+	const tools = offered.some(t => t.name === TOOL_SEARCH_TOOL_NAME) ? offered : [...offered, builtinTools[TOOL_SEARCH_TOOL_NAME]];
 
 	const toolOfToolName: ToolOfToolName = {};
 	for (const t of tools) { toolOfToolName[t.name] = t; }

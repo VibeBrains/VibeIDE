@@ -32,6 +32,7 @@ import { describeOutsidePaths } from '../common/commandPathsOutsideScope.js';
 import { isMacintosh, isWindows } from '../../../../base/common/platform.js';
 import type { ChatJournalAction } from '../common/chatJournal.js';
 import { availableTools, builtinTools, builtinToolNames, chat_userMessageContent, isABuiltinToolName } from '../common/prompt/prompts.js';
+import { loadedToolNamesOfMessages } from '../common/toolSearchConfiguration.js';
 import { TOOL_NAME_ALIASES, applyParamAliases, detectToolByParamShape } from '../common/prompt/toolAliases.js';
 import { toolCallSignature, resolveAntiLoopThreshold, endsWithQuestion, looksLikeCompletionText, QUESTION_AUTO_CONTINUE_DEFAULT } from '../common/agentLoopHeuristics.js';
 import { decideTurnContinuation } from '../common/turnContinuation.js';
@@ -2921,6 +2922,16 @@ class ChatThreadService extends Disposable implements IChatThreadService {
 	private _computeMCPServerOfToolName = (toolName: string) => {
 		return this._mcpService.getMCPTools()?.find(t => t.name === toolName)?.mcpServerName;
 	};
+
+	/**
+	 * Имена инструментов, уже загруженных в разговоре — вход отложенной загрузки схем
+	 *
+	 * Считаются по тем же сообщениям треда, что видит сборка промпта, иначе список схем
+	 * разошёлся бы с тем, что модель прочитала в `<deferred_tools>`
+	 */
+	private _loadedToolNamesOfThread(threadId: string): string[] {
+		return loadedToolNamesOfMessages(this.state.allThreads[threadId]?.messages ?? []);
+	}
 
 	private _tryGetWorkbenchWindowId(): number | undefined {
 		const env = this._environmentService as { window?: { id: number } };
@@ -6463,6 +6474,8 @@ Output ONLY the JSON, no other text. Start with { and end with }.`;
 					messagesType: 'chatMessages',
 					chatMode,
 					messages: messages,
+					// Имена своего разговора: без них отложенная загрузка у этого вызова выключена
+					toolSearchLoadedToolNames: this._loadedToolNamesOfThread(threadId),
 					modelSelection,
 					modelSelectionOptions,
 					overridesOfModel: effectiveOverridesForCall,

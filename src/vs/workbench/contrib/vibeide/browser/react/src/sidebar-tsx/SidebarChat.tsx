@@ -3002,6 +3002,7 @@ const titleOfBuiltinToolName = {
 	'learning_record': { done: 'Записал след урока', proposed: 'Записать след урока', running: loadingTitleWrapper('Записывает след урока') },
 	'tasks': { done: 'Поработал со списком задач', proposed: 'Поработать со списком задач', running: loadingTitleWrapper('Работает со списком задач') },
 	'run_code_mode': { done: 'Выполнил скрипт инструментов', proposed: 'Выполнить скрипт инструментов', running: loadingTitleWrapper('Выполняет скрипт инструментов') },
+	'tool_search': { done: 'Загрузил инструменты', proposed: 'Загрузить инструменты', running: loadingTitleWrapper('Ищет инструменты') },
 } as const satisfies Record<BuiltinToolName, { done: any; proposed: any; running: any }>;
 
 

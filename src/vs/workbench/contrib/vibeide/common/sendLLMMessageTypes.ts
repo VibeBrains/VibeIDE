@@ -5,7 +5,7 @@
 
 
 import type { CacheMissDiagnosis } from './anthropicCacheDiagnostics.js';
-import { InternalToolInfo } from './prompt/prompts.js';
+import { InternalToolInfo, IToolSearchOptions } from './prompt/prompts.js';
 import { ToolName, ToolParamName } from './toolsServiceTypes.js';
 import { ChatMode, ModelSelection, ModelSelectionOptions, OverridesOfModel, ProviderName, RefreshableProviderName, SettingsOfProvider } from './vibeideSettingsTypes.js';
 import type { ClaudeThinkingDisplay } from './wireReasoning.js';
@@ -319,6 +319,12 @@ export type ServiceSendLLMMessageParams = {
 	servedModel?: string;
 	/** Per-turn: request `tool_choice: 'required'` for this send (agent-loop corrective nudge). */
 	forceToolUse?: boolean;
+	/**
+	 * Renderer-side only (never forwarded over IPC as-is): имена инструментов, уже загруженных в
+	 * разговоре. Читает их `sendLLMMessageService` и собирает из них `runtimeOptions.toolSearch`
+	 * вместе с настройками. Не передано — отложенная загрузка у этого вызова выключена.
+	 */
+	toolSearchLoadedToolNames?: readonly string[];
 	/** Repeats of a failed request the SDK may make by itself — see `LLMRuntimeOptions.sdkMaxRetries`. */
 	sdkMaxRetries?: number;
 	/**
@@ -367,6 +373,11 @@ export type LLMRuntimeOptions = {
 	servedModel?: string;
 	/** Включён ли Code Mode: от этого зависит, показывать ли модели инструмент `run_code_mode` */
 	codeMode?: boolean;
+	/**
+	 * Отложенная загрузка схем: режим и порог из настроек плюс имена, загруженные в разговоре
+	 * Не передан — схемы уходят целиком, как до отложенной загрузки
+	 */
+	toolSearch?: IToolSearchOptions;
 	timeoutMs?: {
 		local?: number;
 		cloud?: number;

@@ -634,31 +634,6 @@ class MCPService extends Disposable implements IMCPService {
 		return allTools;
 	}
 
-	/**
-	 * VibeIDE: MCP tool deferral — returns tool definitions omitting descriptions
-	 * when context is >10% full. Full descriptions loaded on demand via MCPSearch.
-	 * Reduces ~85% of tokens from tool definitions in large contexts.
-	 *
-	 * @param contextPercentUsed - current context window usage (0-100)
-	 */
-	public getMCPToolsDeferred(contextPercentUsed: number): InternalToolInfo[] | undefined {
-		const allTools = this.getMCPTools();
-		if (!allTools) { return undefined; }
-
-		// Defer tool descriptions when context is >10% full
-		const DEFERRAL_THRESHOLD = 10;
-		if (contextPercentUsed > DEFERRAL_THRESHOLD) {
-			return allTools.map((tool): InternalToolInfo & { _deferred?: boolean } => ({
-				...tool,
-				description: `[deferred — use MCPSearch to load description for "${tool.name}"]`,
-				params: {}, // omit params until requested
-				_deferred: true,
-			}));
-		}
-
-		return allTools;
-	}
-
 	private _transformInputSchemaToParams(inputSchema?: { properties?: Record<string, unknown> }): { [paramName: string]: { description: string } } {
 
 		// Check if inputSchema is valid

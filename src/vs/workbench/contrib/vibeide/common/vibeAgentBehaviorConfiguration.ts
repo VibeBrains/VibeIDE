@@ -18,6 +18,8 @@ import { IConfigurationRegistry, Extensions as ConfigurationExtensions, Configur
 import { localize } from '../../../../nls.js';
 import { QUESTION_AUTO_CONTINUE_DEFAULT } from './agentLoopHeuristics.js';
 import { CODE_MODE_TIMEOUT_SEC_DEFAULT, CODE_MODE_TIMEOUT_SEC_MAX, CODE_MODE_TIMEOUT_SEC_MIN } from './codeMode/codeMode.js';
+import { DEFAULT_TOOL_SEARCH_THRESHOLD_CHARS } from './prompt/toolDeferral.js';
+import { TOOL_SEARCH_SETTING, TOOL_SEARCH_THRESHOLD_CHARS_SETTING } from './toolSearchConfiguration.js';
 
 Registry.as<IConfigurationRegistry>(ConfigurationExtensions.Configuration).registerConfiguration({
 	id: 'vibeide.agent',
@@ -50,6 +52,23 @@ Registry.as<IConfigurationRegistry>(ConfigurationExtensions.Configuration).regis
 			minimum: CODE_MODE_TIMEOUT_SEC_MIN,
 			maximum: CODE_MODE_TIMEOUT_SEC_MAX,
 			description: localize('vibeide.agent.codeModeTimeoutSec', 'Сколько секунд даётся скрипту Code Mode. При превышении процесс-песочница снимается, а агенту возвращается ошибка.'),
+		},
+		[TOOL_SEARCH_SETTING]: {
+			type: 'string',
+			enum: ['auto', 'always', 'off'],
+			enumDescriptions: [
+				localize('vibeide.agent.toolSearch.auto', 'Авто (по умолчанию) — схемы откладываются, когда их общий размер больше порога.'),
+				localize('vibeide.agent.toolSearch.always', 'Всегда — всё, кроме ядра, откладывается, даже если инструментов немного.'),
+				localize('vibeide.agent.toolSearch.off', 'Никогда — все схемы уходят в каждом запросе, как раньше.'),
+			],
+			default: 'auto',
+			description: localize('vibeide.agent.toolSearch', 'Отложенная загрузка схем инструментов: сверх порога в запрос уходят только нужные схемы и инструмент `tool_search`, а остальные перечислены блоком `<deferred_tools>` — модель достаёт их, когда они понадобятся. Экономит десятки-сотни килобайт тела запроса на MCP-серверах с большим набором инструментов.'),
+		},
+		[TOOL_SEARCH_THRESHOLD_CHARS_SETTING]: {
+			type: 'number',
+			default: DEFAULT_TOOL_SEARCH_THRESHOLD_CHARS,
+			minimum: 0,
+			description: localize('vibeide.agent.toolSearchThresholdChars', 'Порог отложенной загрузки в символах схем: когда суммарный размер схем больше него, режим `auto` начинает откладывать. Встроенные схемы в режиме агента весят около 51 тыс., поэтому без MCP откладывать нечего.'),
 		},
 		'vibeide.agent.runTestsAfterApply.enabled': {
 			type: 'boolean',

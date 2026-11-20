@@ -57,6 +57,7 @@ import { EXTRACT_STRUCTURED_TOOL } from './extract_structured.js';
 import { WATCH_MEDIA_TOOL } from './watch_media.js';
 import { VIBE_COMPLETE_TOOL } from './vibe_complete.js';
 import { RUN_CODE_MODE_TOOL } from './run_code_mode.js';
+import { TOOL_SEARCH_TOOL } from './tool_search.js';
 
 /**
  * Unified registry of all built-in tools — Kilo-style: each tool's full
@@ -135,6 +136,8 @@ export const builtinToolDefs = {
 	vibe_complete: VIBE_COMPLETE_TOOL,
 	// один скрипт вместо серии вызовов; включается настройкой vibeide.agent.codeMode
 	run_code_mode: RUN_CODE_MODE_TOOL,
+	// достаёт отложенные схемы; появляется в списке только когда откладывание включено
+	tool_search: TOOL_SEARCH_TOOL,
 } satisfies { [T in BuiltinToolName]: ToolDef<T> };
 
 /**
@@ -174,6 +177,8 @@ export const carriesExternalContentOfBuiltinToolName: Readonly<{ [T in BuiltinTo
 	automated_code_review: true,
 	// скрипт возвращает результаты вложенных инструментов — чужой текст, а не слова агента
 	run_code_mode: true,
+	// выдача — наша же опись инструментов и их описаний, а не содержимое файлов или страниц
+	tool_search: false,
 	// терминал: вывод команд и фоновых процессов
 	run_command: true,
 	run_nl_command: true,

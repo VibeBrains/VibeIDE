@@ -40,6 +40,7 @@ import { ICommandService } from '../../../../platform/commands/common/commands.j
 import { localize } from '../../../../nls.js';
 import { ConfigurationTarget, IConfigurationService } from '../../../../platform/configuration/common/configuration.js';
 import { CODE_MODE_SETTING_ENABLED } from '../common/codeMode/codeMode.js';
+import { TOOL_SEARCH_SETTING, TOOL_SEARCH_THRESHOLD_CHARS_SETTING, toolSearchModeOf, toolSearchThresholdCharsOf } from '../common/toolSearchConfiguration.js';
 import { NormalizeCounterKey } from '../common/xmlToolNormalize.js';
 import type { LlmSendTraceEvent } from '../common/llmSendTrace.js';
 import { ILLMMessageService, TransportDiagnostics } from '../common/sendLLMMessageService.js';
@@ -258,7 +259,7 @@ export class LLMMessageService extends Disposable implements ILLMMessageService 
 	sendLLMMessage(params: ServiceSendLLMMessageParams) {
 		// `extraBody` is taken out by name: left in `proxyParams` it would travel to the main process as a
 		// top-level field nobody reads, instead of inside `runtimeOptions` where the adapter merges it.
-		const { onText, onFinalMessage, onError, onAbort, modelSelection, forceToolUse, sdkMaxRetries, excludeFromSessionBudget, secretNoticeScope, extraBody, promptCacheKey, previousResponseId, servedModel, ...proxyParams } = params;
+		const { onText, onFinalMessage, onError, onAbort, modelSelection, forceToolUse, sdkMaxRetries, excludeFromSessionBudget, secretNoticeScope, extraBody, promptCacheKey, previousResponseId, servedModel, toolSearchLoadedToolNames, ...proxyParams } = params;
 
 		// VibeIDE: Enforce session token budget before sending. Subagent sends opt out — they have
 		// their own quota, and the session gate must not block a role on the main-agent limit.
@@ -468,6 +469,14 @@ export class LLMMessageService extends Disposable implements ILLMMessageService 
 			...(previousResponseId ? { previousResponseId } : {}), // Anthropic's cache diagnostics compare against it
 			...(servedModel ? { servedModel } : {}), // quirks follow the dated build behind a floating alias
 			codeMode: this.configurationService.getValue<boolean>(CODE_MODE_SETTING_ENABLED) === true, // скрипт-инструмент виден модели только при включённой настройке
+			// Откладывание включает только тот, кто передал загруженные имена своего разговора: без них tool_search грузил бы впустую
+			...(toolSearchLoadedToolNames ? {
+				toolSearch: {
+					mode: toolSearchModeOf(this.configurationService.getValue<unknown>(TOOL_SEARCH_SETTING)),
+					thresholdChars: toolSearchThresholdCharsOf(this.configurationService.getValue<unknown>(TOOL_SEARCH_THRESHOLD_CHARS_SETTING)),
+					loadedToolNames: toolSearchLoadedToolNames,
+				},
+			} : {}),
 		};
 
 		// Transiently overlay dynamic-provider transport configs (.vibe/providers.json) so a dynamic
