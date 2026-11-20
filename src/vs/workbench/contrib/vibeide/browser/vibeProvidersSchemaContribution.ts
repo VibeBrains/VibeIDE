@@ -68,7 +68,7 @@ const modelSchema: IJSONSchema = {
 		default: { type: 'boolean', description: 'Пометить как модель по умолчанию (авто-выбор).' },
 		pinned: { type: 'boolean', description: 'Показывать вверху списка.' },
 		protocol: { enum: ['openai', 'openai-responses', 'anthropic', 'gemini'], description: 'Формат API для ЭТОЙ модели — сильнее protocol провайдера. Нужен агрегаторам, которые на одном ключе отдают разные модели разными форматами.' },
-		floating: { type: 'boolean', description: 'id — плавающий алиас: вендор без предупреждения переводит его на новые снапшоты. «Авто» предпочитает ему закреплённую модель, совет моделей и план это отмечают.' },
+		floating: { type: 'boolean', description: 'id — плавающий алиас: вендор без предупреждения переводит его на новые снапшоты. «Автовыбор» предпочитает ему закреплённую модель, совет моделей и план это отмечают.' },
 		deprecation: {
 			type: 'object',
 			description: 'Вендор объявил отключение модели. Показывается при выборе модели; отключённая не участвует в авто-выборе.',
@@ -139,7 +139,7 @@ const providerSchema: IJSONSchema = {
 		headers: { type: 'object', additionalProperties: { type: 'string' }, description: 'Статические HTTP-заголовки: с каждым запросом и с запросом каталога. Слои сливаются по именам.' },
 		query: { type: 'object', additionalProperties: { type: 'string' }, description: 'Статические query-параметры: с каждым запросом и с запросом каталога. Слои сливаются по именам.' },
 		runsLocally: { type: 'boolean', description: 'Модели провайдера работают на этой машине: локальные таймауты, урезанный промпт, индикатор приватности. Без поля — по адресу (localhost, 127.0.0.1, [::1], 0.0.0.0). Локальный прокси к облачной модели объявляет false.' },
-		interactiveOnly: { type: 'boolean', default: false, description: 'Тариф разрешает только ручную работу человека в IDE: true — «Авто» не выбирает модели провайдера, роли оркестрации и шаги пайплайна их не получают автоматически, HTTP API и Telegram отвечают отказом; ручной выбор модели в чате работает как обычно.' },
+		interactiveOnly: { type: 'boolean', default: false, description: 'Тариф разрешает только ручную работу человека в IDE: true — «Автовыбор» не выбирает модели провайдера, роли оркестрации и шаги пайплайна их не получают автоматически, HTTP API и Telegram отвечают отказом; ручной выбор модели в чате работает как обычно.' },
 		timeoutMs: { type: 'number', description: 'Сколько ждать, пока сервер начнёт отвечать (мс). Сильнее vibeide.llm.timeoutMs.*; идущий ответ рвёт только тишина потока.' },
 		promptCacheKey: { type: 'boolean', description: 'Endpoint принимает `prompt_cache_key` (OpenAI, xAI): IDE шлёт ключ, постоянный в пределах разговора, и запросы попадают на сервер с их кэшем — иначе вход может быть оплачен по полной цене. Без объявления поле не отправляется: строгие OpenAI-совместимые вендоры отвечают 400 на незнакомое.' },
 		reasoningDialect: { enum: ['openrouter'], description: 'Как endpoint пишет рассуждение на проводе OpenAI. `openrouter` — объект `reasoning` (`effort`, `max_tokens`, «выключено» — `effort: "none"`) вместо `reasoning_effort`, как у OpenRouter.' },

@@ -1316,8 +1316,9 @@ export const miscS = {
 } as const;
 
 export const modelDdS = {
-	auto: 'Авто',
-	autoDetail: 'Автовыбор модели',
+	// Не «Авто»: так называется режим разрешений в соседнем списке, и две одинаковые плашки рядом путают
+	auto: 'Автовыбор',
+	autoDetail: 'Модель подбирается под каждую задачу',
 	searchModels: 'Быстрый поиск…',
 	noModelSearchMatches: 'Нет совпадений',
 	agentsGroup: 'Внешние агенты',

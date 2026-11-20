@@ -125,15 +125,15 @@ export class VibeideStatusBarContribution extends Disposable implements IWorkben
 
 		if (!modelSelection || (modelSelection.providerName === 'auto' && modelSelection.modelName === 'auto')) {
 			const icon = isActive ? '$(loading~spin)' : '$(code)';
-			const text = isActive ? `${icon} Auto` : `${icon} Auto`;
+			const text = `${icon} ${localize('vibeide.model.auto.text', "Автовыбор")}`;
 			const tooltipReason = isOffline
 				? '\n\n' + localize('vibeide.model.tooltip.reason.offline', 'Причина: автономный режим — используется локальная модель')
 				: '\n\n' + localize('vibeide.model.tooltip.reason.auto', 'Причина: автоматический выбор модели по задаче');
 			return {
 				name: localize('vibeide.model', "Модель VibeIDE"),
 				text,
-				ariaLabel: localize('vibeide.model.auto', "VibeIDE, модель: Авто{0}", isActive ? ' (активна)' : ''),
-				tooltip: statusMessage || (localize('vibeide.model.auto.tooltip', "Модель: Авто (автоматический выбор)") + tooltipReason),
+				ariaLabel: localize('vibeide.model.auto', "VibeIDE, модель: Автовыбор{0}", isActive ? ' (активна)' : ''),
+				tooltip: statusMessage || (localize('vibeide.model.auto.tooltip', "Модель: Автовыбор — подбирается под каждую задачу") + tooltipReason),
 			};
 		}
 
