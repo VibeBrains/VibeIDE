@@ -15,6 +15,8 @@ import {
 	searchTools,
 	TOOL_SEARCH_TOOL_NAME,
 	toolSchemaChars,
+	toolSchemasChars,
+	toolSchemasTokens,
 } from '../../common/prompt/toolDeferral.js';
 
 const BUILTINS = new Set(['read_file', 'web_search']);
@@ -189,6 +191,22 @@ suite('toolDeferral', () => {
 		assert.deepStrictEqual(
 			searchTools('select: one, two, three', candidates, 5).map(m => m.description),
 			['First sentence', 'Line one', 'x'.repeat(200)],
+		);
+	});
+
+	test('toolSchemasChars: сумма схем списка, ноль у пустого и отсутствующего', () => {
+		const tools = [tool('alpha', 'x'.repeat(100)), tool('beta')];
+		assert.deepStrictEqual(
+			[toolSchemasChars(tools), toolSchemasChars([]), toolSchemasChars(undefined)],
+			[totalChars(tools), 0, 0],
+		);
+	});
+
+	test('toolSchemasTokens: символы делятся на четыре с округлением вверх, как текст промпта', () => {
+		const tools = [tool('alpha', 'x'.repeat(100)), tool('beta')];
+		assert.deepStrictEqual(
+			[toolSchemasTokens(tools), toolSchemasTokens([])],
+			[Math.ceil(totalChars(tools) / 4), 0],
 		);
 	});
 

@@ -60,6 +60,28 @@ export function toolSchemaChars(tool: InternalToolInfo): number {
 	return JSON.stringify({ name: tool.name, description: tool.description, parameters: tool.params }).length;
 }
 
+/** Символов на токен — то же деление, что у текста в `approximateTotalTokens` (длина / 4) */
+const SCHEMA_CHARS_PER_TOKEN = 4;
+
+/**
+ * Сколько символов занимают схемы всего списка — ровно то, что уйдёт в поле `tools` запроса
+ *
+ * `undefined` и пустой список дают ноль: у вызывающих, которым список не достался, схем в теле нет
+ */
+export function toolSchemasChars(tools: readonly InternalToolInfo[] | undefined): number {
+	return (tools ?? []).reduce((sum, tool) => sum + toolSchemaChars(tool), 0);
+}
+
+/**
+ * Оценка схем в токенах тем же делением, что у текста промпта
+ *
+ * Нужна и оценке контекста, и разбивке: схемы уходят в запрос, значит занимают окно модели
+ */
+export function toolSchemasTokens(tools: readonly InternalToolInfo[] | undefined): number {
+	const chars = toolSchemasChars(tools);
+	return chars === 0 ? 0 : Math.ceil(chars / SCHEMA_CHARS_PER_TOKEN);
+}
+
 /** Всё, от чего зависит разбиение */
 export interface IToolDeferralOptions {
 	/** Режим из настройки */

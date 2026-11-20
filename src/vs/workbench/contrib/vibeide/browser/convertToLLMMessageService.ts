@@ -64,6 +64,7 @@ function uint8ArrayToBase64(data: Uint8Array): string {
 }
 import { getIsReasoningEnabledState, getReservedOutputTokenSpace, getModelCapabilities, providerVendor } from '../common/modelCapabilities.js';
 import { reParsedToolXMLString, ModelIdentity, IToolSearchOptions, availableToolsWithDeferral, chat_systemMessage, chat_systemMessage_local, chat_turnContext, systemToolsXMLPrompt } from '../common/prompt/prompts.js';
+import { toolSchemasTokens } from '../common/prompt/toolDeferral.js';
 import { loadedToolNamesOfMessages, TOOL_SEARCH_SETTING, TOOL_SEARCH_THRESHOLD_CHARS_SETTING, toolSearchModeOf, toolSearchThresholdCharsOf } from '../common/toolSearchConfiguration.js';
 import { detectModelFamily } from '../common/prompt/modelFamily.js';
 import { computeLastExchangePinSet } from '../common/prompt/lastExchangePin.js';
@@ -174,6 +175,8 @@ type SimpleLLMMessage = {
 
 const CHARS_PER_TOKEN = 4; // assume abysmal chars per token
 const TRIM_TO_LEN = 120;
+/** Запас на схемы инструментов, когда вызывающий не передал их настоящий вес */
+const NATIVE_TOOL_DEFINITIONS_OVERHEAD_FALLBACK = 1000;
 // LEGACY safety clamp, originally «avoid OpenAI 30k TPM» hardcoded at 20k tokens. It SILENTLY
 // crushed every message above the cap to 120-char stubs on every request regardless of the
 // model's real window — busting the prompt cache each turn (the prefix mutated), erasing the
@@ -917,6 +920,7 @@ const prepareOpenAIOrAnthropicMessages = ({
 	contextWindow,
 	reservedOutputTokenSpace,
 	maxInputTokensSafety,
+	toolSchemaTokens,
 }: {
 	messages: SimpleLLMMessage[];
 	systemMessage: string;
@@ -928,6 +932,8 @@ const prepareOpenAIOrAnthropicMessages = ({
 	reservedOutputTokenSpace: number | null | undefined;
 	/** Hard input-token cap for the legacy safetyTrim (0 = disabled). See MAX_INPUT_TOKENS_SAFETY_DEFAULT. */
 	maxInputTokensSafety?: number;
+	/** Настоящий вес схем, уходящих полем `tools`; undefined — вызывающий их не считал, берётся старый запас */
+	toolSchemaTokens?: number;
 }): { messages: AnthropicOrOpenAILLMMessage[]; separateSystemMessage: string | undefined } => {
 
 	reservedOutputTokenSpace = Math.max(
@@ -1113,10 +1119,11 @@ const prepareOpenAIOrAnthropicMessages = ({
 		// Estimate ~8 tokens per message for structure (role, content wrapper, etc.)
 		const messageStructureOverhead = messages.length * 8;
 
-		// Native tool definitions overhead (when using openai-style, tools are sent separately)
-		// Conservative estimate: ~500-2000 tokens depending on number of tools
-		// Since we don't have tool info here, use a conservative buffer
-		const nativeToolDefinitionsOverhead = specialToolFormat === 'openai-style' ? 1000 : 0;
+		// Native tool definitions overhead: схемы уходят отдельным полем `tools`, и их настоящий вес знает
+		// вызывающий; без него остаётся прежний запас — считать здесь нечего, списка инструментов тут нет
+		const nativeToolDefinitionsOverhead = specialToolFormat
+			? toolSchemaTokens ?? NATIVE_TOOL_DEFINITIONS_OVERHEAD_FALLBACK
+			: 0;
 
 		// Total estimated tokens
 		const textTokens = Math.ceil(textChars / CHARS_PER_TOKEN);
@@ -1341,6 +1348,8 @@ const prepareMessages = (params: {
 	contextWindow: number;
 	reservedOutputTokenSpace: number | null | undefined;
 	maxInputTokensSafety?: number;
+	/** Настоящий вес схем, уходящих полем `tools`; undefined — у этого запроса списка инструментов нет */
+	toolSchemaTokens?: number;
 	providerName: ProviderId;
 }): { messages: LLMChatMessage[]; separateSystemMessage: string | undefined } => {
 
@@ -1915,6 +1924,8 @@ class ConvertToLLMMessageService extends Disposable implements IConvertToLLMMess
 			contextWindow: effectiveContextWindow,
 			reservedOutputTokenSpace: effectiveReservedOutput,
 			maxInputTokensSafety: this.configurationService.getValue<number>('vibeide.chat.maxInputTokensSafety') ?? 0,
+			// У этих фич списка инструментов нет — схем в теле запроса тоже
+			toolSchemaTokens: 0,
 			providerName,
 		});
 		return { messages, separateSystemMessage };
@@ -1979,11 +1990,17 @@ class ConvertToLLMMessageService extends Disposable implements IConvertToLLMMess
 		// ride in each message's <turn_context> and fall into the conversation share, measured as the remainder.
 		// Отчёта о составе просят без разговора: загруженных имён нет, остальное — как в настройках
 		const toolSearch = this._toolSearchOptionsFor([]);
+		const codeMode = this.configurationService.getValue<boolean>(CODE_MODE_SETTING_ENABLED) === true;
+		const { maxTools } = this._promptBudgets(sel?.providerName, sel?.modelName);
 		const fullSystem = await this._generateChatMessagesSystemMessage('agent', specialToolFormat, sel?.providerName, sel?.modelName, toolSearch);
-		// Native function-calling models receive tools via the SDK, NOT in the prompt. We still
-		// estimate the XML tool-schema size to show how heavy the tool surface is for this model.
-		const toolsStr = systemToolsXMLPrompt('agent', this.mcpService.getMCPTools(), undefined, this.configurationService.getValue<boolean>(CODE_MODE_SETTING_ENABLED) === true, toolSearch).xml;
+		// Разбиение с отложенной загрузкой: те же настройки и режим, что у настоящего запроса,
+		// поэтому строка показывает то, что действительно уйдёт, а не весь арсенал MCP
+		const toolPartition = availableToolsWithDeferral('agent', this.mcpService.getMCPTools(), { maxTools, codeMode, toolSearch });
+		const deferredToolCount = toolPartition.deferred.length;
+		// У нативных моделей инструменты идут через SDK, а не текстом промпта: их вес — сами схемы
+		const toolsStr = systemToolsXMLPrompt('agent', this.mcpService.getMCPTools(), maxTools, codeMode, toolSearch).xml;
 		const toolsViaSdk = !!specialToolFormat;
+		const toolsTokens = toolsViaSdk ? toolSchemasTokens(toolPartition.offered) : est(toolsStr);
 		const frameTokens = Math.max(0, est(fullSystem) - (toolsViaSdk ? 0 : est(toolsStr)));
 
 		// AI-instruction source pieces — read the SAME getters _getCombinedAIInstructions uses
@@ -1995,9 +2012,10 @@ class ConvertToLLMMessageService extends Disposable implements IConvertToLLMMess
 		const linkedRefs = this.projectRulesService.getLinkedReferences();
 		const hasWorkspace = this.workspaceContextService.getWorkspace().folders.length > 0;
 
+		const toolsLabel = toolsViaSdk ? 'Инструменты (через SDK провайдера)' : 'Инструменты (XML в промпте)';
 		const segments: ContextBreakdownSegment[] = [
 			{ key: 'frame', label: 'Системный промпт (каркас)', tokens: frameTokens },
-			{ key: 'tools', label: toolsViaSdk ? 'Инструменты (через SDK провайдера)' : 'Инструменты (XML в промпте)', tokens: est(toolsStr) },
+			{ key: 'tools', label: deferredToolCount > 0 ? `${toolsLabel}, отложено ${deferredToolCount}` : toolsLabel, tokens: toolsTokens },
 			{ key: 'global', label: 'Глобальные AI-инструкции (vibeide.*)', tokens: est(globalAIInstructions) },
 			{ key: 'projectRules', label: 'Правила проекта <project_rules>', tokens: est(vibeRules) },
 			{ key: 'playbook', label: 'Playbook (.vibe agent playbook)', tokens: hasWorkspace ? est(VIBE_DOTVIBE_AGENT_PLAYBOOK) : 0 },
@@ -2065,6 +2083,14 @@ class ConvertToLLMMessageService extends Disposable implements IConvertToLLMMess
 		const preferJsonToolArguments = this.configurationService.getValue<boolean>('vibeide.agent.preferJsonToolArguments') ?? false;
 		// Загруженные имена — из этого же разговора: схемы уже виденных инструментов не откладываются
 		const toolSearch = this._toolSearchOptionsFor(chatMessages);
+		// Схемы, которые уйдут полем `tools`: у XML-формата они уже внутри systemMessage и второй раз не считаются
+		const nativeToolSchemaTokens = specialToolFormat
+			? toolSchemasTokens(availableToolsWithDeferral(chatMode, this.mcpService.getMCPTools(), {
+				maxTools: this._promptBudgets(validProviderName, modelName).maxTools,
+				codeMode: this.configurationService.getValue<boolean>(CODE_MODE_SETTING_ENABLED) === true,
+				toolSearch,
+			}).offered)
+			: 0;
 
 		let systemMessage: string;
 		if (disableSystemMessage) {
@@ -2354,8 +2380,10 @@ class ConvertToLLMMessageService extends Disposable implements IConvertToLLMMess
 
 		// Smart context truncation: Prioritize recent messages and user selections
 		const estimateTokens = (text: string) => Math.ceil(text.length / 4);
+		// Схемы входят в каждое число одинаково: и в бюджеты, и в сырую оценку для калибровки —
+		// настоящие promptTokens провайдера их содержат, иначе множитель калибровки уедет
 		const approximateTotalTokens = (msgs: { role: string; content: string }[], sys: string, instr: string) =>
-			msgs.reduce((acc, m) => acc + estimateTokens(m.content), estimateTokens(sys) + estimateTokens(instr));
+			msgs.reduce((acc, m) => acc + estimateTokens(m.content), estimateTokens(sys) + estimateTokens(instr)) + nativeToolSchemaTokens;
 		const rot = reservedOutputTokenSpace ?? 0;
 
 		// Optimize context for local models: cap at reasonable values to reduce latency
@@ -2675,6 +2703,8 @@ class ConvertToLLMMessageService extends Disposable implements IConvertToLLMMess
 			contextWindow,
 			reservedOutputTokenSpace,
 			maxInputTokensSafety: this.configurationService.getValue<number>('vibeide.chat.maxInputTokensSafety') ?? 0,
+			// Настоящий вес схем вместо прежнего запаса в 1000 токенов
+			toolSchemaTokens: nativeToolSchemaTokens,
 			providerName: validProviderName,
 		});
 

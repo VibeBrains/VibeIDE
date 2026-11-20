@@ -62,6 +62,37 @@ suite('providerErrorTranslator', () => {
 		});
 	});
 
+	suite('translateProviderError — 5xx with a request-size tail', () => {
+		const adapterPrefix = 'Provider unavailable (HTTP 500) for kimi/k3.1-pro — the upstream did not respond. Retry shortly or switch the model.';
+
+		test('без хвоста о размере — прежний совет и никаких домыслов о теле', () => {
+			const out = translateProviderError(adapterPrefix);
+			assert.ok(out);
+			assert.deepStrictEqual(
+				[out.includes('(HTTP 500)'), out.includes('Тело запроса'), out.includes('выключите лишние MCP-серверы')],
+				[true, false, false],
+			);
+		});
+
+		test('хвост меньше порога — размер назван, совет про MCP не добавлен', () => {
+			const out = translateProviderError(`${adapterPrefix} Request ≈ 120 KB, tool schemas ≈ 40 KB.`);
+			assert.ok(out);
+			assert.deepStrictEqual(
+				[out.includes('Тело запроса ≈ 120 КБ, из них схемы инструментов ≈ 40 КБ.'), out.includes('выключите лишние MCP-серверы')],
+				[true, false],
+			);
+		});
+
+		test('хвост больше порога — карточка советует выключить MCP или включить toolSearch', () => {
+			const out = translateProviderError(`${adapterPrefix} Request ≈ 558 KB, tool schemas ≈ 228 KB.`);
+			assert.ok(out);
+			assert.deepStrictEqual(
+				[out.includes('Тело запроса ≈ 558 КБ, из них схемы инструментов ≈ 228 КБ.'), out.includes('vibeide.agent.toolSearch в always')],
+				[true, true],
+			);
+		});
+	});
+
 	suite('translateProviderError — pass-through', () => {
 		test('null / empty / whitespace', () => {
 			assert.strictEqual(translateProviderError(null), null);

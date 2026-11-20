@@ -30,6 +30,7 @@ import type { JSONObject, JSONSchema7 } from '@ai-sdk/provider';
 import { createHash } from 'crypto';
 import { generateUuid } from '../../../../../base/common/uuid.js';
 import { availableTools, InternalToolInfo } from '../../common/prompt/prompts.js';
+import { toolSchemasChars } from '../../common/prompt/toolDeferral.js';
 import { TOOL_NAME_ALIASES, applyParamAliases } from '../../common/prompt/toolAliases.js';
 import { lenientJsonParseObject } from '../../common/lenientJson.js';
 import { hasToolCallMarkup } from '../../common/xmlToolNormalize.js';
@@ -214,6 +215,12 @@ const RATE_LIMIT_FAIL_FAST_RETRY_AFTER_SECONDS = 10;
  * A caller that has one asks for none (`sdkMaxRetries: 0`), see the call options below
  */
 const DEFAULT_SDK_MAX_RETRIES = 2;
+
+/** Символов в килобайте для оценки тела запроса в сообщении об ошибке провайдера */
+const REQUEST_SIZE_CHARS_PER_KB = 1024;
+
+/** Килобайты оценки размера: округлённые, чтобы хвост ошибки читался, а не тонул в цифрах */
+const kilobytesOf = (chars: number): number => Math.round(Math.max(0, chars) / REQUEST_SIZE_CHARS_PER_KB);
 
 /**
  * The status a response had before `makeCustomFetch` re-statused it. A 429 turned into 402 so the SDK stops
@@ -2184,6 +2191,14 @@ export const sendViaAISdk = async (params: SendChatParams_Internal): Promise<voi
 		experimental_repairToolCall: repairToolCall,
 	};
 
+	// Хвост ошибки 5xx с размером тела: без него отказ из-за объёма не отличить от любого другого
+	// Считается только при ошибке: сообщения с картинками весят мегабайты, и сериализовать их на каждый запрос незачем
+	const requestSizeTail = (): string => {
+		const schemaChars = toolSchemasChars(offeredTools);
+		const bodyChars = (systemForCall?.length ?? 0) + JSON.stringify(modelMessages).length + schemaChars;
+		return `Request ≈ ${kilobytesOf(bodyChars)} KB, tool schemas ≈ ${kilobytesOf(schemaChars)} KB.`;
+	};
+
 	try {
 		const result = streamText(callOptions);
 
@@ -2434,7 +2449,8 @@ export const sendViaAISdk = async (params: SendChatParams_Internal): Promise<voi
 			// it's the provider, not their request, instead of the retry wrapper's
 			// "Failed after N attempts. Last error: <none>".
 			onError({
-				message: `Provider unavailable (HTTP ${status}) for ${providerName}/${modelName} — the upstream did not respond. Retry shortly or switch the model.`,
+				// Размер запроса называем прямо: по нему видно, не тело ли запроса провайдер не принял
+				message: `Provider unavailable (HTTP ${status}) for ${providerName}/${modelName} — the upstream did not respond. Retry shortly or switch the model. ${requestSizeTail()}`,
 				fullError: error instanceof Error ? error : null,
 				...diag,
 			});

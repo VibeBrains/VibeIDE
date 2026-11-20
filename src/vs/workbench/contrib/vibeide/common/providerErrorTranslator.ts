@@ -25,6 +25,12 @@ const ORIGINAL_ECHO_MAX_CHARS = 180;
 /** The 5xx status the error text names, e.g. `Provider unavailable (HTTP 503)`; the codes are the ones the gateway rule below matches */
 const SERVER_STATUS_IN_TEXT = /\b(?<status>50[0234]|52\d)\b/;
 
+/** The request-size tail the AI-SDK adapter appends to a 5xx, e.g. `Request ≈ 558 KB, tool schemas ≈ 228 KB.` */
+const REQUEST_SIZE_IN_TEXT = /Request ≈ (?<requestKb>\d+) KB, tool schemas ≈ (?<schemasKb>\d+) KB\./;
+
+/** Body size in kilobytes from which a 5xx is worth blaming on the request itself, not just on the provider */
+const LARGE_REQUEST_HINT_KB = 200;
+
 /** Ordered dictionary — FIRST match wins, so specific families go before generic ones. */
 const TRANSLATION_RULES: readonly { pattern: RegExp; ru: string | ((message: string) => string) }[] = [
 	// Usage-quota exhausted — MUST precede rate-limit: «Rate limit exceeded: Monthly usage
@@ -98,9 +104,19 @@ const TRANSLATION_RULES: readonly { pattern: RegExp; ru: string | ((message: str
 	{
 		pattern: /bad gateway|service unavailable|internal server error|gateway time?-?out|\b50[0234]\b|\b52[0-9]\b/i,
 		// The code is named so that the card says which error the provider answered with
+		// Размер тела — когда адаптер его приписал: по нему видно, не отказал ли провайдер из-за объёма
 		ru: message => {
 			const status = SERVER_STATUS_IN_TEXT.exec(message)?.groups?.status;
-			return `Сервер провайдера временно недоступен (${status ? `HTTP ${status}` : '5xx'}). Повторите попытку позже.`;
+			const base = `Сервер провайдера временно недоступен (${status ? `HTTP ${status}` : '5xx'}). Повторите попытку позже.`;
+			const size = REQUEST_SIZE_IN_TEXT.exec(message)?.groups;
+			if (!size) { return base; }
+			const requestKb = Number(size.requestKb);
+			const schemasKb = Number(size.schemasKb);
+			const note = ` Тело запроса ≈ ${requestKb} КБ, из них схемы инструментов ≈ ${schemasKb} КБ.`;
+			const hint = requestKb >= LARGE_REQUEST_HINT_KB
+				? ' Такой объём провайдер мог не принять: выключите лишние MCP-серверы или поставьте vibeide.agent.toolSearch в always.'
+				: '';
+			return `${base}${note}${hint}`;
 		},
 	},
 	// Stream stall (provider-side wording; our own watchdog texts are Russian at source).
