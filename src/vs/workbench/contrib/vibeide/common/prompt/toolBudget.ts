@@ -50,6 +50,23 @@ export interface ToolBudgetResult {
 }
 
 /**
+ * All non-core tools in the order they should be given up.
+ *
+ * Shared with deferred loading, which needs the same order: the tool that survives a tight budget
+ * last is also the tool whose schema should stay in the request longest. Two orders would drift.
+ *
+ * @param tools Tools in registry order (built-ins first, MCP appended) — the order `availableTools` returns.
+ * @param builtinNames Names considered built-in; anything else is treated as MCP and given up first.
+ */
+export function sacrificeOrder(tools: readonly InternalToolInfo[], builtinNames: ReadonlySet<string>): InternalToolInfo[] {
+	const sacrificial = tools.filter(t => !CORE_TOOL_NAMES.includes(t.name));
+	const mcp = sacrificial.filter(t => !builtinNames.has(t.name));
+	const builtin = sacrificial.filter(t => builtinNames.has(t.name));
+	// MCP first (most situational), then specialised built-ins from the end of the registry backwards
+	return [...mcp, ...builtin.slice().reverse()];
+}
+
+/**
  * Trim a tool list down to `maxTools`, keeping the core.
  *
  * `maxTools` of 0, negative, or non-finite means "no budget" — the list passes through untouched.
@@ -74,15 +91,7 @@ export function applyToolBudget(
 		return { tools: core, dropped: tools.filter(t => !core.includes(t)).map(t => t.name), coreExceedsBudget: true };
 	}
 
-	// Sacrifice order: MCP first (most situational), then specialised built-ins from the end of the
-	// registry backwards — the registry is ordered from foundational to specialised, so walking it
-	// in reverse drops the least foundational first.
-	const sacrificial = tools.filter(t => !core.includes(t));
-	const mcp = sacrificial.filter(t => !builtinNames.has(t.name));
-	const builtin = sacrificial.filter(t => builtinNames.has(t.name));
-	const dropOrder = [...mcp, ...builtin.slice().reverse()];
-
-	const toDrop = dropOrder.slice(0, tools.length - maxTools);
+	const toDrop = sacrificeOrder(tools, builtinNames).slice(0, tools.length - maxTools);
 	const dropped = new Set(toDrop.map(t => t.name));
 	return {
 		tools: tools.filter(t => !dropped.has(t.name)),
