@@ -673,7 +673,7 @@ export class VibeSubagentService extends Disposable implements IVibeSubagentServ
 
 		const handoff = entry.handoff;
 		// The subagent's token quota is its OWN budget (config `vibeide.subagent.maxTokens`), NOT the
-		// session remainder. Coupling to the remainder starved a role (and, on autopilot, every role)
+		// session remainder. Coupling to the remainder starved a role (and, in autonomous modes, every role)
 		// the moment the parent had spent most of the session — the ~20k first-hop abort. The global
 		// session guard (sendLLMMessageService) stays the backstop against overspend.
 		const configuredQuota = this._configuration.getValue<number>('vibeide.subagent.maxTokens');
@@ -823,8 +823,8 @@ export class VibeSubagentService extends Disposable implements IVibeSubagentServ
 			// Работа есть, но она не зафиксирована — сливать нечего, и молчать об этом нельзя.
 			return { note: `\n\nЗафиксировать работу в ветке ${worktree.branch} не удалось — она лежит НЕЗАФИКСИРОВАННОЙ в дереве ${worktree.path}. Причина — в журнале «Worktree».`, committed: false, merged: false };
 		}
-		const autopilot = isAutonomousPermissionMode(this._settings.state.globalSettings.chatPermissionMode);
-		if (status !== 'success' || !autopilot) {
+		const autonomous = isAutonomousPermissionMode(this._settings.state.globalSettings.chatPermissionMode);
+		if (status !== 'success' || !autonomous) {
 			return { note: `\n\nРабота зафиксирована в ветке ${worktree.branch} (дерево ${worktree.path}) и НЕ влита в проект.`, committed: true, merged: false };
 		}
 		try {

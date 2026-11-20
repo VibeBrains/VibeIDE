@@ -34,6 +34,7 @@ import type { ChatJournalAction } from '../common/chatJournal.js';
 import { availableTools, builtinTools, builtinToolNames, chat_userMessageContent, isABuiltinToolName } from '../common/prompt/prompts.js';
 import { TOOL_NAME_ALIASES, applyParamAliases, detectToolByParamShape } from '../common/prompt/toolAliases.js';
 import { toolCallSignature, resolveAntiLoopThreshold, endsWithQuestion, looksLikeCompletionText, QUESTION_AUTO_CONTINUE_DEFAULT } from '../common/agentLoopHeuristics.js';
+import { decideTurnContinuation } from '../common/turnContinuation.js';
 import { IVibeImageCostService } from './vibeImageCostService.js';
 import { IVibeTokenBudgetService } from '../common/vibeTokenBudgetService.js';
 import { getModelCapabilities, isFloatingModel, type AutoDowngradeReason } from '../common/modelCapabilities.js';
@@ -119,7 +120,7 @@ import { IVibeVerifyGateService } from './vibeVerifyGateService.js';
 import { decideVerifyGate } from '../common/verifyGatePolicy.js';
 import { IVibeTurnChecksService } from './vibeTurnChecksService.js';
 import { decideTurnChecks, evaluateTurnChecks, renderTurnChecksCorrective, TurnCheckResult, TurnChecksDecision } from '../common/agentTurnChecks.js';
-import { AUTOPILOT_EMPTY_TURN_NUDGE, AUTOPILOT_QUESTION_NUDGE, AUTOPILOT_TEXT_TURN_NUDGE, AUTOPILOT_XML_COMPLETE_HINT, designHookNudge, slopGateNudge, unparsedToolCallNudge, verifyGateNudge, XML_REPAIR_NUDGE } from '../common/agentNudges.js';
+import { designHookNudge, EMPTY_TURN_NUDGE, QUESTION_NUDGE, slopGateNudge, TEXT_TURN_NUDGE, unparsedToolCallNudge, verifyGateNudge, XML_COMPLETE_HINT, XML_REPAIR_NUDGE } from '../common/agentNudges.js';
 import { breakerName, IVibeCircuitBreakerService, PROTECTIVE_BREAKERS } from '../common/agentCircuitBreakers.js';
 import { DesignHookMode, decideDesignHook, floorFindings, touchesUi } from '../common/designReview/designHookPolicy.js';
 import { Finding, ViewportLabel, mergeViewportFindings, reviewDesign, summarize } from '../common/designReview/designSlopRules.js';
@@ -3048,18 +3049,18 @@ class ChatThreadService extends Disposable implements IChatThreadService {
 		}
 		// Drift-pause policy (`vibeide.plans.toolDriftPause`):
 		//   'always'      — pause on every cross-class drift (pre-existing behavior);
-		//   'manual-only' — DEFAULT: under autopilot keep going (a pause on every step defeats
-		//                   the point of autopilot — the user had to scroll up and press Resume
-		//                   over and over); without autopilot pause as before;
+		//   'manual-only' — DEFAULT: в режимах «Авто» и «Обход» продолжать (пауза на каждом шаге
+		//                   обессмысливает автономность — человеку пришлось бы прокручивать вверх
+		//                   и жать «Продолжить» снова и снова); в «Вручную» и «Принимать правки» пауза;
 		//   'never'       — log-only, never pause.
 		const driftMode = this._configurationService.getValue<unknown>('vibeide.plans.toolDriftPause');
-		const autopilotOn = isAutonomousPermissionMode(this._settingsService.state.globalSettings.chatPermissionMode);
-		const shouldPause = driftMode === 'always' ? true : driftMode === 'never' ? false : !autopilotOn;
+		const autonomous = isAutonomousPermissionMode(this._settingsService.state.globalSettings.chatPermissionMode);
+		const shouldPause = driftMode === 'always' ? true : driftMode === 'never' ? false : !autonomous;
 		if (!shouldPause) {
 			// Every drifting call lands in the activity log, but the toast fires ONCE per plan
 			// step (audit B) — a step whose tools all drift would otherwise spam a notification
 			// per tool call, recreating the annoyance this mode exists to remove.
-			this._agentActivityLog.logStarted(`Plan drift auto-continue: инструмент "${String(toolName)}" вне списка шага (${driftMode === 'never' ? 'режим never' : 'автопилот'})`);
+			this._agentActivityLog.logStarted(`Plan drift auto-continue: инструмент "${String(toolName)}" вне списка шага (${driftMode === 'never' ? 'режим never' : 'режим Авто/Обход'})`);
 			const driftKey = `${threadId}:${stepState.planIdx}:${stepState.stepIdx}`;
 			if (!this._driftNotifiedSteps.has(driftKey)) {
 				this._driftNotifiedSteps.add(driftKey);
@@ -3137,11 +3138,11 @@ class ChatThreadService extends Disposable implements IChatThreadService {
 		if (!uri || this._vibeSpecsService.isPathInScope(spec, uri)) {
 			return false;
 		}
-		// Policy mirrors `vibeide.plans.toolDriftPause`: always / manual-only (default: skip under
-		// autopilot) / never.
+		// Policy mirrors `vibeide.plans.toolDriftPause`: always / manual-only (default: skip in
+		// auto and bypass) / never.
 		const driftMode = this._configurationService.getValue<unknown>('vibeide.specs.driftPause');
-		const autopilotOn = isAutonomousPermissionMode(this._settingsService.state.globalSettings.chatPermissionMode);
-		const shouldPause = driftMode === 'always' ? true : driftMode === 'never' ? false : !autopilotOn;
+		const autonomous = isAutonomousPermissionMode(this._settingsService.state.globalSettings.chatPermissionMode);
+		const shouldPause = driftMode === 'always' ? true : driftMode === 'never' ? false : !autonomous;
 		const driftKey = `${threadId}:${spec.specId}:${uri.fsPath}`;
 		if (!shouldPause) {
 			if (!this._specDriftNotified.has(driftKey)) {
@@ -5559,14 +5560,13 @@ Output ONLY the JSON, no other text. Start with { and end with }.`;
 		// #6 — broken-XML tool-call repair fires at most once per request (anti-loop).
 		let hasRepairedXmlThisRequest = false;
 		// Premature-stop nudge: consecutive agent-mode turns that returned text with NO tool call.
-		// Reset to 0 on any executed tool call (progress). Bounds the Autopilot auto-continue.
+		// Reset to 0 on any executed tool call (progress). Bounds the auto-continue in auto/bypass.
 		let autoContinueOnTextCount = 0;
-		// Per-turn force flag: set when the Autopilot premature-stop handler injects a corrective
+		// Per-turn force flag: set when the premature-stop handler injects a corrective
 		// nudge, consumed (and reset) by the very next sendLLMMessage so it requests tool_choice=required.
 		let forceToolUseNextTurn = false;
-		// Question-ending turns get their own ALWAYS-nudge lane under Autopilot (a closing «…?»
-		// is a permission-seeking stall nobody answers in unattended mode). Bounded by the
-		// `autoContinueOnQuestion` setting (0 = unlimited); reset on any executed tool call, same as above.
+		// Ходы с вопросом в треде без человека подпинываются отдельным счётчиком: там отвечать некому
+		// и прогон иначе встал бы. Ограничен `autoContinueOnQuestion` (0 = без лимита), сброс на инструменте.
 		let questionNudgeCount = 0;
 		// A call written as text in markup nothing parsed gets one request to repeat it as a real call; reset on any executed call
 		let unparsedToolCallRetries = 0;
@@ -5629,7 +5629,7 @@ Output ONLY the JSON, no other text. Start with { and end with }.`;
 
 		// tool use loop
 		// Soft checkpoint (B): pause-and-ask after N iterations or M tokens in a single run, so a
-		// non-converging autopilot run can't silently grind dozens of steps / millions of tokens.
+		// non-converging autonomous run can't silently grind dozens of steps / millions of tokens.
 		// Independent of the hard maxLoopIterations cap (which the user may have disabled with 0).
 		const rawSoftIter = this._configurationService.getValue<unknown>('vibeide.agent.softCheckpointIterations');
 		// Fallback mirrors the registered config default (0 = no pauses, full-autonomy default).
@@ -5671,7 +5671,7 @@ Output ONLY the JSON, no other text. Start with { and end with }.`;
 
 			// Soft checkpoint (B): once this run crosses the iteration or token threshold, pause and
 			// ask before doing more work. The token side is only probed when that checkpoint is armed.
-			// D.2b: autopilot may auto-reset the session token counter mid-run (it drops below our
+			// D.2b: auto/bypass may auto-reset the session token counter mid-run (it drops below our
 			// baseline). Re-baseline so the token checkpoint keeps firing instead of silently going
 			// dead (spent would otherwise clamp to 0 forever after a reset).
 			if (nextSoftTokenCheckpoint !== Number.POSITIVE_INFINITY) {
@@ -6781,7 +6781,7 @@ Output ONLY the JSON, no other text. Start with { and end with }.`;
 							requestId: finalRequestId,
 							msgHead: (error?.message ?? '').slice(0, 100),
 							status: (error?.fullError as { statusCode?: number } | null | undefined)?.statusCode,
-							autopilot: isAutonomousPermissionMode(this._settingsService.state.globalSettings.chatPermissionMode),
+							permissionMode: this._settingsService.state.globalSettings.chatPermissionMode,
 							rateWaitStreak: this._rateLimitAutoWaitStreak.get(threadId) ?? 0,
 							...(refusal ? {
 								httpStatus: refusal.httpStatus,
@@ -6915,7 +6915,7 @@ Output ONLY the JSON, no other text. Start with { and end with }.`;
 						// upstream — see customFetch) means «slow down», not «broken». Stopping the
 						// run over a transient TPM window forces the user to babysit «продолжи»
 						// (observed: Anthropic org limit 30k input-tokens/min at ~23k-token turns,
-						// 3-4 manual resumes per task). Deliberately NOT gated on Autopilot — this
+						// 3-4 manual resumes per task). Deliberately NOT gated on the autonomous modes — this
 						// is an infrastructure retry of the same LLM turn, no tools are executed
 						// during the pause, so it is safe in supervised mode too.
 						//
@@ -7793,9 +7793,11 @@ Output ONLY the JSON, no other text. Start with { and end with }.`;
 				// Premature-stop handling (agent mode, model returned text with NO tool call).
 				// Weak tool-callers (deepseek/minimax via OpenCode Go) sometimes narrate a turn as
 				// plain text instead of emitting the next tool call, which would silently end the
-				// run mid-task. Behaviour splits on Autopilot:
-				//   - Autopilot ON  → inject ONE corrective "continue" turn (capped, anti-loop).
-				//   - Autopilot OFF → stop, but explain why + surface a one-click «Продолжить».
+				// run mid-task. Behaviour splits on the permission mode:
+				//   - auto/bypass → inject ONE corrective "continue" turn (capped, anti-loop).
+				//   - manual/edits → stop, but explain why + surface a one-click «Продолжить».
+				// A turn that ends with a QUESTION is different: a chat with a human always stops and
+				// waits for the answer, whatever the mode; only a humanless thread nudges it.
 				// The model's real reply is already saved above; we only add a nudge/notice on top.
 				// Skipped when a synthesis path already handled this turn (those own their own flow).
 				// COMPLETELY EMPTY turns (no text AND no tool call — Zen degradation artifact,
@@ -7804,7 +7806,7 @@ Output ONLY the JSON, no other text. Start with { and end with }.`;
 				if (chatMode === 'agent' && !toolCall
 					&& !hasSynthesizedToolsInThisRequest && !toolSynthesizedAndMessageAdded) {
 					// The model did call, in markup nothing parsed. It gets one request to repeat the call as a real one, independent
-					// of the autopilot: this is a broken call, not a turn that ended in prose. A second failure in a row stops the run
+					// of the permission mode: this is a broken call, not a turn that ended in prose. A second failure in a row stops the run
 					// with the resume affordance — the generic «вызови инструмент» would only make it repeat the same markup, turn
 					// after turn, until the run ended as «finished with text». The notice above says what happened
 					if (info.finishNotice?.kind === 'unparsedToolCall') {
@@ -7831,20 +7833,28 @@ Output ONLY the JSON, no other text. Start with { and end with }.`;
 						this._setStreamState(threadId, { isRunning: undefined });
 						return;
 					}
-					const autopilotOn = isAutonomousPermissionMode(this._settingsService.state.globalSettings.chatPermissionMode);
+					const autonomousMode = isAutonomousPermissionMode(effectivePermissionMode(chatMode, this._settingsService.state.globalSettings.chatPermissionMode));
+					const humanless = this._autonomousThreads.has(threadId);
 					const rawMaxNudges = this._configurationService.getValue<unknown>('vibeide.agent.autoContinueMaxNudges');
 					const maxNudges = (typeof rawMaxNudges === 'number' && Number.isFinite(rawMaxNudges) && rawMaxNudges >= 0) ? Math.floor(rawMaxNudges) : 2;
 
-					// A turn that ENDS with a question («Приступать к реализации?») is a permission-seeking
-					// stall: under Autopilot nobody answers, so it is ALWAYS nudged — independent of the
-					// regular nudge budget (works even at maxNudges=0). Bounded by its own CONSECUTIVE
-					// counter from `vibeide.agent.autoContinueOnQuestion` (toolbar «подпин?», default 3,
-					// 0 = unlimited), reset on every executed tool call like the regular nudge counter.
+					// Вопрос модели — не застревание, а просьба о решении: в треде с человеком ход ждёт его
+					// ответа в любом режиме, автопилот за человека не отвечает. Подпин нужен только там, где
+					// человека нет (пайплайны, HTTP API, Telegram), иначе прогон там завис бы навсегда.
 					const rawQuestionNudges = this._configurationService.getValue<unknown>('vibeide.agent.autoContinueOnQuestion');
 					const maxQuestionNudges = (typeof rawQuestionNudges === 'number' && Number.isFinite(rawQuestionNudges) && rawQuestionNudges >= 0) ? Math.floor(rawQuestionNudges) : QUESTION_AUTO_CONTINUE_DEFAULT;
 					const askedQuestion = endsWithQuestion(info.fullText);
-					const withinNudgeBudget = maxNudges > 0 && autoContinueOnTextCount < maxNudges;
-					const questionOverride = askedQuestion && (maxQuestionNudges === 0 || questionNudgeCount < maxQuestionNudges);
+					const emptyTurn = !info.fullText.trim();
+					const continuation = decideTurnContinuation({
+						askedQuestion,
+						emptyTurn,
+						autonomousMode,
+						humanless,
+						textNudgesUsed: autoContinueOnTextCount,
+						maxTextNudges: maxNudges,
+						questionNudgesUsed: questionNudgeCount,
+						maxQuestionNudges,
+					});
 
 					// Early clean completion: once the model has had at least ONE forced-tool nudge
 					// (`tool_choice=required` — its explicit chance to emit `vibe_complete`) and STILL ends a
@@ -7852,12 +7862,12 @@ Output ONLY the JSON, no other text. Start with { and end with }.`;
 					// accept it as an implicit vibe_complete now instead of spending the rest of the nudge
 					// budget. The extra «продолжай!» nudges only push an already-done model to invent
 					// busywork. Questions never match here — they keep their own nudge path below.
-					if (autopilotOn
+					if (autonomousMode
 						&& !askedQuestion
 						&& autoContinueOnTextCount >= 1
 						&& this._configurationService.getValue<boolean>('vibeide.agent.implicitCompleteAfterFirstNudge') !== false
 						&& looksLikeCompletionText(info.fullText)) {
-						vibeLog.warn('chatThread', `[autopilot] early implicit vibe_complete: terminal completion prose after ${autoContinueOnTextCount} forced nudge(s) — ending cleanly instead of nudging the full budget.`);
+						vibeLog.warn('chatThread', `[autonomous] early implicit vibe_complete: terminal completion prose after ${autoContinueOnTextCount} forced nudge(s) — ending cleanly instead of nudging the full budget.`);
 						// A completion like the other two: the turn checks and the prose gate report here too — this exit used to skip them
 						await reportTurnChecksOnFinalExit(info.fullText);
 						this._finalizePlanIfComplete(threadId);
@@ -7865,9 +7875,12 @@ Output ONLY the JSON, no other text. Start with { and end with }.`;
 						return;
 					}
 
-					if (autopilotOn && (withinNudgeBudget || questionOverride)) {
-						autoContinueOnTextCount += 1;
-						if (askedQuestion) { questionNudgeCount += 1; }
+					if (continuation !== 'stop') {
+						if (askedQuestion) {
+							questionNudgeCount += 1;
+						} else {
+							autoContinueOnTextCount += 1;
+						}
 						// Weak XML-mode callers can't be forced via tool_choice (no native tools are sent)
 						// and don't map "вызови vibe_complete" to an emission — so when THIS turn ran in XML
 						// tool mode, spell out the exact tags to output. See docs/knowledge/chatUx/chatInterruptAndInject.md.
@@ -7877,20 +7890,18 @@ Output ONLY the JSON, no other text. Start with { and end with }.`;
 								const { getModelCapabilities } = await import('../common/modelCapabilities.js');
 								const caps = getModelCapabilities(modelSelection.providerName, modelSelection.modelName, overridesOfModel);
 								if (!caps.specialToolFormat) {
-									xmlCompleteHint = AUTOPILOT_XML_COMPLETE_HINT;
+									xmlCompleteHint = XML_COMPLETE_HINT;
 								}
 							}
 						} catch { /* capabilities unavailable → plain nudge */ }
-						// Which reading goes first and why — at AUTOPILOT_TEXT_TURN_NUDGE
-						let corrective = askedQuestion
-							? AUTOPILOT_QUESTION_NUDGE
-							: info.fullText.trim().length === 0 ? AUTOPILOT_EMPTY_TURN_NUDGE : AUTOPILOT_TEXT_TURN_NUDGE;
-						// Text-only completion case only (not the question / empty-turn variants) gets the XML hint.
-						if (!askedQuestion && info.fullText.trim().length !== 0) { corrective += xmlCompleteHint; }
+						// Which reading goes first and why — at TEXT_TURN_NUDGE
+						const corrective = continuation === 'questionNudge'
+							? QUESTION_NUDGE
+							: continuation === 'emptyTurnNudge' ? EMPTY_TURN_NUDGE : TEXT_TURN_NUDGE + xmlCompleteHint;
 						// Задача называется дословно. Без этого «продолжай поставленную работу» в треде с оборвавшимся
 						// прежним ходом читается как прежняя задача — её в контексте больше (жалоба пользователя 20.09.2026).
-						corrective += taskReminderLine(currentTaskOf(this.state.allThreads[threadId]?.messages ?? []));
-						this._addMessageToThread(threadId, { role: 'user', content: corrective, displayContent: corrective, selections: null, isSyntheticNudge: true, state: defaultMessageState });
+						const nudgeText = corrective + taskReminderLine(currentTaskOf(this.state.allThreads[threadId]?.messages ?? []));
+						this._addMessageToThread(threadId, { role: 'user', content: nudgeText, displayContent: nudgeText, selections: null, isSyntheticNudge: true, state: defaultMessageState });
 						shouldSendAnotherMessage = true;
 						// Force the follow-up turn to emit a tool call (vibe_complete or a real tool) so a
 						// weak caller can't return prose AGAIN. No-op in XML mode (no native tools sent).
@@ -7905,16 +7916,17 @@ Output ONLY the JSON, no other text. Start with { and end with }.`;
 						continue;
 					}
 
-					// Autopilot ON but nudge budget spent: if the model is plainly DECLARING completion in
+					// Autonomous mode but nudge budget spent: if the model is plainly DECLARING completion in
 					// prose (weak tool-caller that just won't emit the vibe_complete call), accept it as an
-					// implicit completion instead of stranding the unattended autopilot at «Продолжить».
-					// Narrow scope (autopilot + exhausted budget + terminal completion text) so this does
-					// NOT resurrect the always-on «Готово»-match that vibe_complete replaced — a mid-task
-					// narration would have been nudged to continue and the model would have acted.
-					if (autopilotOn
+					// implicit completion instead of stranding the unattended run at «Продолжить».
+					// Narrow scope (autonomous + non-question + exhausted budget + terminal completion text)
+					// so this does NOT resurrect the always-on «Готово»-match that vibe_complete replaced — a
+					// mid-task narration would have been nudged to continue and the model would have acted.
+					if (autonomousMode
+						&& !askedQuestion
 						&& this._configurationService.getValue<boolean>('vibeide.agent.implicitCompleteOnExhaustedNudge') !== false
 						&& looksLikeCompletionText(info.fullText)) {
-						vibeLog.warn('chatThread', `[autopilot] implicit vibe_complete: model declared completion in prose after ${autoContinueOnTextCount} exhausted nudge(s) — ending run cleanly instead of «Продолжить».`);
+						vibeLog.warn('chatThread', `[autonomous] implicit vibe_complete: model declared completion in prose after ${autoContinueOnTextCount} exhausted nudge(s) — ending run cleanly instead of «Продолжить».`);
 						// Same as the explicit vibe_complete path: finalize an executing plan on this exit.
 						await reportTurnChecksOnFinalExit(info.fullText);
 						this._finalizePlanIfComplete(threadId);
@@ -7922,7 +7934,15 @@ Output ONLY the JSON, no other text. Start with { and end with }.`;
 						return;
 					}
 
-					// Autopilot OFF, or the auto-continue budget is spent → stop with an explanation
+					// Вопрос в треде с человеком — законный конец хода, а не застревание: ждём ответа без
+					// плашки «модель закончила текстом» и без кнопки «Продолжить».
+					if (askedQuestion && !humanless) {
+						await reportTurnChecksOnFinalExit(info.fullText);
+						this._setStreamState(threadId, { isRunning: undefined });
+						return;
+					}
+
+					// Managed mode, or the auto-continue budget is spent → stop with an explanation
 					// + a one-click resume affordance (rendered by SidebarChat on the last message).
 					await reportTurnChecksOnFinalExit(info.fullText);
 					this._addMessageToThread(threadId, {

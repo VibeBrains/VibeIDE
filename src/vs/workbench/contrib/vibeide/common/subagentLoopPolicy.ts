@@ -15,7 +15,7 @@ import type { LLMTokenUsage } from './sendLLMMessageTypes.js';
 
 /** Max CONSECUTIVE rejected tool calls (whitelist rejection / invalid params / manual reject) before the
  *  role is declared stuck. Reset on any clean tool execution — a role making progress with the occasional
- *  misfire must not accumulate toward a stop over a long (autopilot-extended) run. */
+ *  misfire must not accumulate toward a stop over a long (auto-extended) run. */
 export const SUBAGENT_MAX_DENIED_ACTIONS = 5;
 
 /** Rough chars→tokens estimate (≈4 chars/token) — used for the subagent quota, flagged as estimate. */

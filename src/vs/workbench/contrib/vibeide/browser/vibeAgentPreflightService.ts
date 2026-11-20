@@ -26,7 +26,6 @@ import { evaluateRoleBudget } from '../common/agentRoleBudget.js';
 import { IVibeConstraintsService } from '../common/vibeConstraintsService.js';
 import { IVibePerFilePermissionsService } from '../common/vibePerFilePermissionsService.js';
 import { IVibeideSettingsService } from '../common/vibeideSettingsService.js';
-import { isAutonomousPermissionMode } from '../common/chatPermissionMode.js';
 import { IVibeSubagentRegistryService } from '../common/vibeSubagentRegistryService.js';
 import { IVibeAgentRunLedgerService } from '../common/vibeAgentRunLedgerService.js';
 import { IVibeVerifyGateService } from './vibeVerifyGateService.js';
@@ -114,7 +113,7 @@ class VibeAgentPreflightService extends Disposable implements IVibeAgentPrefligh
 			workspaceName: folders.length > 0 ? folders[0].name : '(папка не открыта)',
 			constraintRules: this._constraints.getRules(),
 			permissions: this._permissions.getPermissions(),
-			autopilot: isAutonomousPermissionMode(this._settings.state.globalSettings.chatPermissionMode),
+			permissionMode: this._settings.state.globalSettings.chatPermissionMode,
 			tokenQuota: this._numberConfig('vibeide.subagent.maxTokens', DEFAULT_SUBAGENT_TOKEN_QUOTA),
 			maxSteps: this._numberConfig('vibeide.subagent.maxSteps', DEFAULT_MAX_STEPS),
 			maxWallClockSec: this._numberConfig('vibeide.subagent.maxWallClockSec', DEFAULT_MAX_WALL_CLOCK_SEC),

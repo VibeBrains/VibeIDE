@@ -5,7 +5,7 @@
 
 import * as assert from 'assert';
 import { ensureNoDisposablesAreLeakedInTestSuite } from '../../../../../base/test/common/utils.js';
-import { AUTOPILOT_EMPTY_TURN_NUDGE, AUTOPILOT_QUESTION_NUDGE, AUTOPILOT_TEXT_TURN_NUDGE, designHookNudge, nudgeHeadlineOf, slopGateNudge, unparsedToolCallNudge, verifyGateNudge, XML_REPAIR_NUDGE } from '../../common/agentNudges.js';
+import { designHookNudge, EMPTY_TURN_NUDGE, nudgeHeadlineOf, QUESTION_NUDGE, slopGateNudge, TEXT_TURN_NUDGE, unparsedToolCallNudge, verifyGateNudge, XML_REPAIR_NUDGE } from '../../common/agentNudges.js';
 import { renderTurnChecksCorrective } from '../../common/agentTurnChecks.js';
 
 /**
@@ -23,9 +23,9 @@ suite('agent nudges — the folded headline', () => {
 			slopGateNudge(1, 2, 'x'),
 			XML_REPAIR_NUDGE,
 			unparsedToolCallNudge(),
-			AUTOPILOT_QUESTION_NUDGE,
-			AUTOPILOT_EMPTY_TURN_NUDGE,
-			AUTOPILOT_TEXT_TURN_NUDGE,
+			QUESTION_NUDGE,
+			EMPTY_TURN_NUDGE,
+			TEXT_TURN_NUDGE,
 		].map(nudgeHeadlineOf), [
 			'⛔ VERIFY-GATE',
 			'⛔ ПРОВЕРКИ ХОДА',
@@ -33,9 +33,9 @@ suite('agent nudges — the folded headline', () => {
 			'⛔ НЕЙРОСЛОП',
 			'⚙️ Авто-исправление',
 			'⚙️ Вызов инструмента не выполнен',
-			'⚙️ Авто-продолжение (автопилот)',
-			'⚙️ Авто-продолжение (автопилот)',
-			'⚙️ Авто-продолжение (автопилот)',
+			'⚙️ Авто-продолжение',
+			'⚙️ Авто-продолжение',
+			'⚙️ Авто-продолжение',
 		]);
 	});
 

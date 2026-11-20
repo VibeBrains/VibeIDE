@@ -50,16 +50,16 @@ import { promptCacheKeyOf } from '../common/promptCacheKey.js';
 import { isLinux, isMacintosh, isWindows } from '../../../../base/common/platform.js';
 import { lastRealUserIndex } from '../common/turnContext.js';
 
-/** Under Autopilot, resource limits auto-extend rather than stop the role. This cooldown backstops a
+/** In autonomous modes resource limits auto-extend rather than stop the role. This cooldown backstops a
  *  pathological tight loop (instant hops) from resetting the budget hundreds of times per second —
- *  mirrors vibeTokenBudgetService's AUTOPILOT_RESET_COOLDOWN_MS. */
-const SUBAGENT_AUTOPILOT_RESET_COOLDOWN_MS = 1_000;
+ *  mirrors vibeTokenBudgetService's AUTONOMOUS_RESET_COOLDOWN_MS. */
+const SUBAGENT_AUTONOMOUS_RESET_COOLDOWN_MS = 1_000;
 
 /** Consecutive per-hop LLM errors (provider/network/timeout blips) tolerated before the role hard-fails.
- *  A transient error must not kill an otherwise-healthy run — the main agent retries too. Under Autopilot
- *  the budget is larger (unattended completion). Counter resets on any successful hop. */
+ *  A transient error must not kill an otherwise-healthy run — the main agent retries too. In autonomous
+ *  modes the budget is larger (unattended completion). Counter resets on any successful hop. */
 const SUBAGENT_MAX_LLM_RETRIES = 4;
-const SUBAGENT_MAX_LLM_RETRIES_AUTOPILOT = 12;
+const SUBAGENT_MAX_LLM_RETRIES_AUTONOMOUS = 12;
 
 /**
  * Room kept for the stop note around a stopped role's last words («Роль … остановлена: …»).
@@ -202,7 +202,7 @@ class VibeSubagentRunnerService extends Disposable implements IVibeSubagentRunne
 			: undefined;
 		const usdQuota = tokenQuotaForUsd(usdPerRun, getModelCapabilities(modelSelection.providerName, modelSelection.modelName, this._settings.state.overridesOfModel).cost, outputShare);
 		const maxTokensEst = usdQuota !== undefined ? Math.min(req.maxTokensEst, usdQuota) : req.maxTokensEst;
-		// Mutable: under Autopilot the resource limits are SOFT — they auto-extend instead of stopping
+		// Mutable: in autonomous modes the resource limits are SOFT — they auto-extend instead of stopping
 		// the role (see the reset block in the loop). cancelled/denied-actions stay hard.
 		let limits = { maxSteps: req.maxSteps, maxTokensEst, deadlineAtMs, maxDeniedActions: SUBAGENT_MAX_DENIED_ACTIONS };
 
@@ -239,25 +239,25 @@ class VibeSubagentRunnerService extends Disposable implements IVibeSubagentRunne
 
 		this._activityLog.logStarted(`Subagent ${req.type} (${req.subagentId}): ${chatMode}-режим, шагов ≤${req.maxSteps}, модель ${modelSelection.providerName}/${modelSelection.modelName}`);
 
-		// Autopilot inheritance: the user opted into unattended completion, so a subagent must NOT
+		// Autonomous-mode inheritance: the user opted into unattended completion, so a subagent must NOT
 		// introduce a NEW stop point. Resource limits (steps/time/tokens) auto-extend instead of
 		// parking the role — mirroring the main agent's session-budget auto-reset (vibeTokenBudgetService).
 		// A short cooldown backstops a pathological tight loop (instant hops). cancelled/denied-actions
-		// remain hard stops (user intent / safety). Read fresh each iteration: toggling Autopilot OFF
-		// mid-run re-arms the limits so the user can rein in a runaway role.
+		// remain hard stops (user intent / safety). Read fresh each iteration: leaving the autonomous
+		// modes mid-run re-arms the limits so the user can rein in a runaway role.
 		let lastAutoResetAt = 0;
 
 		while (true) {
-			const autopilot = isAutonomousPermissionMode(this._settings.state.globalSettings.chatPermissionMode);
+			const autonomous = isAutonomousPermissionMode(this._settings.state.globalSettings.chatPermissionMode);
 			const stop = decideStop({ stepsDone, tokensUsedEst, deniedActions, nowMs: Date.now(), cancelled: req.cancellationToken?.isCancellationRequested === true }, limits);
-			if (stop && autopilot && (stop === 'max-steps' || stop === 'deadline' || stop === 'token-budget')) {
+			if (stop && autonomous && (stop === 'max-steps' || stop === 'deadline' || stop === 'token-budget')) {
 				const now = Date.now();
-				if (now - lastAutoResetAt >= SUBAGENT_AUTOPILOT_RESET_COOLDOWN_MS) {
+				if (now - lastAutoResetAt >= SUBAGENT_AUTONOMOUS_RESET_COOLDOWN_MS) {
 					lastAutoResetAt = now;
 					if (stop === 'max-steps') { limits = { ...limits, maxSteps: limits.maxSteps + req.maxSteps }; }
 					else if (stop === 'deadline') { limits = { ...limits, deadlineAtMs: limits.deadlineAtMs + req.maxWallClockMs }; }
 					else { limits = { ...limits, maxTokensEst: limits.maxTokensEst + req.maxTokensEst }; }
-					this._activityLog.logStarted(`Subagent ${req.subagentId}: автопилот — авто-сброс лимита «${stopReasonToRussian(stop)}», продолжаю`);
+					this._activityLog.logStarted(`Subagent ${req.subagentId}: автономный режим — авто-сброс лимита «${stopReasonToRussian(stop)}», продолжаю`);
 					continue;
 				}
 				// Inside cooldown: fall through and stop (prevents a tight infinite reset loop).
@@ -306,12 +306,12 @@ class VibeSubagentRunnerService extends Disposable implements IVibeSubagentRunne
 				// run would still trip at the first deadline.
 				const deadlineHit = limits.deadlineAtMs > 0 && Date.now() >= limits.deadlineAtMs && req.cancellationToken?.isCancellationRequested !== true;
 				if (deadlineHit) {
-					// Under Autopilot the wall-clock is soft — same as the between-hops reset: extend and
+					// In autonomous modes the wall-clock is soft — same as the between-hops reset: extend and
 					// retry the hop instead of stopping the role (the failed hop does not consume a step).
-					if (autopilot && Date.now() - lastAutoResetAt >= SUBAGENT_AUTOPILOT_RESET_COOLDOWN_MS) {
+					if (autonomous && Date.now() - lastAutoResetAt >= SUBAGENT_AUTONOMOUS_RESET_COOLDOWN_MS) {
 						lastAutoResetAt = Date.now();
 						limits = { ...limits, deadlineAtMs: limits.deadlineAtMs + req.maxWallClockMs };
-						this._activityLog.logStarted(`Subagent ${req.subagentId}: автопилот — авто-сброс лимита «${stopReasonToRussian('deadline')}» (в момент запроса), продолжаю`);
+						this._activityLog.logStarted(`Subagent ${req.subagentId}: автономный режим — авто-сброс лимита «${stopReasonToRussian('deadline')}» (в момент запроса), продолжаю`);
 						stepsDone = Math.max(0, stepsDone - 1);
 						continue;
 					}
@@ -321,11 +321,11 @@ class VibeSubagentRunnerService extends Disposable implements IVibeSubagentRunne
 					return this._outcome(req, 'stopped', summary, artifacts, tokensUsedEst, true, reason, touchedPaths, history, { stopCode: 'deadline', model: modelSelection, promptTokens: promptTokensUsed, completionTokens: completionTokensUsed, cachedTokens: cachedTokensUsed });
 				}
 				// Transient LLM error (provider 5xx, rate-limit, network, timeout): retry the hop with a
-				// short backoff instead of hard-failing — a blip must not kill a healthy run. Autopilot
-				// gets a larger budget (unattended). The failed hop does NOT consume a step. Give up only
+				// short backoff instead of hard-failing — a blip must not kill a healthy run. Autonomous
+				// modes get a larger budget (unattended). The failed hop does NOT consume a step. Give up only
 				// after too many CONSECUTIVE errors (reset on any success below).
 				consecutiveLlmErrors++;
-				const llmRetryBudget = autopilot ? SUBAGENT_MAX_LLM_RETRIES_AUTOPILOT : SUBAGENT_MAX_LLM_RETRIES;
+				const llmRetryBudget = autonomous ? SUBAGENT_MAX_LLM_RETRIES_AUTONOMOUS : SUBAGENT_MAX_LLM_RETRIES;
 				if (consecutiveLlmErrors <= llmRetryBudget && req.cancellationToken?.isCancellationRequested !== true) {
 					this._activityLog.logStarted(`Subagent ${req.subagentId}: ошибка запроса «${hop.message}» — повтор ${consecutiveLlmErrors}/${llmRetryBudget}`);
 					stepsDone = Math.max(0, stepsDone - 1);

@@ -88,10 +88,10 @@ export const resolveAntiLoopThreshold = (toolName: string, base: number): number
 
 /**
  * Default for `vibeide.agent.autoContinueOnQuestion` — max CONSECUTIVE question-triggered
- * auto-continues (see `endsWithQuestion`). Under Autopilot a question-ending text turn is
- * ALWAYS nudged — independent of the regular `autoContinueMaxNudges` budget — because nobody
- * answers questions in unattended mode and the run would stall. The counter resets on every
- * executed tool call, like the regular nudge counter. `0` means unlimited (∞) — the toolbar
+ * auto-continues (see `endsWithQuestion`). Only a thread WITHOUT a human (pipeline, HTTP API,
+ * Telegram) nudges a question-ending turn: nobody would answer it there and the run would
+ * stall. A chat with a human always stops and waits. The counter resets on every executed
+ * tool call, like the regular nudge counter. `0` means unlimited (∞) — the toolbar
  * «подпин?» stepper exposes 0/5/10 presets next to this default.
  */
 export const QUESTION_AUTO_CONTINUE_DEFAULT = 3;
@@ -100,9 +100,8 @@ export const QUESTION_AUTO_CONTINUE_DEFAULT = 3;
  * True when a model turn ends with a question — the last meaningful character is `?` (or
  * fullwidth `？`), allowing trailing whitespace and markdown/quote/bracket tails so that
  * `**Приступать?**`, `вопрос?»` and `(continue?)` all count. A question mark in the MIDDLE of
- * the text does not. Used by the Autopilot premature-stop handler: under unattended execution
- * a closing question («Приступать к реализации?») is a permission-seeking stall, not a real
- * request for input — the agent should decide and continue.
+ * the text does not. The turn handler only asks this to decide whether a human must answer:
+ * a closing «Приступать к реализации?» is a legitimate plan stop, not a stall.
  */
 export const endsWithQuestion = (text: string): boolean => {
 	if (!text) { return false; }
@@ -131,7 +130,7 @@ const COMPLETION_SIGNALS: readonly string[] = [
 
 /**
  * True when a model turn reads as a TERMINAL completion declaration — the model says it is done
- * («Готово», «Завершаю», «Задача выполнена», "task complete", …). Used ONLY by the Autopilot
+ * («Готово», «Завершаю», «Задача выполнена», "task complete", …). Used ONLY by the autonomous
  * premature-stop handler AFTER the nudge budget is exhausted, as a provider-independent safety
  * net for weak tool-callers (MiniMax/deepseek narrate completion in prose instead of emitting
  * the `vibe_complete` call). Looks at the TAIL of the turn (completion lands at the end) and is

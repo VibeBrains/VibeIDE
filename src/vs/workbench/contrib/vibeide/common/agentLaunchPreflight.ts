@@ -18,6 +18,8 @@
  * the facts, this decides what they mean.
  */
 
+import { localize } from '../../../../nls.js';
+import { ChatPermissionMode, isAutonomousPermissionMode } from './chatPermissionMode.js';
 import { VibeConstraintRule } from './vibeConstraintsService.js';
 import { VibePermissions } from './vibePerFilePermissionsService.js';
 
@@ -38,8 +40,8 @@ export interface LaunchPlanFacts {
 	readonly workspaceName: string;
 	readonly constraintRules: readonly VibeConstraintRule[];
 	readonly permissions: VibePermissions;
-	/** Autopilot executes tools without asking; otherwise every risky call is confirmed. */
-	readonly autopilot: boolean;
+	/** Режим разрешений решает, спрашивать ли человека о вызове инструмента */
+	readonly permissionMode: ChatPermissionMode;
 	readonly tokenQuota: number;
 	readonly maxSteps: number;
 	readonly maxWallClockSec: number;
@@ -99,11 +101,11 @@ export function evaluateLaunchPlan(facts: LaunchPlanFacts): PreflightReport {
 		});
 	}
 
-	if (canRunCommands && facts.autopilot) {
+	if (canRunCommands && isAutonomousPermissionMode(facts.permissionMode)) {
 		findings.push({
 			severity: 'warn',
 			title: 'Команды выполняются без запроса',
-			detail: 'Включён автопилот, а среди инструментов есть запуск команд: подтверждения спрашиваться не будут. Выключите автопилот, если хотите одобрять каждый запуск.',
+			detail: 'Выбран режим «Авто» или «Обход», а среди инструментов есть запуск команд: подтверждения спрашиваться не будут. Переключитесь на «Вручную» или «Принимать правки», если хотите одобрять каждый запуск.',
 		});
 	}
 
@@ -179,6 +181,20 @@ const SEVERITY_MARK: Record<PreflightSeverity, string> = {
 	note: 'ℹ️',
 };
 
+/** Режим разрешений словами: отчёт читает человек, а не код */
+function permissionModeLabel(mode: ChatPermissionMode): string {
+	switch (mode) {
+		case 'manual':
+			return localize('vibeide.preflight.permissionMode.manual', 'спрашивается (Вручную)');
+		case 'edits':
+			return localize('vibeide.preflight.permissionMode.edits', 'спрашивается (Принимать правки)');
+		case 'auto':
+			return localize('vibeide.preflight.permissionMode.auto', 'не спрашивается (Авто)');
+		case 'bypass':
+			return localize('vibeide.preflight.permissionMode.bypass', 'не спрашивается (Обход)');
+	}
+}
+
 /** Render the plan as the markdown report the command opens. Pure. */
 export function renderPreflightMarkdown(facts: LaunchPlanFacts, report: PreflightReport): string {
 	const subject = facts.subject === 'role' ? `роль «${facts.subjectName}»` : facts.subjectName;
@@ -213,7 +229,7 @@ export function renderPreflightMarkdown(facts: LaunchPlanFacts, report: Prefligh
 		'|---|---|',
 		`| Правка файлов | ${report.canWrite ? 'да' : 'нет'} |`,
 		`| Запуск команд | ${report.canRunCommands ? 'да' : 'нет'} |`,
-		`| Подтверждение действий | ${facts.autopilot ? 'не спрашивается (автопилот)' : 'спрашивается' } |`,
+		`| Подтверждение действий | ${permissionModeLabel(facts.permissionMode)} |`,
 		`| Инструменты | ${facts.allowedTools.length > 0 ? facts.allowedTools.map(t => `\`${t}\``).join(', ') : 'нет'} |`,
 		`| Модель | \`${facts.model}\` (${facts.provider})${facts.modelAllowed ? '' : ' — вне белого списка'} |`,
 		`| Рабочая папка | ${facts.workspaceName} |`,

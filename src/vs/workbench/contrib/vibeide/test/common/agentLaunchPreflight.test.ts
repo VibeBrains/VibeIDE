@@ -22,7 +22,7 @@ function facts(overrides: Partial<LaunchPlanFacts> = {}): LaunchPlanFacts {
 		workspaceName: 'my-project',
 		constraintRules: [],
 		permissions: {},
-		autopilot: false,
+		permissionMode: 'manual',
 		tokenQuota: 100_000,
 		maxSteps: 60,
 		maxWallClockSec: 300,
@@ -53,7 +53,7 @@ suite('agentLaunchPreflight — what the agent will be allowed to do', () => {
 		assert.deepStrictEqual(
 			[
 				evaluateLaunchPlan(facts({ modelAllowed: false })).launchable,
-				evaluateLaunchPlan(facts({ allowedTools: FULL_TOOLS, autopilot: true })).launchable,
+				evaluateLaunchPlan(facts({ allowedTools: FULL_TOOLS, permissionMode: 'auto' })).launchable,
 				evaluateLaunchPlan(facts()).launchable,
 			],
 			[false, true, true],
@@ -62,7 +62,7 @@ suite('agentLaunchPreflight — what the agent will be allowed to do', () => {
 
 	test('a writing role raises the risks a user actually cares about', () => {
 		assert.deepStrictEqual(
-			titles(facts({ allowedTools: FULL_TOOLS, autopilot: true })),
+			titles(facts({ allowedTools: FULL_TOOLS, permissionMode: 'auto' })),
 			[
 				'warn:Команды выполняются без запроса',
 				'note:Запрет на запись не настроен',
