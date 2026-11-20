@@ -37,6 +37,7 @@ import { IVibeProjectRulesService } from './vibeProjectRulesService.js';
 import { INotificationService, Severity } from '../../../../platform/notification/common/notification.js';
 import { IQuickInputService } from '../../../../platform/quickinput/common/quickInput.js';
 import { VIBE_COMMAND_CATEGORY } from '../common/vibeCommandCategory.js';
+import { LINKED_REFERENCES_MAX_CHARS_DEFAULT } from '../common/linkedReferencesBudget.js';
 
 // ── Configuration ─────────────────────────────────────────────────────────────
 
@@ -96,6 +97,13 @@ Registry.as<IConfigurationRegistry>(ConfigurationExtensions.Configuration).regis
 			default: true,
 			description: localize('vibeide.projectRules.resolveLinksRecursive', 'Рекурсивно следовать по ссылкам внутри уже подтянутых файлов (с защитой от циклов и общими лимитами). Выкл — только один уровень. Требует включённой `vibeide.projectRules.resolveLinks`.'),
 		},
+		'vibeide.projectRules.maxLinkedChars': {
+			type: 'number',
+			default: LINKED_REFERENCES_MAX_CHARS_DEFAULT,
+			minimum: 0,
+			maximum: 262144,
+			description: localize('vibeide.projectRules.maxLinkedChars', 'Сколько символов файлов по ссылкам из правил встраивать в каждый запрос. Остальные файлы агент получает списком путей и читает сам через `read_file`. 0 — встраивать только пути.'),
+		},
 	},
 });
 
@@ -114,7 +122,8 @@ class VibeProjectRulesSettingsContribution extends Disposable {
 		this._register(this._config.onDidChangeConfiguration(e => {
 			if (e.affectsConfiguration('vibeide.projectRules.disabledSources')
 				|| e.affectsConfiguration('vibeide.projectRules.resolveLinks')
-				|| e.affectsConfiguration('vibeide.projectRules.resolveLinksRecursive')) {
+				|| e.affectsConfiguration('vibeide.projectRules.resolveLinksRecursive')
+				|| e.affectsConfiguration('vibeide.projectRules.maxLinkedChars')) {
 				this._log.info('[VibeProjectRules] Rules/link settings changed — reloading rules');
 				void this._rulesSvc.reloadRules();
 			}

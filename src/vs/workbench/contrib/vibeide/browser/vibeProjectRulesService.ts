@@ -47,6 +47,7 @@ import { IConfigurationService, ConfigurationTarget } from '../../../../platform
 import { VIBE_COMMAND_CATEGORY } from '../common/vibeCommandCategory.js';
 import { IPathService } from '../../../services/path/common/pathService.js';
 import { PERSONAL_AGENTS_FILE_PATH, PERSONAL_RULES_DIR_PATH, PROJECT_LOCAL_AGENTS_FILE_NAME, PROJECT_RULES_WIN_NOTE, personalSourceLabel } from '../common/personalRulesPaths.js';
+import { applyLinkedReferencesBudget, LINKED_REFERENCES_MAX_CHARS_DEFAULT } from '../common/linkedReferencesBudget.js';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -150,6 +151,8 @@ const RESOLVE_LINKS_KEY = 'vibeide.projectRules.resolveLinks';
 const RESOLVE_LINKS_RECURSIVE_KEY = 'vibeide.projectRules.resolveLinksRecursive';
 const MAX_LINKED_FILES = 20;             // total referenced files cap (DoS guard)
 const MAX_LINKED_TOTAL_BYTES = 262144;   // 256KB cap on combined referenced content
+// Бюджет встраивания в промпт (не защита от отказа): остальные файлы уходят модели списком путей
+const MAX_LINKED_CHARS_KEY = 'vibeide.projectRules.maxLinkedChars';
 const MAX_LINK_RECURSION_DEPTH = 4;      // BFS depth when recursive following is enabled
 /** Extensions a rule link may reference. Restricted to text docs (security/perf): a rule must not be
  *  able to pull binaries or, with the secret-guard as backstop, arbitrary config into the prompt. */
@@ -521,6 +524,8 @@ export class VibeProjectRulesService extends Disposable implements IVibeProjectR
 	 * R.x — BFS over links found in rule content. Reads each referenced file (capped, secret-sanitized),
 	 * labels it, and (when `recursive`) follows links inside it up to MAX_LINK_RECURSION_DEPTH with a
 	 * visited-set cycle guard and global file/byte caps. Populates `_linkedPaths` for watch invalidation.
+	 * The collected files are then laid out by `applyLinkedReferencesBudget`: files over the char budget
+	 * are listed by path only, so the model reads them itself instead of paying for them in every request.
 	 */
 	private async _collectLinkedReferences(folders: readonly { uri: URI }[], sources: readonly LoadedRuleSource[], recursive: boolean, maxBytes: number): Promise<string> {
 		type Item = { folderUri: URI; rel: string; from: string; depth: number };
@@ -533,13 +538,13 @@ export class VibeProjectRulesService extends Disposable implements IVibeProjectR
 			}
 		}
 		const visited = new Set<string>();
-		const blocks: string[] = [];
+		const prepared: { path: string; body: string; block: string }[] = [];
 		let totalBytes = 0;
 		const maxDepth = recursive ? MAX_LINK_RECURSION_DEPTH : 1;
 
 		while (queue.length > 0) {
-			if (blocks.length >= MAX_LINKED_FILES || totalBytes >= MAX_LINKED_TOTAL_BYTES) {
-				this._log.warn(`[VibeProjectRules] Linked-references cap hit (${blocks.length} files / ${totalBytes} bytes) — remaining links skipped`);
+			if (prepared.length >= MAX_LINKED_FILES || totalBytes >= MAX_LINKED_TOTAL_BYTES) {
+				this._log.warn(`[VibeProjectRules] Linked-references cap hit (${prepared.length} files / ${totalBytes} bytes) — remaining links skipped`);
 				break;
 			}
 			const item = queue.shift()!;
@@ -560,7 +565,8 @@ export class VibeProjectRulesService extends Disposable implements IVibeProjectR
 			if (body.length === 0) { continue; }
 			const relPath = relativePath(item.folderUri, target) ?? item.rel;
 			this._linkedPaths.add(target.fsPath);
-			blocks.push(`[Linked: ${relPath} ← ${item.from}${guard.sanitized !== raw ? ' (secrets redacted)' : ''}]\n${body}`);
+			const label = `[Linked: ${relPath} ← ${item.from}${guard.sanitized !== raw ? ' (secrets redacted)' : ''}]`;
+			prepared.push({ path: relPath, body, block: `${label}\n${body}` });
 			totalBytes += body.length;
 			if (item.depth < maxDepth) {
 				for (const rel of extractRuleLinks(body)) {
@@ -568,7 +574,29 @@ export class VibeProjectRulesService extends Disposable implements IVibeProjectR
 				}
 			}
 		}
-		return blocks.join('\n\n');
+
+		// Бюджет считаем по содержимому: настройка про символы самих файлов, а не про заголовки блоков
+		const budget = applyLinkedReferencesBudget(
+			prepared.map(p => ({ path: p.path, content: p.body })),
+			this._config.getValue<number>(MAX_LINKED_CHARS_KEY) ?? LINKED_REFERENCES_MAX_CHARS_DEFAULT,
+		);
+		// Встраиваемые блоки сопоставляем по порядку, а не по пути: в мультирут-воркспейсе пути совпадают
+		const parts: string[] = [];
+		let nextInlined = 0;
+		for (const p of prepared) {
+			const inlined = budget.inlined[nextInlined];
+			if (inlined && inlined.path === p.path && inlined.content === p.body) {
+				parts.push(p.block);
+				nextInlined++;
+			}
+		}
+		if (budget.notInlined.length > 0) {
+			parts.push(
+				'These files are referenced by the project rules but were NOT inlined to keep this request small. Call the read_file tool on a path when you need its contents:',
+				...budget.notInlined.map(f => `- ${f.path} (${f.chars} chars)`),
+			);
+		}
+		return parts.join('\n\n');
 	}
 
 	/** Домашняя папка через IPathService: свой разбор `process.env.HOME` разошёлся бы с остальной IDE */

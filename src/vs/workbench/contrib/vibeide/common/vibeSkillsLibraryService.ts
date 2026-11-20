@@ -6,6 +6,7 @@
 
 import { vibeLog } from './vibeLog.js';
 import { parseYamlScalar } from './frontmatterScalar.js';
+import { applySkillsIndexBudget, SKILLS_DISCOVERY_MAX_CHARS_DEFAULT } from './skillsIndexBudget.js';
 import { localize } from '../../../../nls.js';
 import { toAction } from '../../../../base/common/actions.js';
 import { VSBuffer } from '../../../../base/common/buffer.js';
@@ -1236,29 +1237,41 @@ export class VibeSkillsLibraryService extends Disposable implements IVibeSkillsL
 			this._configurationService.getValue<string[]>('vibeide.skills.globalPaths')
 				?.filter(Boolean)?.length ? ' Workspace skills override IDs from **vibeide.skills.globalPaths**.' : '';
 
+		const proactive = skills.filter(s => !s.disableModelInvocation);
+		const explicitOnly = skills.filter(s => s.disableModelInvocation);
+
+		// Общий бюджет индекса: строки раскладываются в том порядке, в каком попадут в промпт,
+		// а навыки сверх бюджета называются в конце — модель запросит их через `/skill:<имя>`
+		const maxIndexChars = this._configurationService.getValue<number>('vibeide.skills.discoveryMaxChars') ?? SKILLS_DISCOVERY_MAX_CHARS_DEFAULT;
+		const orderedSkills = chatMode === 'plan' ? skills : [...proactive, ...explicitOnly];
+		const indexBudget = applySkillsIndexBudget(orderedSkills.map(s => ({ name: s.skillId, line: line(s) })), maxIndexChars);
+		const fittedLines = new Set(indexBudget.lines);
+		const fitted = (list: readonly VibeSkillEntry[]) => list.map(line).filter(l => fittedLines.has(l));
+		const namesOnlyNote = indexBudget.namesOnly.length > 0
+			? `_${indexBudget.namesOnly.length} more skill(s) did not fit into this index by size and are listed by name only — ask the user to invoke \`/skill:<name>\` to inject a skill's full SKILL body: ${indexBudget.namesOnly.join(', ')}._`
+			: '';
+
 		if (chatMode === 'plan') {
 			return [
 				'## Project Agent Skills — Plan mode',
 				'**Do not** execute skill workflows or follow SKILL bodies proactively while planning. Output requirements and a Markdown plan only. Honor a skill only after the user invokes `/skill:id` or approves execution.' + globalHint,
-				...skills.map(line),
+				...fitted(skills),
+				...(namesOnlyNote ? ['', namesOnlyNote] : []),
 				...(awaitingNote ? ['', awaitingNote] : []),
 			].join('\n');
 		}
-
-		const proactive = skills.filter(s => !s.disableModelInvocation);
-		const explicitOnly = skills.filter(s => s.disableModelInvocation);
 
 		const parts =
 			chatMode === 'gather'
 				? [
 					'## Project Agent Skills (.vibe/skills/**/SKILL.md) — Gather mode',
 					'Read-only investigation: you may **cite** relevant skills when suggesting what to read next, but **do not** imply tool execution or file writes from a skill unless the user invoked `/skill:id`.' + globalHint,
-					...(proactive.length ? proactive.map(line) : ['_(none — explicit-only skills listed below)_']),
+					...(proactive.length ? fitted(proactive) : ['_(none — explicit-only skills listed below)_']),
 				]
 				: [
 					'## Project Agent Skills (.vibe/skills/**/SKILL.md)',
 					'When a task matches a skill below, you may proactively follow it. The user invokes `/skill:name` to inject the full SKILL body.' + globalHint,
-					...(proactive.length ? proactive.map(line) : ['_(none — explicit-only skills listed below)_']),
+					...(proactive.length ? fitted(proactive) : ['_(none — explicit-only skills listed below)_']),
 				];
 
 		if (explicitOnly.length) {
@@ -1266,9 +1279,10 @@ export class VibeSkillsLibraryService extends Disposable implements IVibeSkillsL
 				'',
 				'### Explicit-only (`disable-model-invocation: true`)',
 				'Do **not** use these proactively; wait for `/skill:` from the user.',
-				...explicitOnly.map(line),
+				...fitted(explicitOnly),
 			);
 		}
+		if (namesOnlyNote) { parts.push('', namesOnlyNote); }
 		if (awaitingNote) {
 			parts.push('', awaitingNote);
 		}

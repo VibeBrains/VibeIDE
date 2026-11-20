@@ -10,6 +10,7 @@ import { Registry } from '../../../../platform/registry/common/platform.js';
 import { IConfigurationRegistry, Extensions as ConfigurationExtensions, ConfigurationScope } from '../../../../platform/configuration/common/configurationRegistry.js';
 import { localize } from '../../../../nls.js';
 import { SKILL_APPROVAL_DEFAULT_MAX_FILES, SKILL_APPROVAL_DEFAULT_MAX_MEGABYTES } from './skillApproval.js';
+import { SKILLS_DISCOVERY_MAX_CHARS_DEFAULT } from './skillsIndexBudget.js';
 
 export class VibeideGlobalSettingsConfigurationContribution extends Disposable implements IWorkbenchContribution {
 	static readonly ID = 'workbench.contrib.vibeideGlobalSettingsConfiguration';
@@ -145,6 +146,14 @@ export class VibeideGlobalSettingsConfigurationContribution extends Disposable i
 					minimum: 0,
 					maximum: 4096,
 					description: localize('vibeide.skills.discoveryDescriptionMaxChars', 'Максимум символов на описание скилла в GUIDELINES-списке (контроль токенов/контекста). 0 = без ограничений.'),
+					scope: ConfigurationScope.RESOURCE,
+				},
+				'vibeide.skills.discoveryMaxChars': {
+					type: 'number',
+					default: SKILLS_DISCOVERY_MAX_CHARS_DEFAULT,
+					minimum: 0,
+					maximum: 262144,
+					description: localize('vibeide.skills.discoveryMaxChars', 'Общий предел символов на индекс навыков в каждом запросе (контроль токенов/контекста); навыки сверх него перечисляются только именами. 0 — только имена.'),
 					scope: ConfigurationScope.RESOURCE,
 				},
 				'vibeide.skills.implicitDescriptionMaxChars': {
