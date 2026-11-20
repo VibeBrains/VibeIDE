@@ -916,7 +916,7 @@ export const safetyS = {
 
 	// R.4.1 — Project rules panel
 	rulesPanelTitle: 'Правила проекта',
-	rulesPanelIntro: 'Найденные правила: `.vibe/rules.md`, `AGENTS.md`, `.vibe/rules/**` (`.md`/`.mdc`). Включённые подмешиваются в системный промпт с метками источника. Условные (`alwaysApply:false` / `globs` / `triggers`) активируются по контексту или через `@rule:<имя>`.',
+	rulesPanelIntro: 'Найденные правила: личные `~/.vibe/AGENTS.md` и `~/.vibe/rules/**`, проектные `.vibe/rules.md`, `AGENTS.md`, `AGENTS.local.md`, `.vibe/rules/**` (`.md`/`.mdc`). Включённые подмешиваются в системный промпт с метками источника: личные идут первыми, при конфликте сильнее правило проекта. Условные (`alwaysApply:false` / `globs` / `triggers`) активируются по контексту или через `@rule:<имя>`.',
 	rulesPanelReload: 'Перечитать',
 	rulesPanelEmpty: 'Правил проекта не найдено.',
 	rulesPanelColEnabled: 'Статус',
@@ -925,6 +925,7 @@ export const safetyS = {
 	rulesPanelOn: 'Вкл',
 	rulesPanelOff: 'Выкл',
 	rulesPanelRedacted: '(секреты вычищены)',
+	rulesPanelPersonal: 'личное',
 	rulesPanelDocsLink: 'Клик по источнику — превью содержимого. Тоггл выключает правило только в этом workspace.',
 	rulesModeAlways: 'всегда',
 	rulesModeTrigger: 'триггер',

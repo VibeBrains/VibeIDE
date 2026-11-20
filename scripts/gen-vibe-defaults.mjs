@@ -63,6 +63,37 @@ function stripJsonc(text) {
 // Список тот же, что NOT_SEEDED_DIRS в bump.mjs набора: реестр ревизий их не ведёт
 const NOT_SEEDED_DIRS = new Set(['docs', 'tools']);
 
+// Контракт личного слоя правил: куда VibeMemory собирает личные правила и откуда их читают обе IDE
+// Не сеется в проекты, но продукт по нему работает, поэтому встраивается в манифест данными
+const PERSONAL_RULES_CONTRACT_FILE = path.join('docs', 'personalRules.json');
+const PERSONAL_RULES_CONTRACT_KEYS = ['personalAgentsFile', 'personalRulesDir', 'personalSkillsDir', 'projectLocalAgentsFile'];
+
+/**
+ * Контракт из набора, только известные ключи
+ *
+ * Нет файла или ключа — генерация падает: без контракта продукт искал бы личные правила наугад,
+ * а молча подставленное умолчание и есть та копия, что расходится с набором незаметно
+ */
+async function readPersonalRulesContract() {
+	const abs = path.join(SRC_DIR, PERSONAL_RULES_CONTRACT_FILE);
+	let parsed;
+	try {
+		parsed = JSON.parse(stripJsonc((await fs.readFile(abs, 'utf8')).replace(/\r\n/g, '\n')));
+	} catch (err) {
+		console.error(`[gen-vibe-defaults] cannot read ${PERSONAL_RULES_CONTRACT_FILE}: ${err.message}`);
+		process.exit(1);
+	}
+	const contract = {};
+	for (const key of PERSONAL_RULES_CONTRACT_KEYS) {
+		if (typeof parsed[key] !== 'string' || !parsed[key].trim()) {
+			console.error(`[gen-vibe-defaults] ${PERSONAL_RULES_CONTRACT_FILE}: no "${key}"`);
+			process.exit(1);
+		}
+		contract[key] = parsed[key];
+	}
+	return contract;
+}
+
 async function collectFiles(dir, top = true) {
 	const out = [];
 	const entries = await fs.readdir(dir, { withFileTypes: true });
@@ -130,6 +161,7 @@ async function main() {
 			}
 		}
 	}
+	const personalRulesContract = await readPersonalRulesContract();
 	for (const abs of files) {
 		const rel = path.relative(SRC_DIR, abs).split(path.sep).join('/');
 		// Normalize CRLF → LF so the embedded bytes are platform-independent. The generator reads the
@@ -252,6 +284,19 @@ export const VIBE_KNOWN_PRODUCTS: readonly string[] = ${JSON.stringify(knownProd
 export const VIBE_FILE_ADDRESSING: ReadonlyArray<{ readonly path: string; readonly products: readonly string[] }> = [
 ${[...fileAddressing.entries()].map(([p, list]) => `\t{ path: ${JSON.stringify(p)}, products: ${JSON.stringify(list)} },`).join('\n')}
 ];
+
+/** Контракт личного слоя правил из набора (\`docs/personalRules.json\`); пути с \`~/\` — от домашней папки */
+export interface VibePersonalRulesContract {
+${PERSONAL_RULES_CONTRACT_KEYS.map(key => `\treadonly ${key}: string;`).join('\n')}
+}
+
+/**
+ * Встроен из набора, а не переписан константой: путь меняется в одном месте на всё семейство,
+ * а копия в продукте разошлась бы с ним молча — VibeMemory писал бы в одну папку, IDE читала другую
+ */
+export const VIBE_PERSONAL_RULES_CONTRACT: VibePersonalRulesContract = {
+${PERSONAL_RULES_CONTRACT_KEYS.map(key => `\t${key}: ${JSON.stringify(personalRulesContract[key])},`).join('\n')}
+};
 `;
 
 	await fs.writeFile(OUT_FILE, banner, 'utf8');

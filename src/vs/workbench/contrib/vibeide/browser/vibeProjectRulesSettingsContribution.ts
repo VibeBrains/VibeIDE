@@ -48,7 +48,7 @@ Registry.as<IConfigurationRegistry>(ConfigurationExtensions.Configuration).regis
 			items: { type: 'string' },
 			default: [],
 			scope: 5, // WORKSPACE
-			description: localize('vibeide.projectRules.disabledSources', 'Список путей к файлам правил проекта, исключаемых из инъекции в AI-контекст. Относительно корня рабочей области (например, "AGENTS.md", ".vibe/rules.md").'),
+			description: localize('vibeide.projectRules.disabledSources', 'Список путей к файлам правил, исключаемых из инъекции в AI-контекст. Проектные — относительно корня рабочей области ("AGENTS.md", ".vibe/rules.md"), личные — с домашней папкой ("~/.vibe/AGENTS.md", "~/.vibe/rules/ux.mdc").'),
 		},
 		'vibeide.projectRules.maxCombinedChars': {
 			type: 'number',

@@ -494,3 +494,22 @@ export const VIBE_FILE_ADDRESSING: ReadonlyArray<{ readonly path: string; readon
 	{ path: "famulex/roles/support/role.md", products: ["famulex"] },
 	{ path: "famulex/roles/rolesSpec.md", products: [] },
 ];
+
+/** Контракт личного слоя правил из набора (`docs/personalRules.json`); пути с `~/` — от домашней папки */
+export interface VibePersonalRulesContract {
+	readonly personalAgentsFile: string;
+	readonly personalRulesDir: string;
+	readonly personalSkillsDir: string;
+	readonly projectLocalAgentsFile: string;
+}
+
+/**
+ * Встроен из набора, а не переписан константой: путь меняется в одном месте на всё семейство,
+ * а копия в продукте разошлась бы с ним молча — VibeMemory писал бы в одну папку, IDE читала другую
+ */
+export const VIBE_PERSONAL_RULES_CONTRACT: VibePersonalRulesContract = {
+	personalAgentsFile: "~/.vibe/AGENTS.md",
+	personalRulesDir: "~/.vibe/rules",
+	personalSkillsDir: "~/.vibe/skills",
+	projectLocalAgentsFile: "AGENTS.local.md",
+};
