@@ -16,29 +16,53 @@ import { INotificationService, Severity } from '../../../../platform/notificatio
 import { joinPath } from '../../../../base/common/resources.js';
 import { URI } from '../../../../base/common/uri.js';
 import { IConfigurationService } from '../../../../platform/configuration/common/configuration.js';
-import { IUntitledTextEditorService } from '../../../services/untitled/common/untitledTextEditorService.js';
+import { ITextModelService } from '../../../../editor/common/services/resolverService.js';
+import { IModelService } from '../../../../editor/common/services/model.js';
+import { ILanguageService } from '../../../../editor/common/languages/language.js';
+import { skillSnapshotResource, VIBE_SKILL_PREVIOUS_SCHEME } from '../common/skillDiskSnapshot.js';
 import { IEditorService } from '../../../services/editor/common/editorService.js';
 
 /**
  * When workspace `.vibe/skills/` skill markdown files change on disk, show a short summary
  * and offer opening a diff editor (previous snapshot vs current disk), similar in spirit to
  * VibePromptDiffService.
+ *
+ * Прежний снимок отдаётся только для чтения схемой `vibe-skill-previous:`, справа — сам файл на диске
+ * Изменение уже применено, когда приходит уведомление: diff показывает его, а не просит принять
  */
 export class VibeSkillDiskDiffContribution extends Disposable implements IWorkbenchContribution {
 	static readonly ID = 'workbench.contrib.vibeSkillDiskDiff';
 
 	private readonly _baseline = new Map<string, string>();
 	private readonly _debouncers = new Map<string, IDisposable>();
+	/** Прежний текст по файлу: держится только последний снимок, старые не копятся */
+	private readonly _snapshots = new Map<string, { resource: string; text: string }>();
+	private _snapshotCounter = 0;
 
 	constructor(
 		@IFileService private readonly _fileService: IFileService,
 		@IWorkspaceContextService private readonly _workspaceContextService: IWorkspaceContextService,
 		@INotificationService private readonly _notificationService: INotificationService,
 		@IConfigurationService private readonly _configurationService: IConfigurationService,
-		@IUntitledTextEditorService private readonly _untitledTextEditorService: IUntitledTextEditorService,
 		@IEditorService private readonly _editorService: IEditorService,
+		@ITextModelService textModelService: ITextModelService,
+		@IModelService private readonly _modelService: IModelService,
+		@ILanguageService private readonly _languageService: ILanguageService,
 	) {
 		super();
+		this._register(textModelService.registerTextModelContentProvider(VIBE_SKILL_PREVIOUS_SCHEME, {
+			provideTextContent: async resource => {
+				const existing = this._modelService.getModel(resource);
+				if (existing) {
+					return existing;
+				}
+				const snapshot = [...this._snapshots.values()].find(s => s.resource === resource.toString());
+				if (!snapshot) {
+					return null;
+				}
+				return this._modelService.createModel(snapshot.text, this._languageService.createByFilepathOrFirstLine(resource), resource);
+			},
+		}));
 		this._register(this._workspaceContextService.onDidChangeWorkspaceFolders(() => {
 			this._baseline.clear();
 			this._clearDebouncers();
@@ -195,36 +219,30 @@ export class VibeSkillDiskDiffContribution extends Disposable implements IWorkbe
 
 		this._notificationService.notify({
 			severity: Severity.Info,
-			message: localize('vibeide.skillDiskDiff.updated', 'Файл скилла агента изменён: {0} (примерно +{1} / −{2} несовпадающих строк)', basename, additions, removals),
+			message: localize('vibeide.skillDiskDiff.updated', "Навык агента обновлён на диске: {0} (примерно +{1} / −{2} строк) — принимать ничего не нужно", basename, additions, removals),
 			source: 'VibeIDE',
 			actions: {
 				primary: [{
 					id: 'vibeide.skillDiskDiff.open',
-					label: localize('vibeide.skillDiskDiff.openDiff', 'Открыть diff'),
-					tooltip: localize('vibeide.skillDiskDiff.openDiffTooltip', 'Сравнить предыдущий снимок с текущим файлом'),
+					label: localize('vibeide.skillDiskDiff.openDiff', "Посмотреть изменения"),
+					tooltip: localize('vibeide.skillDiskDiff.openDiffTooltip', "Прежняя версия только для чтения рядом с файлом навыка на диске"),
 					class: undefined,
 					enabled: true,
 					run: async () => {
-						await this._openDiff(uri, previous, current, basename);
+						await this._openDiff(uri, previous, basename);
 					},
 				}],
 			},
 		});
 	}
 
-	private async _openDiff(uri: URI, oldText: string, newText: string, basename: string): Promise<void> {
-		const original = await this._untitledTextEditorService.resolve({
-			initialValue: oldText,
-			languageId: 'markdown',
-		});
-		const modified = await this._untitledTextEditorService.resolve({
-			initialValue: newText,
-			languageId: 'markdown',
-		});
+	private async _openDiff(uri: URI, oldText: string, basename: string): Promise<void> {
+		const original = skillSnapshotResource(uri, String(++this._snapshotCounter));
+		this._snapshots.set(uri.toString(), { resource: original.toString(), text: oldText });
 		await this._editorService.openEditor({
-			original: { resource: original.resource },
-			modified: { resource: modified.resource },
-			label: localize('vibeide.skillDiskDiff.diffTitle', '{0} — предыдущий ↔ сохранённый', basename),
+			original: { resource: original },
+			modified: { resource: uri },
+			label: localize('vibeide.skillDiskDiff.diffTitle', "{0} — прежняя версия ↔ на диске", basename),
 			description: uri.fsPath,
 		});
 	}
