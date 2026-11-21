@@ -432,6 +432,19 @@ jobs:
             release-artifacts/macos-*/**/*.dmg release-artifacts/macos-*/**/*.zip
             release-artifacts/linux-*/**/*.deb release-artifacts/linux-*/**/*.rpm release-artifacts/linux-*/**/*.tar.gz
           )
+          # Артефакты скачиваются и плоско, и во вложенную папку: один и тот же файл
+          # попадает в список дважды, и gh release upload падает с 404 на повторном имени.
+          # Оставляем первый путь от каждого базового имени.
+          declare -A seen=()
+          unique=()
+          for f in "${files[@]}"; do
+            base=$(basename "$f")
+            if [ -z "${seen[$base]:-}" ]; then
+              seen[$base]=1
+              unique+=("$f")
+            fi
+          done
+          files=("${unique[@]}")
           # Манифест и контрольные суммы считаны по файлам CI: в чужой релиз с локальными
           # сборками они не идут, иначе суммы разойдутся с выложенными файлами
           extras=(sbom.json transparency.json)
