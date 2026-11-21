@@ -95,3 +95,13 @@
 - Phase 3b: inject в LLM message builder при `@diagram` mention через `convertToLLMMessageService`
 
 **Применение:** поддержка новых типов диаграмм — добавить ext в `MIME_MAP` или `TEXT_DIAGRAM_EXTS` в `vibeDiagramContextContribution.ts`.
+
+---
+
+## [диагностика] Проверка ключа динамического провайдера (.vibe/providers.json) — «✗ недействителен»
+
+**Контекст:** пользователь видит «Ключ недействителен (ошибка авторизации)» в карточке облачного провайдера из файла набора; нужно понять, что именно IDE спросила у сервера (21.11.2026).
+
+**Суть:** валидация — это **не** пробный chat-запрос, а **`GET {baseURL}/models`** (либо `modelsUrl` из записи) через main-процесс-зонд `remoteCatalogFetchChannel` → `probe` (не бросает на non-2xx, возвращает `{status, body}`). Вердикты `fetchDynamicWithStatus`: **401/403 → `unauthorized`** (UI: «недействителен»), **404 → `absent`** (каталога нет — ключ ни доказан, ни опровергнут), 2xx+парс → `ok` (заодно модели), иначе `error`. Ключ берётся из **`apiKeyEnv` через `.vibe/.env`** либо из поля ввода карточки; ключ не задан + адрес не локальный → каталог не запрашивается вообще. Воспроизвести проверку вручную: `curl -w "\n%{http_code}\n" -H "Authorization: Bearer $КЛЮЧ" <baseURL>/models`. У Moonshot `https://api.moonshot.ai/v1/models` жив и на мусорный ключ даёт 401 `invalid_authentication_error`.
+
+**Применение:** разбирать жалобы «ключ не проходит» — сначала `curl` на `{baseURL}/models` с тем же ключом (один в один повторяет зонд), потом смотреть происхождение ключа (платформа vs подписка) и читаемость `apiKeyEnv` (GUI-приложение на macOS не видит переменные из shell-профиля — ключ должен быть в `.vibe/.env`).
