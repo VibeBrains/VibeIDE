@@ -332,6 +332,10 @@ jobs:
       - name: Prepare .deb package
         run: node node_modules/gulp/bin/gulp.js vscode-linux-${{ matrix.arch }}-prepare-deb
         timeout-minutes: 10
+        env:
+          # install-sysroot качает sysroot через api.github.com: без токена анонимный
+          # лимит (60/ч на IP раннера) падает в 403 и роняет шаг (v1.31.3, дважды)
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Build .deb package
         run: node node_modules/gulp/bin/gulp.js vscode-linux-${{ matrix.arch }}-build-deb
@@ -340,6 +344,8 @@ jobs:
       - name: Prepare .rpm package
         run: node node_modules/gulp/bin/gulp.js vscode-linux-${{ matrix.arch }}-prepare-rpm
         timeout-minutes: 10
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Build .rpm package
         run: node node_modules/gulp/bin/gulp.js vscode-linux-${{ matrix.arch }}-build-rpm
