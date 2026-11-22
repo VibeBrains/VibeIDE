@@ -207,14 +207,26 @@ export const ModelDropdown = ({ featureName, className }: { featureName: Feature
 	const { emptyMessage } = modelFilterOfFeatureName[featureName];
 
 	const isDisabled = isFeatureNameDisabled(featureName, settingsState);
-	if (isDisabled)
-		{return <WarningBox onClick={openSettings} text={
-			emptyMessage && emptyMessage.priority === 'always' ? emptyMessage.message :
+	if (isDisabled) {
+		// Раньше предупреждение целиком заменяло выпадающий список — пользователь не мог
+		// переключиться с «больного» провайдера на живой без похода в настройки. Теперь
+		// список остаётся рабочим, а предупреждение идёт рядом и ведёт в настройки.
+		// Исключение — информативные emptyMessage с priority 'always': там предупреждение
+		// само несёт инструкцию (например, про FIM) и по-прежнему занимает место списка.
+		if (emptyMessage?.priority === 'always') {
+			return <WarningBox onClick={openSettings} text={emptyMessage.message} />;
+		}
+		return <div className='flex items-center gap-x-2 gap-y-1 flex-wrap min-w-0'>
+			<ErrorBoundary>
+				<MemoizedModelDropdown featureName={featureName} className={className} />
+			</ErrorBoundary>
+			<WarningBox onClick={openSettings} text={
 				isDisabled === 'needToEnableModel' ? modelDdS.enableModel
 					: isDisabled === 'addModel' ? modelDdS.addModel
-						: (isDisabled === 'addProvider' || isDisabled === 'notFilledIn' || isDisabled === 'providerNotAutoDetected') ? modelDdS.needProvider
-							: modelDdS.needProvider
-		} />;}
+						: modelDdS.needProvider
+			} />
+		</div>;
+	}
 
 	return <ErrorBoundary>
 		<MemoizedModelDropdown featureName={featureName} className={className} />
