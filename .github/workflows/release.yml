@@ -473,6 +473,17 @@ jobs:
               printf 'Доливаю: %s\n' "${missing[@]##*/}"
               gh release upload "$VIBE_VERSION" "${missing[@]}"
             fi
+            # Манифест и суммы считаются по артефактам ЭТОГО прогона. Перезаписываем их,
+            # только если релиз после долива состоит ровно из этих файлов: в смешанный
+            # релиз (с локальными сборками владельца) суммы CI не идут — разойдутся с
+            # выложенным. Повторные прогоны по тегу иначе оставляли checksums от первого.
+            existing_after=$(gh release view "$VIBE_VERSION" --json assets -q '.assets[].name' | sort -u)
+            ours=$(printf '%s\n' "${files[@]##*/}" "${extras[@]##*/}" "${own_extras[@]##*/}" | sort -u)
+            if [ "$existing_after" = "$ours" ]; then
+              gh release upload "$VIBE_VERSION" "${own_extras[@]}" --clobber
+            else
+              echo "Релиз смешанный (не только файлы этого прогона) — checksums/manifest не перезаписываю"
+            fi
           else
             gh release create "$VIBE_VERSION" --draft --target "$GITHUB_SHA" \
               --title "VibeIDE $VIBE_VERSION" --notes-file RELEASE_NOTES.md "${files[@]}" "${extras[@]}" "${own_extras[@]}"
