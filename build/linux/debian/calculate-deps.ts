@@ -35,9 +35,17 @@ function calculatePackageDeps(binaryPath: string, arch: DebianArchString, chromi
 	});
 	const dpkgShlibdepsUrl = `https://raw.githubusercontent.com/chromium/chromium/${chromiumManifest[0].version}/third_party/dpkg-shlibdeps/dpkg-shlibdeps.pl`;
 	const dpkgShlibdepsScriptLocation = `${tmpdir()}/dpkg-shlibdeps.pl`;
-	const result = spawnSync('curl', [dpkgShlibdepsUrl, '-o', dpkgShlibdepsScriptLocation]);
+	// raw.githubusercontent.com отдаёт 429 при.rate-limit'е; без --fail curl пишет тело ошибки
+	// в файл, perl ломается на «syntax error near "429:"», и пакетная сборка падает (v1.31.3).
+	const result = spawnSync('curl', [dpkgShlibdepsUrl, '-o', dpkgShlibdepsScriptLocation,
+		'--fail', '--silent', '--show-error', '--retry', '5', '--retry-all-errors', '--retry-delay', '10']);
 	if (result.status !== 0) {
 		throw new Error('Cannot retrieve dpkg-shlibdeps. Stderr:\n' + result.stderr);
+	}
+	// Двойная проверка: скачанное должно быть perl-скриптом, а не телом ошибки прокси
+	const head = spawnSync('head', ['-c', '2', dpkgShlibdepsScriptLocation]).stdout.toString('utf-8');
+	if (head !== '#!') {
+		throw new Error(`dpkg-shlibdeps.pl doesn't look like a perl script (starts with ${JSON.stringify(head)}).`);
 	}
 	const cmd = [dpkgShlibdepsScriptLocation, '--ignore-weak-undefined', '--ignore-missing-info'];
 	switch (arch) {
